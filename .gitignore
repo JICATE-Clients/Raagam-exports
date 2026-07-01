@@ -33,6 +33,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# MCP config — contains a Supabase access token (secret); never commit
+.mcp.json
+
+# Claude Code local tooling, skills, plans & machine-specific settings
+.claude/
+
 # vercel
 .vercel
 

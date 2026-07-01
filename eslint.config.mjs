@@ -12,7 +12,23 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Claude Code skill assets are templates, not application source.
+    ".claude/**",
   ]),
+  {
+    rules: {
+      // Allow intentional unused vars/args prefixed with underscore
+      // (e.g. destructuring to omit a field: `({ id: _id, ...rest }) => rest`).
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

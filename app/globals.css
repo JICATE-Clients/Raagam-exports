@@ -1,26 +1,108 @@
 @import "tailwindcss";
 
+/*
+ * Raagam ERP design tokens — coded baseline (Stitch fallback).
+ * Design DNA (PRD): dense & data-rich, friendly & approachable, instant feedback,
+ * clear confirmations, web + mobile equal priority.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces */
+  --background: #f6f7f9; /* app canvas */
+  --surface: #ffffff; /* cards, tables */
+  --surface-muted: #f1f3f5; /* table headers, subtle fills */
+  --foreground: #16181d; /* primary text */
+  --muted-foreground: #5b6472; /* secondary text */
+  --border: #e3e6ea;
+  --ring: #4f46e5;
+
+  /* Brand */
+  --primary: #4f46e5; /* indigo 600 */
+  --primary-hover: #4338ca;
+  --primary-foreground: #ffffff;
+  --accent: #0d9488; /* teal accent */
+  --accent-foreground: #ffffff;
+
+  /* Semantic / traffic-light (T&A dashboard) */
+  --success: #15803d;
+  --success-soft: #dcfce7;
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+  --info: #1d4ed8;
+  --info-soft: #dbeafe;
+}
+
+.dark {
+  --background: #0b0d12;
+  --surface: #14171d;
+  --surface-muted: #1b1f27;
+  --foreground: #e7e9ee;
+  --muted-foreground: #9aa4b2;
+  --border: #262b34;
+  --ring: #6366f1;
+
+  --primary: #6366f1;
+  --primary-hover: #818cf8;
+  --primary-foreground: #ffffff;
+  --accent: #2dd4bf;
+  --accent-foreground: #04211d;
+
+  --success: #4ade80;
+  --success-soft: #14321f;
+  --warning: #fbbf24;
+  --warning-soft: #3a2c0a;
+  --danger: #f87171;
+  --danger-soft: #3a1514;
+  --info: #60a5fa;
+  --info-soft: #122648;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+
+  /* Dense radii — ERP, not a marketing site */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  /* Dense data UIs read better slightly tighter */
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
