@@ -9,16 +9,15 @@ const apiKey = process.env.NEXT_PUBLIC_BUG_REPORTER_API_KEY;
 const apiUrl = process.env.NEXT_PUBLIC_BUG_REPORTER_API_URL;
 
 /**
- * The SDK only mounts when real credentials are present — a key that starts with
- * `app_`, a URL, and neither still holding the `REPLACE_ME` placeholder. Until
- * you register the app on the Bug Reporter platform and fill `.env.local`, this
- * renders children untouched, so the ERP is unaffected and the SDK never inits
- * against a bad key.
+ * The SDK only mounts when real credentials are present — both a key and URL that
+ * are no longer the `REPLACE_ME` placeholder. (The platform issues `br_…` keys;
+ * we intentionally do NOT hard-code a key prefix so a format change on the
+ * platform can't silently disable the widget.) Until `.env.local` is filled this
+ * renders children untouched, so the ERP is unaffected.
  */
 const configured =
   !!apiKey &&
   !!apiUrl &&
-  apiKey.startsWith("app_") &&
   !apiKey.includes("REPLACE_ME") &&
   !apiUrl.includes("REPLACE_ME");
 
