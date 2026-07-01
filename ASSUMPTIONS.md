@@ -199,6 +199,23 @@ the client can review and correct intent after seeing the software.
 - **Notifications (SMS/email delivery) are NOT implemented** — in-app digests
   only. The PRD wanted SMS for critical + email for reports; no provider is wired.
 
+## Bug Reporter (JKKN Bug Boundary) integration
+- `@boobalan_jkkn/bug-reporter-sdk` @1.3.2 mounted **app-wide** via
+  `components/bug-reporter-wrapper.tsx` in the root `app/layout.tsx`, with the
+  signed-in Supabase user passed as report context; `react-hot-toast` `<Toaster/>`
+  added for the SDK's notifications (coexists with our own `components/ui/toast`).
+- Installed with **`--legacy-peer-deps`**: the SDK's peer range wants
+  `lucide-react` 0.4x–0.5x but the app uses `lucide-react@1.x` everywhere; the icon
+  API is stable so 1.x works. Revisit if the SDK errors on a renamed icon.
+- The wrapper **only mounts the provider when real credentials are set** (key
+  starts with `app_`, not the `REPLACE_ME` placeholder) — the app runs untouched
+  until the client registers the app on the Bug Reporter platform and fills
+  `.env.local`. `.env.example` documents the two vars and is now git-tracked
+  (`!.env.example` exception added to `.gitignore`).
+- Mobile floating-button offset in `app/globals.css` is **best-effort** (the SDK
+  ships no stable class); the selector must be verified against the live widget
+  once credentials are active and tightened if needed.
+
 ## Auth / RBAC
 - One **super-admin** (MD or IT) seeded at setup; all other access is
   admin-configurable per module (PRD repeated ~13×).

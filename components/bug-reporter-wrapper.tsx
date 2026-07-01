@@ -1,0 +1,82 @@
+"use client";
+
+import { BugReporterProvider } from "@boobalan_jkkn/bug-reporter-sdk";
+import { useEffect, useState, type ReactNode } from "react";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
+
+const apiKey = process.env.NEXT_PUBLIC_BUG_REPORTER_API_KEY;
+const apiUrl = process.env.NEXT_PUBLIC_BUG_REPORTER_API_URL;
+
+/**
+ * The SDK only mounts when real credentials are present — a key that starts with
+ * `app_`, a URL, and neither still holding the `REPLACE_ME` placeholder. Until
+ * you register the app on the Bug Reporter platform and fill `.env.local`, this
+ * renders children untouched, so the ERP is unaffected and the SDK never inits
+ * against a bad key.
+ */
+const configured =
+  !!apiKey &&
+  !!apiUrl &&
+  apiKey.startsWith("app_") &&
+  !apiKey.includes("REPLACE_ME") &&
+  !apiUrl.includes("REPLACE_ME");
+
+/**
+ * Wraps the app with the JKKN Bug Reporter, seeding the signed-in Supabase user
+ * as report context. Mounted app-wide in the root layout.
+ */
+export function BugReporterWrapper({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (!configured) return;
+    const supabase = createClient();
+    let mounted = true;
+
+    supabase.auth
+      .getUser()
+      .then(({ data }) => {
+        if (mounted) setUser(data.user);
+      })
+      .catch(() => {
+        if (mounted) setUser(null);
+      });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  if (!configured) return <>{children}</>;
+
+  return (
+    <BugReporterProvider
+      apiKey={apiKey!}
+      apiUrl={apiUrl!}
+      enabled={true}
+      debug={process.env.NODE_ENV === "development"}
+      userContext={
+        user
+          ? {
+              userId: user.id,
+              name:
+                (user.user_metadata?.full_name as string | undefined) ||
+                user.email?.split("@")[0] ||
+                "User",
+              email: user.email ?? undefined,
+            }
+          : undefined
+      }
+    >
+      {children}
+    </BugReporterProvider>
+  );
+}

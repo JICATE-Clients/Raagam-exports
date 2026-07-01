@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Toaster } from "react-hot-toast";
 import "./globals.css";
 import { Providers } from "./providers";
+import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
 
 export const metadata: Metadata = {
   title: "Raagam ERP",
@@ -15,7 +17,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <Providers>{children}</Providers>
+        <BugReporterWrapper>
+          <Providers>{children}</Providers>
+        </BugReporterWrapper>
+        <Toaster position="top-right" />
       </body>
     </html>
   );
