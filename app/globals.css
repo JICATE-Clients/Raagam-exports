@@ -109,17 +109,16 @@ body {
 
 /*
  * Bug Reporter (JKKN Bug Boundary) floating button — on phones our MobileNav is
- * fixed at the bottom (z-40, ~64px tall + a raised FAB). Lift the SDK's
- * bottom-right trigger above it so it isn't obscured. The SDK ships no stable
- * class, so this targets the documented class + common fallbacks; verify against
- * the live widget once real credentials are set and tighten the selector.
+ * fixed at the bottom (~64px bar + a raised FAB). The SDK positions its trigger
+ * (`.bug-reporter-floating-btn` inside `.bug-reporter-sdk`) at bottom:1rem via a
+ * mobile `!important` rule, which would sit on top of our nav. Lift it above the
+ * nav on phones. The leading `html` raises specificity above the SDK's rule so
+ * this wins without needing to out-order it.
  */
 @media (max-width: 767px) {
-  .bug-reporter-widget,
-  [class*="bug-reporter"] button,
-  [id*="bug-reporter"],
-  [data-bug-reporter] {
-    bottom: 5rem !important;
-    z-index: 45 !important;
+  html .bug-reporter-sdk .bug-reporter-floating-btn,
+  html .bug-reporter-widget .bug-reporter-floating-btn {
+    bottom: 5.5rem !important;
+    right: 1rem !important;
   }
 }
