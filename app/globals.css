@@ -116,8 +116,10 @@ body {
  * this wins without needing to out-order it.
  */
 @media (max-width: 767px) {
-  html .bug-reporter-sdk .bug-reporter-floating-btn,
-  html .bug-reporter-widget .bug-reporter-floating-btn {
+  /* NB: both classes are on the SAME element, so this is a compound selector
+   * (no space). The leading `html` lifts specificity to (0,2,1), beating the
+   * SDK's own (0,2,0) `!important` rule and its inline bottom:1.5rem. */
+  html .bug-reporter-sdk.bug-reporter-floating-btn {
     bottom: 5.5rem !important;
     right: 1rem !important;
   }
