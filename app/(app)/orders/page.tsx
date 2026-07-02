@@ -10,6 +10,7 @@ import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Button } from "@/components/ui/button";
 import { NewOrderForm } from "./new-order-form";
 import type { OrderWithBuyer } from "@/lib/orders/service";
 import type { OrderStatus } from "@/lib/orders/types";
@@ -112,6 +113,13 @@ export default async function OrdersPage() {
       <PageHeader
         title="Orders"
         description="Sales order management"
+        actions={
+          <Link href="/orders/color-cards">
+            <Button variant="outline" size="sm">
+              Colour Cards
+            </Button>
+          </Link>
+        }
       />
 
       {/* NewOrderForm manages its own open/close state and renders the "New order"

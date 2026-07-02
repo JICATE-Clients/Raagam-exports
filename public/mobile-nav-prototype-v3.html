@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Raagam ERP — Mobile Nav V3 · Enterprise finish</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: "#6D28D9",
+          "brand-600": "#7C3AED",
+          "brand-700": "#5B21B6",
+          "brand-tint": "#F5F3FB",
+          ink: "#0E1116",
+          "ink-2": "#3A404A",
+          muted: "#6A7180",
+          faint: "#9AA1AD",
+          line: "#ECEEF1",
+          "line-2": "#E3E6EA",
+          canvas: "#FAFBFC",
+          ok: "#0E7C57", "ok-bg": "#E7F4EF",
+          warn: "#9A5B00", "warn-bg": "#FBF0E1",
+          info: "#1D4ED8", "info-bg": "#EAF0FE",
+          rest: "#5A6272", "rest-bg": "#EEF0F3",
+        },
+        fontFamily: { sans: ["Inter","sans-serif"], mono: ["JetBrains Mono","monospace"] },
+        boxShadow: {
+          bar: "0 1px 0 rgba(14,17,22,.02), 0 8px 28px -12px rgba(14,17,22,.22)",
+          fab: "0 10px 22px -6px rgba(109,40,217,.42), 0 2px 6px rgba(14,17,22,.12)",
+          card: "0 1px 2px rgba(14,17,22,.05)",
+          dial: "0 8px 22px -8px rgba(14,17,22,.28), 0 1px 3px rgba(14,17,22,.10)",
+          sheet: "0 -8px 40px -12px rgba(14,17,22,.28)",
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-family: Inter, sans-serif; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .fab-item { transition: opacity .18s ease, transform .2s cubic-bezier(.22,.8,.28,1); }
+  .fab-closed .fab-item { opacity: 0; transform: translateY(10px); pointer-events: none; }
+  .fab-open   .fab-item { opacity: 1; transform: translateY(0); }
+  #fabIcon { transition: transform .22s cubic-bezier(.3,.7,.3,1); }
+  .fab-open #fabIcon { transform: rotate(45deg); }
+  .scrim { transition: opacity .2s ease; }
+  .sheet { transition: transform .3s cubic-bezier(.22,.8,.25,1); }
+  .pill { transition: background-color .16s ease, color .16s ease; }
+  .press:active { transform: scale(.97); }
+  .press { transition: transform .1s ease; }
+</style>
+</head>
+<body class="bg-slate-100 min-h-screen flex flex-col items-center py-8 px-4">
+
+  <div class="mb-6 text-center max-w-md">
+    <h1 class="text-base font-semibold text-slate-800">Raagam ERP — Mobile Navigation <span class="text-brand font-bold">V3</span> · Enterprise finish</h1>
+    <p class="text-[13px] text-slate-500 mt-1">Restrained palette · tabular data · hairline structure · one decisive accent.</p>
+  </div>
+
+  <!-- Phone frame -->
+  <div class="relative w-[390px] h-[824px] bg-canvas rounded-[2.5rem] border-[11px] border-[#0B0D10] shadow-2xl overflow-hidden">
+
+    <!-- Top bar -->
+    <div class="absolute top-0 inset-x-0 h-[52px] bg-white border-b border-line flex items-center justify-between px-4 z-20">
+      <div class="flex items-center gap-2.5">
+        <div class="h-7 w-7 rounded-lg bg-brand text-white grid place-items-center text-[13px] font-bold">R</div>
+        <div class="flex items-center gap-1.5">
+          <span id="topbarTitle" class="text-[14px] font-semibold text-ink tracking-tight">Orders</span>
+          <span class="text-faint">·</span>
+          <span class="text-[12px] text-muted">Head Office</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-3.5 text-muted">
+        <div class="relative">
+          <svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          <span class="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-brand ring-2 ring-white"></span>
+        </div>
+        <div class="h-7 w-7 rounded-full bg-brand-tint ring-1 ring-line-2 text-brand grid place-items-center text-[11px] font-semibold">RS</div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="absolute top-[52px] bottom-[88px] inset-x-0 overflow-y-auto no-scrollbar px-4 pt-4 pb-2">
+      <div class="mb-3.5 flex items-start justify-between">
+        <div>
+          <h2 id="pageTitle" class="text-[21px] font-bold tracking-tight text-ink leading-none">All Orders</h2>
+          <p id="pageSub" class="text-[12.5px] text-muted mt-1.5">Sales order management</p>
+        </div>
+        <button class="press h-8 rounded-lg border border-line-2 bg-white px-2.5 text-[12px] font-medium text-ink-2 flex items-center gap-1.5">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 6h16M7 12h10M10 18h4"/></svg>Filter
+        </button>
+      </div>
+      <div id="cardList" class="space-y-2"></div>
+    </div>
+
+    <!-- Scrim -->
+    <div id="scrim" class="scrim absolute inset-0 bg-ink/25 opacity-0 pointer-events-none z-30"></div>
+
+    <!-- FAB + speed dial -->
+    <div id="fabWrap" class="fab-closed absolute right-4 bottom-[100px] z-40 flex flex-col items-end gap-2.5">
+      <div id="fabItems" class="flex flex-col items-end gap-2"></div>
+      <button id="fab" class="press h-14 w-14 rounded-full bg-brand text-white grid place-items-center shadow-fab">
+        <svg id="fabIcon" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
+    <!-- Bottom nav -->
+    <div class="absolute bottom-3.5 inset-x-3 h-[60px] z-30">
+      <div class="h-full rounded-2xl bg-white border border-line-2 shadow-bar flex items-stretch overflow-hidden">
+        <button id="modulesBtn" class="press shrink-0 flex items-center gap-2 pl-2.5 pr-2.5 border-r border-line active:bg-slate-50">
+          <span id="modIcon" class="h-9 w-9 rounded-xl bg-brand-tint text-brand grid place-items-center"></span>
+          <div class="text-left leading-none">
+            <div class="text-[9px] font-medium text-faint uppercase tracking-wide">Module</div>
+            <div id="modLabel" class="text-[12px] font-semibold text-ink mt-0.5 flex items-center gap-0.5">Orders
+              <svg width="12" height="12" fill="none" stroke="#9AA1AD" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" d="M7 10l5 5 5-5"/></svg>
+            </div>
+          </div>
+        </button>
+        <div id="pillRow" class="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar px-2.5"></div>
+      </div>
+    </div>
+
+    <!-- Module sheet -->
+    <div id="moduleSheet" class="sheet absolute inset-x-0 bottom-0 z-50 translate-y-full bg-white rounded-t-[1.75rem] shadow-sheet max-h-[76%] overflow-y-auto no-scrollbar px-5 pt-3 pb-7">
+      <div class="mx-auto mb-4 h-1 w-9 rounded-full bg-line-2"></div>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-[15px] font-bold text-ink tracking-tight">Modules</h3>
+          <p class="text-[12px] text-muted mt-0.5">Navigate anywhere in the ERP</p>
+        </div>
+        <button id="sheetClose" class="press h-8 w-8 grid place-items-center rounded-lg bg-slate-100 text-muted">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="moduleGrid" class="grid grid-cols-3 gap-2"></div>
+    </div>
+
+  </div>
+
+<script>
+  const MODULES = {
+    orders: { label:"Orders", icon:"clipboard", subs:[
+      { label:"All Orders", n:128,            actions:["New Order","Import Orders","Export List"] },
+      { label:"Colour Cards", n:34,           actions:["New Colour Card"] },
+      { label:"Internal Work Orders", n:19,   actions:["New Work Order"] },
+      { label:"Advised Items", n:57,          actions:["New Advised Item","Bulk Upload"] },
+      { label:"Packing Advice", n:12,         actions:["New Packing Advice"] },
+      { label:"TA Masters", n:8,              actions:["New TA Master"] },
+    ]},
+    planning: { label:"Planning", icon:"layers", subs:[
+      { label:"Bill of Materials", n:96, actions:["New BOM","Import BOM"] },
+      { label:"Budgets", n:41,           actions:["New Budget"] },
+      { label:"Shortages", n:23,         actions:["Recalculate","Export"] },
+      { label:"Shipment Plans", n:15,    actions:["New Shipment Plan"] },
+    ]},
+    purchase: { label:"Purchase", icon:"package", subs:[
+      { label:"Purchase Orders", n:210, actions:["New PO","Import"] },
+      { label:"RFQ", n:44,              actions:["New RFQ"] },
+      { label:"Goods Receipts", n:88,   actions:["New GRN"] },
+      { label:"Delivery Challans", n:31,actions:["New DC"] },
+      { label:"Vendors", n:73,          actions:["New Vendor"] },
+    ]},
+    stores: { label:"Stores", icon:"warehouse", subs:[
+      { label:"Opening Stock", n:5,   actions:["New Opening Stock","Import"] },
+      { label:"Requisitions", n:62,   actions:["New MRS"] },
+      { label:"Vendor Returns", n:9,  actions:["New Return"] },
+      { label:"CSP Receipts", n:14,   actions:["New CSP Receipt"] },
+    ]},
+    hr: { label:"HR & Payroll", icon:"users", subs:[
+      { label:"Workers", n:342,      actions:["New Worker","Bulk Import"] },
+      { label:"Attendance", n:0,     actions:["Mark Attendance"] },
+      { label:"Piece Records", n:118,actions:["New Piece Record"] },
+      { label:"Payroll Runs", n:6,   actions:["New Payroll Run"] },
+      { label:"Payslips", n:342,     actions:["Generate"] },
+    ]},
+    finance: { label:"Finance", icon:"landmark", subs:[
+      { label:"Payables", n:47,     actions:["New Bill"] },
+      { label:"Receivables", n:53,  actions:["New Invoice","Record Receipt"] },
+      { label:"Ledger", n:0,        actions:["New Journal"] },
+      { label:"Shipment P&L", n:29, actions:["Export"] },
+    ]},
+  };
+
+  const ICONS = {
+    clipboard:'<path d="M9 5h6M9 5a2 2 0 00-2 2v0a2 2 0 002 2h6a2 2 0 002-2v0a2 2 0 00-2-2M9 5V4a1 1 0 011-1h4a1 1 0 011 1v1M6 9h12v10a2 2 0 01-2 2H8a2 2 0 01-2-2V9z"/>',
+    layers:'<path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5"/>',
+    package:'<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/>',
+    warehouse:'<path d="M3 21V9l9-5 9 5v12M7 21v-6h10v6"/>',
+    users:'<path d="M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2M10 8a3 3 0 11-6 0 3 3 0 016 0zM21 20v-2a4 4 0 00-3-3.9M17 4.1A4 4 0 0117 12"/>',
+    landmark:'<path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 21h18M12 3l8 5H4l8-5z"/>',
+    plus:'<path stroke-linecap="round" d="M12 5v14M5 12h14"/>',
+    up:'<path stroke-linecap="round" d="M12 19V5M5 12l7-7 7 7"/>',
+    down:'<path stroke-linecap="round" d="M12 5v14M5 12l7 7 7-7"/>',
+    calc:'<path d="M9 7h6M9 11h6M9 15h2"/>',
+  };
+  const icon = (n,s=20,w=1.9) => '<svg width="'+s+'" height="'+s+'" fill="none" stroke="currentColor" stroke-width="'+w+'" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">'+(ICONS[n]||ICONS.plus)+'</svg>';
+  const actIcon = (label) => label.startsWith("Import")||label.startsWith("Bulk") ? "up"
+    : label.startsWith("Export")||label.startsWith("Generate") ? "down"
+    : label.startsWith("Recalc") ? "calc" : "plus";
+
+  const STATUS = [
+    ["Confirmed","info"], ["In Production","warn"], ["Shipped","ok"], ["Closed","rest"],
+  ];
+  const TONE = { info:["#1D4ED8","#EAF0FE"], warn:["#9A5B00","#FBF0E1"], ok:["#0E7C57","#E7F4EF"], rest:["#5A6272","#EEF0F3"] };
+
+  const state = { module:"orders", sub:0, fabOpen:false, sheetOpen:false };
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString("en-IN");
+
+  function renderPills() {
+    const subs = MODULES[state.module].subs;
+    $("pillRow").innerHTML = subs.map((s,i) => {
+      const a = i === state.sub;
+      return '<button data-sub="'+i+'" class="pill press shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-[12px] font-semibold flex items-center gap-1.5 '+
+        (a ? "bg-brand text-white" : "text-muted") + '">'+s.label+
+        '<span class="tnum rounded-md px-1.5 py-0.5 text-[10px] font-semibold '+(a?"bg-white/20 text-white":"bg-slate-100 text-faint")+'">'+fmt(s.n)+'</span></button>';
+    }).join("");
+    $("pillRow").querySelectorAll("button").forEach(b => b.onclick = () => {
+      state.sub = +b.dataset.sub; state.fabOpen = false; render();
+      b.scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
+    });
+  }
+
+  function renderFab() {
+    const acts = MODULES[state.module].subs[state.sub].actions;
+    $("fabItems").innerHTML = acts.map((a,i) => {
+      const p = i === 0;
+      return '<div class="fab-item flex items-center gap-2.5" style="transition-delay:'+(state.fabOpen?(acts.length-1-i)*40:0)+'ms">'+
+        '<span class="rounded-lg bg-white px-2.5 py-1.5 text-[12px] font-semibold text-ink shadow-dial border border-line">'+a+'</span>'+
+        '<span class="h-11 w-11 rounded-full grid place-items-center shadow-dial '+(p?"bg-brand text-white":"bg-white text-brand border border-line")+'">'+icon(actIcon(a),19,2)+'</span>'+
+        '</div>';
+    }).join("");
+    $("fabWrap").className = (state.fabOpen?"fab-open":"fab-closed")+" absolute right-4 bottom-[100px] z-40 flex flex-col items-end gap-2.5";
+  }
+
+  function renderContent() {
+    const m = MODULES[state.module], sub = m.subs[state.sub];
+    $("topbarTitle").textContent = m.label;
+    $("modIcon").innerHTML = icon(m.icon,20);
+    $("modLabel").childNodes[0].nodeValue = m.label + " ";
+    $("pageTitle").textContent = sub.label;
+    $("pageSub").innerHTML = '<span class="tnum font-semibold text-ink-2">'+fmt(sub.n)+'</span> records · '+m.label;
+    let rows = "";
+    for (let i=0;i<Math.min(6, Math.max(1, sub.n));i++) {
+      const [name, tone] = STATUS[i % STATUS.length];
+      const [fg, bg] = TONE[tone];
+      const code = state.module.slice(0,3).toUpperCase()+"-"+(2400+i*7);
+      rows += '<div class="press rounded-xl bg-white border border-line shadow-card px-3.5 py-3 flex items-center gap-3">'+
+        '<span class="h-8 w-8 rounded-lg grid place-items-center shrink-0" style="color:'+fg+';background:'+bg+'">'+icon(m.icon,16)+'</span>'+
+        '<div class="flex-1 min-w-0">'+
+          '<div class="flex items-center gap-2">'+
+            '<span class="font-mono text-[12px] font-semibold text-ink">'+code+'</span>'+
+            '<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold" style="color:'+fg+';background:'+bg+'">'+name+'</span>'+
+          '</div>'+
+          '<div class="mt-0.5 text-[12px] text-muted truncate">Global Apparel Co. · '+sub.label+'</div>'+
+        '</div>'+
+        '<div class="text-right shrink-0">'+
+          '<div class="tnum text-[13px] font-semibold text-ink">'+fmt(1200-i*130)+'</div>'+
+          '<div class="text-[10px] text-faint">pcs</div>'+
+        '</div>'+
+        '<svg width="16" height="16" fill="none" stroke="#C2C7CF" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M9 6l6 6-6 6"/></svg>'+
+        '</div>';
+    }
+    $("cardList").innerHTML = rows;
+  }
+
+  function renderSheet() {
+    $("moduleGrid").innerHTML = Object.entries(MODULES).map(([k,m]) => {
+      const a = k === state.module;
+      const total = m.subs.reduce((t,s)=>t+s.n,0);
+      return '<button data-mod="'+k+'" class="press flex flex-col items-start gap-2.5 rounded-xl border p-3 text-left '+
+        (a ? "border-brand bg-brand-tint" : "border-line-2 bg-white") + '">'+
+        '<span class="h-9 w-9 rounded-lg grid place-items-center '+(a?"bg-brand text-white":"bg-slate-100 text-ink-2")+'">'+icon(m.icon,19)+'</span>'+
+        '<div><div class="text-[12px] font-semibold text-ink leading-tight">'+m.label+'</div>'+
+        '<div class="tnum text-[10.5px] text-muted mt-0.5">'+fmt(total)+' records</div></div></button>';
+    }).join("");
+    $("moduleGrid").querySelectorAll("button").forEach(b => b.onclick = () => {
+      state.module = b.dataset.mod; state.sub = 0; state.sheetOpen = false; state.fabOpen = false; render();
+    });
+  }
+
+  function renderOverlays() {
+    const open = state.fabOpen || state.sheetOpen;
+    $("scrim").style.opacity = open ? "1" : "0";
+    $("scrim").style.pointerEvents = open ? "auto" : "none";
+    $("moduleSheet").style.transform = state.sheetOpen ? "translateY(0)" : "translateY(100%)";
+  }
+
+  function render(){ renderPills(); renderFab(); renderContent(); renderSheet(); renderOverlays(); }
+
+  $("fab").onclick = () => { state.fabOpen = !state.fabOpen; state.sheetOpen = false; render(); };
+  $("modulesBtn").onclick = () => { state.sheetOpen = true; state.fabOpen = false; render(); };
+  $("sheetClose").onclick = () => { state.sheetOpen = false; render(); };
+  $("scrim").onclick = () => { state.fabOpen = false; state.sheetOpen = false; render(); };
+
+  render();
+</script>
+</body>
+</html>

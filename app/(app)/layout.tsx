@@ -5,6 +5,7 @@ import { PermissionProvider } from "@/lib/auth/permission-context";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { MobileNav } from "@/components/shell/mobile-nav";
+import { listStoreNavLinks } from "@/lib/stores/service";
 
 export default async function AppLayout({
   children,
@@ -20,16 +21,18 @@ export default async function AppLayout({
     .eq("is_active", true)
     .order("code");
 
+  const stores = await listStoreNavLinks();
+
   return (
     <PermissionProvider user={user}>
-      <div className="flex flex-1">
-        <Sidebar />
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar stores={stores} />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar locations={locations ?? []} />
           <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-6">
             {children}
           </main>
-          <MobileNav />
+          <MobileNav stores={stores} />
         </div>
       </div>
     </PermissionProvider>

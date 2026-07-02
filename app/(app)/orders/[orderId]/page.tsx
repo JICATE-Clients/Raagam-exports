@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { requirePermission, can } from "@/lib/auth/server";
 import {
   getOrder,
@@ -13,6 +14,7 @@ import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Button } from "@/components/ui/button";
 import { OrderTabs } from "@/app/(app)/orders/order-tabs";
 import type { OrderStatus } from "@/lib/orders/types";
 import type { StatusTone } from "@/components/ui/status-pill";
@@ -70,9 +72,16 @@ export default async function OrderDetailPage({
         title={order.order_number ?? "Order"}
         description={order.buyers?.name ?? undefined}
         actions={
-          <StatusPill tone={orderStatusTone(order.status)}>
-            {ORDER_STATUS_LABELS[order.status]}
-          </StatusPill>
+          <>
+            <Link href={`/orders/${orderId}/processes`}>
+              <Button variant="outline" size="sm">
+                Garment Processes
+              </Button>
+            </Link>
+            <StatusPill tone={orderStatusTone(order.status)}>
+              {ORDER_STATUS_LABELS[order.status]}
+            </StatusPill>
+          </>
         }
       />
 

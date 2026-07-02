@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
+import { PdRequestButton } from "./pd-request-button";
 import {
   getOpportunity,
   getStyles,
@@ -33,7 +34,7 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
 
   const { opportunityId } = await params;
 
-  const [opportunity, styles, costSheets, quotes, samples, uoms] =
+  const [opportunity, styles, costSheets, quotes, samples, uoms, canCreate] =
     await Promise.all([
       getOpportunity(opportunityId),
       getStyles(opportunityId),
@@ -41,6 +42,7 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
       getQuotes(opportunityId),
       getSamples(opportunityId),
       getUoms(),
+      can("sales", "create"),
     ]);
 
   if (!opportunity) notFound();
@@ -55,12 +57,15 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
             : `Created ${fmtDate(opportunity.created_at)}`
         }
         actions={
-          <Link
-            href="/sales"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            ← Back to pipeline
-          </Link>
+          <div className="flex items-center gap-3">
+            {canCreate && <PdRequestButton opportunityId={opportunityId} />}
+            <Link
+              href="/sales"
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              ← Back to pipeline
+            </Link>
+          </div>
         }
       />
 

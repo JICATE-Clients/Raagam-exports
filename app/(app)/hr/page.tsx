@@ -8,6 +8,12 @@ import {
   Wallet,
   ReceiptText,
   Settings,
+  HandCoins,
+  SlidersHorizontal,
+  Award,
+  CalendarDays,
+  UserMinus,
+  FileCheck,
 } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
@@ -36,6 +42,12 @@ const areas = [
   { href: "/hr/payroll", label: "Payroll Runs", desc: "Weekly workers + monthly staff; dual-account", icon: Wallet },
   { href: "/hr/payslip", label: "Payslips", desc: "Weekly worker payslip (A/C 1 + A/C 2)", icon: ReceiptText },
   { href: "/hr/settings", label: "Payroll Settings", desc: "OT caps, ESI/PF rates", icon: Settings },
+  { href: "/hr/advances", label: "Advances", desc: "Employee advances + repayment", icon: HandCoins },
+  { href: "/hr/adjustments", label: "Allowances & Deductions", desc: "Recurring/one-off pay adjustments", icon: SlidersHorizontal },
+  { href: "/hr/comp-events", label: "Bonus & Increments", desc: "Comp events with approval", icon: Award },
+  { href: "/hr/leave", label: "Leave & Encashment", desc: "Leave applications + EL encashment", icon: CalendarDays },
+  { href: "/hr/lifecycle", label: "Lifecycle", desc: "Transfers · resignations · settlements", icon: UserMinus },
+  { href: "/hr/statutory", label: "Statutory Docs", desc: "ESI forms 3/5/10 + strength", icon: FileCheck },
 ];
 
 export default async function HrPage() {

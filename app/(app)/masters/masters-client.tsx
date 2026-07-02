@@ -23,6 +23,13 @@ import {
   createUom,
   updateUom,
 } from "@/lib/masters/actions";
+import {
+  MaterialsConfigSection,
+  TransportersSection,
+  GstRatesSection,
+  CurrenciesSection,
+} from "./config-sections";
+import type { ConfigLookup, Transporter, GstRate } from "@/lib/masters/extras-types";
 
 /* ------------------------------------------------------------------ */
 /* Buyers                                                               */
@@ -632,11 +639,19 @@ export default function MastersClient({
   items,
   uoms,
   currencies,
+  lookups = [],
+  transporters = [],
+  gstRates = [],
+  initialTab,
 }: {
   buyers: Buyer[];
   items: Item[];
   uoms: Uom[];
   currencies: Currency[];
+  lookups?: ConfigLookup[];
+  transporters?: Transporter[];
+  gstRates?: GstRate[];
+  initialTab?: string;
 }) {
   const tabs = [
     {
@@ -654,7 +669,31 @@ export default function MastersClient({
       label: "Units of Measure",
       content: <UomsSection uoms={uoms} />,
     },
+    {
+      key: "materials-config",
+      label: "Materials Config",
+      content: <MaterialsConfigSection lookups={lookups} />,
+    },
+    {
+      key: "transporters",
+      label: "Transporters",
+      content: <TransportersSection transporters={transporters} />,
+    },
+    {
+      key: "gst-rates",
+      label: "GST Rates",
+      content: <GstRatesSection gstRates={gstRates} />,
+    },
+    {
+      key: "currencies",
+      label: "Currencies",
+      content: <CurrenciesSection currencies={currencies} />,
+    },
   ];
 
-  return <Tabs items={tabs} defaultKey="buyers" />;
+  const activeTab =
+    initialTab && tabs.some((t) => t.key === initialTab) ? initialTab : "buyers";
+
+  // `key` remounts Tabs when the ?tab= param changes so sidebar links switch tab.
+  return <Tabs key={activeTab} items={tabs} defaultKey={activeTab} />;
 }

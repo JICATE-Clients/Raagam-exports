@@ -62,6 +62,19 @@ export async function listAccessibleStores(): Promise<StoreWithStats[]> {
   }));
 }
 
+/** Minimal active-store list for sidebar navigation (id + code + name only). */
+export async function listStoreNavLinks(): Promise<
+  Pick<Store, "id" | "code" | "name">[]
+> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("stores")
+    .select("id, code, name")
+    .eq("is_active", true)
+    .order("code");
+  return (data ?? []) as Pick<Store, "id" | "code" | "name">[];
+}
+
 export async function getStore(storeId: string): Promise<Store | null> {
   const supabase = await createClient();
   const { data } = await supabase

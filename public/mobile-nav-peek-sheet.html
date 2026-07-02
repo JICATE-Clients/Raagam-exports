@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Raagam ERP — Peek Sheet Navigation</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        accent: "#7C3AED", "accent-700": "#6D28D9", "accent-tint": "#F4F1FC",
+        ink: "#15171A", "ink-2": "#3A404A", muted: "#6A7180", faint: "#9AA1AD",
+        line: "#ECEEF1", "line-2": "#E2E5EA", canvas: "#FAFBFC",
+      },
+      fontFamily: { sans: ["Inter","sans-serif"], mono: ["JetBrains Mono","monospace"] },
+      boxShadow: {
+        bar: "0 2px 6px rgba(20,23,30,.06), 0 14px 34px -12px rgba(20,23,30,.30)",
+        launch: "0 -10px 44px -14px rgba(20,23,30,.34)",
+        card: "0 1px 2px rgba(20,23,30,.05)",
+      },
+    } },
+  };
+</script>
+<style>
+  body { font-family: Inter, sans-serif; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .no-scrollbar::-webkit-scrollbar { display:none; }
+  .no-scrollbar { -ms-overflow-style:none; scrollbar-width:none; }
+  .launcher { transition: transform .34s cubic-bezier(.2,.84,.24,1); }
+  .scrim { transition: opacity .26s ease; }
+  .press { transition: transform .1s ease; } .press:active { transform: scale(.97); }
+  .peek-hint { transition: opacity .2s ease; }
+  #plusIcon { transition: transform .2s ease; }
+  .toast { transition: opacity .2s ease, transform .2s ease; }
+</style>
+</head>
+<body class="bg-slate-100 min-h-screen flex flex-col items-center py-8 px-4">
+
+  <div class="mb-6 text-center max-w-md">
+    <span class="inline-flex items-center gap-1.5 bg-white border border-line rounded-full px-3 py-1.5 font-mono text-[11px] font-semibold text-accent">RAAGAM ERP · PEEK SHEET</span>
+    <h1 class="text-lg font-bold text-slate-800 mt-3">One slim bar → rises into a searchable launcher</h1>
+    <p class="text-[13px] text-slate-500 mt-1">Tap the bar to open · search · pick a module → its sections · ＋ creates for where you are.</p>
+  </div>
+
+  <!-- Phone -->
+  <div class="relative w-[390px] h-[824px] bg-canvas rounded-[2.5rem] border-[11px] border-[#0B0D10] shadow-2xl overflow-hidden">
+
+    <!-- Top bar -->
+    <div class="absolute top-0 inset-x-0 h-[52px] bg-white border-b border-line flex items-center justify-between px-4 z-20">
+      <div class="flex items-center gap-2.5">
+        <div class="h-7 w-7 rounded-lg bg-accent text-white grid place-items-center text-[13px] font-bold">R</div>
+        <span id="topTitle" class="text-[14px] font-semibold text-ink tracking-tight">Orders</span>
+        <span class="text-faint text-[13px]">· Head Office</span>
+      </div>
+      <div class="flex items-center gap-3.5 text-muted">
+        <div class="relative">
+          <svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          <span class="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent ring-2 ring-white"></span>
+        </div>
+        <div class="h-7 w-7 rounded-full bg-accent-tint ring-1 ring-line-2 text-accent grid place-items-center text-[11px] font-semibold">RS</div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="absolute top-[52px] bottom-[84px] inset-x-0 overflow-y-auto no-scrollbar px-4 pt-4 pb-2">
+      <div class="mb-3.5 flex items-start justify-between">
+        <div>
+          <h2 id="pageTitle" class="text-[21px] font-bold tracking-tight text-ink leading-none">All Orders</h2>
+          <p id="pageSub" class="text-[12.5px] text-muted mt-1.5"></p>
+        </div>
+        <button class="press h-8 rounded-lg border border-line-2 bg-white px-2.5 text-[12px] font-medium text-ink-2 flex items-center gap-1.5">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" d="M4 6h16M7 12h10M10 18h4"/></svg>Filter
+        </button>
+      </div>
+      <div id="cardList" class="space-y-2"></div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast absolute left-1/2 -translate-x-1/2 top-16 z-[60] opacity-0 pointer-events-none bg-ink text-white text-[12.5px] font-medium px-3.5 py-2 rounded-lg shadow-lg"></div>
+
+    <!-- Scrim -->
+    <div id="scrim" class="scrim absolute inset-0 bg-ink/30 opacity-0 pointer-events-none z-30"></div>
+
+    <!-- PEEK BAR -->
+    <div class="absolute bottom-4 inset-x-3 h-14 z-40">
+      <div class="h-full rounded-2xl bg-white/85 backdrop-blur-xl border border-line-2 shadow-bar flex items-center pl-2 pr-2 gap-2">
+        <!-- tappable context region -->
+        <button id="peekOpen" class="press flex-1 flex items-center gap-2.5 h-full pl-1 pr-2 rounded-xl active:bg-slate-50/60 min-w-0">
+          <span id="peekIcon" class="h-9 w-9 shrink-0 rounded-xl bg-accent-tint text-accent grid place-items-center"></span>
+          <span class="flex flex-col items-start min-w-0">
+            <span class="flex items-center gap-1 text-[10px] font-medium text-faint uppercase tracking-wide">
+              <svg class="peek-hint" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <span id="peekModule">Orders</span>
+            </span>
+            <span id="peekSection" class="text-[13.5px] font-semibold text-ink truncate max-w-[170px]">All Orders</span>
+          </span>
+        </button>
+        <!-- context create -->
+        <button id="peekPlus" class="press shrink-0 h-11 pl-3 pr-3.5 rounded-xl bg-accent text-white flex items-center gap-1.5 text-[13px] font-semibold shadow-[0_6px_16px_-4px_rgba(124,58,237,.5)]">
+          <svg id="plusIcon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.3" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+          <span id="plusLabel">New</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- LAUNCHER (rises from bar) -->
+    <div id="launcher" class="launcher absolute inset-x-0 bottom-0 z-50 translate-y-full h-[82%] bg-white/95 backdrop-blur-2xl rounded-t-[1.75rem] shadow-launch flex flex-col">
+      <div class="pt-3 px-5 shrink-0">
+        <div class="mx-auto mb-3 h-1 w-9 rounded-full bg-line-2"></div>
+        <!-- search -->
+        <div class="flex items-center gap-2.5 rounded-xl bg-slate-100 border border-line px-3 h-11">
+          <svg width="17" height="17" fill="none" stroke="#9AA1AD" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M21 21l-4-4"/></svg>
+          <input id="search" placeholder="Search modules, sections, actions…" class="flex-1 bg-transparent outline-none text-[13.5px] text-ink placeholder:text-faint" />
+          <button id="launchClose" class="press h-7 w-7 grid place-items-center rounded-lg text-muted">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="launchBody" class="flex-1 overflow-y-auto no-scrollbar px-5 pt-4 pb-6"></div>
+    </div>
+
+  </div>
+
+<script>
+  const MODULES = {
+    orders:{ label:"Orders", icon:"clipboard", subs:[
+      {label:"All Orders",n:128,actions:["New Order","Import Orders","Export List"]},
+      {label:"Colour Cards",n:34,actions:["New Colour Card"]},
+      {label:"Internal Work Orders",n:19,actions:["New Work Order"]},
+      {label:"Advised Items",n:57,actions:["New Advised Item","Bulk Upload"]},
+      {label:"Packing Advice",n:12,actions:["New Packing Advice"]},
+      {label:"TA Masters",n:8,actions:["New TA Master"]},
+    ]},
+    planning:{ label:"Planning", icon:"layers", subs:[
+      {label:"Bill of Materials",n:96,actions:["New BOM","Import BOM"]},
+      {label:"Budgets",n:41,actions:["New Budget"]},
+      {label:"Shortages",n:23,actions:["Recalculate","Export"]},
+      {label:"Shipment Plans",n:15,actions:["New Shipment Plan"]},
+    ]},
+    purchase:{ label:"Purchase", icon:"package", subs:[
+      {label:"Purchase Orders",n:210,actions:["New PO","Import"]},
+      {label:"RFQ",n:44,actions:["New RFQ"]},
+      {label:"Goods Receipts",n:88,actions:["New GRN"]},
+      {label:"Delivery Challans",n:31,actions:["New DC"]},
+      {label:"Vendors",n:73,actions:["New Vendor"]},
+    ]},
+    stores:{ label:"Stores", icon:"warehouse", subs:[
+      {label:"Opening Stock",n:5,actions:["New Opening Stock","Import"]},
+      {label:"Requisitions",n:62,actions:["New MRS"]},
+      {label:"Vendor Returns",n:9,actions:["New Return"]},
+      {label:"CSP Receipts",n:14,actions:["New CSP Receipt"]},
+    ]},
+    hr:{ label:"HR & Payroll", icon:"users", subs:[
+      {label:"Workers",n:342,actions:["New Worker","Bulk Import"]},
+      {label:"Attendance",n:0,actions:["Mark Attendance"]},
+      {label:"Piece Records",n:118,actions:["New Piece Record"]},
+      {label:"Payroll Runs",n:6,actions:["New Payroll Run"]},
+      {label:"Payslips",n:342,actions:["Generate"]},
+    ]},
+    finance:{ label:"Finance", icon:"landmark", subs:[
+      {label:"Payables",n:47,actions:["New Bill"]},
+      {label:"Receivables",n:53,actions:["New Invoice","Record Receipt"]},
+      {label:"Ledger",n:0,actions:["New Journal"]},
+      {label:"Shipment P&L",n:29,actions:["Export"]},
+    ]},
+  };
+  const ICONS = {
+    clipboard:'<path d="M9 5h6M9 5a2 2 0 00-2 2v0a2 2 0 002 2h6a2 2 0 002-2v0a2 2 0 00-2-2M9 5V4a1 1 0 011-1h4a1 1 0 011 1v1M6 9h12v10a2 2 0 01-2 2H8a2 2 0 01-2-2V9z"/>',
+    layers:'<path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5"/>',
+    package:'<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/>',
+    warehouse:'<path d="M3 21V9l9-5 9 5v12M7 21v-6h10v6"/>',
+    users:'<path d="M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2M10 8a3 3 0 11-6 0 3 3 0 016 0zM21 20v-2a4 4 0 00-3-3.9M17 4.1A4 4 0 0117 12"/>',
+    landmark:'<path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 21h18M12 3l8 5H4l8-5z"/>',
+    plus:'<path stroke-linecap="round" d="M12 5v14M5 12h14"/>',
+    up:'<path stroke-linecap="round" d="M12 19V5M5 12l7-7 7 7"/>',
+    down:'<path stroke-linecap="round" d="M12 5v14M5 12l7 7 7-7"/>',
+    calc:'<path d="M9 7h6M9 11h6M9 15h2"/>',
+    chev:'<path stroke-linecap="round" d="M9 6l6 6-6 6"/>',
+  };
+  const icon = (n,s=20,w=1.9,col="currentColor") => '<svg width="'+s+'" height="'+s+'" fill="none" stroke="'+col+'" stroke-width="'+w+'" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">'+(ICONS[n]||ICONS.plus)+'</svg>';
+  const actIcon = (l) => l.startsWith("Import")||l.startsWith("Bulk")?"up":l.startsWith("Export")||l.startsWith("Generate")?"down":l.startsWith("Recalc")?"calc":"plus";
+  const STATUS=[["Confirmed","#1D4ED8","#EAF0FE"],["In Production","#9A5B00","#FBF0E1"],["Shipped","#0E7C57","#E7F4EF"],["Closed","#5A6272","#EEF0F3"]];
+
+  const state = { module:"orders", sub:0, open:false, query:"" };
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString("en-IN");
+  let toastT;
+  function toast(msg){ const t=$("toast"); t.textContent=msg; t.style.opacity="1"; t.style.transform="translate(-50%,0)"; clearTimeout(toastT); toastT=setTimeout(()=>{t.style.opacity="0";t.style.transform="translate(-50%,-6px)";},1400); }
+
+  function curSub(){ return MODULES[state.module].subs[state.sub]; }
+
+  function renderPeek(){
+    const m=MODULES[state.module], s=curSub();
+    $("peekIcon").innerHTML=icon(m.icon,20);
+    $("peekModule").textContent=m.label;
+    $("peekSection").textContent=s.label;
+    $("plusLabel").textContent=s.actions[0].replace(/^New\s/,"New ").split(" ").slice(0,2).join(" ");
+    $("topTitle").textContent=m.label;
+  }
+
+  function renderContent(){
+    const m=MODULES[state.module], s=curSub();
+    $("pageTitle").textContent=s.label;
+    $("pageSub").innerHTML='<span class="tnum font-semibold text-ink-2">'+fmt(s.n)+'</span> records · '+m.label;
+    let rows="";
+    for(let i=0;i<Math.min(7,Math.max(1,s.n));i++){
+      const st=STATUS[i%STATUS.length], code=state.module.slice(0,3).toUpperCase()+"-"+(2400+i*7);
+      rows+='<div class="press rounded-xl bg-white border border-line shadow-card px-3.5 py-3 flex items-center gap-3">'+
+        '<span class="h-8 w-8 rounded-lg grid place-items-center shrink-0" style="color:'+st[1]+';background:'+st[2]+'">'+icon(m.icon,16)+'</span>'+
+        '<div class="flex-1 min-w-0"><div class="flex items-center gap-2"><span class="font-mono text-[12px] font-semibold text-ink">'+code+'</span>'+
+        '<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold" style="color:'+st[1]+';background:'+st[2]+'">'+st[0]+'</span></div>'+
+        '<div class="mt-0.5 text-[12px] text-muted truncate">Global Apparel Co. · '+s.label+'</div></div>'+
+        '<div class="text-right shrink-0"><div class="tnum text-[13px] font-semibold text-ink">'+fmt(1200-i*130)+'</div><div class="text-[10px] text-faint">pcs</div></div>'+
+        icon("chev",16,2,"#C2C7CF")+'</div>';
+    }
+    $("cardList").innerHTML=rows;
+  }
+
+  function launcherSection(title){ return '<div class="text-[11px] font-semibold text-faint uppercase tracking-wide mt-5 mb-2 first:mt-0">'+title+'</div>'; }
+
+  function renderLauncher(){
+    const q=state.query.trim().toLowerCase();
+    let html="";
+    if(q){
+      // flat search results across modules, sections, actions
+      const results=[];
+      Object.entries(MODULES).forEach(([k,m])=>{
+        if(m.label.toLowerCase().includes(q)) results.push({type:"Module",mod:k});
+        m.subs.forEach((s,si)=>{
+          if(s.label.toLowerCase().includes(q)) results.push({type:"Section",mod:k,sub:si});
+          s.actions.forEach(a=>{ if(a.toLowerCase().includes(q)) results.push({type:"Action",mod:k,sub:si,action:a}); });
+        });
+      });
+      html+=launcherSection(results.length+" result"+(results.length!==1?"s":""));
+      html+='<div class="space-y-1.5">'+results.slice(0,20).map(r=>{
+        const m=MODULES[r.mod];
+        if(r.type==="Module") return row(m.icon,m.label,"Module",'data-mod="'+r.mod+'"');
+        if(r.type==="Section") return row(m.icon,m.subs[r.sub].label,m.label+" · section",'data-mod="'+r.mod+'" data-sub="'+r.sub+'"');
+        return row(actIcon(r.action),r.action,m.label+" · "+m.subs[r.sub].label,'data-mod="'+r.mod+'" data-sub="'+r.sub+'" data-action="'+r.action+'"',true);
+      }).join("")+'</div>';
+    } else {
+      const m=MODULES[state.module], s=curSub();
+      // quick actions
+      html+=launcherSection("Quick actions · "+s.label);
+      html+='<div class="flex flex-wrap gap-2">'+s.actions.map(a=>
+        '<button data-mod="'+state.module+'" data-sub="'+state.sub+'" data-action="'+a+'" class="press flex items-center gap-1.5 rounded-lg border border-line-2 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink">'+
+        '<span class="text-accent">'+icon(actIcon(a),16,2)+'</span>'+a+'</button>').join("")+'</div>';
+      // modules grid
+      html+=launcherSection("Jump to module");
+      html+='<div class="grid grid-cols-3 gap-2">'+Object.entries(MODULES).map(([k,mm])=>{
+        const a=k===state.module, total=mm.subs.reduce((t,x)=>t+x.n,0);
+        return '<button data-mod="'+k+'" data-keep="1" class="press flex flex-col items-start gap-2 rounded-xl border p-2.5 text-left '+(a?"border-accent bg-accent-tint":"border-line-2 bg-white")+'">'+
+          '<span class="h-8 w-8 rounded-lg grid place-items-center '+(a?"bg-accent text-white":"bg-slate-100 text-ink-2")+'">'+icon(mm.icon,17)+'</span>'+
+          '<span class="text-[11.5px] font-semibold text-ink leading-tight">'+mm.label+'</span>'+
+          '<span class="tnum text-[10px] text-muted -mt-1">'+fmt(total)+' records</span></button>';
+      }).join("")+'</div>';
+      // sections of current module
+      html+=launcherSection("Sections in "+m.label);
+      html+='<div class="space-y-1.5">'+m.subs.map((sub,si)=>{
+        const a=si===state.sub;
+        return '<button data-mod="'+state.module+'" data-sub="'+si+'" class="press w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left '+(a?"border-accent bg-accent-tint":"border-line bg-white")+'">'+
+          '<span class="h-8 w-8 rounded-lg grid place-items-center shrink-0 '+(a?"bg-accent text-white":"bg-slate-100 text-ink-2")+'">'+icon(m.icon,16)+'</span>'+
+          '<span class="flex-1 text-[13px] font-semibold text-ink">'+sub.label+'</span>'+
+          '<span class="tnum text-[11px] font-semibold text-faint">'+fmt(sub.n)+'</span>'+icon("chev",15,2,"#C2C7CF")+'</button>';
+      }).join("")+'</div>';
+    }
+    $("launchBody").innerHTML=html;
+    bindLauncher();
+  }
+  function row(ic,title,sub,attrs,isAction){
+    return '<button '+attrs+' class="press w-full flex items-center gap-3 rounded-xl border border-line bg-white px-3 py-2.5 text-left">'+
+      '<span class="h-8 w-8 rounded-lg grid place-items-center shrink-0 '+(isAction?"bg-accent-tint text-accent":"bg-slate-100 text-ink-2")+'">'+icon(ic,16)+'</span>'+
+      '<span class="flex-1 min-w-0"><span class="block text-[13px] font-semibold text-ink truncate">'+title+'</span>'+
+      '<span class="block text-[11px] text-muted truncate">'+sub+'</span></span>'+icon("chev",15,2,"#C2C7CF")+'</button>';
+  }
+  function bindLauncher(){
+    $("launchBody").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+      if(b.dataset.action){ pick(b.dataset.mod, +b.dataset.sub||0, b.dataset.action); return; }
+      if(b.dataset.keep){ state.module=b.dataset.mod; state.sub=0; renderLauncher(); renderPeek(); renderContent(); return; }
+      state.module=b.dataset.mod||state.module;
+      if(b.dataset.sub!==undefined) state.sub=+b.dataset.sub;
+      closeLauncher(); renderPeek(); renderContent();
+    });
+  }
+  function pick(mod,sub,action){ state.module=mod; state.sub=sub; closeLauncher(); renderPeek(); renderContent(); toast("→ "+action); }
+
+  function openLauncher(){ state.open=true; state.query=""; $("search").value=""; renderLauncher();
+    $("launcher").style.transform="translateY(0)"; $("scrim").style.opacity="1"; $("scrim").style.pointerEvents="auto"; }
+  function closeLauncher(){ state.open=false;
+    $("launcher").style.transform="translateY(100%)"; $("scrim").style.opacity="0"; $("scrim").style.pointerEvents="none"; }
+
+  $("peekOpen").onclick=openLauncher;
+  $("launchClose").onclick=closeLauncher;
+  $("scrim").onclick=closeLauncher;
+  $("peekPlus").onclick=()=>toast("→ "+curSub().actions[0]);
+  $("search").oninput=(e)=>{ state.query=e.target.value; renderLauncher(); };
+
+  renderPeek(); renderContent();
+</script>
+</body>
+</html>

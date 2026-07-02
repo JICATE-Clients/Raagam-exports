@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#E7E9ED;font-family:Inter,system-ui,sans-serif}</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;gap:56px;flex-wrap:wrap;padding:56px 40px;background:radial-gradient(120% 80% at 50% 0%,#F1EDFB 0%,rgba(241,237,251,0) 55%),#E7E9ED">
+  <div style="flex:none;max-width:360px">
+    <span style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #E9EBEF;border-radius:99px;padding:6px 12px;font:600 12px 'JetBrains Mono',monospace;color:#7C3AED">RAAGAM ERP · 2B CHOSEN</span>
+    <h1 style="font-size:30px;font-weight:800;letter-spacing:-.03em;margin:20px 0 12px;color:#15171A">Peek sheet navigation</h1>
+    <p style="font-size:15px;line-height:1.6;color:#4A4F57;margin:0 0 24px">A slim bar always tells you where you are and gives you a create button. Tap it and it rises into a searchable launcher — modules, sections, and quick actions in one thumb-reach. No competing FAB, content stays front and centre.</p>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="flex:none;height:26px;width:26px;border-radius:8px;background:#7C3AED;color:#fff;display:grid;place-items:center;font:700 12px 'JetBrains Mono',monospace">1</span>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#4A4F57"><b style="color:#15171A">Always-on context.</b> The bar shows your current module + section without opening anything.</p>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="flex:none;height:26px;width:26px;border-radius:8px;background:#7C3AED;color:#fff;display:grid;place-items:center;font:700 12px 'JetBrains Mono',monospace">2</span>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#4A4F57"><b style="color:#15171A">One tap to everywhere.</b> Rising launcher carries search, the full module grid, sections, and quick actions.</p>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="flex:none;height:26px;width:26px;border-radius:8px;background:#7C3AED;color:#fff;display:grid;place-items:center;font:700 12px 'JetBrains Mono',monospace">3</span>
+        <p style="margin:0;font-size:13.5px;line-height:1.5;color:#4A4F57"><b style="color:#15171A">Create is instant.</b> The ＋ on the bar drops you straight into the right action for where you are.</p>
+      </div>
+    </div>
+    <p style="font-size:12.5px;line-height:1.5;color:#9AA0A8;margin:26px 0 0">Live — tap the bar, pick a module, jump to a section. Accent colour + frosted/solid are editable in Tweaks.</p>
+  </div>
+  <dc-import name="NavPhone" variant="sheet" accent="{{ accent }}" frosted="{{ frosted }}" hint-size="390px,824px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#7C3AED&quot;,&quot;options&quot;:[&quot;#7C3AED&quot;,&quot;#2563EB&quot;,&quot;#0D9488&quot;,&quot;#E11D48&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;frosted&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accent: this.props.accent || '#7C3AED',
+      frosted: this.props.frosted !== false,
+    };
+  }
+}
+</script>
+</body>
+</html>

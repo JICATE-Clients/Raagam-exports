@@ -5,6 +5,11 @@ import {
   Truck,
   Building2,
   ClipboardList,
+  ClipboardCheck,
+  TrendingUp,
+  Percent,
+  Ban,
+  FlaskConical,
 } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
@@ -60,6 +65,36 @@ const areas = [
     label: "RFQ",
     desc: "Request quotations from vendors and award.",
     icon: ClipboardList,
+  },
+  {
+    href: "/purchase/indents",
+    label: "Indents",
+    desc: "Acknowledge department indents and convert to RFQ/PO.",
+    icon: ClipboardCheck,
+  },
+  {
+    href: "/purchase/over-budget",
+    label: "Over-budget Confirmation",
+    desc: "Approve quoted rates that exceed the budget rate.",
+    icon: TrendingUp,
+  },
+  {
+    href: "/purchase/rate-amendments",
+    label: "PO Rate Amendments",
+    desc: "Revise a PO line rate with approval; applies to the PO.",
+    icon: Percent,
+  },
+  {
+    href: "/purchase/po-cancellations",
+    label: "Cancel Purchase Order",
+    desc: "Cancel an open PO with a logged reason.",
+    icon: Ban,
+  },
+  {
+    href: "/purchase/lab",
+    label: "Lab / QC",
+    desc: "Test standards and in-house / outside-lab test reports.",
+    icon: FlaskConical,
   },
 ];
 
