@@ -188,6 +188,8 @@ export const NAV: NavItem[] = [
     children: [
       { href: "/finance/accounts", label: "Chart of Accounts" },
       { href: "/finance/cost-centres", label: "Cost Centres" },
+      { href: "/finance/cost-heads", label: "Cost Heads & Items" },
+      { href: "/finance/bank-limits", label: "Bank Limits" },
       { href: "/finance/payables", label: "Payables" },
       { href: "/finance/receivables", label: "Receivables" },
       { href: "/finance/ledger", label: "General Ledger" },

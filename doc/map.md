@@ -263,7 +263,7 @@ Reorganizes the legacy EDP2 deep-capture (11 modules / 31 sub-modules / 433 form
 - **Chart of Accounts** (GL account master) — `/finance/accounts` ✅
 
 **Still to build (legacy spec):**
-- **Masters:** **Cost Centre Groups / Centres** ✅ *(built — `/finance/cost-centres`)* · Cost Heads / Categories · **Cost Items** · Default Account Heads · **Bank Limits & Interests** · Schedules 🔲
+- **Masters:** **Cost Centre Groups / Centres** ✅ *(`/finance/cost-centres`)* · **Cost Heads / Categories / Cost Items** ✅ *(`/finance/cost-heads`)* · **Bank Limits & Interests** ✅ *(`/finance/bank-limits`)* · Default Account Heads · Schedules 🔲 *(minor config, deferrable)*
 - **Debit / Credit Notes** (vendor + buyer) ✅ *(built — `/finance/notes`)*
 - **Cheque Register** ✅ *(built — `/finance/cheques`; issued → deposited → cleared / cancelled / bounced)*
 - **Payables:** Contractor Bill Matchings · Price Confirmations · OS Adjustments · Blocked Bills · Bills-not-required GRNs 🔲

@@ -51,6 +51,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [viewHref, setViewHref] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const modules = useMemo(
     () => NAV.filter((i) => hasPermission(user, i.module, "view")),
@@ -99,10 +100,12 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   function launch() {
     setViewHref(activeModule.href);
     setQuery("");
+    setMenuOpen(false);
     setOpen(true);
   }
   function close() {
     setOpen(false);
+    setMenuOpen(false);
   }
 
   // ── Search results across modules · sections · actions ─────────────────
@@ -135,8 +138,6 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       })
     : [];
 
-  const PrimaryIcon = actions[0] ? actionIcon(actions[0]) : Plus;
-
   return (
     <>
       {/* Scrim */}
@@ -149,14 +150,14 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       />
 
       {/* Peek bar */}
-      <div className="fixed inset-x-3 bottom-4 z-40 h-14 md:hidden">
-        <div className="flex h-full items-center gap-2 rounded-2xl border border-border bg-surface/90 pl-2 pr-2 shadow-lg backdrop-blur-xl">
+      <div className="fixed bottom-4 left-1/2 z-40 h-14 max-w-[calc(100%-2rem)] -translate-x-1/2 md:hidden">
+        <div className="flex h-full items-center gap-2 rounded-full border border-border bg-surface/90 pl-2 pr-2 shadow-lg backdrop-blur-xl">
           <button
             type="button"
             onClick={launch}
-            className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-xl pl-1 pr-2 active:bg-surface-muted"
+            className="flex h-full min-w-0 items-center gap-2.5 rounded-full pl-1 pr-2 active:bg-surface-muted"
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <activeModule.icon className="h-5 w-5" />
             </span>
             <span className="flex min-w-0 flex-col items-start">
@@ -164,24 +165,57 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
                 <ArrowUp className="h-2.5 w-2.5" />
                 {activeModule.label}
               </span>
-              <span className="max-w-[170px] truncate text-[13px] font-semibold text-foreground">
+              <span className="max-w-[130px] truncate text-[13px] font-semibold text-foreground">
                 {activeSection?.label ?? activeModule.label}
               </span>
             </span>
           </button>
 
-          {actions.length > 0 && actionOwner && (
-            <Link
-              href={createHref(actionOwner, actions[0])}
-              onClick={close}
-              className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-primary pl-3 pr-3.5 text-[13px] font-semibold text-primary-foreground shadow-md shadow-primary/30 active:scale-95"
-            >
-              <PrimaryIcon className="h-[18px] w-[18px]" />
-              New
-            </Link>
-          )}
         </div>
       </div>
+
+      {/* Floating create button — stacked directly below the bug-reporter button
+          (which sits at bottom:5.5rem on phones). Opens the labeled action menu so
+          the user always sees exactly what each ＋ action does. */}
+      {actions.length > 0 && actionOwner && (
+        <button
+          type="button"
+          onClick={() => setMenuOpen((o) => !o)}
+          aria-expanded={menuOpen}
+          aria-label="Create"
+          className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 active:scale-95 md:hidden"
+        >
+          <Plus className={cn("h-7 w-7 transition-transform", menuOpen && "rotate-45")} />
+        </button>
+      )}
+
+      {/* Action menu (for sections with 2+ actions) — labeled so intent is clear */}
+      {menuOpen && actionOwner && (
+        <>
+          <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMenuOpen(false)} />
+          <div className="fixed bottom-[80px] right-4 z-50 w-60 max-w-[calc(100%-2rem)] rounded-2xl border border-border bg-surface p-1.5 shadow-2xl md:hidden">
+            <div className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {activeSection?.label ?? activeModule.label}
+            </div>
+            {actions.map((a) => {
+              const Icon = actionIcon(a);
+              return (
+                <Link
+                  key={a}
+                  href={createHref(actionOwner, a)}
+                  onClick={close}
+                  className="flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-[13.5px] font-medium text-foreground active:bg-surface-muted"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  {a}
+                </Link>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Launcher */}
       <div
