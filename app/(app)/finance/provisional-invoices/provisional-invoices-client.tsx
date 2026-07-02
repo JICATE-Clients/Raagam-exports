@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createProvisionalInvoice,
@@ -48,6 +49,7 @@ export function ProvisionalInvoicesClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [buyerId, setBuyerId] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [amount, setAmount] = useState("");

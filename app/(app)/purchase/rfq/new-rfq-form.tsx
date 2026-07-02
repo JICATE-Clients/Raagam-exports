@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createRfq } from "@/lib/purchase/po-actions";
 import type { RfqInput, RfqLineInput } from "@/lib/purchase/types";
@@ -27,6 +28,7 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [show, setShow] = useState(false);
+  useCreateIntent(() => setShow(true));
   const [title, setTitle] = useState("");
   const [budgetId, setBudgetId] = useState("");
   const [notes, setNotes] = useState("");

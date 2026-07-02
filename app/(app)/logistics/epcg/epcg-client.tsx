@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createEpcg, setEpcgStatus, deleteEpcg } from "@/lib/logistics/epcg/actions";
 import {
@@ -43,6 +44,7 @@ export function EpcgClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [licenseNumber, setLicenseNumber] = useState("");
   const [authDate, setAuthDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");

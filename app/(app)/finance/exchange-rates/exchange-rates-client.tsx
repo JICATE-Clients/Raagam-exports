@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createExchangeRate,
@@ -30,6 +31,7 @@ export function ExchangeRatesClient({ rates, currencies, canCreate, canDelete }:
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [currency, setCurrency] = useState("USD");
   const [reference, setReference] = useState("");
   const [foreignAmount, setForeignAmount] = useState("");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createOrder } from "@/lib/orders/actions";
 import { useToast } from "@/components/ui/toast";
@@ -27,6 +28,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   // form mode
   const [mode, setMode] = useState<"quote" | "manual">("quote");

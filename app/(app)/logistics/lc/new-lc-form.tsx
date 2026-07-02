@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createLc } from "@/lib/logistics/lc/actions";
 import type { BuyerOption, CurrencyOption } from "@/lib/logistics/proforma/service";
@@ -22,6 +23,7 @@ export function NewLcForm({ buyers, currencies }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [lcNumber, setLcNumber] = useState("");
   const [buyerId, setBuyerId] = useState("");

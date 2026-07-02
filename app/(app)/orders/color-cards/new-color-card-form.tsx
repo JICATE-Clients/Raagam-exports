@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createColorCard } from "@/lib/orders/color-cards/actions";
 import { useToast } from "@/components/ui/toast";
@@ -24,6 +25,7 @@ export function NewColorCardForm({ buyers }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [buyerId, setBuyerId] = useState("");
   const [name, setName] = useState("");

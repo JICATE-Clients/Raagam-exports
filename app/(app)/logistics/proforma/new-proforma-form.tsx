@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createProforma } from "@/lib/logistics/proforma/actions";
 import type { BuyerOption, CurrencyOption } from "@/lib/logistics/proforma/service";
@@ -24,6 +25,7 @@ export function NewProformaForm({ buyers, currencies }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [buyerId, setBuyerId] = useState("");
   const [currency, setCurrency] = useState("USD");

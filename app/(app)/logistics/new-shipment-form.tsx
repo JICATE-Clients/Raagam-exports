@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createShipment } from "@/lib/logistics/actions";
 import { useToast } from "@/components/ui/toast";
@@ -23,6 +24,7 @@ export function NewShipmentForm({ buyers, currencies, orders }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   // header fields
   const [buyerId, setBuyerId] = useState("");

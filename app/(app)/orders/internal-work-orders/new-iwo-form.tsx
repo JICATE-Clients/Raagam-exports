@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createInternalWorkOrder } from "@/lib/orders/internal-work-orders/actions";
 import { useToast } from "@/components/ui/toast";
@@ -24,6 +25,7 @@ export function NewIwoForm({ orders, locations }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [orderId, setOrderId] = useState("");
   const [locationId, setLocationId] = useState("");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createBankLimit, deleteBankLimit } from "@/lib/finance/bank-limits/actions";
 import {
@@ -32,6 +33,7 @@ export function BankLimitsClient({ limits, currencies, canCreate, canDelete }: P
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [bankName, setBankName] = useState("");
   const [facilityType, setFacilityType] = useState<FacilityType>("cc");
   const [limitAmount, setLimitAmount] = useState("");

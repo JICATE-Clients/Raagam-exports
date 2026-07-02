@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createForwardContract,
@@ -46,6 +47,7 @@ export function ForwardContractsClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [contractNumber, setContractNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [currency, setCurrency] = useState("USD");

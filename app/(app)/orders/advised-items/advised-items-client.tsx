@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   addAdvisedItem,
@@ -45,6 +46,7 @@ export function AdvisedItemsClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [orderId, setOrderId] = useState("");
   const [description, setDescription] = useState("");
   const [attribute, setAttribute] = useState("");

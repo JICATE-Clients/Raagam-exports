@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createPackingAdvice } from "@/lib/orders/packing-advice/actions";
 import {
@@ -25,6 +26,7 @@ export function NewPackingAdviceForm({ orders }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [orderId, setOrderId] = useState("");
   const [packMethod, setPackMethod] = useState<PackMethod>("assorted");

@@ -120,7 +120,10 @@ body {
    * (no space). The leading `html` lifts specificity to (0,2,1), beating the
    * SDK's own (0,2,0) `!important` rule and its inline bottom:1.5rem. */
   html .bug-reporter-sdk.bug-reporter-floating-btn {
-    bottom: 5.5rem !important;
+    bottom: 5.25rem !important;
     right: 1rem !important;
+    /* Shrink to sit comfortably above the (also-shrunk) create FAB. */
+    transform: scale(0.82) !important;
+    transform-origin: bottom right !important;
   }
 }

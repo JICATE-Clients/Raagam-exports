@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import type { JournalEntryInput, JournalLineInput } from "@/lib/finance/types";
 import { createJournal } from "@/lib/finance/gl-actions";
@@ -34,6 +35,7 @@ export function NewJournalForm({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [show, setShow] = useState(false);
+  useCreateIntent(() => setShow(true));
 
   const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
   const [narration, setNarration] = useState("");

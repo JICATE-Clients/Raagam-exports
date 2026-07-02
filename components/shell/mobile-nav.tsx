@@ -15,7 +15,7 @@ import {
   ChevronDown,
   type LucideIcon,
 } from "lucide-react";
-import { NAV, SECTION_ACTIONS, sectionActions, type SubNavItem } from "./nav";
+import { NAV, SECTION_ACTIONS, type SubNavItem } from "./nav";
 import { type StoreNavLink } from "./sidebar";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
@@ -40,6 +40,14 @@ function createHref(ownerHref: string, action: string) {
   return `${ownerHref}?new=1&a=${encodeURIComponent(action)}`;
 }
 
+/** Rough plural → singular for building a default "New <thing>" action label. */
+function singularize(label: string): string {
+  if (/ies$/i.test(label)) return label.replace(/ies$/i, "y");
+  if (/(ses|xes|zes|ches|shes)$/i.test(label)) return label.replace(/es$/i, "");
+  if (/s$/i.test(label) && !/ss$/i.test(label)) return label.replace(/s$/i, "");
+  return label;
+}
+
 /**
  * Mobile "Peek Sheet" navigation (mobile only; the desktop sidebar handles ≥md).
  * A slim always-on bar shows the current module › section and a context-aware
@@ -54,6 +62,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const [viewHref, setViewHref] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modOpen, setModOpen] = useState(false);
+  const [fabSection, setFabSection] = useState<string | null>(null);
 
   const modules = useMemo(
     () => NAV.filter((i) => hasPermission(user, i.module, "view")),
@@ -82,17 +91,22 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       .filter((c) => isActive(pathname, c.href))
       .sort((a, b) => b.href.length - a.href.length)[0] ?? null;
 
-  const actions = activeModule
-    ? sectionActions(activeSection?.href, activeModule.href)
-    : [];
-  const actionOwner =
-    activeSection && SECTION_ACTIONS[activeSection.href]
-      ? activeSection.href
-      : activeModule && SECTION_ACTIONS[activeModule.href]
-        ? activeModule.href
-        : null;
-
   if (!activeModule) return null;
+
+  // Create hierarchy: module (pill chip) → sub-module → action. The FAB opens a
+  // menu of THIS module's sub-modules; each expands to its create actions, so you
+  // can switch sub-module AND pick an action from one place. Uses the static
+  // sub-modules (not the injected live store records). Actions come from the
+  // registry, falling back to a single "New <singular>".
+  const moduleSubs = activeModule.children ?? [];
+  const actionsFor = (href: string, label: string) =>
+    SECTION_ACTIONS[href] ?? [`New ${singularize(label)}`];
+
+  // The pill's section zone reflects whichever sub-module is chosen in the FAB
+  // (falls back to the URL's active section).
+  const shownSection =
+    (fabSection ? moduleSubs.find((s) => s.href === fabSection) : undefined) ??
+    activeSection;
 
   // Module whose sections are shown inside the launcher (defaults to current).
   const viewModule =
@@ -115,6 +129,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     setOpen(false);
     setMenuOpen(false);
     setModOpen(false);
+    setFabSection(null);
   }
 
   // ── Search results across modules · sections · actions ─────────────────
@@ -159,8 +174,8 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       />
 
       {/* Peek bar */}
-      <div className="fixed bottom-4 left-1/2 z-40 h-14 max-w-[calc(100%-2rem)] -translate-x-1/2 md:hidden">
-        <div className="flex h-full items-center gap-1 rounded-full border border-border bg-surface/90 pl-1.5 pr-1.5 shadow-lg backdrop-blur-xl">
+      <div className="fixed inset-x-[4.75rem] bottom-4 z-40 flex h-12 justify-center md:hidden">
+        <div className="flex h-full max-w-full items-center gap-0.5 rounded-full border border-border bg-surface/90 pl-1.5 pr-1.5 shadow-[0_10px_28px_-10px_rgba(20,23,30,0.35),inset_0_1px_0_rgba(255,255,255,0.75)] ring-1 ring-inset ring-white/50 backdrop-blur-xl">
           {/* Module zone → quick module switcher */}
           <button
             type="button"
@@ -168,21 +183,21 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
             aria-expanded={modOpen}
             className="flex h-full min-w-0 items-center gap-1.5 rounded-full pl-1 pr-1.5 active:bg-surface-muted"
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <activeModule.icon className="h-5 w-5" />
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary ring-1 ring-inset ring-white/40">
+              <activeModule.icon className="h-[18px] w-[18px]" />
             </span>
-            <span className="max-w-[92px] truncate text-[13px] font-semibold text-foreground">
+            <span className="max-w-[64px] truncate text-[12px] font-semibold text-foreground">
               {activeModule.label}
             </span>
             <ChevronDown
               className={cn(
-                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
                 modOpen && "rotate-180",
               )}
             />
           </button>
 
-          <span className="h-6 w-px shrink-0 bg-border" />
+          <span className="h-5 w-px shrink-0 bg-border" />
 
           {/* Section zone → full launcher */}
           <button
@@ -190,10 +205,10 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
             onClick={launch}
             className="flex h-full min-w-0 items-center gap-1.5 rounded-full pl-1.5 pr-2 active:bg-surface-muted"
           >
-            <span className="max-w-[120px] truncate text-[13px] font-semibold text-foreground">
-              {activeSection?.label ?? "Overview"}
+            <span className="max-w-[92px] truncate text-[12px] font-semibold text-foreground">
+              {shownSection?.label ?? "Overview"}
             </span>
-            <ArrowUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground" />
           </button>
         </div>
       </div>
@@ -202,11 +217,12 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       {modOpen && (
         <>
           <div className="fixed inset-0 z-40 md:hidden" onClick={() => setModOpen(false)} />
-          <div className="fixed bottom-[80px] left-1/2 z-50 max-h-[60vh] w-[calc(100%-2rem)] max-w-[340px] -translate-x-1/2 overflow-y-auto rounded-2xl border border-border bg-surface p-2 shadow-2xl md:hidden">
-            <div className="px-1 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Switch module
+          <div className="fixed bottom-[80px] left-1/2 z-50 flex max-h-[64vh] w-[calc(100%-1.5rem)] max-w-[360px] -translate-x-1/2 flex-col overflow-hidden rounded-3xl border border-border bg-surface shadow-2xl md:hidden">
+            <div className="px-4 pb-2.5 pt-4">
+              <div className="text-[14px] font-semibold text-foreground">Switch module</div>
+              <div className="mt-0.5 text-[11.5px] text-muted-foreground">Jump straight to any area of the ERP</div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2.5 overflow-y-auto px-3.5 pb-5 pt-1">
               {modules.map((m) => {
                 const on = m.href === activeModule.href;
                 const Icon = m.icon;
@@ -216,19 +232,23 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
                     href={m.href}
                     onClick={close}
                     className={cn(
-                      "flex flex-col items-start gap-2 rounded-xl border p-2.5 active:scale-95",
-                      on ? "border-primary bg-primary/5" : "border-border bg-surface",
+                      "flex flex-col items-center justify-center gap-2.5 rounded-2xl border p-3 text-center transition-colors active:scale-95",
+                      on
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                        : "border-border bg-surface hover:bg-surface-muted",
                     )}
                   >
                     <span
                       className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-lg",
+                        "flex h-11 w-11 items-center justify-center rounded-xl",
                         on ? "bg-primary text-primary-foreground" : "bg-surface-muted text-foreground",
                       )}
                     >
-                      <Icon className="h-[17px] w-[17px]" />
+                      <Icon className="h-5 w-5" />
                     </span>
-                    <span className="text-[11.5px] font-semibold leading-tight text-foreground">{m.label}</span>
+                    <span className="line-clamp-2 text-[11px] font-semibold leading-tight text-foreground">
+                      {m.label}
+                    </span>
                   </Link>
                 );
               })}
@@ -240,7 +260,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       {/* Floating create button — stacked directly below the bug-reporter button
           (which sits at bottom:5.5rem on phones). Opens the labeled action menu so
           the user always sees exactly what each ＋ action does. */}
-      {actions.length > 0 && actionOwner && (
+      {moduleSubs.length > 0 && (
         <button
           type="button"
           onClick={() => {
@@ -249,36 +269,102 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
           }}
           aria-expanded={menuOpen}
           aria-label="Create"
-          className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 active:scale-95 md:hidden"
+          className="fixed bottom-4 right-4 z-40 flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-primary text-primary-foreground shadow-[0_10px_22px_-6px_rgba(20,23,30,0.4),inset_0_1px_0_rgba(255,255,255,0.5)] ring-1 ring-white/25 active:scale-95 md:hidden"
         >
-          <Plus className={cn("h-7 w-7 transition-transform", menuOpen && "rotate-45")} />
+          <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent" />
+          <Plus className={cn("relative h-6 w-6 transition-transform", menuOpen && "rotate-45")} />
         </button>
       )}
 
-      {/* Action menu (for sections with 2+ actions) — labeled so intent is clear */}
-      {menuOpen && actionOwner && (
+      {/* Create launcher: sub-module → action drill-down for the current module */}
+      {menuOpen && (
         <>
           <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMenuOpen(false)} />
-          <div className="fixed bottom-[80px] right-4 z-50 w-60 max-w-[calc(100%-2rem)] rounded-2xl border border-border bg-surface p-1.5 shadow-2xl md:hidden">
-            <div className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {activeSection?.label ?? activeModule.label}
-            </div>
-            {actions.map((a) => {
-              const Icon = actionIcon(a);
+          <div className="fixed bottom-[76px] right-4 z-50 flex max-h-[68vh] w-72 max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl md:hidden">
+            {(() => {
+              const chosen = fabSection
+                ? moduleSubs.find((s) => s.href === fabSection)
+                : null;
+
+              // Step 1 — list the module's sub-modules (names only, no actions)
+              if (!chosen) {
+                return (
+                  <>
+                    <div className="shrink-0 px-4 pb-2 pt-3">
+                      <div className="text-[13px] font-semibold text-foreground">
+                        Create in {activeModule.label}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">Choose a section</div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-2 pb-3">
+                      {moduleSubs.map((sub) => {
+                        const isCurrent = sub.href === activeSection?.href;
+                        return (
+                          <button
+                            key={sub.href}
+                            type="button"
+                            onClick={() => {
+                              setFabSection(sub.href);
+                              setMenuOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2.5 text-left active:bg-surface-muted"
+                          >
+                            <span className="flex-1 truncate text-[13px] font-semibold text-foreground">
+                              {sub.label}
+                            </span>
+                            {isCurrent && (
+                              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                                Here
+                              </span>
+                            )}
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              }
+
+              // Step 2 — the chosen sub-module's actions
+              const subActions = actionsFor(chosen.href, chosen.label);
               return (
-                <Link
-                  key={a}
-                  href={createHref(actionOwner, a)}
-                  onClick={close}
-                  className="flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-[13.5px] font-medium text-foreground active:bg-surface-muted"
-                >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  {a}
-                </Link>
+                <>
+                  <div className="flex shrink-0 items-center gap-1.5 px-2.5 pb-2 pt-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setFabSection(null)}
+                      aria-label="Back to sections"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground active:bg-surface-muted"
+                    >
+                      <ChevronRight className="h-4 w-4 rotate-180" />
+                    </button>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-semibold text-foreground">{chosen.label}</div>
+                      <div className="text-[10.5px] text-muted-foreground">Choose an action</div>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-2 pb-3">
+                    {subActions.map((a) => {
+                      const Icon = actionIcon(a);
+                      return (
+                        <Link
+                          key={a}
+                          href={createHref(chosen.href, a)}
+                          onClick={close}
+                          className="flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-[13px] font-medium text-foreground active:bg-surface-muted"
+                        >
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          {a}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </>
               );
-            })}
+            })()}
           </div>
         </>
       )}
@@ -351,16 +437,16 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
             </>
           ) : (
             <>
-              {actions.length > 0 && actionOwner && (
+              {activeSection && (
                 <>
-                  <SectionLabel>Quick actions · {activeSection?.label ?? activeModule.label}</SectionLabel>
+                  <SectionLabel>Quick actions · {activeSection.label}</SectionLabel>
                   <div className="flex flex-wrap gap-2">
-                    {actions.map((a) => {
+                    {actionsFor(activeSection.href, activeSection.label).map((a) => {
                       const Icon = actionIcon(a);
                       return (
                         <Link
                           key={a}
-                          href={createHref(actionOwner, a)}
+                          href={createHref(activeSection.href, a)}
                           onClick={close}
                           className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-[12.5px] font-semibold text-foreground active:scale-95"
                         >

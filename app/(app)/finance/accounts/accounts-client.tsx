@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import type { GlAccount, GlAccountInput } from "@/lib/finance/types";
 import { ACCOUNT_TYPES } from "@/lib/finance/types";
@@ -52,6 +53,7 @@ export function AccountsClient({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
+  useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<GlAccountInput>(EMPTY);
 

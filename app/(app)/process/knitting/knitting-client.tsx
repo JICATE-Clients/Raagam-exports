@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createKnittingProgram,
@@ -47,6 +48,7 @@ export function KnittingProgramsClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [orderId, setOrderId] = useState("");
   const [fabric, setFabric] = useState("");
   const [yarn, setYarn] = useState("");
