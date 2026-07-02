@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createPurchaseOrder, fetchBudgetLines } from "@/lib/purchase/po-actions";
 import type { PurchaseOrderInput, PoLineInput } from "@/lib/purchase/types";
@@ -43,6 +44,7 @@ export function NewPoForm({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [show, setShow] = useState(false);
+  useCreateIntent(() => setShow(true));
 
   // header fields
   const [vendorId, setVendorId] = useState("");

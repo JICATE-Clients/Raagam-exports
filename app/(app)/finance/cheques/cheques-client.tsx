@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createCheque, setChequeStatus, deleteCheque } from "@/lib/finance/cheques/actions";
 import {
@@ -38,6 +39,7 @@ export function ChequesClient({ cheques, currencies, canCreate, canEdit, canDele
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [chequeNumber, setChequeNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [partyName, setPartyName] = useState("");

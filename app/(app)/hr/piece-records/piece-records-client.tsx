@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import type { PieceRecordInput } from "@/lib/hr/types";
 import type { PieceRecordRow } from "@/lib/hr/attendance-service";
@@ -57,6 +58,7 @@ export default function PieceRecordsClient({
 
   // Form state
   const [showForm, setShowForm] = useState(false);
+  useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PieceRecordInput>({
     ...DEFAULTS,

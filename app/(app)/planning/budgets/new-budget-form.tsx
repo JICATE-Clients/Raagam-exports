@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createBudget } from "@/lib/planning/budget-actions";
 import { useToast } from "@/components/ui/toast";
@@ -23,6 +24,7 @@ export function NewBudgetForm({ currencies, orders }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [name, setName] = useState("");
   const [isGrouped, setIsGrouped] = useState(false);

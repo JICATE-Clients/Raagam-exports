@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createRateAmendment,
@@ -43,6 +44,7 @@ export function RateAmendmentsClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [rfqId, setRfqId] = useState("");
   const [newRate, setNewRate] = useState("");
   const [reason, setReason] = useState("");

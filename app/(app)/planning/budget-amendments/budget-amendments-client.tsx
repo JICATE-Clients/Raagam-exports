@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ export function BudgetAmendmentsClient({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [budgetId, setBudgetId] = useState("");
   const [revisedTotal, setRevisedTotal] = useState("");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createFinanceNote,
@@ -55,6 +56,7 @@ export function FinanceNotesClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [noteType, setNoteType] = useState<NoteType>("debit");
   const [partyType, setPartyType] = useState<PartyType>("vendor");
   const [partyId, setPartyId] = useState("");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ import type { LocationOption } from "@/lib/hr/payroll-service";
 
 export function NewRunForm({ locations }: { locations: LocationOption[] }) {
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
   const [pending, startTransition] = useTransition();
   const { success, error } = useToast();
   const router = useRouter();

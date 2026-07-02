@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [poId, setPoId] = useState("");
   const [lineId, setLineId] = useState("");

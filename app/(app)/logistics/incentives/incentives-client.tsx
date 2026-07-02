@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createIncentive,
@@ -42,6 +43,7 @@ export function IncentivesClient({ files, currencies, canCreate, canEdit, canDel
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [scheme, setScheme] = useState<IncentiveScheme>("rodtep");
   const [shippingBill, setShippingBill] = useState("");
   const [invoiceRef, setInvoiceRef] = useState("");

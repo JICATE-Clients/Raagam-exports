@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import type { ContractorInput } from "@/lib/hr/types";
 import type { ContractorRow, LocationOption } from "@/lib/hr/masters-service";
@@ -34,6 +35,7 @@ export default function ContractorsClient({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
+  useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<ContractorInput>(DEFAULTS);
 

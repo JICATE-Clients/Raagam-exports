@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createVendor, updateVendor } from "@/lib/purchase/po-actions";
 import type { Vendor, VendorInput, VendorType } from "@/lib/purchase/types";
@@ -63,6 +64,7 @@ export function VendorsClient({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
+  useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<VendorInput>(EMPTY_FORM);
 

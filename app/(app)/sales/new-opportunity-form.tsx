@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ interface Props {
 
 export function NewOpportunityForm({ buyers }: Props) {
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const toast = useToast();

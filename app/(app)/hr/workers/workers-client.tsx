@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { WORKER_TYPES, WORKER_TYPE_LABELS, type WorkerInput } from "@/lib/hr/types";
 import type { WorkerRow, ContractorRow, LocationOption } from "@/lib/hr/masters-service";
@@ -44,6 +45,7 @@ export default function WorkersClient({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
+  useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<WorkerInput>(DEFAULTS);
 

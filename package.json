@@ -4,13 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
+    "gen:icons": "node scripts/generate-pwa-icons.mjs",
     "lint": "eslint"
   },
   "dependencies": {
     "@boobalan_jkkn/bug-reporter-sdk": "^1.3.2",
     "@hookform/resolvers": "^5.4.0",
+    "@serwist/next": "^9.5.11",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "@tanstack/react-query": "^5.101.1",
@@ -22,6 +24,7 @@
     "react-dom": "19.2.4",
     "react-hook-form": "^7.80.0",
     "react-hot-toast": "^2.6.0",
+    "serwist": "^9.5.11",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3"
   },
@@ -32,6 +35,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createPayable } from "@/lib/finance/ap-actions";
 import type { PayableInput } from "@/lib/finance/types";
@@ -33,6 +34,7 @@ export function NewBillForm({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [show, setShow] = useState(false);
+  useCreateIntent(() => setShow(true));
 
   const [vendorId, setVendorId] = useState("");
   const [poId, setPoId] = useState("");

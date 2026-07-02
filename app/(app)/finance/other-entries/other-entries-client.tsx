@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createOtherEntry, deleteOtherEntry } from "@/lib/finance/other-entries/actions";
 import {
@@ -34,6 +35,7 @@ export function OtherEntriesClient({ entries, currencies, canCreate, canDelete }
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [entryType, setEntryType] = useState<EntryType>("expense");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");

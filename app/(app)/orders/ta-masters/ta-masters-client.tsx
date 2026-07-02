@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createTaActivity,
@@ -35,6 +36,7 @@ export function TaMastersClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [shortName, setShortName] = useState("");
   const [name, setName] = useState("");

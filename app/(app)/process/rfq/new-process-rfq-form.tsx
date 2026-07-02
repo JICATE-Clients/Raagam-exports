@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createProcessRfq } from "@/lib/process/rfq/actions";
 import { PROCESS_TYPES, type ProcessType } from "@/lib/process/rfq/types";
@@ -22,6 +23,7 @@ export function NewProcessRfqForm({ orders }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [orderId, setOrderId] = useState("");
   const [processType, setProcessType] = useState<ProcessType>("dyeing");

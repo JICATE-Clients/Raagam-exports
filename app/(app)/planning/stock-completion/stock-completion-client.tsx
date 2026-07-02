@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,7 @@ export function StockCompletionClient({ rows, orders, canCreate, canEdit, canDel
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  useCreateIntent(() => setOpen(true));
 
   const [orderId, setOrderId] = useState("");
   const [description, setDescription] = useState("");

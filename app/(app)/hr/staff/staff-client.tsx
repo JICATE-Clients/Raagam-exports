@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import type { StaffInput } from "@/lib/hr/types";
 import type { StaffRow, LocationOption } from "@/lib/hr/masters-service";
@@ -38,6 +39,7 @@ export default function StaffClient({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
+  useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<StaffInput>(DEFAULTS);
 

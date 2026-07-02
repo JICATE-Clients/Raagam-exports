@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createPartyOpening,
@@ -48,6 +49,7 @@ export function PartyOpeningsClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [partyType, setPartyType] = useState<PartyType>("vendor");
   const [partyId, setPartyId] = useState("");
   const [currency, setCurrency] = useState("INR");

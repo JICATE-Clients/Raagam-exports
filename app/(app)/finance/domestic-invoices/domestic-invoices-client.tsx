@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
   createDomesticInvoice,
@@ -46,6 +47,7 @@ export function DomesticInvoicesClient({
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [buyerId, setBuyerId] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [taxable, setTaxable] = useState("");

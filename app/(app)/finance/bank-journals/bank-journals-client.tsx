@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createBankJournal, deleteBankJournal } from "@/lib/finance/bank-journals/actions";
 import {
@@ -33,6 +34,7 @@ export function BankJournalsClient({ journals, currencies, canCreate, canDelete 
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
+  useCreateIntent(() => setFormOpen(true));
   const [bankName, setBankName] = useState("");
   const [entryType, setEntryType] = useState<BankEntryType>("deposit");
   const [amount, setAmount] = useState("");
