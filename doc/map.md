@@ -246,7 +246,7 @@ Reorganizes the legacy EDP2 deep-capture (11 modules / 31 sub-modules / 433 form
 
 **Still to build (legacy spec):**
 - **Pre-Shipment:** ✅ **complete** — **Proforma Invoices** (`/logistics/proforma`) · **LC Details** (`/logistics/lc`) · **EPCG Declarations** (`/logistics/epcg`) · **Export Categories** (`/logistics/export-categories`) · **Order Category Assignment** (`/logistics/order-categories`)
-- **Shipment:** **Certificate of Origin** · **GSP** · **Single Country Declaration** · **EP Copy Receipts** · **BOE Details** · **TT Advices** 🔲 *(commercial invoice / packing list / BL / GST invoice — ✅ generated)*
+- **Shipment docs:** ✅ **complete** — commercial invoice · packing list · BL · GST invoice · DGFT · **Certificate of Origin · GSP · Single Country Declaration · EP Copy Receipt · BOE · TT Advice** *(all generatable + printable via the shipment Documents tab; migration 0121 widened the doc-type set)*
 - **Export Incentives File** ✅ *(built — `/logistics/incentives`; RoDTEP/Drawback/RoSCTL claims)*
 
 ---

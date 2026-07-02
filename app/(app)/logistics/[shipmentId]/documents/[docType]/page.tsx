@@ -449,11 +449,10 @@ export default async function DocumentPage({
             {docType === "packing_list" && (
               <PackingList snap={snap} docNo={doc.doc_no} />
             )}
-            {(docType === "bill_of_lading" ||
-              docType === "gst_invoice" ||
-              docType === "dgft") && (
-              <GenericDoc snap={snap} docType={docType} docNo={doc.doc_no} />
-            )}
+            {docType !== "commercial_invoice" &&
+              docType !== "packing_list" && (
+                <GenericDoc snap={snap} docType={docType} docNo={doc.doc_no} />
+              )}
 
             <div className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground print:text-gray-400">
               <p>

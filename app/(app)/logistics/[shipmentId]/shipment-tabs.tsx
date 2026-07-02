@@ -21,12 +21,14 @@ import {
   deleteLine,
   pullLinesFromOrders,
   generateAllDocuments,
+  generateDocument,
   markShipped,
   markDelivered,
   closeShipment,
 } from "@/lib/logistics/actions";
 import {
   DOC_TYPE_LABELS,
+  DOC_TYPES,
   REQUIRED_DOC_TYPES,
   SHIPMENT_STATUS_LABELS,
   docChecklist,
@@ -764,6 +766,18 @@ function DocumentsTab({
     });
   }
 
+  function handleGenerateOne(docType: (typeof DOC_TYPES)[number]) {
+    startTransition(async () => {
+      const result = await generateDocument(shipmentId, docType);
+      if (result.ok) {
+        success("Document generated");
+        router.refresh();
+      } else {
+        toastError(result.error);
+      }
+    });
+  }
+
   const docByType = new Map(documents.map((d) => [d.doc_type, d]));
 
   return (
@@ -823,34 +837,50 @@ function DocumentsTab({
           );
         })}
 
-        {/* dgft — generatable but not required for allDocsReady */}
-        {(() => {
-          const doc = docByType.get("dgft");
+        {/* optional export documents — generatable, not part of the required set */}
+        {DOC_TYPES.filter((dt) => !REQUIRED_DOC_TYPES.includes(dt)).map((docType) => {
+          const doc = docByType.get(docType);
+          const generated = doc?.status === "generated";
           return (
-            <div className="flex items-center justify-between gap-4 px-4 py-3">
+            <div
+              key={docType}
+              className="flex items-center justify-between gap-4 px-4 py-3"
+            >
               <div className="flex items-center gap-3">
-                <StatusPill tone={doc?.status === "generated" ? "success" : "neutral"}>
-                  {doc?.status === "generated" ? "Generated" : "Optional"}
+                <StatusPill tone={generated ? "success" : "neutral"}>
+                  {generated ? "Generated" : "Optional"}
                 </StatusPill>
                 <span className="text-sm font-medium">
-                  {DOC_TYPE_LABELS["dgft"]}
+                  {DOC_TYPE_LABELS[docType]}
                 </span>
                 {doc?.doc_no && (
                   <span className="text-xs text-muted-foreground">{doc.doc_no}</span>
                 )}
               </div>
 
-              {doc?.status === "generated" && (
-                <Link
-                  href={`/logistics/${shipmentId}/documents/dgft`}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  View
-                </Link>
-              )}
+              <div className="flex items-center gap-3">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateOne(docType)}
+                    disabled={isPending || noLines}
+                    className="text-xs font-medium text-primary hover:underline disabled:opacity-40"
+                  >
+                    {generated ? "Re-generate" : "Generate"}
+                  </button>
+                )}
+                {generated && (
+                  <Link
+                    href={`/logistics/${shipmentId}/documents/${docType}`}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    View
+                  </Link>
+                )}
+              </div>
             </div>
           );
-        })()}
+        })}
       </div>
 
       {documents.length > 0 && (

@@ -12,6 +12,7 @@ import {
   Download,
   RefreshCw,
   ChevronRight,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import { NAV, SECTION_ACTIONS, sectionActions, type SubNavItem } from "./nav";
@@ -52,6 +53,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const [query, setQuery] = useState("");
   const [viewHref, setViewHref] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [modOpen, setModOpen] = useState(false);
 
   const modules = useMemo(
     () => NAV.filter((i) => hasPermission(user, i.module, "view")),
@@ -101,11 +103,18 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     setViewHref(activeModule.href);
     setQuery("");
     setMenuOpen(false);
+    setModOpen(false);
     setOpen(true);
+  }
+  function toggleModules() {
+    setOpen(false);
+    setMenuOpen(false);
+    setModOpen((o) => !o);
   }
   function close() {
     setOpen(false);
     setMenuOpen(false);
+    setModOpen(false);
   }
 
   // ── Search results across modules · sections · actions ─────────────────
@@ -151,28 +160,82 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
 
       {/* Peek bar */}
       <div className="fixed bottom-4 left-1/2 z-40 h-14 max-w-[calc(100%-2rem)] -translate-x-1/2 md:hidden">
-        <div className="flex h-full items-center gap-2 rounded-full border border-border bg-surface/90 pl-2 pr-2 shadow-lg backdrop-blur-xl">
+        <div className="flex h-full items-center gap-1 rounded-full border border-border bg-surface/90 pl-1.5 pr-1.5 shadow-lg backdrop-blur-xl">
+          {/* Module zone → quick module switcher */}
           <button
             type="button"
-            onClick={launch}
-            className="flex h-full min-w-0 items-center gap-2.5 rounded-full pl-1 pr-2 active:bg-surface-muted"
+            onClick={toggleModules}
+            aria-expanded={modOpen}
+            className="flex h-full min-w-0 items-center gap-1.5 rounded-full pl-1 pr-1.5 active:bg-surface-muted"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <activeModule.icon className="h-5 w-5" />
             </span>
-            <span className="flex min-w-0 flex-col items-start">
-              <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                <ArrowUp className="h-2.5 w-2.5" />
-                {activeModule.label}
-              </span>
-              <span className="max-w-[130px] truncate text-[13px] font-semibold text-foreground">
-                {activeSection?.label ?? activeModule.label}
-              </span>
+            <span className="max-w-[92px] truncate text-[13px] font-semibold text-foreground">
+              {activeModule.label}
             </span>
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                modOpen && "rotate-180",
+              )}
+            />
           </button>
 
+          <span className="h-6 w-px shrink-0 bg-border" />
+
+          {/* Section zone → full launcher */}
+          <button
+            type="button"
+            onClick={launch}
+            className="flex h-full min-w-0 items-center gap-1.5 rounded-full pl-1.5 pr-2 active:bg-surface-muted"
+          >
+            <span className="max-w-[120px] truncate text-[13px] font-semibold text-foreground">
+              {activeSection?.label ?? "Overview"}
+            </span>
+            <ArrowUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </button>
         </div>
       </div>
+
+      {/* Module switcher popover (from the pill's left zone) */}
+      {modOpen && (
+        <>
+          <div className="fixed inset-0 z-40 md:hidden" onClick={() => setModOpen(false)} />
+          <div className="fixed bottom-[80px] left-1/2 z-50 max-h-[60vh] w-[calc(100%-2rem)] max-w-[340px] -translate-x-1/2 overflow-y-auto rounded-2xl border border-border bg-surface p-2 shadow-2xl md:hidden">
+            <div className="px-1 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Switch module
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {modules.map((m) => {
+                const on = m.href === activeModule.href;
+                const Icon = m.icon;
+                return (
+                  <Link
+                    key={m.href}
+                    href={m.href}
+                    onClick={close}
+                    className={cn(
+                      "flex flex-col items-start gap-2 rounded-xl border p-2.5 active:scale-95",
+                      on ? "border-primary bg-primary/5" : "border-border bg-surface",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-lg",
+                        on ? "bg-primary text-primary-foreground" : "bg-surface-muted text-foreground",
+                      )}
+                    >
+                      <Icon className="h-[17px] w-[17px]" />
+                    </span>
+                    <span className="text-[11.5px] font-semibold leading-tight text-foreground">{m.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Floating create button — stacked directly below the bug-reporter button
           (which sits at bottom:5.5rem on phones). Opens the labeled action menu so
@@ -180,7 +243,10 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       {actions.length > 0 && actionOwner && (
         <button
           type="button"
-          onClick={() => setMenuOpen((o) => !o)}
+          onClick={() => {
+            setModOpen(false);
+            setMenuOpen((o) => !o);
+          }}
           aria-expanded={menuOpen}
           aria-label="Create"
           className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 active:scale-95 md:hidden"

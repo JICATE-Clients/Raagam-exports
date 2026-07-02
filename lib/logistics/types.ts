@@ -23,6 +23,12 @@ export const DOC_TYPES = [
   "bill_of_lading",
   "gst_invoice",
   "dgft",
+  "certificate_of_origin",
+  "gsp",
+  "single_country_declaration",
+  "ep_copy_receipt",
+  "boe",
+  "tt_advice",
 ] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 
@@ -32,6 +38,12 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   bill_of_lading: "Bill of Lading",
   gst_invoice: "GST Invoice",
   dgft: "DGFT Filing",
+  certificate_of_origin: "Certificate of Origin",
+  gsp: "GSP Certificate",
+  single_country_declaration: "Single Country Declaration",
+  ep_copy_receipt: "EP Copy Receipt",
+  boe: "Bill of Entry (BOE)",
+  tt_advice: "TT Advice",
 };
 
 /** Documents that make up a complete export set (drives the checklist). */

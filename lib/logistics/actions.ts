@@ -318,6 +318,12 @@ async function _generateDoc(
     bill_of_lading: "BL",
     gst_invoice: "GST",
     dgft: "DGFT",
+    certificate_of_origin: "COO",
+    gsp: "GSP",
+    single_country_declaration: "SCD",
+    ep_copy_receipt: "EP",
+    boe: "BOE",
+    tt_advice: "TT",
   };
   const docNo =
     docType === "gst_invoice" && (shipment.invoice_no as string | null)
