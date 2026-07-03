@@ -22,6 +22,7 @@ interface PreviewRow {
 function validate(entity: IoEntity, raw: Record<string, string>): string[] {
   const { value, errors } = coerceRow(entity.fields, raw);
   if (errors.length) return errors;
+  if (!entity.schema) return []; // export-only entity — no import validation
   const parsed = entity.schema.safeParse(value);
   if (!parsed.success) {
     return [parsed.error.issues[0]?.message ?? "Validation failed"];

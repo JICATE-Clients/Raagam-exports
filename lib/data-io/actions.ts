@@ -32,9 +32,13 @@ export async function bulkImport(
 ): Promise<ImportResult> {
   const entity = getIoEntity(entityKey);
   if (!entity) return { ok: false, error: "Unknown entity" };
+  if (entity.exportOnly || !entity.schema) {
+    return { ok: false, error: "Import not supported for this entity" };
+  }
   if (!(await can(entity.module, "create"))) {
     return { ok: false, error: "Forbidden" };
   }
+  const schema = entity.schema;
 
   const valid: Record<string, unknown>[] = [];
   const errors: RowError[] = [];
@@ -46,7 +50,7 @@ export async function bulkImport(
       errors.push({ row: line, message: coerceErrors.join("; ") });
       return;
     }
-    const parsed = entity.schema.safeParse(value);
+    const parsed = schema.safeParse(value);
     if (!parsed.success) {
       errors.push({
         row: line,
