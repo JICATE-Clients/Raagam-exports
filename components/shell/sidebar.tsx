@@ -39,9 +39,15 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
     label: s.name,
   }));
 
-  // All groups expanded by default so every sub-module is visible.
+  // Groups collapsed by default; only the group containing the current route
+  // starts expanded so the active sub-module stays visible.
   const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(NAV.filter((i) => i.children?.length).map((i) => i.href)),
+    () =>
+      new Set(
+        NAV.filter((i) => i.children?.length && isActive(pathname, i.href)).map(
+          (i) => i.href,
+        ),
+      ),
   );
 
   function toggle(href: string) {
