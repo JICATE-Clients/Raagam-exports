@@ -11,6 +11,8 @@ import {
   Ship,
   Landmark,
   ArrowLeftRight,
+  BarChart3,
+  LineChart,
   Database,
   Shield,
   type LucideIcon,
@@ -213,6 +215,22 @@ export const NAV: NavItem[] = [
     children: [{ href: "/integration/tally", label: "Tally Export" }],
   },
   {
+    href: "/reports",
+    label: "Reports",
+    module: "reports",
+    icon: BarChart3,
+    children: [
+      { href: "/reports", label: "All Reports" },
+      { href: "/reports/shipment-pnl", label: "Shipment P&L" },
+    ],
+  },
+  {
+    href: "/analytics",
+    label: "Analytics",
+    module: "reports",
+    icon: LineChart,
+  },
+  {
     href: "/masters",
     label: "Master Data",
     module: "masters",
@@ -235,6 +253,7 @@ export const NAV: NavItem[] = [
     children: [
       { href: "/admin/users", label: "Users" },
       { href: "/admin/roles", label: "Roles & Permissions" },
+      { href: "/admin/audit", label: "Audit Log" },
       { href: "/admin/assets", label: "Assets" },
       { href: "/admin/couriers", label: "Courier" },
     ],

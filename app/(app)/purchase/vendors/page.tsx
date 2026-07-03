@@ -6,10 +6,12 @@ import { VendorsClient } from "./vendors-client";
 export default async function VendorsPage() {
   await requirePermission("materials_purchase", "view");
 
-  const [vendors, canCreate, canEdit] = await Promise.all([
+  const [vendors, canCreate, canEdit, canExport, canDelete] = await Promise.all([
     listVendors(),
     can("materials_purchase", "create"),
     can("materials_purchase", "edit"),
+    can("materials_purchase", "export"),
+    can("materials_purchase", "delete"),
   ]);
 
   return (
@@ -22,6 +24,8 @@ export default async function VendorsPage() {
         vendors={vendors}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
+        canDelete={canDelete}
       />
     </div>
   );

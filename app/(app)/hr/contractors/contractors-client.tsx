@@ -15,6 +15,9 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 const DEFAULTS: ContractorInput = {
   name: "",
@@ -27,9 +30,15 @@ const DEFAULTS: ContractorInput = {
 export default function ContractorsClient({
   contractors,
   locations,
+  canCreate = false,
+  canExport = false,
+  canDelete = false,
 }: {
   contractors: ContractorRow[];
   locations: LocationOption[];
+  canCreate?: boolean;
+  canExport?: boolean;
+  canDelete?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -38,6 +47,7 @@ export default function ContractorsClient({
   useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<ContractorInput>(DEFAULTS);
+  const sel = useRowSelection();
 
   function openAdd() {
     setForm(DEFAULTS);
@@ -108,11 +118,26 @@ export default function ContractorsClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="contractors"
+          rows={contractors}
+          canImport={canCreate}
+          canExport={canExport}
+        />
         <Button variant="primary" size="sm" onClick={openAdd}>
           + Add Contractor
         </Button>
       </div>
+
+      {canDelete && (
+        <BulkDeleteBar
+          entityKey="contractors"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="contractors"
+        />
+      )}
 
       {showForm && (
         <Card>
@@ -200,6 +225,10 @@ export default function ContractorsClient({
         rows={contractors}
         getKey={(r) => r.id}
         empty="No contractors yet. Add one above."
+        selectable={canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(contractors.map((c) => c.id))}
       />
     </div>
   );

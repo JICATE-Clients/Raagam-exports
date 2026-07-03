@@ -127,3 +127,29 @@ body {
     transform-origin: bottom right !important;
   }
 }
+
+/*
+ * Report printing — isolate the report so Print (window.print) shows only the
+ * table/chart, not the app shell (sidebar / topbar / mobile nav / bug reporter).
+ * Classic visibility-flip technique: hide everything, then re-reveal the report
+ * area and lift it to the page origin. `print:hidden` (display:none) still wins
+ * over the re-revealed visibility for the toolbar.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .report-print-area,
+  .report-print-area * {
+    visibility: visible;
+  }
+  .report-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .bug-reporter-sdk {
+    display: none !important;
+  }
+}

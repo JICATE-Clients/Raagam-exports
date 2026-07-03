@@ -16,6 +16,7 @@ export const MODULES = [
   "logistics",
   "finance",
   "integration",
+  "reports",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -47,6 +48,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   logistics: "Logistics & Export Docs",
   finance: "Finance",
   integration: "System Integration",
+  reports: "Reports & Analytics",
 };
 
 /** Modules actually shipped in this build pass (drive the nav). */
@@ -63,6 +65,7 @@ export const ACTIVE_MODULES: Module[] = [
   "logistics",
   "finance",
   "integration",
+  "reports",
   "masters",
   "system_admin",
 ];

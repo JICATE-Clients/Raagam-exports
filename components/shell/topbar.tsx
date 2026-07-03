@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, Search } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { useAppUser } from "@/lib/auth/permission-context";
+import { useSearch } from "@/components/search/search-provider";
+import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { cn } from "@/lib/utils";
 
 interface Location {
@@ -14,6 +16,7 @@ interface Location {
 
 export function Topbar({ locations }: { locations: Location[] }) {
   const user = useAppUser();
+  const search = useSearch();
   const [menuOpen, setMenuOpen] = useState(false);
   const [locationId, setLocationId] = useState(
     user.defaultLocationId ?? locations[0]?.id ?? "",
@@ -40,13 +43,27 @@ export function Topbar({ locations }: { locations: Location[] }) {
       </div>
 
       <div className="flex items-center gap-1">
+        {/* Search Everywhere trigger */}
         <button
           type="button"
-          className="relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-          aria-label="Alerts"
+          onClick={search.open}
+          aria-label="Search everywhere"
+          className={cn(
+            "flex items-center gap-2 rounded-md border border-border text-muted-foreground",
+            "h-8 px-2 hover:bg-surface-muted",
+            "md:w-56 md:justify-start md:px-2.5",
+          )}
         >
-          <Bell className="h-4 w-4" />
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="hidden flex-1 text-left text-xs md:inline">
+            Search…
+          </span>
+          <kbd className="hidden shrink-0 rounded border border-border bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] md:inline">
+            ⌘K
+          </kbd>
         </button>
+
+        <NotificationsBell />
 
         <div className="relative">
           <button
