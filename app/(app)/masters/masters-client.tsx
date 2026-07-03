@@ -15,6 +15,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import {
   createBuyer,
   updateBuyer,
@@ -23,6 +26,13 @@ import {
   createUom,
   updateUom,
 } from "@/lib/masters/actions";
+
+/** Import/Export/Delete permission flags threaded to each master section. */
+interface IoPerms {
+  canCreate: boolean;
+  canExport: boolean;
+  canDelete: boolean;
+}
 import {
   MaterialsConfigSection,
   TransportersSection,
@@ -49,9 +59,11 @@ const BUYER_DEFAULTS: BuyerInput = {
 function BuyersSection({
   buyers,
   currencies,
+  io,
 }: {
   buyers: Buyer[];
   currencies: Currency[];
+  io: IoPerms;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -59,6 +71,7 @@ function BuyersSection({
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<BuyerInput>(BUYER_DEFAULTS);
+  const sel = useRowSelection();
 
   function openAdd() {
     setForm(BUYER_DEFAULTS);
@@ -131,11 +144,26 @@ function BuyersSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="buyers"
+          rows={buyers}
+          canImport={io.canCreate}
+          canExport={io.canExport}
+        />
         <Button variant="primary" size="sm" onClick={openAdd}>
           + Add Buyer
         </Button>
       </div>
+
+      {io.canDelete && (
+        <BulkDeleteBar
+          entityKey="buyers"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="buyers"
+        />
+      )}
 
       {showForm && (
         <Card>
@@ -267,6 +295,10 @@ function BuyersSection({
         rows={buyers}
         getKey={(r) => r.id}
         empty="No buyers yet. Add one above."
+        selectable={io.canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(buyers.map((b) => b.id))}
       />
     </div>
   );
@@ -284,13 +316,22 @@ const ITEM_DEFAULTS: ItemInput = {
   is_active: true,
 };
 
-function ItemsSection({ items, uoms }: { items: Item[]; uoms: Uom[] }) {
+function ItemsSection({
+  items,
+  uoms,
+  io,
+}: {
+  items: Item[];
+  uoms: Uom[];
+  io: IoPerms;
+}) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<ItemInput>(ITEM_DEFAULTS);
+  const sel = useRowSelection();
 
   const uomMap = Object.fromEntries(uoms.map((u) => [u.id, `${u.name} (${u.code})`]));
 
@@ -365,11 +406,26 @@ function ItemsSection({ items, uoms }: { items: Item[]; uoms: Uom[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="items"
+          rows={items}
+          canImport={io.canCreate}
+          canExport={io.canExport}
+        />
         <Button variant="primary" size="sm" onClick={openAdd}>
           + Add Item
         </Button>
       </div>
+
+      {io.canDelete && (
+        <BulkDeleteBar
+          entityKey="items"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="items"
+        />
+      )}
 
       {showForm && (
         <Card>
@@ -469,6 +525,10 @@ function ItemsSection({ items, uoms }: { items: Item[]; uoms: Uom[] }) {
         rows={items}
         getKey={(r) => r.id}
         empty="No items yet. Add one above."
+        selectable={io.canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(items.map((i) => i.id))}
       />
     </div>
   );
@@ -480,13 +540,14 @@ function ItemsSection({ items, uoms }: { items: Item[]; uoms: Uom[] }) {
 
 const UOM_DEFAULTS: UomInput = { code: "", name: "", is_active: true };
 
-function UomsSection({ uoms }: { uoms: Uom[] }) {
+function UomsSection({ uoms, io }: { uoms: Uom[]; io: IoPerms }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<UomInput>(UOM_DEFAULTS);
+  const sel = useRowSelection();
 
   function openAdd() {
     setForm(UOM_DEFAULTS);
@@ -548,11 +609,26 @@ function UomsSection({ uoms }: { uoms: Uom[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="uoms"
+          rows={uoms}
+          canImport={io.canCreate}
+          canExport={io.canExport}
+        />
         <Button variant="primary" size="sm" onClick={openAdd}>
           + Add UOM
         </Button>
       </div>
+
+      {io.canDelete && (
+        <BulkDeleteBar
+          entityKey="uoms"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="UOMs"
+        />
+      )}
 
       {showForm && (
         <Card>
@@ -625,6 +701,10 @@ function UomsSection({ uoms }: { uoms: Uom[] }) {
         rows={uoms}
         getKey={(r) => r.id}
         empty="No units of measure yet. Add one above."
+        selectable={io.canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(uoms.map((u) => u.id))}
       />
     </div>
   );
@@ -643,6 +723,9 @@ export default function MastersClient({
   transporters = [],
   gstRates = [],
   initialTab,
+  canCreate = false,
+  canExport = false,
+  canDelete = false,
 }: {
   buyers: Buyer[];
   items: Item[];
@@ -652,22 +735,26 @@ export default function MastersClient({
   transporters?: Transporter[];
   gstRates?: GstRate[];
   initialTab?: string;
+  canCreate?: boolean;
+  canExport?: boolean;
+  canDelete?: boolean;
 }) {
+  const io: IoPerms = { canCreate, canExport, canDelete };
   const tabs = [
     {
       key: "buyers",
       label: "Buyers",
-      content: <BuyersSection buyers={buyers} currencies={currencies} />,
+      content: <BuyersSection buyers={buyers} currencies={currencies} io={io} />,
     },
     {
       key: "items",
       label: "Items",
-      content: <ItemsSection items={items} uoms={uoms} />,
+      content: <ItemsSection items={items} uoms={uoms} io={io} />,
     },
     {
       key: "uoms",
       label: "Units of Measure",
-      content: <UomsSection uoms={uoms} />,
+      content: <UomsSection uoms={uoms} io={io} />,
     },
     {
       key: "materials-config",

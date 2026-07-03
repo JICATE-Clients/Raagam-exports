@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -8,36 +8,43 @@ import {
   Search,
   X,
   ArrowUp,
-  Upload,
-  Download,
-  RefreshCw,
   ChevronRight,
   ChevronDown,
+  Building2,
+  Truck,
+  Users,
+  Package,
+  ClipboardList,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 import { NAV, SECTION_ACTIONS, type SubNavItem } from "./nav";
+import {
+  actionIcon,
+  createHref,
+  searchNav,
+  type NavSearchRow,
+} from "./nav-search";
 import { type StoreNavLink } from "./sidebar";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
+import type { SearchEntity, SearchResult } from "@/lib/search/types";
 import { cn } from "@/lib/utils";
+
+/** Icon per record entity, mirroring the desktop palette. */
+const ENTITY_ICON: Record<SearchEntity, LucideIcon> = {
+  order: ClipboardList,
+  invoice: FileText,
+  customer: Building2,
+  vendor: Truck,
+  product: Package,
+  employee: Users,
+};
 
 function isActive(pathname: string, href: string) {
   const base = href.split("?")[0];
   if (base === "/") return pathname === "/";
   return pathname === base || pathname.startsWith(base + "/");
-}
-
-/** Icon for an action label (create / import / export / recalc). */
-function actionIcon(label: string): LucideIcon {
-  if (/^(import|bulk)/i.test(label)) return Upload;
-  if (/^(export|generate)/i.test(label)) return Download;
-  if (/^recalc/i.test(label)) return RefreshCw;
-  return Plus;
-}
-
-/** Route the primary/quick create actions point at (page reads `?new=1`). */
-function createHref(ownerHref: string, action: string) {
-  return `${ownerHref}?new=1&a=${encodeURIComponent(action)}`;
 }
 
 /** Rough plural → singular for building a default "New <thing>" action label. */
@@ -63,6 +70,34 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [modOpen, setModOpen] = useState(false);
   const [fabSection, setFabSection] = useState<string | null>(null);
+  const [records, setRecords] = useState<SearchResult[]>([]);
+
+  // Record hits (customers, orders, invoices…) from the shared search API.
+  // Kept above any early return so hook order stays stable.
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 2) {
+      setRecords([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(term)}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { results: SearchResult[] };
+        setRecords(data.results ?? []);
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") setRecords([]);
+      }
+    }, 250);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [query]);
 
   const modules = useMemo(
     () => NAV.filter((i) => hasPermission(user, i.module, "view")),
@@ -132,35 +167,17 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     setFabSection(null);
   }
 
-  // ── Search results across modules · sections · actions ─────────────────
+  // ── Search results across modules · sections · actions + records ───────
   const q = query.trim().toLowerCase();
-  const results = q
-    ? modules.flatMap((m) => {
-        const rows: {
-          key: string;
-          icon: LucideIcon;
-          title: string;
-          sub: string;
-          href: string;
-          isAction?: boolean;
-        }[] = [];
-        if (m.label.toLowerCase().includes(q))
-          rows.push({ key: "m:" + m.href, icon: m.icon, title: m.label, sub: "Module", href: m.href });
-        for (const c of childrenFor(m.href, m.children)) {
-          if (c.label.toLowerCase().includes(q))
-            rows.push({ key: "s:" + c.href, icon: m.icon, title: c.label, sub: m.label + " · section", href: c.href });
-          for (const a of SECTION_ACTIONS[c.href] ?? []) {
-            if (a.toLowerCase().includes(q))
-              rows.push({ key: "a:" + c.href + a, icon: actionIcon(a), title: a, sub: m.label + " · " + c.label, href: createHref(c.href, a), isAction: true });
-          }
-        }
-        for (const a of SECTION_ACTIONS[m.href] ?? []) {
-          if (a.toLowerCase().includes(q))
-            rows.push({ key: "a:" + m.href + a, icon: actionIcon(a), title: a, sub: m.label, href: createHref(m.href, a), isAction: true });
-        }
-        return rows;
-      })
-    : [];
+  const navResults = searchNav(query, modules, childrenFor);
+  const recordRows: NavSearchRow[] = records.map((r) => ({
+    key: `${r.type}:${r.id}`,
+    icon: ENTITY_ICON[r.type],
+    title: r.title,
+    sub: r.subtitle,
+    href: r.href,
+  }));
+  const results = [...navResults, ...recordRows];
 
   return (
     <>
@@ -384,7 +401,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search modules, sections, actions…"
+              placeholder="Search records, modules, actions…"
               className="flex-1 bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground"
             />
             <button

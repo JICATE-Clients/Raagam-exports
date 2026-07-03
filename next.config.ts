@@ -20,6 +20,14 @@ const nextConfig: NextConfig = {
   // Suspense discipline PPR requires adds friction without payoff at this stage.
   // Revisit for read-heavy public/reporting surfaces later. (see ASSUMPTIONS.md)
 
+  // `withSerwist` injects a `webpack` config (to emit the SW). Since Next 16 runs
+  // `next dev` on Turbopack by default, that inherited webpack config otherwise
+  // triggers a hard error ("webpack config and no turbopack config"). The SW is
+  // disabled in dev, so Turbopack is exactly what we want — this empty object
+  // declares that intent and silences the error. The prod `next build --webpack`
+  // path (which Serwist needs) is unaffected.
+  turbopack: {},
+
   images: {
     remotePatterns: [
       // Supabase Storage (style images, attachments)

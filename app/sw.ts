@@ -32,3 +32,48 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+// ── Web push ────────────────────────────────────────────────────────────────
+// Payload shape is set by lib/notifications/notify.ts: { title, body, url }.
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload: { title?: string; body?: string; url?: string } = {};
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = { body: event.data.text() };
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title ?? "Raagam ERP", {
+      body: payload.body ?? "",
+      icon: "/icons/icon-192x192.png",
+      badge: "/icons/badge-72x72.png",
+      data: { url: payload.url ?? "/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url =
+    (event.notification.data as { url?: string } | undefined)?.url ?? "/";
+  event.waitUntil(
+    (async () => {
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of clients) {
+        // Focus an existing tab and navigate it to the target.
+        await client.focus();
+        try {
+          await client.navigate(url);
+        } catch {
+          // cross-origin or navigation blocked — ignore
+        }
+        return;
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
+});

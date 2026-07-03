@@ -16,6 +16,9 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 const VENDOR_TYPE_LABELS: Record<VendorType, string> = {
   yarn: "Yarn",
@@ -55,10 +58,14 @@ export function VendorsClient({
   vendors,
   canCreate,
   canEdit,
+  canExport = false,
+  canDelete = false,
 }: {
   vendors: Vendor[];
   canCreate: boolean;
   canEdit: boolean;
+  canExport?: boolean;
+  canDelete?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -67,6 +74,7 @@ export function VendorsClient({
   useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<VendorInput>(EMPTY_FORM);
+  const sel = useRowSelection();
 
   function openAdd() {
     setForm(EMPTY_FORM);
@@ -162,12 +170,27 @@ export function VendorsClient({
 
   return (
     <div className="space-y-4">
-      {canCreate && (
-        <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="vendors"
+          rows={vendors}
+          canImport={canCreate}
+          canExport={canExport}
+        />
+        {canCreate && (
           <Button size="sm" onClick={openAdd}>
             + New vendor
           </Button>
-        </div>
+        )}
+      </div>
+
+      {canDelete && (
+        <BulkDeleteBar
+          entityKey="vendors"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="vendors"
+        />
       )}
 
       {showForm && (
@@ -310,6 +333,10 @@ export function VendorsClient({
         rows={vendors}
         getKey={(r) => r.id}
         empty="No vendors yet. Add one above."
+        selectable={canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(vendors.map((v) => v.id))}
       />
     </div>
   );

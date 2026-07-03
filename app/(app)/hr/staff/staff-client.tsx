@@ -16,6 +16,9 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 const DEFAULTS: StaffInput = {
   name: "",
@@ -31,9 +34,15 @@ const DEFAULTS: StaffInput = {
 export default function StaffClient({
   staff,
   locations,
+  canCreate = false,
+  canExport = false,
+  canDelete = false,
 }: {
   staff: StaffRow[];
   locations: LocationOption[];
+  canCreate?: boolean;
+  canExport?: boolean;
+  canDelete?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -42,6 +51,7 @@ export default function StaffClient({
   useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<StaffInput>(DEFAULTS);
+  const sel = useRowSelection();
 
   function openAdd() {
     setForm(DEFAULTS);
@@ -121,11 +131,26 @@ export default function StaffClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="staff"
+          rows={staff}
+          canImport={canCreate}
+          canExport={canExport}
+        />
         <Button variant="primary" size="sm" onClick={openAdd}>
           + Add Staff
         </Button>
       </div>
+
+      {canDelete && (
+        <BulkDeleteBar
+          entityKey="staff"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="staff"
+        />
+      )}
 
       {showForm && (
         <Card>
@@ -248,6 +273,10 @@ export default function StaffClient({
         rows={staff}
         getKey={(r) => r.id}
         empty="No staff yet. Add one above."
+        selectable={canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(staff.map((s) => s.id))}
       />
     </div>
   );

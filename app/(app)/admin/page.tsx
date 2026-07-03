@@ -37,6 +37,17 @@ export default async function AdminPage() {
             </CardBody>
           </Card>
         </Link>
+        <Link href="/admin/audit">
+          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
+            <CardBody>
+              <div className="font-semibold text-foreground">Audit Log</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Full change history — who created or edited each record, when,
+                and the previous &rarr; new values.
+              </p>
+            </CardBody>
+          </Card>
+        </Link>
         <Link href="/admin/assets">
           <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
             <CardBody>

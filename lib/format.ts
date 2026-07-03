@@ -31,3 +31,17 @@ export function fmtDate(value: string | null | undefined): string {
     year: "numeric",
   });
 }
+
+/** Date + time, e.g. "02 Jul 2026, 3:45 pm" — for audit trails / timestamps. */
+export function fmtDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

@@ -1,4 +1,4 @@
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
 import { listBuyers, listItems, listUoms, listCurrencies } from "@/lib/masters/service";
 import {
   listConfigLookups,
@@ -16,16 +16,29 @@ export default async function MastersPage({
   await requirePermission("masters", "view");
   const { tab } = await searchParams;
 
-  const [buyers, items, uoms, currencies, lookups, transporters, gstRates] =
-    await Promise.all([
-      listBuyers(),
-      listItems(),
-      listUoms(),
-      listCurrencies(),
-      listConfigLookups(),
-      listTransporters(),
-      listGstRates(),
-    ]);
+  const [
+    buyers,
+    items,
+    uoms,
+    currencies,
+    lookups,
+    transporters,
+    gstRates,
+    canCreate,
+    canExport,
+    canDelete,
+  ] = await Promise.all([
+    listBuyers(),
+    listItems(),
+    listUoms(),
+    listCurrencies(),
+    listConfigLookups(),
+    listTransporters(),
+    listGstRates(),
+    can("masters", "create"),
+    can("masters", "export"),
+    can("masters", "delete"),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -42,6 +55,9 @@ export default async function MastersPage({
         transporters={transporters}
         gstRates={gstRates}
         initialTab={tab}
+        canCreate={canCreate}
+        canExport={canExport}
+        canDelete={canDelete}
       />
     </div>
   );

@@ -16,6 +16,9 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 const DEFAULTS: WorkerInput = {
   name: "",
@@ -36,10 +39,16 @@ export default function WorkersClient({
   workers,
   contractors,
   locations,
+  canCreate = false,
+  canExport = false,
+  canDelete = false,
 }: {
   workers: WorkerRow[];
   contractors: ContractorRow[];
   locations: LocationOption[];
+  canCreate?: boolean;
+  canExport?: boolean;
+  canDelete?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -48,6 +57,7 @@ export default function WorkersClient({
   useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<WorkerInput>(DEFAULTS);
+  const sel = useRowSelection();
 
   const isPieceType =
     form.worker_type === "contractor_piece" || form.worker_type === "company_piece";
@@ -160,11 +170,26 @@ export default function WorkersClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="workers"
+          rows={workers}
+          canImport={canCreate}
+          canExport={canExport}
+        />
         <Button variant="primary" size="sm" onClick={openAdd}>
           + Add Worker
         </Button>
       </div>
+
+      {canDelete && (
+        <BulkDeleteBar
+          entityKey="workers"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="workers"
+        />
+      )}
 
       {showForm && (
         <Card>
@@ -373,6 +398,10 @@ export default function WorkersClient({
         rows={workers}
         getKey={(r) => r.id}
         empty="No workers yet. Add one above."
+        selectable={canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(workers.map((w) => w.id))}
       />
     </div>
   );
