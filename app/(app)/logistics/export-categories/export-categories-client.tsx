@@ -17,11 +17,15 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 interface Props {
   categories: ExportCategory[];
   canCreate: boolean;
   canEdit: boolean;
+  canExport?: boolean;
   canDelete: boolean;
 }
 
@@ -29,11 +33,13 @@ export function ExportCategoriesClient({
   categories,
   canCreate,
   canEdit,
+  canExport = false,
   canDelete,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const sel = useRowSelection();
 
   const [formOpen, setFormOpen] = useState(false);
   useCreateIntent(() => setFormOpen(true));
@@ -146,16 +152,30 @@ export function ExportCategoriesClient({
 
   return (
     <div className="space-y-4">
-      {canCreate && (
-        <div className="flex justify-end">
-          {formOpen ? (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="export_categories"
+          rows={categories}
+          canImport={canCreate}
+          canExport={canExport}
+        />
+        {canCreate &&
+          (formOpen ? (
             <Button variant="outline" size="sm" onClick={closeForm}>
               Cancel
             </Button>
           ) : (
             <Button onClick={openCreate}>New category</Button>
-          )}
-        </div>
+          ))}
+      </div>
+
+      {canDelete && (
+        <BulkDeleteBar
+          entityKey="export_categories"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="categories"
+        />
       )}
 
       {formOpen && (
@@ -188,6 +208,10 @@ export function ExportCategoriesClient({
         rows={categories}
         getKey={(c) => c.id}
         empty="No export categories yet."
+        selectable={canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(categories.map((c) => c.id))}
       />
     </div>
   );

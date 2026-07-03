@@ -8,11 +8,12 @@ import { TaMastersClient } from "./ta-masters-client";
 export default async function TaMastersPage() {
   await requirePermission("orders", "view");
 
-  const [activities, canCreate, canEdit, canDelete] = await Promise.all([
+  const [activities, canCreate, canEdit, canDelete, canExport] = await Promise.all([
     getTaActivities(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
+    can("orders", "export"),
   ]);
 
   return (
@@ -34,6 +35,7 @@ export default async function TaMastersPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

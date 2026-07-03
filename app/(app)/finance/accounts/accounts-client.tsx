@@ -16,6 +16,9 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   asset: "Asset",
@@ -44,10 +47,14 @@ export function AccountsClient({
   accounts,
   canCreate,
   canEdit,
+  canExport = false,
+  canDelete = false,
 }: {
   accounts: GlAccount[];
   canCreate: boolean;
   canEdit: boolean;
+  canExport?: boolean;
+  canDelete?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -56,6 +63,7 @@ export function AccountsClient({
   useCreateIntent(() => setShowForm(true));
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<GlAccountInput>(EMPTY);
+  const sel = useRowSelection();
 
   function openAdd() {
     setForm(EMPTY);
@@ -137,12 +145,27 @@ export function AccountsClient({
 
   return (
     <div className="space-y-4">
-      {canCreate && (
-        <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="gl_accounts"
+          rows={accounts}
+          canImport={canCreate}
+          canExport={canExport}
+        />
+        {canCreate && (
           <Button variant="primary" size="sm" onClick={openAdd}>
             + New Account
           </Button>
-        </div>
+        )}
+      </div>
+
+      {canDelete && (
+        <BulkDeleteBar
+          entityKey="gl_accounts"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="accounts"
+        />
       )}
 
       {showForm && (
@@ -225,6 +248,10 @@ export function AccountsClient({
         rows={accounts}
         getKey={(r) => r.id}
         empty="No accounts in the chart of accounts."
+        selectable={canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(accounts.map((r) => r.id))}
       />
     </div>
   );

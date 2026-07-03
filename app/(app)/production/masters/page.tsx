@@ -5,10 +5,11 @@ import { MastersClient } from "./masters-client";
 
 export default async function ProductionMastersPage() {
   await requirePermission("production", "view");
-  const [workTypes, operations, canCreate, canDelete] = await Promise.all([
+  const [workTypes, operations, canCreate, canExport, canDelete] = await Promise.all([
     listWorkTypes(),
     listSewingOperations(),
     can("production", "create"),
+    can("production", "export"),
     can("production", "delete"),
   ]);
   return (
@@ -17,7 +18,7 @@ export default async function ProductionMastersPage() {
         title="Production Planning Masters"
         description="Work types and sewing operations used across production planning."
       />
-      <MastersClient workTypes={workTypes} operations={operations} canCreate={canCreate} canDelete={canDelete} />
+      <MastersClient workTypes={workTypes} operations={operations} canCreate={canCreate} canExport={canExport} canDelete={canDelete} />
     </div>
   );
 }

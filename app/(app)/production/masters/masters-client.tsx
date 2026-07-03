@@ -10,6 +10,9 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import {
   createWorkType,
   deleteWorkType,
@@ -22,13 +25,16 @@ interface Props {
   workTypes: WorkType[];
   operations: SewingOperation[];
   canCreate: boolean;
+  canExport?: boolean;
   canDelete: boolean;
 }
 
-export function MastersClient({ workTypes, operations, canCreate, canDelete }: Props) {
+export function MastersClient({ workTypes, operations, canCreate, canExport = false, canDelete }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const selWork = useRowSelection();
+  const selSewing = useRowSelection();
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) {
     startTransition(async () => {
@@ -100,6 +106,14 @@ export function MastersClient({ workTypes, operations, canCreate, canDelete }: P
 
   const workTypesTab = (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar entityKey="work_types" rows={workTypes} canImport={canCreate} canExport={canExport} />
+      </div>
+
+      {canDelete && (
+        <BulkDeleteBar entityKey="work_types" selectedIds={selWork.selectedIds} onClear={selWork.clear} label="work types" />
+      )}
+
       {canCreate && (
         <Card>
           <CardHeader><CardTitle>Add work type</CardTitle></CardHeader>
@@ -113,12 +127,29 @@ export function MastersClient({ workTypes, operations, canCreate, canDelete }: P
           </CardBody>
         </Card>
       )}
-      <DataTable columns={wtColumns} rows={workTypes} getKey={(r) => r.id} empty="No work types yet." />
+      <DataTable
+        columns={wtColumns}
+        rows={workTypes}
+        getKey={(r) => r.id}
+        empty="No work types yet."
+        selectable={canDelete}
+        selectedKeys={selWork.selectedKeys}
+        onToggle={selWork.toggle}
+        onToggleAll={() => selWork.toggleAll(workTypes.map((r) => r.id))}
+      />
     </div>
   );
 
   const opsTab = (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar entityKey="sewing_operations" rows={operations} canImport={canCreate} canExport={canExport} />
+      </div>
+
+      {canDelete && (
+        <BulkDeleteBar entityKey="sewing_operations" selectedIds={selSewing.selectedIds} onClear={selSewing.clear} label="operations" />
+      )}
+
       {canCreate && (
         <Card>
           <CardHeader><CardTitle>Add sewing operation</CardTitle></CardHeader>
@@ -131,7 +162,16 @@ export function MastersClient({ workTypes, operations, canCreate, canDelete }: P
           </CardBody>
         </Card>
       )}
-      <DataTable columns={soColumns} rows={operations} getKey={(r) => r.id} empty="No sewing operations yet." />
+      <DataTable
+        columns={soColumns}
+        rows={operations}
+        getKey={(r) => r.id}
+        empty="No sewing operations yet."
+        selectable={canDelete}
+        selectedKeys={selSewing.selectedKeys}
+        onToggle={selSewing.toggle}
+        onToggleAll={() => selSewing.toggleAll(operations.map((r) => r.id))}
+      />
     </div>
   );
 

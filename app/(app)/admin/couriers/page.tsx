@@ -9,12 +9,13 @@ import { CouriersClient } from "./couriers-client";
 
 export default async function CouriersPage() {
   await requirePermission("system_admin", "view");
-  const [couriers, despatches, courierOpts, canCreate, canEdit, canDelete] = await Promise.all([
+  const [couriers, despatches, courierOpts, canCreate, canEdit, canExport, canDelete] = await Promise.all([
     listCouriers(),
     listCourierDespatches(),
     getCourierOptions(),
     can("system_admin", "create"),
     can("system_admin", "edit"),
+    can("system_admin", "export"),
     can("system_admin", "delete"),
   ]);
   return (
@@ -26,6 +27,7 @@ export default async function CouriersPage() {
         courierOpts={courierOpts}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

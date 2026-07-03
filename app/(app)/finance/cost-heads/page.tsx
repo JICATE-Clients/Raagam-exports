@@ -12,7 +12,7 @@ import { CostHeadsClient } from "./cost-heads-client";
 export default async function CostHeadsPage() {
   await requirePermission("finance", "view");
 
-  const [heads, items, activeHeads, canCreate, canEdit, canDelete] =
+  const [heads, items, activeHeads, canCreate, canEdit, canDelete, canExport] =
     await Promise.all([
       getCostHeads(),
       getCostItems(),
@@ -20,6 +20,7 @@ export default async function CostHeadsPage() {
       can("finance", "create"),
       can("finance", "edit"),
       can("finance", "delete"),
+      can("finance", "export"),
     ]);
 
   return (
@@ -43,6 +44,7 @@ export default async function CostHeadsPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

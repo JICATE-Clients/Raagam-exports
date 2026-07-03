@@ -20,6 +20,9 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 interface Props {
   heads: CostHead[];
@@ -28,6 +31,7 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function CostHeadsClient({
@@ -37,10 +41,13 @@ export function CostHeadsClient({
   canCreate,
   canEdit,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const selHeads = useRowSelection();
+  const selItems = useRowSelection();
 
   const [hName, setHName] = useState("");
   const [hCategory, setHCategory] = useState("");
@@ -138,7 +145,30 @@ export function CostHeadsClient({
           <CardTitle>Cost Heads ({heads.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={headCols} rows={heads} getKey={(h) => h.id} empty="No cost heads yet." />
+          <DataIoToolbar
+            entityKey="cost_heads"
+            rows={heads}
+            canImport={canCreate}
+            canExport={canExport}
+          />
+          {canDelete && (
+            <BulkDeleteBar
+              entityKey="cost_heads"
+              selectedIds={selHeads.selectedIds}
+              onClear={selHeads.clear}
+              label="cost heads"
+            />
+          )}
+          <DataTable
+            columns={headCols}
+            rows={heads}
+            getKey={(h) => h.id}
+            empty="No cost heads yet."
+            selectable={canDelete}
+            selectedKeys={selHeads.selectedKeys}
+            onToggle={selHeads.toggle}
+            onToggleAll={() => selHeads.toggleAll(heads.map((h) => h.id))}
+          />
           {canCreate && (
             <form
               onSubmit={(e) => {
@@ -176,7 +206,30 @@ export function CostHeadsClient({
           <CardTitle>Cost Items ({items.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={itemCols} rows={items} getKey={(i) => i.id} empty="No cost items yet." />
+          <DataIoToolbar
+            entityKey="cost_items"
+            rows={items}
+            canImport={canCreate}
+            canExport={canExport}
+          />
+          {canDelete && (
+            <BulkDeleteBar
+              entityKey="cost_items"
+              selectedIds={selItems.selectedIds}
+              onClear={selItems.clear}
+              label="cost items"
+            />
+          )}
+          <DataTable
+            columns={itemCols}
+            rows={items}
+            getKey={(i) => i.id}
+            empty="No cost items yet."
+            selectable={canDelete}
+            selectedKeys={selItems.selectedKeys}
+            onToggle={selItems.toggle}
+            onToggleAll={() => selItems.toggleAll(items.map((i) => i.id))}
+          />
           {canCreate && (
             <form
               onSubmit={(e) => {
