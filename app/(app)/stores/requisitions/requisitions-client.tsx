@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createRequisition } from "@/lib/stores/extras-actions";
 import { MRS_STATUS_LABELS, type MrsStatus } from "@/lib/stores/extras-types";
 import type { MrsWithRefs, StoreOption } from "@/lib/stores/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: MrsStatus): StatusTone {
   switch (s) {
@@ -38,9 +39,10 @@ interface Props {
   rows: MrsWithRefs[];
   stores: StoreOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function RequisitionsClient({ rows, stores, canCreate }: Props) {
+export function RequisitionsClient({ rows, stores, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -89,6 +91,7 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="material_requisitions" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

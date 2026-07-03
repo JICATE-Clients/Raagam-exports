@@ -25,6 +25,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 interface Props {
   items: AdvisedItemWithOrder[];
@@ -32,6 +33,7 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function AdvisedItemsClient({
@@ -40,6 +42,7 @@ export function AdvisedItemsClient({
   canCreate,
   canEdit,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -199,6 +202,8 @@ export function AdvisedItemsClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="order_advised_items" rows={items} canExport={canExport} />
+
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

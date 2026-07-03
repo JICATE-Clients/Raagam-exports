@@ -11,7 +11,7 @@ import { ShortagesClient } from "./shortages-client";
 export default async function ShortagesPage() {
   await requirePermission("planning", "view");
 
-  const [shortages, orders, items, uoms, canCreate, canEdit, canApprove, canDelete] =
+  const [shortages, orders, items, uoms, canCreate, canEdit, canApprove, canDelete, canExport] =
     await Promise.all([
       listShortages(),
       getOrdersForPicker(),
@@ -21,6 +21,7 @@ export default async function ShortagesPage() {
       can("planning", "edit"),
       can("planning", "approve"),
       can("planning", "delete"),
+      can("planning", "export"),
     ]);
 
   return (
@@ -38,6 +39,7 @@ export default async function ShortagesPage() {
         canEdit={canEdit}
         canApprove={canApprove}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

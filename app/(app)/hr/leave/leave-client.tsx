@@ -23,6 +23,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrLeave } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: LeaveStatus): StatusTone {
   switch (s) {
@@ -43,9 +44,10 @@ interface Props {
   canEdit: boolean;
   canApprove: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
-export function LeaveClient({ rows, employees, canCreate, canEdit, canApprove, canDelete }: Props) {
+export function LeaveClient({ rows, employees, canCreate, canEdit, canApprove, canDelete, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -128,6 +130,7 @@ export function LeaveClient({ rows, employees, canCreate, canEdit, canApprove, c
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="hr_leaves" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

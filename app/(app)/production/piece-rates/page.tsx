@@ -5,7 +5,7 @@ import { PieceRatesClient } from "./piece-rates-client";
 
 export default async function PieceRatesPage() {
   await requirePermission("production", "view");
-  const [rows, contractors, workTypes, canCreate, canEdit, canApprove, canDelete] = await Promise.all([
+  const [rows, contractors, workTypes, canCreate, canEdit, canApprove, canDelete, canExport] = await Promise.all([
     listPieceRates(),
     getContractors(),
     getWorkTypeOptions(),
@@ -13,6 +13,7 @@ export default async function PieceRatesPage() {
     can("production", "edit"),
     can("production", "approve"),
     can("production", "delete"),
+    can("production", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -28,6 +29,7 @@ export default async function PieceRatesPage() {
         canEdit={canEdit}
         canApprove={canApprove}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

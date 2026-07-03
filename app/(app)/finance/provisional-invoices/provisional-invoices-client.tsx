@@ -25,6 +25,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
 interface Props {
@@ -33,6 +34,7 @@ interface Props {
   currencies: CurrencyOption[];
   canCreate: boolean;
   canEdit: boolean;
+  canExport: boolean;
   canDelete: boolean;
 }
 
@@ -42,6 +44,7 @@ export function ProvisionalInvoicesClient({
   currencies,
   canCreate,
   canEdit,
+  canExport,
   canDelete,
 }: Props) {
   const router = useRouter();
@@ -152,6 +155,8 @@ export function ProvisionalInvoicesClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="provisional_invoices" rows={invoices} canExport={canExport} />
+
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

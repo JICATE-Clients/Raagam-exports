@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtDate } from "@/lib/format";
 import { cancelPurchaseOrder } from "@/lib/purchase/extras-actions";
 import type { PoCancellationWithRefs, PoOption } from "@/lib/purchase/extras-service";
@@ -17,9 +18,10 @@ interface Props {
   rows: PoCancellationWithRefs[];
   pos: PoOption[];
   canEdit: boolean;
+  canExport?: boolean;
 }
 
-export function PoCancellationsClient({ rows, pos, canEdit }: Props) {
+export function PoCancellationsClient({ rows, pos, canEdit, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -53,6 +55,7 @@ export function PoCancellationsClient({ rows, pos, canEdit }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="po_cancellations" rows={rows} canExport={canExport} />
       {canEdit && (
         <Card>
           <CardHeader>

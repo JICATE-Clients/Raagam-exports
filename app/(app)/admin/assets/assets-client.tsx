@@ -12,6 +12,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createAsset } from "@/lib/admin/extras-actions";
 import { ASSET_STATUS_LABELS, type AssetStatus } from "@/lib/admin/extras-types";
 import type { AssetWithRefs, LocationOption } from "@/lib/admin/extras-service";
@@ -33,9 +34,10 @@ interface Props {
   rows: AssetWithRefs[];
   locations: LocationOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function AssetsClient({ rows, locations, canCreate }: Props) {
+export function AssetsClient({ rows, locations, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -85,6 +87,7 @@ export function AssetsClient({ rows, locations, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="assets" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

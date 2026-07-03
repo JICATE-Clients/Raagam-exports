@@ -12,6 +12,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createProcessAllocation,
   confirmProcessAllocation,
@@ -41,6 +42,7 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function ProcessAllocationsClient({
@@ -51,6 +53,7 @@ export function ProcessAllocationsClient({
   canCreate,
   canEdit,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -128,6 +131,8 @@ export function ProcessAllocationsClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="process_allocations" rows={rows} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

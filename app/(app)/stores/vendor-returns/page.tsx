@@ -5,11 +5,12 @@ import { VendorReturnsClient } from "./vendor-returns-client";
 
 export default async function VendorReturnsPage() {
   await requirePermission("stores", "view");
-  const [rows, stores, vendors, canCreate] = await Promise.all([
+  const [rows, stores, vendors, canCreate, canExport] = await Promise.all([
     listVendorReturns(),
     getStoreOptions(),
     getVendors(),
     can("stores", "create"),
+    can("stores", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -17,7 +18,7 @@ export default async function VendorReturnsPage() {
         title="Return to Vendor"
         description="Return rejected/excess material to a vendor and record the replacement."
       />
-      <VendorReturnsClient rows={rows} stores={stores} vendors={vendors} canCreate={canCreate} />
+      <VendorReturnsClient rows={rows} stores={stores} vendors={vendors} canCreate={canCreate} canExport={canExport} />
     </div>
   );
 }

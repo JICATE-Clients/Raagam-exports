@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createVendorReturn } from "@/lib/stores/extras-actions";
 import { VENDOR_RETURN_STATUS_LABELS, type VendorReturnStatus } from "@/lib/stores/extras-types";
 import type { VendorReturnWithRefs, StoreOption, VendorOption } from "@/lib/stores/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: VendorReturnStatus): StatusTone {
   switch (s) {
@@ -38,9 +39,10 @@ interface Props {
   stores: StoreOption[];
   vendors: VendorOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function VendorReturnsClient({ rows, stores, vendors, canCreate }: Props) {
+export function VendorReturnsClient({ rows, stores, vendors, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -91,6 +93,7 @@ export function VendorReturnsClient({ rows, stores, vendors, canCreate }: Props)
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="vendor_returns" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

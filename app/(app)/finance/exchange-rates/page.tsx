@@ -8,10 +8,11 @@ import { ExchangeRatesClient } from "./exchange-rates-client";
 export default async function ExchangeRatesPage() {
   await requirePermission("finance", "view");
 
-  const [rates, currencies, canCreate, canDelete] = await Promise.all([
+  const [rates, currencies, canCreate, canExport, canDelete] = await Promise.all([
     getExchangeRates(),
     getCurrencyOptions(),
     can("finance", "create"),
+    can("finance", "export"),
     can("finance", "delete"),
   ]);
 
@@ -33,6 +34,7 @@ export default async function ExchangeRatesPage() {
         rates={rates}
         currencies={currencies}
         canCreate={canCreate}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

@@ -11,12 +11,13 @@ import { KnittingProgramsClient } from "./knitting-client";
 export default async function KnittingProgramsPage() {
   await requirePermission("process_planning", "view");
 
-  const [programs, orders, canCreate, canEdit, canDelete] = await Promise.all([
+  const [programs, orders, canCreate, canEdit, canDelete, canExport] = await Promise.all([
     getKnittingPrograms(),
     getOrderOptions(),
     can("process_planning", "create"),
     can("process_planning", "edit"),
     can("process_planning", "delete"),
+    can("process_planning", "export"),
   ]);
 
   return (
@@ -39,6 +40,7 @@ export default async function KnittingProgramsPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

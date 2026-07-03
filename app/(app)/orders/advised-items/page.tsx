@@ -9,12 +9,13 @@ import { AdvisedItemsClient } from "./advised-items-client";
 export default async function AdvisedItemsPage() {
   await requirePermission("orders", "view");
 
-  const [items, orders, canCreate, canEdit, canDelete] = await Promise.all([
+  const [items, orders, canCreate, canEdit, canDelete, canExport] = await Promise.all([
     getAdvisedItems(),
     getOrders(),
     can("orders", "create"),
     can("orders", "edit"),
     can("orders", "delete"),
+    can("orders", "export"),
   ]);
 
   return (
@@ -37,6 +38,7 @@ export default async function AdvisedItemsPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

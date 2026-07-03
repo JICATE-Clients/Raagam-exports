@@ -5,10 +5,11 @@ import { OpeningStockClient } from "./opening-stock-client";
 
 export default async function OpeningStockPage() {
   await requirePermission("stores", "view");
-  const [rows, stores, canCreate] = await Promise.all([
+  const [rows, stores, canCreate, canExport] = await Promise.all([
     listOpeningStocks(),
     getStoreOptions(),
     can("stores", "create"),
+    can("stores", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -16,7 +17,7 @@ export default async function OpeningStockPage() {
         title="Opening Stock"
         description="Set a store's initial on-hand balances; posting writes adjust-in entries to the ledger."
       />
-      <OpeningStockClient rows={rows} stores={stores} canCreate={canCreate} />
+      <OpeningStockClient rows={rows} stores={stores} canCreate={canCreate} canExport={canExport} />
     </div>
   );
 }

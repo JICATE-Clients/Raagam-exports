@@ -5,18 +5,19 @@ import { LeaveClient } from "./leave-client";
 
 export default async function LeavePage() {
   await requirePermission("hr_payroll", "view");
-  const [rows, employees, canCreate, canEdit, canApprove, canDelete] = await Promise.all([
+  const [rows, employees, canCreate, canEdit, canApprove, canDelete, canExport] = await Promise.all([
     listLeaves(),
     getEmployees(),
     can("hr_payroll", "create"),
     can("hr_payroll", "edit"),
     can("hr_payroll", "approve"),
     can("hr_payroll", "delete"),
+    can("hr_payroll", "export"),
   ]);
   return (
     <div className="space-y-4">
       <PageHeader title="Leave & Encashment" description="Leave applications and earned-leave encashment." />
-      <LeaveClient rows={rows} employees={employees} canCreate={canCreate} canEdit={canEdit} canApprove={canApprove} canDelete={canDelete} />
+      <LeaveClient rows={rows} employees={employees} canCreate={canCreate} canEdit={canEdit} canApprove={canApprove} canDelete={canDelete} canExport={canExport} />
     </div>
   );
 }

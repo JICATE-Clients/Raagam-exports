@@ -16,6 +16,7 @@ import { createAdvance, recordRepayment, cancelAdvance, deleteAdvance } from "@/
 import { ADVANCE_STATUS_LABELS, EMPLOYEE_TYPE_LABELS, type AdvanceStatus } from "@/lib/hr/extras-types";
 import type { HrAdvance } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: AdvanceStatus): StatusTone {
   switch (s) {
@@ -36,9 +37,10 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
-export function AdvancesClient({ rows, employees, canCreate, canEdit, canDelete }: Props) {
+export function AdvancesClient({ rows, employees, canCreate, canEdit, canDelete, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -115,6 +117,7 @@ export function AdvancesClient({ rows, employees, canCreate, canEdit, canDelete 
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="hr_advances" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

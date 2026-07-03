@@ -21,6 +21,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -30,6 +31,7 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function EpcgClient({
@@ -38,6 +40,7 @@ export function EpcgClient({
   canCreate,
   canEdit,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -191,6 +194,7 @@ export function EpcgClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="epcg_declarations" rows={declarations} canExport={canExport} />
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

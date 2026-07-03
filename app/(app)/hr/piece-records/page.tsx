@@ -1,4 +1,4 @@
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
 import { getPieceRecords } from "@/lib/hr/attendance-service";
 import { listActiveWorkers } from "@/lib/hr/attendance-service";
 import { getLocations, getOrdersForPicker } from "@/lib/hr/masters-service";
@@ -17,7 +17,7 @@ export default async function PieceRecordsPage({ searchParams }: Props) {
   const selectedDate = date ?? today;
   const locationId = location || null;
 
-  const [records, workers, locations, orders] = await Promise.all([
+  const [records, workers, locations, orders, canExport] = await Promise.all([
     getPieceRecords({
       date: selectedDate,
       workerId: worker,
@@ -26,6 +26,7 @@ export default async function PieceRecordsPage({ searchParams }: Props) {
     listActiveWorkers(locationId),
     getLocations(),
     getOrdersForPicker(),
+    can("hr_payroll", "export"),
   ]);
 
   return (
@@ -42,6 +43,7 @@ export default async function PieceRecordsPage({ searchParams }: Props) {
         selectedDate={selectedDate}
         selectedLocationId={locationId}
         selectedWorkerId={worker ?? null}
+        canExport={canExport}
       />
     </div>
   );

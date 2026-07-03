@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtDate } from "@/lib/format";
 import { createPurchaseIndent } from "@/lib/purchase/extras-actions";
 import { INDENT_STATUS_LABELS, type IndentStatus } from "@/lib/purchase/extras-types";
@@ -35,9 +36,10 @@ interface Props {
   rows: PurchaseIndentWithRefs[];
   orders: OrderOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function IndentsClient({ rows, orders, canCreate }: Props) {
+export function IndentsClient({ rows, orders, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -82,6 +84,7 @@ export function IndentsClient({ rows, orders, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="purchase_indents" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

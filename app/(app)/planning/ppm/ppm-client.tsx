@@ -14,6 +14,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createPpmIssue } from "@/lib/planning/extras-actions";
 import { PPM_STATUS_LABELS, type PpmStatus } from "@/lib/planning/types";
 import type { PpmIssueWithRefs, OrderForPicker } from "@/lib/planning/extras-service";
@@ -35,9 +36,10 @@ interface Props {
   rows: PpmIssueWithRefs[];
   orders: OrderForPicker[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function PpmClient({ rows, orders, canCreate }: Props) {
+export function PpmClient({ rows, orders, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -82,6 +84,8 @@ export function PpmClient({ rows, orders, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="ppm_issues" rows={rows} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

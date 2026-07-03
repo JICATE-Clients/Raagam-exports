@@ -5,10 +5,11 @@ import { PpmClient } from "./ppm-client";
 
 export default async function PpmPage() {
   await requirePermission("planning", "view");
-  const [rows, orders, canCreate] = await Promise.all([
+  const [rows, orders, canCreate, canExport] = await Promise.all([
     listPpmIssues(),
     getOrdersForPicker(),
     can("planning", "create"),
+    can("planning", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -16,7 +17,7 @@ export default async function PpmPage() {
         title="Issue PPM"
         description="Issue production-planning materials for garment production, with line-wise receipts."
       />
-      <PpmClient rows={rows} orders={orders} canCreate={canCreate} />
+      <PpmClient rows={rows} orders={orders} canCreate={canCreate} canExport={canExport} />
     </div>
   );
 }

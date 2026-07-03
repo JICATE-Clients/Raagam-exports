@@ -12,6 +12,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createMaterialExcess,
   receiveMaterialExcess,
@@ -51,6 +52,7 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function MaterialExcessClient({
@@ -61,6 +63,7 @@ export function MaterialExcessClient({
   canCreate,
   canEdit,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -139,6 +142,8 @@ export function MaterialExcessClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="material_excess" rows={rows} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

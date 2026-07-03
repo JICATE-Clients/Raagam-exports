@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createSqNote } from "@/lib/planning/extras-actions";
 import { SQ_STATUS_LABELS, type SqStatus } from "@/lib/planning/types";
 import type { SqNoteWithRefs, OrderForPicker, BuyerOption } from "@/lib/planning/extras-service";
@@ -26,9 +27,10 @@ interface Props {
   orders: OrderForPicker[];
   buyers: BuyerOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function SqNotesClient({ rows, orders, buyers, canCreate }: Props) {
+export function SqNotesClient({ rows, orders, buyers, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -73,6 +75,8 @@ export function SqNotesClient({ rows, orders, buyers, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="sq_notes" rows={rows} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

@@ -10,7 +10,7 @@ import { ProcessAllocationsClient } from "./process-allocations-client";
 
 export default async function ProcessAllocationsPage() {
   await requirePermission("planning", "view");
-  const [rows, orders, vendors, uoms, canCreate, canEdit, canDelete] = await Promise.all([
+  const [rows, orders, vendors, uoms, canCreate, canEdit, canDelete, canExport] = await Promise.all([
     listProcessAllocations(),
     getOrdersForPicker(),
     getVendors(),
@@ -18,6 +18,7 @@ export default async function ProcessAllocationsPage() {
     can("planning", "create"),
     can("planning", "edit"),
     can("planning", "delete"),
+    can("planning", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -33,6 +34,7 @@ export default async function ProcessAllocationsPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

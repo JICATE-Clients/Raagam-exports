@@ -23,6 +23,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
 interface Props {
@@ -30,10 +31,11 @@ interface Props {
   currencies: CurrencyOption[];
   canCreate: boolean;
   canEdit: boolean;
+  canExport: boolean;
   canDelete: boolean;
 }
 
-export function ChequesClient({ cheques, currencies, canCreate, canEdit, canDelete }: Props) {
+export function ChequesClient({ cheques, currencies, canCreate, canEdit, canExport, canDelete }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -165,6 +167,8 @@ export function ChequesClient({ cheques, currencies, canCreate, canEdit, canDele
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="cheques" rows={cheques} canExport={canExport} />
+
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (
