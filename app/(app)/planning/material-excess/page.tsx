@@ -10,7 +10,7 @@ import { MaterialExcessClient } from "./material-excess-client";
 
 export default async function MaterialExcessPage() {
   await requirePermission("planning", "view");
-  const [rows, orders, items, uoms, canCreate, canEdit, canDelete] = await Promise.all([
+  const [rows, orders, items, uoms, canCreate, canEdit, canDelete, canExport] = await Promise.all([
     listMaterialExcess(),
     getOrdersForPicker(),
     getItems(),
@@ -18,6 +18,7 @@ export default async function MaterialExcessPage() {
     can("planning", "create"),
     can("planning", "edit"),
     can("planning", "delete"),
+    can("planning", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -33,6 +34,7 @@ export default async function MaterialExcessPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

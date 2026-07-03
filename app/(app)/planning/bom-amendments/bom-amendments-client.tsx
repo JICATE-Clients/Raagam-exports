@@ -14,6 +14,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   raiseBomAmendment,
   submitBomAmendment,
@@ -49,6 +50,7 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canApprove: boolean;
+  canExport?: boolean;
 }
 
 export function BomAmendmentsClient({
@@ -57,6 +59,7 @@ export function BomAmendmentsClient({
   canCreate,
   canEdit,
   canApprove,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -187,6 +190,8 @@ export function BomAmendmentsClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="bom_amendments" rows={amendments} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

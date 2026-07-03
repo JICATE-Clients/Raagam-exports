@@ -8,10 +8,11 @@ import { BankLimitsClient } from "./bank-limits-client";
 export default async function BankLimitsPage() {
   await requirePermission("finance", "view");
 
-  const [limits, currencies, canCreate, canDelete] = await Promise.all([
+  const [limits, currencies, canCreate, canExport, canDelete] = await Promise.all([
     getBankLimits(),
     getCurrencyOptions(),
     can("finance", "create"),
+    can("finance", "export"),
     can("finance", "delete"),
   ]);
 
@@ -33,6 +34,7 @@ export default async function BankLimitsPage() {
         limits={limits}
         currencies={currencies}
         canCreate={canCreate}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

@@ -9,12 +9,13 @@ import { BudgetAmendmentsClient } from "./budget-amendments-client";
 export default async function BudgetAmendmentsPage() {
   await requirePermission("planning", "view");
 
-  const [amendments, budgets, canCreate, canEdit, canApprove] = await Promise.all([
+  const [amendments, budgets, canCreate, canEdit, canApprove, canExport] = await Promise.all([
     listBudgetAmendments(),
     getApprovedBudgets(),
     can("planning", "create"),
     can("planning", "edit"),
     can("planning", "approve"),
+    can("planning", "export"),
   ]);
 
   return (
@@ -29,6 +30,7 @@ export default async function BudgetAmendmentsPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canApprove={canApprove}
+        canExport={canExport}
       />
     </div>
   );

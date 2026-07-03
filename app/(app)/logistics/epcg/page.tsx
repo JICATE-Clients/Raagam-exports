@@ -8,13 +8,14 @@ import { EpcgClient } from "./epcg-client";
 export default async function EpcgPage() {
   await requirePermission("logistics", "view");
 
-  const [declarations, currencies, canCreate, canEdit, canDelete] =
+  const [declarations, currencies, canCreate, canEdit, canDelete, canExport] =
     await Promise.all([
       getEpcgDeclarations(),
       getCurrencyOptions(),
       can("logistics", "create"),
       can("logistics", "edit"),
       can("logistics", "delete"),
+      can("logistics", "export"),
     ]);
 
   return (
@@ -37,6 +38,7 @@ export default async function EpcgPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

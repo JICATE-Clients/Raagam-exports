@@ -23,6 +23,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrCompEvent } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: CompStatus): StatusTone {
   return s === "draft" ? "info" : s === "approved" ? "success" : "danger";
@@ -34,9 +35,10 @@ interface Props {
   canCreate: boolean;
   canApprove: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
-export function CompEventsClient({ rows, employees, canCreate, canApprove, canDelete }: Props) {
+export function CompEventsClient({ rows, employees, canCreate, canApprove, canDelete, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -114,6 +116,7 @@ export function CompEventsClient({ rows, employees, canCreate, canApprove, canDe
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="hr_comp_events" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

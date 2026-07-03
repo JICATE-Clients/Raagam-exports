@@ -8,10 +8,11 @@ import { ExportCategoriesClient } from "./export-categories-client";
 export default async function ExportCategoriesPage() {
   await requirePermission("logistics", "view");
 
-  const [categories, canCreate, canEdit, canDelete] = await Promise.all([
+  const [categories, canCreate, canEdit, canExport, canDelete] = await Promise.all([
     getExportCategories(),
     can("logistics", "create"),
     can("logistics", "edit"),
+    can("logistics", "export"),
     can("logistics", "delete"),
   ]);
 
@@ -33,6 +34,7 @@ export default async function ExportCategoriesPage() {
         categories={categories}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

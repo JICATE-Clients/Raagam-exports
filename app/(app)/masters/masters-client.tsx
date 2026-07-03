@@ -764,17 +764,17 @@ export default function MastersClient({
     {
       key: "transporters",
       label: "Transporters",
-      content: <TransportersSection transporters={transporters} />,
+      content: <TransportersSection transporters={transporters} io={io} />,
     },
     {
       key: "gst-rates",
       label: "GST Rates",
-      content: <GstRatesSection gstRates={gstRates} />,
+      content: <GstRatesSection gstRates={gstRates} io={io} />,
     },
     {
       key: "currencies",
       label: "Currencies",
-      content: <CurrenciesSection currencies={currencies} />,
+      content: <CurrenciesSection currencies={currencies} io={io} />,
     },
   ];
 

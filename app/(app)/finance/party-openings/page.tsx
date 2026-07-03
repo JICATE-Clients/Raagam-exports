@@ -13,13 +13,14 @@ import { PartyOpeningsClient } from "./party-openings-client";
 export default async function PartyOpeningsPage() {
   await requirePermission("finance", "view");
 
-  const [openings, vendors, buyers, currencies, canCreate, canDelete] =
+  const [openings, vendors, buyers, currencies, canCreate, canExport, canDelete] =
     await Promise.all([
       getPartyOpenings(),
       getVendorOptions(),
       getBuyerOptions(),
       getCurrencyOptions(),
       can("finance", "create"),
+      can("finance", "export"),
       can("finance", "delete"),
     ]);
 
@@ -43,6 +44,7 @@ export default async function PartyOpeningsPage() {
         buyers={buyers}
         currencies={currencies}
         canCreate={canCreate}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

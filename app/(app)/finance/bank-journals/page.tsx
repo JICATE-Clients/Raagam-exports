@@ -8,10 +8,11 @@ import { BankJournalsClient } from "./bank-journals-client";
 export default async function BankJournalsPage() {
   await requirePermission("finance", "view");
 
-  const [journals, currencies, canCreate, canDelete] = await Promise.all([
+  const [journals, currencies, canCreate, canExport, canDelete] = await Promise.all([
     getBankJournals(),
     getCurrencyOptions(),
     can("finance", "create"),
+    can("finance", "export"),
     can("finance", "delete"),
   ]);
 
@@ -33,6 +34,7 @@ export default async function BankJournalsPage() {
         journals={journals}
         currencies={currencies}
         canCreate={canCreate}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

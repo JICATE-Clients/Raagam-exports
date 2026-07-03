@@ -20,6 +20,9 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 interface Props {
   groups: CostCentreGroup[];
@@ -28,6 +31,7 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function CostCentresClient({
@@ -37,10 +41,13 @@ export function CostCentresClient({
   canCreate,
   canEdit,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const selGroups = useRowSelection();
+  const selCentres = useRowSelection();
 
   // group form
   const [gName, setGName] = useState("");
@@ -142,7 +149,30 @@ export function CostCentresClient({
           <CardTitle>Cost Centre Groups ({groups.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={groupCols} rows={groups} getKey={(g) => g.id} empty="No groups yet." />
+          <DataIoToolbar
+            entityKey="cost_centre_groups"
+            rows={groups}
+            canImport={canCreate}
+            canExport={canExport}
+          />
+          {canDelete && (
+            <BulkDeleteBar
+              entityKey="cost_centre_groups"
+              selectedIds={selGroups.selectedIds}
+              onClear={selGroups.clear}
+              label="groups"
+            />
+          )}
+          <DataTable
+            columns={groupCols}
+            rows={groups}
+            getKey={(g) => g.id}
+            empty="No groups yet."
+            selectable={canDelete}
+            selectedKeys={selGroups.selectedKeys}
+            onToggle={selGroups.toggle}
+            onToggleAll={() => selGroups.toggleAll(groups.map((g) => g.id))}
+          />
           {canCreate && (
             <form
               onSubmit={(e) => {
@@ -180,7 +210,30 @@ export function CostCentresClient({
           <CardTitle>Cost Centres ({centres.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={centreCols} rows={centres} getKey={(c) => c.id} empty="No cost centres yet." />
+          <DataIoToolbar
+            entityKey="cost_centres"
+            rows={centres}
+            canImport={canCreate}
+            canExport={canExport}
+          />
+          {canDelete && (
+            <BulkDeleteBar
+              entityKey="cost_centres"
+              selectedIds={selCentres.selectedIds}
+              onClear={selCentres.clear}
+              label="cost centres"
+            />
+          )}
+          <DataTable
+            columns={centreCols}
+            rows={centres}
+            getKey={(c) => c.id}
+            empty="No cost centres yet."
+            selectable={canDelete}
+            selectedKeys={selCentres.selectedKeys}
+            onToggle={selCentres.toggle}
+            onToggleAll={() => selCentres.toggleAll(centres.map((c) => c.id))}
+          />
           {canCreate && (
             <form
               onSubmit={(e) => {

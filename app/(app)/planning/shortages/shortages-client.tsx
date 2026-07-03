@@ -14,6 +14,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber, fmtDate } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   raiseShortage,
   submitShortage,
@@ -57,6 +58,7 @@ interface Props {
   canEdit: boolean;
   canApprove: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function ShortagesClient({
@@ -68,6 +70,7 @@ export function ShortagesClient({
   canEdit,
   canApprove,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -268,6 +271,8 @@ export function ShortagesClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="material_shortages" rows={shortages} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

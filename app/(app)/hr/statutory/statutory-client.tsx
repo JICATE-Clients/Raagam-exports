@@ -21,6 +21,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrStatutoryDoc } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 interface Props {
   rows: HrStatutoryDoc[];
@@ -28,9 +29,10 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
-export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete }: Props) {
+export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -103,6 +105,7 @@ export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="hr_statutory_docs" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

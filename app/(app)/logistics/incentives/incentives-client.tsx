@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -35,9 +36,10 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
-export function IncentivesClient({ files, currencies, canCreate, canEdit, canDelete }: Props) {
+export function IncentivesClient({ files, currencies, canCreate, canEdit, canDelete, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -171,6 +173,7 @@ export function IncentivesClient({ files, currencies, canCreate, canEdit, canDel
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="export_incentive_files" rows={files} canExport={canExport} />
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

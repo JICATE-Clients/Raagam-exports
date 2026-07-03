@@ -25,12 +25,14 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 interface Props {
   amendments: RateAmendmentRow[];
   confirmedRfqs: ConfirmedRfqOption[];
   canCreate: boolean;
   canApprove: boolean;
+  canExport?: boolean;
 }
 
 export function RateAmendmentsClient({
@@ -38,6 +40,7 @@ export function RateAmendmentsClient({
   confirmedRfqs,
   canCreate,
   canApprove,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -165,6 +168,7 @@ export function RateAmendmentsClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="process_rate_amendments" rows={amendments} canExport={canExport} />
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

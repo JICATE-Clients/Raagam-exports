@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 interface Props {
   assignments: AssignmentRow[];
@@ -26,6 +27,7 @@ interface Props {
   orders: OrderOption[];
   canCreate: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function OrderCategoriesClient({
@@ -34,6 +36,7 @@ export function OrderCategoriesClient({
   orders,
   canCreate,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -124,6 +127,7 @@ export function OrderCategoriesClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="order_category_assignments" rows={assignments} canExport={canExport} />
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

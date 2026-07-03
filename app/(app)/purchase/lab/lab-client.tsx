@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtNumber } from "@/lib/format";
 import {
   createLabStandard,
@@ -58,10 +59,11 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function LabClient(props: Props) {
-  const { standards, tests, standardOpts, orders, items, vendors, buyers, canCreate, canEdit, canDelete } = props;
+  const { standards, tests, standardOpts, orders, items, vendors, buyers, canCreate, canEdit, canDelete, canExport = false } = props;
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -279,6 +281,7 @@ export function LabClient(props: Props) {
 
   const testsTab = (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="lab_tests" rows={tests} canExport={canExport} />
       {canCreate &&
         (tOpen ? (
           <Card>

@@ -11,12 +11,13 @@ import { ForwardContractsClient } from "./forward-contracts-client";
 export default async function ForwardContractsPage() {
   await requirePermission("finance", "view");
 
-  const [contracts, currencies, canCreate, canEdit, canDelete] =
+  const [contracts, currencies, canCreate, canEdit, canExport, canDelete] =
     await Promise.all([
       getForwardContracts(),
       getCurrencyOptions(),
       can("finance", "create"),
       can("finance", "edit"),
+      can("finance", "export"),
       can("finance", "delete"),
     ]);
 
@@ -39,6 +40,7 @@ export default async function ForwardContractsPage() {
         currencies={currencies}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

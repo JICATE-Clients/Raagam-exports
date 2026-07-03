@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createCspReceipt } from "@/lib/stores/extras-actions";
 import { CSP_STATUS_LABELS, type CspStatus } from "@/lib/stores/extras-types";
 import type { CspReceiptWithRefs, StoreOption, BuyerOption } from "@/lib/stores/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: CspStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "posted" ? "success" : "danger";
@@ -27,9 +28,10 @@ interface Props {
   stores: StoreOption[];
   buyers: BuyerOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
+export function CspReceiptsClient({ rows, stores, buyers, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -80,6 +82,7 @@ export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="csp_receipts" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

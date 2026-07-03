@@ -12,6 +12,9 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber, fmtDate } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import {
   createCourier,
   setCourierActive,
@@ -45,13 +48,15 @@ interface Props {
   courierOpts: CourierOption[];
   canCreate: boolean;
   canEdit: boolean;
+  canExport?: boolean;
   canDelete: boolean;
 }
 
-export function CouriersClient({ couriers, despatches, courierOpts, canCreate, canEdit, canDelete }: Props) {
+export function CouriersClient({ couriers, despatches, courierOpts, canCreate, canEdit, canExport = false, canDelete }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const selCourier = useRowSelection();
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) {
     startTransition(async () => {
@@ -165,6 +170,14 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
 
   const couriersTab = (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar entityKey="couriers" rows={couriers} canImport={canCreate} canExport={canExport} />
+      </div>
+
+      {canDelete && (
+        <BulkDeleteBar entityKey="couriers" selectedIds={selCourier.selectedIds} onClear={selCourier.clear} label="couriers" />
+      )}
+
       {canCreate &&
         (cOpen ? (
           <Card>
@@ -184,7 +197,16 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
         ) : (
           <div className="flex justify-end"><Button onClick={() => setCOpen(true)}>New courier</Button></div>
         ))}
-      <DataTable columns={courierColumns} rows={couriers} getKey={(r) => r.id} empty="No couriers yet." />
+      <DataTable
+        columns={courierColumns}
+        rows={couriers}
+        getKey={(r) => r.id}
+        empty="No couriers yet."
+        selectable={canDelete}
+        selectedKeys={selCourier.selectedKeys}
+        onToggle={selCourier.toggle}
+        onToggleAll={() => selCourier.toggleAll(couriers.map((r) => r.id))}
+      />
     </div>
   );
 

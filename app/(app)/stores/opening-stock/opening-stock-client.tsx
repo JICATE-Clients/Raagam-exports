@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createOpeningStock } from "@/lib/stores/extras-actions";
 import { OPENING_STOCK_STATUS_LABELS, type OpeningStockStatus } from "@/lib/stores/extras-types";
 import type { OpeningStockWithRefs, StoreOption } from "@/lib/stores/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: OpeningStockStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "posted" ? "success" : "danger";
@@ -26,9 +27,10 @@ interface Props {
   rows: OpeningStockWithRefs[];
   stores: StoreOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function OpeningStockClient({ rows, stores, canCreate }: Props) {
+export function OpeningStockClient({ rows, stores, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -74,6 +76,7 @@ export function OpeningStockClient({ rows, stores, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="opening_stocks" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

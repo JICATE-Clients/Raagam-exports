@@ -8,11 +8,12 @@ import { ChequesClient } from "./cheques-client";
 export default async function ChequesPage() {
   await requirePermission("finance", "view");
 
-  const [cheques, currencies, canCreate, canEdit, canDelete] = await Promise.all([
+  const [cheques, currencies, canCreate, canEdit, canExport, canDelete] = await Promise.all([
     getCheques(),
     getCurrencyOptions(),
     can("finance", "create"),
     can("finance", "edit"),
+    can("finance", "export"),
     can("finance", "delete"),
   ]);
 
@@ -35,6 +36,7 @@ export default async function ChequesPage() {
         currencies={currencies}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

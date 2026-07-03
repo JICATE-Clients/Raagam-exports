@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createJobOrder } from "@/lib/production/extras-actions";
 import { JOB_ORDER_STATUS_LABELS, type JobOrderStatus } from "@/lib/production/extras-types";
 import type { JobOrderWithRefs, OrderOption } from "@/lib/production/extras-service";
@@ -25,9 +26,10 @@ interface Props {
   rows: JobOrderWithRefs[];
   orders: OrderOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function JobOrdersClient({ rows, orders, canCreate }: Props) {
+export function JobOrdersClient({ rows, orders, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -74,6 +76,7 @@ export function JobOrdersClient({ rows, orders, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="production_job_orders" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

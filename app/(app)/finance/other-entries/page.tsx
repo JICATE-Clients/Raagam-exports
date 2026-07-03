@@ -8,10 +8,11 @@ import { OtherEntriesClient } from "./other-entries-client";
 export default async function OtherEntriesPage() {
   await requirePermission("finance", "view");
 
-  const [entries, currencies, canCreate, canDelete] = await Promise.all([
+  const [entries, currencies, canCreate, canExport, canDelete] = await Promise.all([
     getOtherEntries(),
     getCurrencyOptions(),
     can("finance", "create"),
+    can("finance", "export"),
     can("finance", "delete"),
   ]);
 
@@ -33,6 +34,7 @@ export default async function OtherEntriesPage() {
         entries={entries}
         currencies={currencies}
         canCreate={canCreate}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

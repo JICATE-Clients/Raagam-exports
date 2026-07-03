@@ -5,11 +5,12 @@ import { ProductDevClient } from "./product-dev-client";
 
 export default async function ProductDevPage() {
   await requirePermission("planning", "view");
-  const [rows, buyers, opportunities, canCreate] = await Promise.all([
+  const [rows, buyers, opportunities, canCreate, canExport] = await Promise.all([
     listPdRequests(),
     getBuyers(),
     getOpportunities(),
     can("planning", "create"),
+    can("planning", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -22,6 +23,7 @@ export default async function ProductDevPage() {
         buyers={buyers}
         opportunities={opportunities}
         canCreate={canCreate}
+        canExport={canExport}
       />
     </div>
   );

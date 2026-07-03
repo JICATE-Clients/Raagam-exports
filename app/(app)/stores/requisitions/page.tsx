@@ -5,10 +5,11 @@ import { RequisitionsClient } from "./requisitions-client";
 
 export default async function RequisitionsPage() {
   await requirePermission("stores", "view");
-  const [rows, stores, canCreate] = await Promise.all([
+  const [rows, stores, canCreate, canExport] = await Promise.all([
     listRequisitions(),
     getStoreOptions(),
     can("stores", "create"),
+    can("stores", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -16,7 +17,7 @@ export default async function RequisitionsPage() {
         title="Material Requisition Slips"
         description="Department requests for material from a store; approve then issue (posts to the ledger)."
       />
-      <RequisitionsClient rows={rows} stores={stores} canCreate={canCreate} />
+      <RequisitionsClient rows={rows} stores={stores} canCreate={canCreate} canExport={canExport} />
     </div>
   );
 }

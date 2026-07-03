@@ -12,7 +12,7 @@ import { CostCentresClient } from "./cost-centres-client";
 export default async function CostCentresPage() {
   await requirePermission("finance", "view");
 
-  const [groups, centres, activeGroups, canCreate, canEdit, canDelete] =
+  const [groups, centres, activeGroups, canCreate, canEdit, canDelete, canExport] =
     await Promise.all([
       getCostCentreGroups(),
       getCostCentres(),
@@ -20,6 +20,7 @@ export default async function CostCentresPage() {
       can("finance", "create"),
       can("finance", "edit"),
       can("finance", "delete"),
+      can("finance", "export"),
     ]);
 
   return (
@@ -43,6 +44,7 @@ export default async function CostCentresPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

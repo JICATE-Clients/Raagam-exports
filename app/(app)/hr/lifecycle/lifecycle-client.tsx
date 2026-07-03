@@ -23,6 +23,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrLifecycleEvent } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 function tone(s: LifecycleStatus): StatusTone {
   return s === "draft" ? "info" : s === "completed" ? "success" : "danger";
@@ -34,9 +35,10 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
-export function LifecycleClient({ rows, employees, canCreate, canEdit, canDelete }: Props) {
+export function LifecycleClient({ rows, employees, canCreate, canEdit, canDelete, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -117,6 +119,7 @@ export function LifecycleClient({ rows, employees, canCreate, canEdit, canDelete
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="hr_lifecycle_events" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

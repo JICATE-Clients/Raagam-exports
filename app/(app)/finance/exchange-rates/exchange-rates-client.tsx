@@ -16,16 +16,18 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtNumber, fmtDate } from "@/lib/format";
 
 interface Props {
   rates: ExchangeRateDetail[];
   currencies: CurrencyOption[];
   canCreate: boolean;
+  canExport: boolean;
   canDelete: boolean;
 }
 
-export function ExchangeRatesClient({ rates, currencies, canCreate, canDelete }: Props) {
+export function ExchangeRatesClient({ rates, currencies, canCreate, canExport, canDelete }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -128,6 +130,8 @@ export function ExchangeRatesClient({ rates, currencies, canCreate, canDelete }:
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="exchange_rate_details" rows={rates} canExport={canExport} />
+
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

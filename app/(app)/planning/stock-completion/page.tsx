@@ -5,12 +5,13 @@ import { StockCompletionClient } from "./stock-completion-client";
 
 export default async function StockCompletionPage() {
   await requirePermission("planning", "view");
-  const [rows, orders, canCreate, canEdit, canDelete] = await Promise.all([
+  const [rows, orders, canCreate, canEdit, canDelete, canExport] = await Promise.all([
     listStockCompletions(),
     getOrdersForPicker(),
     can("planning", "create"),
     can("planning", "edit"),
     can("planning", "delete"),
+    can("planning", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -24,6 +25,7 @@ export default async function StockCompletionPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

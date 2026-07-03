@@ -19,16 +19,18 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
 interface Props {
   journals: BankJournal[];
   currencies: CurrencyOption[];
   canCreate: boolean;
+  canExport: boolean;
   canDelete: boolean;
 }
 
-export function BankJournalsClient({ journals, currencies, canCreate, canDelete }: Props) {
+export function BankJournalsClient({ journals, currencies, canCreate, canExport, canDelete }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -124,6 +126,8 @@ export function BankJournalsClient({ journals, currencies, canCreate, canDelete 
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="bank_journals" rows={journals} canExport={canExport} />
+
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (

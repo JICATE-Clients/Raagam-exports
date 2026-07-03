@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtDate } from "@/lib/format";
 import { createPackingList } from "@/lib/production/extras-actions";
 import { PACKING_STATUS_LABELS, type PackingStatus } from "@/lib/production/extras-types";
@@ -26,9 +27,10 @@ interface Props {
   rows: PackingListWithRefs[];
   orders: OrderOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function PackingListsClient({ rows, orders, canCreate }: Props) {
+export function PackingListsClient({ rows, orders, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -70,6 +72,7 @@ export function PackingListsClient({ rows, orders, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="packing_lists" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

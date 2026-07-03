@@ -5,12 +5,13 @@ import { OverBudgetClient } from "./over-budget-client";
 
 export default async function OverBudgetPage() {
   await requirePermission("materials_purchase", "view");
-  const [rows, pos, canCreate, canEdit, canApprove] = await Promise.all([
+  const [rows, pos, canCreate, canEdit, canApprove, canExport] = await Promise.all([
     listOverBudget(),
     getPoOptions(),
     can("materials_purchase", "create"),
     can("materials_purchase", "edit"),
     can("materials_purchase", "approve"),
+    can("materials_purchase", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -18,7 +19,7 @@ export default async function OverBudgetPage() {
         title="Price-over-Budget Confirmation"
         description="Route a quoted rate that exceeds the budget rate for management approval."
       />
-      <OverBudgetClient rows={rows} pos={pos} canCreate={canCreate} canEdit={canEdit} canApprove={canApprove} />
+      <OverBudgetClient rows={rows} pos={pos} canCreate={canCreate} canEdit={canEdit} canApprove={canApprove} canExport={canExport} />
     </div>
   );
 }

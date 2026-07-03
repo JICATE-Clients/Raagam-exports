@@ -17,12 +17,16 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 
 interface Props {
   activities: TaActivity[];
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
 export function TaMastersClient({
@@ -30,10 +34,12 @@ export function TaMastersClient({
   canCreate,
   canEdit,
   canDelete,
+  canExport = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const sel = useRowSelection();
 
   const [formOpen, setFormOpen] = useState(false);
   useCreateIntent(() => setFormOpen(true));
@@ -199,16 +205,30 @@ export function TaMastersClient({
 
   return (
     <div className="space-y-4">
-      {canCreate && (
-        <div className="flex justify-end">
-          {formOpen ? (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar
+          entityKey="ta_activities"
+          rows={activities}
+          canImport={canCreate}
+          canExport={canExport}
+        />
+        {canCreate &&
+          (formOpen ? (
             <Button variant="outline" size="sm" onClick={closeForm}>
               Cancel
             </Button>
           ) : (
             <Button onClick={openCreate}>New activity</Button>
-          )}
-        </div>
+          ))}
+      </div>
+
+      {canDelete && (
+        <BulkDeleteBar
+          entityKey="ta_activities"
+          selectedIds={sel.selectedIds}
+          onClear={sel.clear}
+          label="activities"
+        />
       )}
 
       {formOpen && (
@@ -292,6 +312,10 @@ export function TaMastersClient({
         rows={activities}
         getKey={(a) => a.id}
         empty="No T&A activities defined yet."
+        selectable={canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(activities.map((a) => a.id))}
       />
     </div>
   );

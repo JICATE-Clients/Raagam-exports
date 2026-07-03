@@ -22,6 +22,7 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 
 const DEFAULTS: PieceRecordInput = {
   worker_id: "",
@@ -38,6 +39,7 @@ export default function PieceRecordsClient({
   selectedDate,
   selectedLocationId,
   selectedWorkerId,
+  canExport = false,
 }: {
   records: PieceRecordRow[];
   workers: Worker[];
@@ -46,6 +48,7 @@ export default function PieceRecordsClient({
   selectedDate: string;
   selectedLocationId: string | null;
   selectedWorkerId: string | null;
+  canExport?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -168,6 +171,7 @@ export default function PieceRecordsClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="worker_piece_records" rows={records} canExport={canExport} />
       {/* Filter bar */}
       <div className="flex flex-wrap items-end gap-3">
         <div>

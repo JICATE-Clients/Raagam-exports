@@ -12,13 +12,14 @@ import { ProvisionalInvoicesClient } from "./provisional-invoices-client";
 export default async function ProvisionalInvoicesPage() {
   await requirePermission("finance", "view");
 
-  const [invoices, buyers, currencies, canCreate, canEdit, canDelete] =
+  const [invoices, buyers, currencies, canCreate, canEdit, canExport, canDelete] =
     await Promise.all([
       getProvisionalInvoices(),
       getBuyerOptions(),
       getCurrencyOptions(),
       can("finance", "create"),
       can("finance", "edit"),
+      can("finance", "export"),
       can("finance", "delete"),
     ]);
 
@@ -42,6 +43,7 @@ export default async function ProvisionalInvoicesPage() {
         currencies={currencies}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

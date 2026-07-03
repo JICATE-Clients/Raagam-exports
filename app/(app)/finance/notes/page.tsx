@@ -13,7 +13,7 @@ import { FinanceNotesClient } from "./notes-client";
 export default async function FinanceNotesPage() {
   await requirePermission("finance", "view");
 
-  const [notes, vendors, buyers, currencies, canCreate, canEdit, canDelete] =
+  const [notes, vendors, buyers, currencies, canCreate, canEdit, canExport, canDelete] =
     await Promise.all([
       getFinanceNotes(),
       getVendorOptions(),
@@ -21,6 +21,7 @@ export default async function FinanceNotesPage() {
       getCurrencyOptions(),
       can("finance", "create"),
       can("finance", "edit"),
+      can("finance", "export"),
       can("finance", "delete"),
     ]);
 
@@ -45,6 +46,7 @@ export default async function FinanceNotesPage() {
         currencies={currencies}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

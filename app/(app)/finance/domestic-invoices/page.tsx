@@ -11,11 +11,12 @@ import { DomesticInvoicesClient } from "./domestic-invoices-client";
 export default async function DomesticInvoicesPage() {
   await requirePermission("finance", "view");
 
-  const [invoices, buyers, canCreate, canEdit, canDelete] = await Promise.all([
+  const [invoices, buyers, canCreate, canEdit, canExport, canDelete] = await Promise.all([
     getDomesticInvoices(),
     getBuyerOptions(),
     can("finance", "create"),
     can("finance", "edit"),
+    can("finance", "export"),
     can("finance", "delete"),
   ]);
 
@@ -38,6 +39,7 @@ export default async function DomesticInvoicesPage() {
         buyers={buyers}
         canCreate={canCreate}
         canEdit={canEdit}
+        canExport={canExport}
         canDelete={canDelete}
       />
     </div>

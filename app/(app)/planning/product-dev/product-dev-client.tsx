@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createPdRequest } from "@/lib/planning/extras-actions";
 import {
   PD_STAGE_LABELS,
@@ -34,9 +35,10 @@ interface Props {
   buyers: BuyerOption[];
   opportunities: OpportunityOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function ProductDevClient({ rows, buyers, opportunities, canCreate }: Props) {
+export function ProductDevClient({ rows, buyers, opportunities, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -81,6 +83,8 @@ export function ProductDevClient({ rows, buyers, opportunities, canCreate }: Pro
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="pd_requests" rows={rows} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

@@ -13,7 +13,7 @@ import { LabClient } from "./lab-client";
 
 export default async function LabPage() {
   await requirePermission("materials_purchase", "view");
-  const [standards, tests, standardOpts, orders, items, vendors, buyers, canCreate, canEdit, canDelete] =
+  const [standards, tests, standardOpts, orders, items, vendors, buyers, canCreate, canEdit, canDelete, canExport] =
     await Promise.all([
       listLabStandards(),
       listLabTests(),
@@ -25,6 +25,7 @@ export default async function LabPage() {
       can("materials_purchase", "create"),
       can("materials_purchase", "edit"),
       can("materials_purchase", "delete"),
+      can("materials_purchase", "export"),
     ]);
   return (
     <div className="space-y-4">
@@ -43,6 +44,7 @@ export default async function LabPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

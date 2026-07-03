@@ -8,12 +8,13 @@ import { IncentivesClient } from "./incentives-client";
 export default async function IncentivesPage() {
   await requirePermission("logistics", "view");
 
-  const [files, currencies, canCreate, canEdit, canDelete] = await Promise.all([
+  const [files, currencies, canCreate, canEdit, canDelete, canExport] = await Promise.all([
     getIncentiveFiles(),
     getCurrencyOptions(),
     can("logistics", "create"),
     can("logistics", "edit"),
     can("logistics", "delete"),
+    can("logistics", "export"),
   ]);
 
   return (
@@ -36,6 +37,7 @@ export default async function IncentivesPage() {
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

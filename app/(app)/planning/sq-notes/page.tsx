@@ -5,11 +5,12 @@ import { SqNotesClient } from "./sq-notes-client";
 
 export default async function SqNotesPage() {
   await requirePermission("planning", "view");
-  const [rows, orders, buyers, canCreate] = await Promise.all([
+  const [rows, orders, buyers, canCreate, canExport] = await Promise.all([
     listSqNotes(),
     getOrdersForPicker(),
     getBuyers(),
     can("planning", "create"),
+    can("planning", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -17,7 +18,7 @@ export default async function SqNotesPage() {
         title="SQ Notes & Allocation"
         description="Sample-quote notes with material/quantity allocation lines."
       />
-      <SqNotesClient rows={rows} orders={orders} buyers={buyers} canCreate={canCreate} />
+      <SqNotesClient rows={rows} orders={orders} buyers={buyers} canCreate={canCreate} canExport={canExport} />
     </div>
   );
 }

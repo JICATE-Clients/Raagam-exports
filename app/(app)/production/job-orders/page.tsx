@@ -5,10 +5,11 @@ import { JobOrdersClient } from "./job-orders-client";
 
 export default async function JobOrdersPage() {
   await requirePermission("production", "view");
-  const [rows, orders, canCreate] = await Promise.all([
+  const [rows, orders, canCreate, canExport] = await Promise.all([
     listJobOrders(),
     getOrders(),
     can("production", "create"),
+    can("production", "export"),
   ]);
   return (
     <div className="space-y-4">
@@ -16,7 +17,7 @@ export default async function JobOrdersPage() {
         title="Production Job Orders"
         description="Internal production jobs (stage-from → stage-to) with component details."
       />
-      <JobOrdersClient rows={rows} orders={orders} canCreate={canCreate} />
+      <JobOrdersClient rows={rows} orders={orders} canCreate={canCreate} canExport={canExport} />
     </div>
   );
 }

@@ -12,13 +12,14 @@ import { OrderCategoriesClient } from "./order-categories-client";
 export default async function OrderCategoriesPage() {
   await requirePermission("logistics", "view");
 
-  const [assignments, categories, orders, canCreate, canDelete] =
+  const [assignments, categories, orders, canCreate, canDelete, canExport] =
     await Promise.all([
       getOrderCategoryAssignments(),
       getActiveCategories(),
       getOrderOptions(),
       can("logistics", "create"),
       can("logistics", "delete"),
+      can("logistics", "export"),
     ]);
 
   return (
@@ -41,6 +42,7 @@ export default async function OrderCategoriesPage() {
         orders={orders}
         canCreate={canCreate}
         canDelete={canDelete}
+        canExport={canExport}
       />
     </div>
   );

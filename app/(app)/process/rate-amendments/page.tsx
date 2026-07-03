@@ -11,11 +11,12 @@ import { RateAmendmentsClient } from "./rate-amendments-client";
 export default async function RateAmendmentsPage() {
   await requirePermission("process_planning", "view");
 
-  const [amendments, confirmedRfqs, canCreate, canApprove] = await Promise.all([
+  const [amendments, confirmedRfqs, canCreate, canApprove, canExport] = await Promise.all([
     getRateAmendments(),
     getConfirmedRfqs(),
     can("process_planning", "create"),
     can("process_planning", "approve"),
+    can("process_planning", "export"),
   ]);
 
   return (
@@ -37,6 +38,7 @@ export default async function RateAmendmentsPage() {
         confirmedRfqs={confirmedRfqs}
         canCreate={canCreate}
         canApprove={canApprove}
+        canExport={canExport}
       />
     </div>
   );

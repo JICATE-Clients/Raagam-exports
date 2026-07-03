@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtNumber, fmtDate } from "@/lib/format";
 import {
   createPieceRate,
@@ -34,9 +35,10 @@ interface Props {
   canEdit: boolean;
   canApprove: boolean;
   canDelete: boolean;
+  canExport?: boolean;
 }
 
-export function PieceRatesClient({ rows, contractors, workTypes, canCreate, canEdit, canApprove, canDelete }: Props) {
+export function PieceRatesClient({ rows, contractors, workTypes, canCreate, canEdit, canApprove, canDelete, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -108,6 +110,7 @@ export function PieceRatesClient({ rows, contractors, workTypes, canCreate, canE
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="contractor_piece_rates" rows={rows} canExport={canExport} />
       {canCreate &&
         (open ? (
           <Card>

@@ -14,6 +14,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createShipmentPlan } from "@/lib/planning/shipment-plan-actions";
 import {
   SHIPMENT_PLAN_STATUS_LABELS,
@@ -39,9 +40,10 @@ interface Props {
   plans: ShipmentPlanWithMeta[];
   buyers: BuyerOption[];
   canCreate: boolean;
+  canExport?: boolean;
 }
 
-export function ShipmentPlansClient({ plans, buyers, canCreate }: Props) {
+export function ShipmentPlansClient({ plans, buyers, canCreate, canExport = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -111,6 +113,8 @@ export function ShipmentPlansClient({ plans, buyers, canCreate }: Props) {
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="shipment_plans" rows={plans} canExport={canExport} />
+
       {canCreate &&
         (open ? (
           <Card>

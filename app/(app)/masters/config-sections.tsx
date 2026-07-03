@@ -10,6 +10,9 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import {
   createLookup,
   updateLookup,
@@ -32,6 +35,13 @@ import {
 import type { Currency } from "@/lib/masters/types";
 
 type Res = { ok: boolean; error?: string };
+
+/** Import/Export/Delete permission flags threaded to each master section. */
+interface IoPerms {
+  canCreate: boolean;
+  canExport: boolean;
+  canDelete: boolean;
+}
 
 /* ------------------------------------------------------------------ */
 /* Materials Config — generic lookups with an internal kind selector   */
@@ -135,10 +145,11 @@ export function MaterialsConfigSection({ lookups }: { lookups: ConfigLookup[] })
 /* ------------------------------------------------------------------ */
 /* Transporters                                                        */
 /* ------------------------------------------------------------------ */
-export function TransportersSection({ transporters }: { transporters: Transporter[] }) {
+export function TransportersSection({ transporters, io }: { transporters: Transporter[]; io: IoPerms }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const sel = useRowSelection();
   const [editId, setEditId] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -167,6 +178,14 @@ export function TransportersSection({ transporters }: { transporters: Transporte
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar entityKey="transporters" rows={transporters} canImport={io.canCreate} canExport={io.canExport} />
+      </div>
+
+      {io.canDelete && (
+        <BulkDeleteBar entityKey="transporters" selectedIds={sel.selectedIds} onClear={sel.clear} label="transporters" />
+      )}
+
       <Card>
         <CardBody>
           <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
@@ -179,7 +198,16 @@ export function TransportersSection({ transporters }: { transporters: Transporte
           </form>
         </CardBody>
       </Card>
-      <DataTable columns={columns} rows={transporters} getKey={(r) => r.id} empty="No transporters yet." />
+      <DataTable
+        columns={columns}
+        rows={transporters}
+        getKey={(r) => r.id}
+        empty="No transporters yet."
+        selectable={io.canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(transporters.map((r) => r.id))}
+      />
     </div>
   );
 }
@@ -187,10 +215,11 @@ export function TransportersSection({ transporters }: { transporters: Transporte
 /* ------------------------------------------------------------------ */
 /* GST Rates                                                           */
 /* ------------------------------------------------------------------ */
-export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
+export function GstRatesSection({ gstRates, io }: { gstRates: GstRate[]; io: IoPerms }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const sel = useRowSelection();
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [rate, setRate] = useState("");
@@ -217,6 +246,14 @@ export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar entityKey="gst_rates" rows={gstRates} canImport={io.canCreate} canExport={io.canExport} />
+      </div>
+
+      {io.canDelete && (
+        <BulkDeleteBar entityKey="gst_rates" selectedIds={sel.selectedIds} onClear={sel.clear} label="rates" />
+      )}
+
       <Card>
         <CardBody>
           <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
@@ -228,7 +265,16 @@ export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
           </form>
         </CardBody>
       </Card>
-      <DataTable columns={columns} rows={gstRates} getKey={(r) => r.id} empty="No GST rates yet." />
+      <DataTable
+        columns={columns}
+        rows={gstRates}
+        getKey={(r) => r.id}
+        empty="No GST rates yet."
+        selectable={io.canDelete}
+        selectedKeys={sel.selectedKeys}
+        onToggle={sel.toggle}
+        onToggleAll={() => sel.toggleAll(gstRates.map((r) => r.id))}
+      />
     </div>
   );
 }
@@ -236,7 +282,7 @@ export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
 /* ------------------------------------------------------------------ */
 /* Currencies                                                          */
 /* ------------------------------------------------------------------ */
-export function CurrenciesSection({ currencies }: { currencies: Currency[] }) {
+export function CurrenciesSection({ currencies, io }: { currencies: Currency[]; io: IoPerms }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -265,6 +311,10 @@ export function CurrenciesSection({ currencies }: { currencies: Currency[] }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <DataIoToolbar entityKey="currencies" rows={currencies} canImport={io.canCreate} canExport={io.canExport} />
+      </div>
+
       <Card>
         <CardBody>
           <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">

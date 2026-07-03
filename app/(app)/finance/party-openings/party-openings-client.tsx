@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
 interface Props {
@@ -33,6 +34,7 @@ interface Props {
   buyers: PartyOption[];
   currencies: CurrencyOption[];
   canCreate: boolean;
+  canExport: boolean;
   canDelete: boolean;
 }
 
@@ -42,6 +44,7 @@ export function PartyOpeningsClient({
   buyers,
   currencies,
   canCreate,
+  canExport,
   canDelete,
 }: Props) {
   const router = useRouter();
@@ -147,6 +150,8 @@ export function PartyOpeningsClient({
 
   return (
     <div className="space-y-4">
+      <DataIoToolbar entityKey="party_openings" rows={openings} canExport={canExport} />
+
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (
