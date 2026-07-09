@@ -22,7 +22,6 @@ import {
   updateCurrency,
 } from "@/lib/masters/extras-actions";
 import {
-  LOOKUP_KINDS,
   LOOKUP_KIND_LABELS,
   type LookupKind,
   type ConfigLookup,
@@ -36,11 +35,37 @@ type Res = { ok: boolean; error?: string };
 /* ------------------------------------------------------------------ */
 /* Materials Config — generic lookups with an internal kind selector   */
 /* ------------------------------------------------------------------ */
+
+// Legacy EDP2 "Material" sub-module child order. Lookup children filter the
+// config_lookups table in place; link children (Stock unit / Material) jump to
+// their own rich tabs since they're backed by dedicated tables (uoms / items).
+type MaterialChild =
+  | { type: "lookup"; kind: LookupKind }
+  | { type: "link"; label: string; tab: string };
+
+const MATERIAL_CHILDREN: MaterialChild[] = [
+  { type: "lookup", kind: "attribute" },
+  { type: "lookup", kind: "levy" },
+  { type: "lookup", kind: "material_category" },
+  { type: "lookup", kind: "material_attribute" },
+  { type: "link", label: "Stock Units", tab: "uoms" },
+  { type: "lookup", kind: "yarn_count" },
+  { type: "lookup", kind: "yarn_purity" },
+  { type: "lookup", kind: "composition" },
+  { type: "link", label: "Materials", tab: "items" },
+  { type: "lookup", kind: "process" },
+  { type: "lookup", kind: "component" },
+  { type: "lookup", kind: "gauge" },
+  { type: "lookup", kind: "knitting_dia" },
+  { type: "lookup", kind: "out_doc_term" },
+  { type: "lookup", kind: "commodity" },
+];
+
 export function MaterialsConfigSection({ lookups }: { lookups: ConfigLookup[] }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [kind, setKind] = useState<LookupKind>("material_category");
+  const [kind, setKind] = useState<LookupKind>("attribute");
   const [editId, setEditId] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -101,18 +126,30 @@ export function MaterialsConfigSection({ lookups }: { lookups: ConfigLookup[] })
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
-        {LOOKUP_KINDS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => { setKind(k); reset(); }}
-            className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-              k === kind ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"
-            }`}
-          >
-            {LOOKUP_KIND_LABELS[k]}
-          </button>
-        ))}
+        {MATERIAL_CHILDREN.map((child) =>
+          child.type === "link" ? (
+            <button
+              key={child.tab}
+              type="button"
+              onClick={() => router.push(`/masters?tab=${child.tab}`)}
+              className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-surface-muted"
+              title={`Opens the ${child.label} tab`}
+            >
+              {child.label} ↗
+            </button>
+          ) : (
+            <button
+              key={child.kind}
+              type="button"
+              onClick={() => { setKind(child.kind); reset(); }}
+              className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                child.kind === kind ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"
+              }`}
+            >
+              {LOOKUP_KIND_LABELS[child.kind]}
+            </button>
+          )
+        )}
       </div>
 
       <Card>

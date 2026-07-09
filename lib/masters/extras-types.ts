@@ -3,28 +3,57 @@ import { z } from "zod";
 // ============================================================================
 // Config lookups — generic kind-discriminated material/spec masters (0218)
 // ============================================================================
+// Ordered to mirror the legacy EDP2 "Material" sub-module child list.
+// Stock unit (uoms) and Material (items) are omitted here — they keep their own
+// rich tables/tabs and are surfaced as links in the child selector (0219).
 export const LOOKUP_KINDS = [
+  "attribute",
+  "levy",
   "material_category",
-  "composition",
+  "material_attribute",
   "yarn_count",
   "yarn_purity",
+  "composition",
   "process",
   "component",
   "gauge",
   "knitting_dia",
+  "out_doc_term",
   "commodity",
+  "item_class",
+  "hsn_code",
+  "city",
+  "state",
+  "department",
+  "designation",
+  "internal_department",
+  "ship_type",
+  "payment_term",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
-  material_category: "Material Categories",
-  composition: "Compositions",
-  yarn_count: "Yarn Counts",
+  attribute: "Attributes",
+  levy: "Levies",
+  material_category: "Categories",
+  material_attribute: "Material Attributes",
+  yarn_count: "Counts",
   yarn_purity: "Yarn Purities",
+  composition: "Compositions",
   process: "Processes",
   component: "Components",
   gauge: "Gauges",
   knitting_dia: "Knitting Dias",
+  out_doc_term: "Out Document Terms",
   commodity: "Commodities",
+  item_class: "Item Classes",
+  hsn_code: "HSN Codes",
+  city: "Cities",
+  state: "States",
+  department: "Departments",
+  designation: "Designations",
+  internal_department: "Internal Departments",
+  ship_type: "Ship Types (Incoterms)",
+  payment_term: "Payment Terms",
 };
 
 export interface ConfigLookup {
@@ -37,6 +66,54 @@ export interface ConfigLookup {
   created_at: string;
   updated_at: string;
 }
+
+// ============================================================================
+// Attributes — master-detail (0220). Legacy EDP2 "Attribute" master: a header
+// with a fixed material-category Type + an optional child grid of values.
+// ============================================================================
+export const ATTRIBUTE_TYPES = [
+  "Yarn",
+  "Fabric",
+  "Sewing Accessories",
+  "Packing Accessories",
+  "General",
+  "Garments",
+  "Consumables",
+  "Capital Items",
+] as const;
+export type AttributeType = (typeof ATTRIBUTE_TYPES)[number];
+
+export interface AttributeValue {
+  id: string;
+  attribute_id: string;
+  sno: number;
+  value: string;
+}
+export interface Attribute {
+  id: string;
+  code: string;
+  type: AttributeType | null;
+  description: string | null;
+  blocked: boolean;
+  has_attributes: boolean;
+  created_at: string;
+  updated_at: string;
+  values: AttributeValue[];
+}
+
+export const attributeValueInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  value: z.string().min(1),
+});
+export const attributeInput = z.object({
+  code: z.string().min(1, "Code is required"),
+  type: z.enum(ATTRIBUTE_TYPES).nullable().default(null),
+  description: z.string().optional().nullable(),
+  blocked: z.boolean().default(false),
+  has_attributes: z.boolean().default(false),
+  values: z.array(attributeValueInput).default([]),
+});
+export type AttributeInput = z.infer<typeof attributeInput>;
 export const lookupInput = z.object({
   kind: z.enum(LOOKUP_KINDS),
   code: z.string().optional().nullable(),

@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { ConfigLookup, Transporter, GstRate } from "./extras-types";
+import type { ConfigLookup, Transporter, GstRate, Attribute } from "./extras-types";
 
 export async function listConfigLookups(): Promise<ConfigLookup[]> {
   const s = await createClient();
@@ -22,4 +22,16 @@ export async function listGstRates(): Promise<GstRate[]> {
   const s = await createClient();
   const { data } = await s.from("gst_rates").select("*").order("rate_pct");
   return (data ?? []) as GstRate[];
+}
+
+export async function listAttributes(): Promise<Attribute[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("attributes")
+    .select("*, values:attribute_values(*)")
+    .order("code");
+  return ((data ?? []) as Attribute[]).map((a) => ({
+    ...a,
+    values: [...(a.values ?? [])].sort((x, y) => x.sno - y.sno),
+  }));
 }
