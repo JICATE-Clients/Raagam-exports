@@ -21,6 +21,8 @@ export function ApplicantPicker({
   onChange,
   compact = false,
   label = "Applicant",
+  variant = "field",
+  addLabel = "+ Add applicant",
 }: {
   applicants: Applicant[];
   value: string | null;
@@ -28,6 +30,9 @@ export function ApplicantPicker({
   /** Trigger-only (no label) for dense grid rows. */
   compact?: boolean;
   label?: string;
+  /** "field" = a select box; "add" = a dashed pill that appends on pick. */
+  variant?: "field" | "add";
+  addLabel?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -64,36 +69,45 @@ export function ApplicantPicker({
       : selected.name
     : `— Select ${label} —`;
 
-  const trigger = (
-    <div className="flex items-center gap-1">
+  const trigger =
+    variant === "add" ? (
       <button
         type="button"
         onClick={openDialog}
-        className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+        className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-border px-3 text-sm font-medium text-primary hover:border-primary hover:bg-surface-muted"
       >
-        <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
-          {selectedLabel}
-        </span>
-        <span className="ml-2 shrink-0 rounded border border-border px-1.5 text-xs text-muted-foreground">
-          ⓘ
-        </span>
+        {addLabel}
       </button>
-      {selected && (
+    ) : (
+      <div className="flex items-center gap-1">
         <button
           type="button"
-          onClick={() => onChange(null)}
-          className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-danger"
-          aria-label="Clear"
+          onClick={openDialog}
+          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
         >
-          ✕
+          <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
+            {selectedLabel}
+          </span>
+          <span className="ml-2 shrink-0 rounded border border-border px-1.5 text-xs text-muted-foreground">
+            ⓘ
+          </span>
         </button>
-      )}
-    </div>
-  );
+        {selected && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-danger"
+            aria-label="Clear"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+    );
 
   return (
     <div>
-      {!compact && <Label>{label}</Label>}
+      {!compact && variant === "field" && <Label>{label}</Label>}
       {trigger}
 
       {mounted &&

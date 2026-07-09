@@ -29,6 +29,19 @@ export const LOOKUP_KINDS = [
   "internal_department",
   "ship_type",
   "payment_term",
+  "employee_category",
+  "team",
+  "account_schedule",
+  "vendor_group",
+  "agent_type",
+  "agent",
+  "packing_list_format",
+  "commercial_invoice_format",
+  "shift_category",
+  "doc_track",
+  "doc_menu",
+  "doc_value_type",
+  "doc_value_from",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -54,6 +67,19 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   internal_department: "Internal Departments",
   ship_type: "Ship Types (Incoterms)",
   payment_term: "Payment Terms",
+  employee_category: "Employee Categories",
+  team: "Teams",
+  account_schedule: "Account Schedules",
+  vendor_group: "Vendor Groups",
+  agent_type: "Agent Types",
+  agent: "Agents",
+  packing_list_format: "Packing List Formats",
+  commercial_invoice_format: "Commercial Invoice Formats",
+  shift_category: "Shift Categories",
+  doc_track: "Document Tracks",
+  doc_menu: "Document Menus",
+  doc_value_type: "Document Value Types",
+  doc_value_from: "Document Value Sources",
 };
 
 export interface ConfigLookup {

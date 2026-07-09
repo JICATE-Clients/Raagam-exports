@@ -31,7 +31,7 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities";
+  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "hsn_assign";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
@@ -51,6 +51,7 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "knitting-dias", label: "Knitting Dias", singular: "Knitting Dia", description: "Knitting diameters", custom: "knitting_dias" },
   { slug: "out-document-terms", label: "Out Document Terms", singular: "Out Document Term", description: "Sub-contract issue terms", custom: "out_document_terms" },
   { slug: "commodities", label: "Commodities", singular: "Commodity", description: "Customs commodity classes", custom: "commodities" },
+  { slug: "hsn-assign", label: "HSN Assign to Materials", singular: "HSN Assignment", description: "Bulk-assign HSN codes to materials/items", custom: "hsn_assign" },
 ];
 
 export function findMaterialChild(slug: string): MaterialChild | undefined {

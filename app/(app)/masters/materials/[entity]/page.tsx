@@ -37,6 +37,8 @@ import { StockUnitMasterScreen } from "@/components/masters/stock-unit-master-sc
 import { listMaterials } from "@/lib/masters/material-service";
 import { getActiveHeads } from "@/lib/finance/cost-heads/service";
 import { MaterialMasterScreen } from "@/components/masters/material-master-screen";
+import { listMaterialHsn } from "@/lib/masters/material-hsn-service";
+import { MaterialHsnAssignScreen } from "@/components/masters/material-hsn-assign-screen";
 
 export default async function MaterialEntityPage({
   params,
@@ -176,6 +178,21 @@ export default async function MaterialEntityPage({
         <CommodityMasterScreen
           rows={commodities}
           itemClasses={all.filter((l) => l.kind === "item_class")}
+          perms={perms}
+        />
+      );
+    } else if (child.custom === "hsn_assign") {
+      const [materialRows, all, cats] = await Promise.all([
+        listMaterialHsn(),
+        listConfigLookups(),
+        listCategories(),
+      ]);
+      screen = (
+        <MaterialHsnAssignScreen
+          rows={materialRows}
+          hsnOptions={all.filter((l) => l.kind === "hsn_code")}
+          itemClasses={all.filter((l) => l.kind === "item_class")}
+          categories={cats}
           perms={perms}
         />
       );

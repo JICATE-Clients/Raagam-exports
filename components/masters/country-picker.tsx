@@ -48,12 +48,15 @@ export function CountryPicker({
   onChange,
   canCreate,
   canEdit,
+  compact = false,
 }: {
   countries: Country[];
   value: string | null;
   onChange: (id: string) => void;
   canCreate: boolean;
   canEdit: boolean;
+  /** Trigger-only (no label) for dense grid rows. */
+  compact?: boolean;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -169,9 +172,11 @@ export function CountryPicker({
 
   return (
     <div>
-      <Label>
-        Country <span className="text-danger">*</span>
-      </Label>
+      {!compact && (
+        <Label>
+          Country <span className="text-danger">*</span>
+        </Label>
+      )}
       <button
         type="button"
         onClick={openDialog}

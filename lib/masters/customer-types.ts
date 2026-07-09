@@ -1,18 +1,30 @@
 import { z } from "zod";
+import { SHIP_MODES, PAY_MODES } from "./applicant-types";
 
 // ============================================================================
-// Customers — master-detail (0240). Legacy EDP2 "Customer" form: a header
-// (Short Name · Blocked · Name · Doc Prefix · ID · Also Consignee · Country) +
-// an Applicant(s) sub-list (5 picker slots) + five tabs (Address | Agents |
-// Customer Supplied Items | Customer Nominated Vendors | CustomerGeneral).
+// Customers — master-detail (0240 base + 0247 tabs). Legacy EDP2 "Customer"
+// form: header (Short Name · Blocked · Name · Doc Prefix · ID · Also Consignee ·
+// Country) + Applicant(s) slots + five tabs:
+//   Address · Agents · Customer Supplied Items · Customer Nominated Vendors ·
+//   CustomerGeneral.
 //
-// Phase 1 models the header + the Applicant slots + the Address tab + the
-// Address Contact child grid. The other four tabs are deferred.
-//
-// Picker fields are FKs: country/address country → countries; city/state and
-// the grid's department/designation/internal_department → config_lookups; each
-// applicant slot → applicants.
+// Picker backings (see raagam-masters-picker-wiring):
+//   country/address country            → countries
+//   city/state/dept/designation/int-dept → config_lookups
+//   applicant slots                    → applicants
+//   agent type / agent                 → config_lookups ('agent_type' / 'agent')
+//   supplied-item category             → config_lookups ('material_category')
+//   nominated/recommended vendor       → vendors
+//   currency 1/2/3                     → currencies(code)
+//   ship type                          → config_lookups ('ship_type')
+//   receivable term                    → receivable_terms
+//   port of loading/discharge          → ports
+//   final destination                  → destinations
+//   pref. courier                      → couriers
+//   packing-list / commercial-invoice format → config_lookups (new kinds)
 // ============================================================================
+
+export { SHIP_MODES, PAY_MODES };
 
 export interface CustomerContact {
   id: string;
@@ -32,8 +44,40 @@ export interface CustomerApplicant {
   customer_id: string;
   sno: number;
   applicant_id: string | null;
-  // embedded for display
   applicant?: { id: string; code: string | null; name: string } | null;
+}
+
+export interface CustomerAgent {
+  id: string;
+  customer_id: string;
+  sno: number;
+  agent_type_id: string | null;
+  agent_id: string | null;
+}
+
+/** section = 'sewing' | 'packing' (two grids on the Supplied Items tab). */
+export interface CustomerSuppliedItem {
+  id: string;
+  customer_id: string;
+  section: "sewing" | "packing";
+  sno: number;
+  category_id: string | null;
+}
+
+/** list_kind = 'nominated' | 'recommended' (two grids on the Vendors tab). */
+export interface CustomerNominatedVendor {
+  id: string;
+  customer_id: string;
+  list_kind: "nominated" | "recommended";
+  sno: number;
+  vendor_id: string | null;
+}
+
+export interface CustomerMarking {
+  id: string;
+  customer_id: string;
+  sno: number;
+  marking: string | null;
 }
 
 export interface Customer {
@@ -55,6 +99,23 @@ export interface Customer {
   fax: string | null;
   email: string | null;
   web_site: string | null;
+  // CustomerGeneral tab (scalar)
+  currency_1: string | null;
+  currency_2: string | null;
+  currency_3: string | null;
+  ship_mode: string | null;
+  ship_type_id: string | null;
+  pay_mode: string | null;
+  receivable_term_id: string | null;
+  port_of_loading_id: string | null;
+  port_of_discharge_id: string | null;
+  final_destination_id: string | null;
+  pref_courier_id: string | null;
+  packing_list_format_id: string | null;
+  commercial_invoice_format_id: string | null;
+  color_spec_applicable: boolean;
+  tcs_applicable: boolean;
+  gst_no: string | null;
   is_draft: boolean;
   created_at: string;
   updated_at: string;
@@ -62,6 +123,10 @@ export interface Customer {
   country?: { id: string; code: string | null; name: string } | null;
   contacts: CustomerContact[];
   applicants: CustomerApplicant[];
+  agents: CustomerAgent[];
+  supplied_items: CustomerSuppliedItem[];
+  nominated_vendors: CustomerNominatedVendor[];
+  markings: CustomerMarking[];
 }
 
 const nullableText = z.string().optional().nullable();
@@ -83,6 +148,29 @@ export const customerApplicantInput = z.object({
   applicant_id: uuidN,
 });
 
+export const customerAgentInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  agent_type_id: uuidN,
+  agent_id: uuidN,
+});
+
+export const customerSuppliedItemInput = z.object({
+  section: z.enum(["sewing", "packing"]),
+  sno: z.coerce.number().int().nonnegative().default(0),
+  category_id: uuidN,
+});
+
+export const customerNominatedVendorInput = z.object({
+  list_kind: z.enum(["nominated", "recommended"]),
+  sno: z.coerce.number().int().nonnegative().default(0),
+  vendor_id: uuidN,
+});
+
+export const customerMarkingInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  marking: nullableText,
+});
+
 export const customerInput = z.object({
   code: nullableText,
   name: z.string().min(1, "Name is required"),
@@ -100,8 +188,30 @@ export const customerInput = z.object({
   fax: nullableText,
   email: nullableText,
   web_site: nullableText,
+  // General (scalar)
+  currency_1: nullableText,
+  currency_2: nullableText,
+  currency_3: nullableText,
+  ship_mode: z.enum(SHIP_MODES).nullable().default(null),
+  ship_type_id: uuidN,
+  pay_mode: z.enum(PAY_MODES).nullable().default(null),
+  receivable_term_id: uuidN,
+  port_of_loading_id: uuidN,
+  port_of_discharge_id: uuidN,
+  final_destination_id: uuidN,
+  pref_courier_id: uuidN,
+  packing_list_format_id: uuidN,
+  commercial_invoice_format_id: uuidN,
+  color_spec_applicable: z.boolean().default(false),
+  tcs_applicable: z.boolean().default(false),
+  gst_no: nullableText,
   is_draft: z.boolean().default(false),
+  // children
   contacts: z.array(customerContactInput).default([]),
   applicants: z.array(customerApplicantInput).default([]),
+  agents: z.array(customerAgentInput).default([]),
+  supplied_items: z.array(customerSuppliedItemInput).default([]),
+  nominated_vendors: z.array(customerNominatedVendorInput).default([]),
+  markings: z.array(customerMarkingInput).default([]),
 });
 export type CustomerInput = z.infer<typeof customerInput>;

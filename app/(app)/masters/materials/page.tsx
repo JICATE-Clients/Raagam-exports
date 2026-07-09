@@ -98,7 +98,9 @@ export default async function MaterialsMastersPage() {
                                         ? counts.get("knitting_dia") ?? 0
                                         : c.custom === "out_document_terms"
                                           ? outDocTermCount
-                                          : commodityCount
+                                          : c.custom === "commodities"
+                                            ? commodityCount
+                                            : materialCount
               : null;
           const href = isLink ? c.href : `/masters/materials/${c.slug}`;
           const empty = count === 0;

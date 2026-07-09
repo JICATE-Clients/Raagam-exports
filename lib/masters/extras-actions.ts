@@ -197,3 +197,13 @@ export async function updateCurrency(code: string, data: CurrencyInput): Promise
   rev();
   return { ok: true };
 }
+export async function deleteCurrency(code: string): Promise<Result> {
+  if (!(await can("masters", "delete"))) return fail("Forbidden");
+  const s = await createClient();
+  // May be blocked by FK references (buyers/customers/etc. hold currency_code) —
+  // Postgres returns a foreign-key violation which we surface to the user.
+  const { error } = await s.from("currencies").delete().eq("code", code);
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true };
+}
