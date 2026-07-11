@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
-import { getOrders, getLocations } from "@/lib/orders/service";
 import {
   getInternalWorkOrders,
+  getIwoFormData,
   type IwoWithOrder,
 } from "@/lib/orders/internal-work-orders/service";
 import {
@@ -18,7 +18,7 @@ import { NewIwoForm } from "./new-iwo-form";
 
 const columns: Column<IwoWithOrder>[] = [
   {
-    header: "Code",
+    header: "I.WO No",
     cell: (row) => (
       <Link
         href={`/orders/internal-work-orders/${row.id}`}
@@ -29,20 +29,29 @@ const columns: Column<IwoWithOrder>[] = [
     ),
   },
   {
-    header: "Order",
+    header: "Type",
     cell: (row) => (
-      <span className="font-mono text-xs">
-        {row.sales_orders?.order_number ?? "—"}
+      <span className="text-sm text-muted-foreground">{row.iwo_type ?? "—"}</span>
+    ),
+  },
+  {
+    header: "Customer",
+    cell: (row) => <span className="text-sm">{row.customer?.name ?? "—"}</span>,
+  },
+  {
+    header: "Style",
+    cell: (row) => (
+      <span className="text-sm text-muted-foreground">
+        {row.style?.style_name ?? "—"}
       </span>
     ),
   },
   {
-    header: "Buyer",
+    header: "Deli Dt",
     cell: (row) => (
-      <span className="text-sm">{row.sales_orders?.buyers?.name ?? "—"}</span>
+      <span className="tabular-nums text-xs">{fmtDate(row.deli_date)}</span>
     ),
   },
-  { header: "Title", cell: (row) => <span className="text-sm font-medium">{row.title}</span> },
   {
     header: "Status",
     cell: (row) => (
@@ -65,17 +74,16 @@ const columns: Column<IwoWithOrder>[] = [
 export default async function InternalWorkOrdersPage() {
   await requirePermission("orders", "view");
 
-  const [iwos, orders, locations] = await Promise.all([
+  const [iwos, formData] = await Promise.all([
     getInternalWorkOrders(),
-    getOrders(),
-    getLocations(),
+    getIwoFormData(),
   ]);
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Internal Work Orders"
-        description="Internal instructions authorising production for an order"
+        title="Internal Work Order"
+        description="Trial / internal work orders — order-related or non-order-related."
         actions={
           <Link href="/orders">
             <Button variant="outline" size="sm">
@@ -85,7 +93,12 @@ export default async function InternalWorkOrdersPage() {
         }
       />
 
-      <NewIwoForm orders={orders} locations={locations} />
+      <NewIwoForm
+        customers={formData.customers}
+        employees={formData.employees}
+        styles={formData.styles}
+        itemClasses={formData.itemClasses}
+      />
 
       <DataTable
         columns={columns}

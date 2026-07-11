@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { StatusTone } from "@/components/ui/status-pill";
 
 export const OPPORTUNITY_STAGES = [
   "enquiry",
@@ -11,6 +12,19 @@ export type OpportunityStage = (typeof OPPORTUNITY_STAGES)[number];
 
 export const FABRIC_TYPES = ["woven", "circular", "flat_knit"] as const;
 export const FABRIC_SUBTYPES = ["solid", "yarn_dyed", "melange"] as const;
+
+/** Sample types (shared by samples + the Define Styles "Sample Type" column). */
+export const SAMPLE_TYPES = ["proto", "fit", "sms", "pp", "top"] as const;
+export type SampleType = (typeof SAMPLE_TYPES)[number];
+
+export const SAMPLE_STATUSES = [
+  "requested",
+  "in_progress",
+  "sent",
+  "approved",
+  "rejected",
+] as const;
+export type SampleStatus = (typeof SAMPLE_STATUSES)[number];
 
 export const COST_SHEET_STATUSES = [
   "draft",
@@ -30,6 +44,26 @@ export const COST_CATEGORIES = [
 
 export const QUOTE_STATUSES = ["draft", "sent", "accepted", "rejected"] as const;
 export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
+
+export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  accepted: "Accepted",
+  rejected: "Rejected",
+};
+
+export function quoteStatusTone(status: QuoteStatus): StatusTone {
+  switch (status) {
+    case "draft":
+      return "neutral";
+    case "sent":
+      return "info";
+    case "accepted":
+      return "success";
+    case "rejected":
+      return "danger";
+  }
+}
 
 export interface Opportunity {
   id: string;
@@ -55,6 +89,12 @@ export interface Style {
   fabric_subtype: (typeof FABRIC_SUBTYPES)[number] | null;
   description: string | null;
   image_url: string | null;
+  // Define Styles (legacy "By Enquiry No.") extras — see migration 0268.
+  action: string | null;
+  sample_type: SampleType | null;
+  composition: string | null;
+  sample_qty: number | null;
+  unit_id: string | null;
   specs: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -112,17 +152,38 @@ export interface Quote {
 
 export interface Sample {
   id: string;
+  code: string | null;
   opportunity_id: string;
   style_id: string | null;
   quote_id: string | null;
-  type: "proto" | "fit" | "sms" | "pp" | "top";
-  status: "requested" | "in_progress" | "sent" | "approved" | "rejected";
+  type: SampleType;
+  status: SampleStatus;
+  // Legacy "By Sample No." fields — see migration 0272.
+  sample_qty: number | null;
+  unit_id: string | null;
+  delivery_date: string | null;
+  customer_reference: string | null;
   dispatched_at: string | null;
   courier_ref: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export const sampleInput = z.object({
+  opportunity_id: z.string().uuid(),
+  style_id: z.string().uuid().optional().nullable(),
+  quote_id: z.string().uuid().optional().nullable(),
+  type: z.enum(SAMPLE_TYPES),
+  status: z.enum(SAMPLE_STATUSES).default("requested"),
+  sample_qty: z.coerce.number().nonnegative().optional().nullable(),
+  unit_id: z.string().uuid().optional().nullable(),
+  delivery_date: z.string().optional().nullable(),
+  customer_reference: z.string().optional().nullable(),
+  courier_ref: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+export type SampleInput = z.infer<typeof sampleInput>;
 
 // ---------- input schemas ----------
 export const opportunityInput = z.object({
@@ -136,6 +197,17 @@ export const opportunityInput = z.object({
 });
 export type OpportunityInput = z.infer<typeof opportunityInput>;
 
+/**
+ * Bulk "Create opportunities — By Customer": pick many buyers, create one
+ * opportunity each. Title/currency are derived per-buyer server-side; `season`
+ * (optional) is applied to every created opportunity.
+ */
+export const bulkOpportunityInput = z.object({
+  buyer_ids: z.array(z.string().uuid()).min(1),
+  season: z.string().optional().nullable(),
+});
+export type BulkOpportunityInput = z.infer<typeof bulkOpportunityInput>;
+
 export const styleInput = z.object({
   opportunity_id: z.string().uuid(),
   style_code: z.string().optional().nullable(),
@@ -144,8 +216,29 @@ export const styleInput = z.object({
   fabric_subtype: z.enum(FABRIC_SUBTYPES).optional().nullable(),
   description: z.string().optional().nullable(),
   image_url: z.string().optional().nullable(),
+  // Define Styles extras
+  action: z.string().optional().nullable(),
+  sample_type: z.enum(SAMPLE_TYPES).optional().nullable(),
+  composition: z.string().optional().nullable(),
+  sample_qty: z.coerce.number().nonnegative().optional().nullable(),
+  unit_id: z.string().uuid().optional().nullable(),
 });
 export type StyleInput = z.infer<typeof styleInput>;
+
+/** Sales-side "Product Development Request — By Sample No." form. Writes into
+ *  Planning's `pd_requests` (via admin client); extra fields added in 0270. */
+export const pdRequestFormInput = z.object({
+  opportunity_id: z.string().uuid(),
+  title: z.string().min(1),
+  description: z.string().optional().nullable(),
+  style_id: z.string().uuid().optional().nullable(),
+  sample_type: z.enum(SAMPLE_TYPES).optional().nullable(),
+  sample_qty: z.coerce.number().nonnegative().optional().nullable(),
+  unit_id: z.string().uuid().optional().nullable(),
+  delivery_date: z.string().optional().nullable(),
+  customer_reference: z.string().optional().nullable(),
+});
+export type PdRequestFormInput = z.infer<typeof pdRequestFormInput>;
 
 export const costSheetItemInput = z.object({
   category: z.enum(COST_CATEGORIES).default("material"),

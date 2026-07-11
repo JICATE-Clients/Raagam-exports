@@ -29,8 +29,8 @@ export default async function IwoDetailPage({
   return (
     <div className="space-y-4">
       <PageHeader
-        title={iwo.title}
-        description={`${iwo.code ?? "—"} · ${iwo.sales_orders?.order_number ?? "Order"}`}
+        title={iwo.code ?? "Internal Work Order"}
+        description={iwo.title ?? iwo.customer?.name ?? "Trial / internal work order"}
         actions={
           <Link href="/orders/internal-work-orders">
             <Button variant="outline" size="sm">

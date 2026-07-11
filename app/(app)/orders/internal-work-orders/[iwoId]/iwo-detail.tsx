@@ -182,19 +182,35 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
               <dd className="font-mono font-medium">{iwo.code ?? "—"}</dd>
             </div>
             <div>
+              <dt className="text-xs text-muted-foreground">Type</dt>
+              <dd className="font-medium">{iwo.iwo_type ?? "—"}</dd>
+            </div>
+            <div>
               <dt className="text-xs text-muted-foreground">Order</dt>
               <dd className="font-medium">
-                <Link
-                  href={`/orders/${iwo.sales_order_id}`}
-                  className="text-primary hover:underline"
-                >
-                  {iwo.sales_orders?.order_number ?? "—"}
-                </Link>
+                {iwo.sales_order_id ? (
+                  <Link
+                    href={`/orders/${iwo.sales_order_id}`}
+                    className="text-primary hover:underline"
+                  >
+                    {iwo.sales_orders?.order_number ?? "—"}
+                  </Link>
+                ) : (
+                  "—"
+                )}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Buyer</dt>
-              <dd className="font-medium">{iwo.sales_orders?.buyers?.name ?? "—"}</dd>
+              <dt className="text-xs text-muted-foreground">Customer</dt>
+              <dd className="font-medium">{iwo.customer?.name ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Style</dt>
+              <dd className="font-medium">{iwo.style?.style_name ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Deli Dt</dt>
+              <dd className="tabular-nums font-medium">{fmtDate(iwo.deli_date)}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Unit / Location</dt>

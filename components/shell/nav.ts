@@ -48,9 +48,12 @@ export const NAV: NavItem[] = [
     icon: ShoppingBag,
     children: [
       { href: "/sales", label: "Opportunities / Pipeline" },
-      { href: "/sales/registers?tab=cost-sheets", label: "Cost Sheets" },
-      { href: "/sales/registers?tab=quotes", label: "Quotes" },
-      { href: "/sales/registers?tab=samples", label: "Samples" },
+      { href: "/sales/styles", label: "Styles" },
+      { href: "/sales/cost-sheets", label: "Cost Sheets" },
+      { href: "/sales/quotes", label: "Quote Preparation" },
+      { href: "/sales/quote-confirmations", label: "Confirm Quotes" },
+      { href: "/sales/pd-requests", label: "PD Requests" },
+      { href: "/sales/samples", label: "Samples" },
     ],
   },
   {
@@ -60,11 +63,26 @@ export const NAV: NavItem[] = [
     icon: ClipboardList,
     children: [
       { href: "/orders", label: "All Orders" },
+      { href: "/orders/styles", label: "Style" },
+      { href: "/orders/material-bom", label: "Material BOM" },
+      { href: "/orders/material-bom-amendment", label: "Material BOM Amendment" },
       { href: "/orders/color-cards", label: "Colour Cards" },
+      { href: "/orders/garment-processes", label: "Garment Processes" },
       { href: "/orders/internal-work-orders", label: "Internal Work Orders" },
+      { href: "/orders/amendments", label: "Order Amendment" },
+      { href: "/orders/process-amendments", label: "Process Amendment" },
+      { href: "/orders/approve-amendments", label: "Approve Amendment" },
       { href: "/orders/advised-items", label: "Advised Items" },
       { href: "/orders/packing-advice", label: "Packing List Advice" },
-      { href: "/orders/ta-masters", label: "TA Masters" },
+      { href: "/orders/cancellations", label: "Cancellation" },
+      { href: "/orders/completions", label: "Completion" },
+      { href: "/orders/ta-masters", label: "TA Activity" },
+      { href: "/orders/ta-department-assign", label: "TA Department Assign" },
+      { href: "/orders/ta-user-rights", label: "TA User Rights" },
+      { href: "/orders/ta-style", label: "TA Style" },
+      { href: "/orders/ta-plan", label: "TA Plan" },
+      { href: "/orders/ta-followups", label: "TA Followups" },
+      { href: "/orders/ta-completion", label: "TA Completion" },
     ],
   },
   {
@@ -267,12 +285,28 @@ export const NAV: NavItem[] = [
  * Kept as a flat map (not nested in NAV) so it's trivial to extend per section.
  */
 export const SECTION_ACTIONS: Record<string, string[]> = {
+  // The ＋ quick action opens the single quick-add form via `?new=1`. Bulk
+  // "Create Opportunities — By Customer" lives at /sales/create (pipeline button).
+  "/sales": ["New Opportunity"],
+  "/sales/quotes": ["Prepare Quote"],
+
   "/orders": ["New Order", "Import Orders", "Export List"],
+  "/orders/styles": ["New Style"],
   "/orders/color-cards": ["New Colour Card"],
   "/orders/internal-work-orders": ["New Work Order"],
-  "/orders/advised-items": ["New Advised Item", "Bulk Upload"],
+  "/orders/amendments": ["New Amendment"],
+  "/orders/process-amendments": ["New Amendment"],
+  // Advised Items landing is an accepted-order selector (no create form);
+  // create happens on the per-order editor's "New advised item" button.
   "/orders/packing-advice": ["New Packing Advice"],
-  "/orders/ta-masters": ["New TA Master"],
+  "/orders/cancellations": ["New Cancellation"],
+  "/orders/completions": ["New Completion"],
+  "/orders/ta-masters": ["New TA Activity"],
+  "/orders/ta-department-assign": ["New Assignment"],
+  "/orders/ta-user-rights": ["Configure Rights"],
+  "/orders/ta-style": ["New TA Style"],
+  "/orders/ta-plan": ["New TA Plan"],
+  "/orders/ta-completion": ["New TA Completion"],
 
   "/planning/boms": ["New BOM", "Import BOM"],
   "/planning/budgets": ["New Budget"],

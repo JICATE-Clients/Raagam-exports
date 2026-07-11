@@ -58,6 +58,8 @@ import { listVendorGst } from "@/lib/masters/vendor-gst-service";
 import { GstAssignScreen } from "@/components/masters/gst-assign-screen";
 import { listCustomerGst } from "@/lib/masters/customer-gst-service";
 import { CustomerGstAssignScreen } from "@/components/masters/customer-gst-assign-screen";
+import { listProcessHsn } from "@/lib/masters/process-hsn-service";
+import { ProcessHsnAssignScreen } from "@/components/masters/process-hsn-assign-screen";
 import { CurrencyMasterScreen } from "@/components/masters/currency-master-screen";
 import { listExchangeRateEntries } from "@/lib/masters/exchange-rate-service";
 import { ExchangeRateMasterScreen } from "@/components/masters/exchange-rate-master-screen";
@@ -445,6 +447,16 @@ export default async function SubEntityPage({
     } else if (child.custom === "gst_state") {
       const states = await listStates();
       screen = <StateMasterScreen rows={states} perms={perms} />;
+    } else if (child.custom === "hsn_assign_process") {
+      const [rows, all] = await Promise.all([listProcessHsn(), listConfigLookups()]);
+      screen = (
+        <ProcessHsnAssignScreen
+          rows={rows}
+          hsnOptions={all.filter((l) => l.kind === "hsn_code")}
+          commodities={all.filter((l) => l.kind === "commodity")}
+          perms={perms}
+        />
+      );
     } else if (child.custom === "garment_rejection_rule") {
       const grrRules = await listGarmentRejectionRules();
       screen = <GarmentRejectionRuleMasterScreen rows={grrRules} perms={perms} />;

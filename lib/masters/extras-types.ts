@@ -42,6 +42,19 @@ export const LOOKUP_KINDS = [
   "doc_menu",
   "doc_value_type",
   "doc_value_from",
+  // Garment Orders ▸ Style master pickers (0124)
+  "style_category",
+  "coordinate",
+  "style_component",
+  "structure",
+  "trims_category",
+  "size",
+  // Garment Orders ▸ Order Amendment ▸ Color/Print tab (0128) — no print master exists
+  "roll_form_print",
+  // Garment Orders ▸ Packing List Advice ▸ Warehouse Name (0130)
+  "warehouse",
+  // Orders ▸ TA ▸ TA Activity ▸ Type picker (0266)
+  "ta_activity_type",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -80,6 +93,15 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   doc_menu: "Document Menus",
   doc_value_type: "Document Value Types",
   doc_value_from: "Document Value Sources",
+  style_category: "Style Categories",
+  coordinate: "Coordinates",
+  style_component: "Style Components",
+  structure: "Structures",
+  trims_category: "Trims Categories",
+  size: "Sizes",
+  roll_form_print: "Roll Form Prints",
+  warehouse: "Warehouses",
+  ta_activity_type: "TA Activity Types",
 };
 
 export interface ConfigLookup {

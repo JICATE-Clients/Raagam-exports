@@ -12,6 +12,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { RecordPicker } from "@/components/masters/record-picker";
 import { fmtNumber } from "@/lib/format";
 import {
   FABRIC_TYPES,
@@ -763,11 +764,13 @@ function MaterialBomTab({
   bom,
   items,
   uoms,
+  masterItems,
 }: {
   orderId: string;
   bom: MaterialBom | null;
   items: MaterialBomItem[];
   uoms: Uom[];
+  masterItems: Item[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -782,6 +785,7 @@ function MaterialBomTab({
   // ----- item form state -----
   const [itemFormOpen, setItemFormOpen] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [itemId, setItemId] = useState<string | null>(null);
   const [itemCategory, setItemCategory] =
     useState<MaterialCategory>("sewing_accessory");
   const [itemDescription, setItemDescription] = useState("");
@@ -837,6 +841,7 @@ function MaterialBomTab({
 
   function openAddItem(category: MaterialCategory) {
     setEditingItemId(null);
+    setItemId(null);
     setItemCategory(category);
     setItemDescription("");
     setItemAttribute("");
@@ -854,6 +859,7 @@ function MaterialBomTab({
 
   function openEditItem(item: MaterialBomItem) {
     setEditingItemId(item.id);
+    setItemId(item.item_id);
     setItemCategory(item.category);
     setItemDescription(item.description);
     setItemAttribute(item.attribute ?? "");
@@ -877,7 +883,7 @@ function MaterialBomTab({
     if (!bom) return;
     const data = {
       category: itemCategory,
-      item_id: null as string | null,
+      item_id: itemId,
       description: itemDescription,
       attribute: itemAttribute || null,
       uom_id: itemUomId || null,
@@ -930,6 +936,14 @@ function MaterialBomTab({
   // ----- item columns -----
 
   const itemColumns: Column<MaterialBomItem>[] = [
+    {
+      header: "Item",
+      cell: (i) => (
+        <span className="font-mono text-xs text-muted-foreground">
+          {masterItems.find((m) => m.id === i.item_id)?.code ?? "—"}
+        </span>
+      ),
+    },
     {
       header: "Description",
       cell: (i) => (
@@ -1117,10 +1131,27 @@ function MaterialBomTab({
                   </p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="sm:col-span-2">
+                      <RecordPicker
+                        label="Item (material master)"
+                        items={masterItems}
+                        value={itemId}
+                        onChange={(id) => {
+                          setItemId(id);
+                          if (id) {
+                            const m = masterItems.find((x) => x.id === id);
+                            if (m) {
+                              if (!itemDescription.trim()) setItemDescription(m.name);
+                              if (m.uom_id && !itemUomId) setItemUomId(m.uom_id);
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
                       <Label htmlFor="i-desc">Description *</Label>
                       <Input
                         id="i-desc"
-                        placeholder="e.g. Main label"
+                        placeholder="Auto-filled from item; edit if needed"
                         value={itemDescription}
                         onChange={(e) => setItemDescription(e.target.value)}
                         required
@@ -1296,6 +1327,7 @@ export function BomTabs({
   materialBom,
   materialItems,
   uoms,
+  masterItems,
 }: BomTabsProps) {
   const fabricLabel =
     fabricBom
@@ -1334,6 +1366,7 @@ export function BomTabs({
               bom={materialBom}
               items={materialItems}
               uoms={uoms}
+              masterItems={masterItems}
             />
           ),
         },

@@ -16,25 +16,27 @@ type ColorRow = { name: string; code: string; hex: string };
 
 interface Props {
   buyers: Pick<Buyer, "id" | "name" | "code" | "currency_code">[];
+  /** When set, the card is scoped to this customer: the buyer picker is hidden. */
+  fixedBuyer?: { id: string; name: string };
 }
 
 const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
-export function NewColorCardForm({ buyers }: Props) {
+export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   useCreateIntent(() => setOpen(true));
 
-  const [buyerId, setBuyerId] = useState("");
+  const [buyerId, setBuyerId] = useState(fixedBuyer?.id ?? "");
   const [name, setName] = useState("");
   const [season, setSeason] = useState("");
   const [notes, setNotes] = useState("");
   const [colors, setColors] = useState<ColorRow[]>([{ name: "", code: "", hex: "" }]);
 
   function resetForm() {
-    setBuyerId("");
+    setBuyerId(fixedBuyer?.id ?? "");
     setName("");
     setSeason("");
     setNotes("");
@@ -117,22 +119,34 @@ export function NewColorCardForm({ buyers }: Props) {
         <CardBody>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <Label htmlFor="cc-buyer">Buyer *</Label>
-                <Select
-                  id="cc-buyer"
-                  value={buyerId}
-                  onChange={(e) => setBuyerId(e.target.value)}
-                  required
-                >
-                  <option value="">— select buyer —</option>
-                  {buyers.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.code} — {b.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+              {fixedBuyer ? (
+                <div>
+                  <Label htmlFor="cc-buyer">Customer</Label>
+                  <div
+                    id="cc-buyer"
+                    className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground"
+                  >
+                    {fixedBuyer.name}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <Label htmlFor="cc-buyer">Buyer *</Label>
+                  <Select
+                    id="cc-buyer"
+                    value={buyerId}
+                    onChange={(e) => setBuyerId(e.target.value)}
+                    required
+                  >
+                    <option value="">— select buyer —</option>
+                    {buyers.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.code} — {b.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label htmlFor="cc-name">Card name *</Label>
                 <Input

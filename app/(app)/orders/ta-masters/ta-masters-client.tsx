@@ -9,7 +9,8 @@ import {
   toggleTaActivity,
   deleteTaActivity,
 } from "@/lib/orders/ta-activities/actions";
-import { TA_DEPARTMENTS, type TaActivity } from "@/lib/orders/ta-activities/types";
+import type { TaActivity } from "@/lib/orders/ta-activities/types";
+import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,50 +18,65 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 
 interface Props {
   activities: TaActivity[];
+  types: ConfigLookup[];
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  masterCanCreate: boolean;
+  masterCanEdit: boolean;
 }
 
 export function TaMastersClient({
   activities,
+  types,
   canCreate,
   canEdit,
   canDelete,
+  masterCanCreate,
+  masterCanEdit,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [formOpen, setFormOpen] = useState(false);
-  useCreateIntent(() => setFormOpen(true));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [shortName, setShortName] = useState("");
   const [name, setName] = useState("");
-  const [department, setDepartment] = useState("");
-  const [sequence, setSequence] = useState("");
-  const [offset, setOffset] = useState("");
+  const [typeId, setTypeId] = useState<string | null>(null);
+  const [hasSub, setHasSub] = useState(false);
+  const [considerDelivery, setConsiderDelivery] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+
+  function reset() {
+    setShortName("");
+    setName("");
+    setTypeId(null);
+    setHasSub(false);
+    setConsiderDelivery(false);
+    setBlocked(false);
+  }
 
   function openCreate() {
     setEditingId(null);
-    setShortName("");
-    setName("");
-    setDepartment("");
-    setSequence(String((activities.length + 1) * 10));
-    setOffset("");
+    reset();
     setFormOpen(true);
   }
+
+  useCreateIntent(() => openCreate());
 
   function openEdit(a: TaActivity) {
     setEditingId(a.id);
     setShortName(a.short_name);
     setName(a.name);
-    setDepartment(a.department ?? "");
-    setSequence(String(a.sequence));
-    setOffset(String(a.default_offset_days));
+    setTypeId(a.type_id);
+    setHasSub(a.has_sub_activities);
+    setConsiderDelivery(a.consider_for_delivery_date);
+    setBlocked(!a.is_active);
     setFormOpen(true);
   }
 
@@ -74,10 +90,10 @@ export function TaMastersClient({
     const payload = {
       short_name: shortName.trim(),
       name: name.trim(),
-      department: department.trim() || null,
-      sequence: Number(sequence) || 0,
-      default_offset_days: Number(offset) || 0,
-      is_active: true,
+      type_id: typeId,
+      has_sub_activities: hasSub,
+      consider_for_delivery_date: considerDelivery,
+      is_active: !blocked,
     };
     startTransition(async () => {
       const result = editingId
@@ -97,7 +113,7 @@ export function TaMastersClient({
     startTransition(async () => {
       const result = await toggleTaActivity(a.id, !a.is_active);
       if (result.ok) {
-        success(a.is_active ? "Deactivated" : "Activated");
+        success(a.is_active ? "Blocked" : "Unblocked");
         router.refresh();
       } else {
         toastError(result.error);
@@ -119,34 +135,39 @@ export function TaMastersClient({
 
   const columns: Column<TaActivity>[] = [
     {
-      header: "#",
-      cell: (a) => (
-        <span className="text-xs tabular-nums text-muted-foreground">{a.sequence}</span>
-      ),
-    },
-    {
       header: "Short",
       cell: (a) => <span className="font-mono text-xs font-medium">{a.short_name}</span>,
     },
     { header: "Activity", cell: (a) => <span className="text-sm font-medium">{a.name}</span> },
     {
-      header: "Department",
+      header: "Type",
       cell: (a) => (
-        <span className="text-sm text-muted-foreground">{a.department ?? "—"}</span>
+        <span className="text-sm text-muted-foreground">{a.type?.name ?? "—"}</span>
       ),
     },
     {
-      header: "Offset (days)",
-      align: "right",
+      header: "Sub-activities",
+      align: "center",
       cell: (a) => (
-        <span className="tabular-nums text-sm">{a.default_offset_days}</span>
+        <span className="text-xs text-muted-foreground">
+          {a.has_sub_activities ? "Yes" : "—"}
+        </span>
+      ),
+    },
+    {
+      header: "Delivery date",
+      align: "center",
+      cell: (a) => (
+        <span className="text-xs text-muted-foreground">
+          {a.consider_for_delivery_date ? "Yes" : "—"}
+        </span>
       ),
     },
     {
       header: "Status",
       cell: (a) => (
-        <StatusPill tone={a.is_active ? "success" : "neutral"}>
-          {a.is_active ? "Active" : "Inactive"}
+        <StatusPill tone={a.is_active ? "success" : "danger"}>
+          {a.is_active ? "Active" : "Blocked"}
         </StatusPill>
       ),
     },
@@ -175,7 +196,7 @@ export function TaMastersClient({
                       disabled={isPending}
                       className="h-7 px-2 text-xs"
                     >
-                      {a.is_active ? "Deactivate" : "Activate"}
+                      {a.is_active ? "Block" : "Unblock"}
                     </Button>
                   </>
                 )}
@@ -214,7 +235,7 @@ export function TaMastersClient({
       {formOpen && (
         <Card>
           <CardHeader>
-            <CardTitle>{editingId ? "Edit activity" : "New activity"}</CardTitle>
+            <CardTitle>{editingId ? "Edit TA activity" : "New TA activity"}</CardTitle>
           </CardHeader>
           <CardBody>
             <form
@@ -222,7 +243,9 @@ export function TaMastersClient({
               className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
             >
               <div>
-                <Label htmlFor="ta-short">Short name *</Label>
+                <Label htmlFor="ta-short">
+                  Short name <span className="text-danger">*</span>
+                </Label>
                 <Input
                   id="ta-short"
                   value={shortName}
@@ -232,7 +255,9 @@ export function TaMastersClient({
                 />
               </div>
               <div>
-                <Label htmlFor="ta-name">Activity name *</Label>
+                <Label htmlFor="ta-name">
+                  Name <span className="text-danger">*</span>
+                </Label>
                 <Input
                   id="ta-name"
                   value={name}
@@ -242,44 +267,54 @@ export function TaMastersClient({
                 />
               </div>
               <div>
-                <Label htmlFor="ta-dept">Department</Label>
-                <Input
-                  id="ta-dept"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  placeholder="e.g. Knitting"
-                  list="ta-departments"
-                />
-                <datalist id="ta-departments">
-                  {TA_DEPARTMENTS.map((d) => (
-                    <option key={d} value={d} />
-                  ))}
-                </datalist>
-              </div>
-              <div>
-                <Label htmlFor="ta-seq">Sequence</Label>
-                <Input
-                  id="ta-seq"
-                  type="number"
-                  min="0"
-                  value={sequence}
-                  onChange={(e) => setSequence(e.target.value)}
-                  placeholder="0"
+                <LookupDialogPicker
+                  kind="ta_activity_type"
+                  label="Type"
+                  options={types}
+                  value={typeId}
+                  onChange={setTypeId}
+                  canCreate={masterCanCreate}
+                  canEdit={masterCanEdit}
                 />
               </div>
-              <div>
-                <Label htmlFor="ta-offset">Default offset (days vs ship)</Label>
-                <Input
-                  id="ta-offset"
-                  type="number"
-                  value={offset}
-                  onChange={(e) => setOffset(e.target.value)}
-                  placeholder="e.g. -65"
+
+              <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border accent-primary"
+                  checked={hasSub}
+                  onChange={(e) => setHasSub(e.target.checked)}
                 />
-              </div>
-              <div className="flex items-end">
-                <Button type="submit" disabled={isPending || !shortName.trim() || !name.trim()}>
+                <span className="text-sm">Has sub-activities</span>
+              </label>
+              <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border accent-primary"
+                  checked={considerDelivery}
+                  onChange={(e) => setConsiderDelivery(e.target.checked)}
+                />
+                <span className="text-sm">Consider for delivery date</span>
+              </label>
+              <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border accent-danger"
+                  checked={blocked}
+                  onChange={(e) => setBlocked(e.target.checked)}
+                />
+                <span className="text-sm">Blocked</span>
+              </label>
+
+              <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-3">
+                <Button
+                  type="submit"
+                  disabled={isPending || !shortName.trim() || !name.trim()}
+                >
                   {isPending ? "Saving…" : editingId ? "Update activity" : "Add activity"}
+                </Button>
+                <Button type="button" variant="outline" onClick={closeForm}>
+                  Cancel
                 </Button>
               </div>
             </form>

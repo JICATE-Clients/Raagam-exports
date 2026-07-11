@@ -1,15 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
 import { can, getAppUser } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
 import { writeAudit } from "@/lib/audit";
 import {
   opportunityInput,
+  bulkOpportunityInput,
   styleInput,
   costSheetInput,
   quoteInput,
+  sampleInput,
   computeFob,
   type OpportunityStage,
   type QuoteStatus,
@@ -50,6 +51,47 @@ export async function createOpportunity(
   return { ok: true };
 }
 
+/**
+ * Bulk create: one opportunity per selected buyer (legacy "Create opportunities
+ * — By Customer"). Title defaults to the buyer name and currency to the buyer's
+ * currency; `code` (OPP-####) and `owner_id` are assigned by the DB.
+ */
+export async function createOpportunitiesForBuyers(
+  raw: unknown,
+): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  if (!(await can("sales", "create"))) return { ok: false, error: "Forbidden" };
+
+  const parsed = bulkOpportunityInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const { buyer_ids, season } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: buyers, error: buyersError } = await supabase
+    .from("buyers")
+    .select("id, name, currency_code")
+    .in("id", buyer_ids);
+  if (buyersError) return { ok: false, error: buyersError.message };
+  if (!buyers || buyers.length === 0) {
+    return { ok: false, error: "No matching customers found." };
+  }
+
+  const rows = buyers.map((b) => ({
+    buyer_id: b.id,
+    title: b.name,
+    season: season ?? null,
+    stage: "enquiry" as const,
+    currency_code: b.currency_code ?? null,
+  }));
+
+  const { error } = await supabase.from("opportunities").insert(rows);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateSales();
+  return { ok: true, count: rows.length };
+}
+
 export async function updateOpportunityStage(
   id: string,
   stage: OpportunityStage,
@@ -84,6 +126,42 @@ export async function createStyle(raw: unknown): Promise<ActionResult> {
   if (error) return { ok: false, error: error.message };
 
   revalidateSales(parsed.data.opportunity_id);
+  revalidatePath("/sales/styles");
+  return { ok: true };
+}
+
+export async function updateStyle(
+  id: string,
+  raw: unknown,
+): Promise<ActionResult> {
+  if (!(await can("sales", "edit"))) return { ok: false, error: "Forbidden" };
+
+  const parsed = styleInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("styles")
+    .update(parsed.data)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateSales(parsed.data.opportunity_id);
+  revalidatePath("/sales/styles");
+  return { ok: true };
+}
+
+export async function deleteStyle(id: string): Promise<ActionResult> {
+  if (!(await can("sales", "delete"))) return { ok: false, error: "Forbidden" };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("styles").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateSales();
+  revalidatePath("/sales/styles");
   return { ok: true };
 }
 
@@ -349,18 +427,6 @@ export async function setQuoteStatus(
 // Samples
 // ---------------------------------------------------------------------------
 
-const sampleInput = z.object({
-  opportunity_id: z.string().uuid(),
-  style_id: z.string().uuid().optional().nullable(),
-  quote_id: z.string().uuid().optional().nullable(),
-  type: z.enum(["proto", "fit", "sms", "pp", "top"]),
-  status: z
-    .enum(["requested", "in_progress", "sent", "approved", "rejected"])
-    .default("requested"),
-  courier_ref: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-});
-
 export async function createSample(raw: unknown): Promise<ActionResult> {
   if (!(await can("sales", "create"))) return { ok: false, error: "Forbidden" };
 
@@ -374,5 +440,41 @@ export async function createSample(raw: unknown): Promise<ActionResult> {
   if (error) return { ok: false, error: error.message };
 
   revalidateSales(parsed.data.opportunity_id);
+  revalidatePath("/sales/samples");
+  return { ok: true };
+}
+
+export async function updateSample(
+  id: string,
+  raw: unknown,
+): Promise<ActionResult> {
+  if (!(await can("sales", "edit"))) return { ok: false, error: "Forbidden" };
+
+  const parsed = sampleInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("samples")
+    .update(parsed.data)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateSales(parsed.data.opportunity_id);
+  revalidatePath("/sales/samples");
+  return { ok: true };
+}
+
+export async function deleteSample(id: string): Promise<ActionResult> {
+  if (!(await can("sales", "delete"))) return { ok: false, error: "Forbidden" };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("samples").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateSales();
+  revalidatePath("/sales/samples");
   return { ok: true };
 }

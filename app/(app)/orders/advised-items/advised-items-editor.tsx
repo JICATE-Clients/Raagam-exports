@@ -13,9 +13,8 @@ import {
   ADVISED_STATUS_LABELS,
   advisedStatusTone,
   type AdvisedStatus,
+  type OrderAdvisedItem,
 } from "@/lib/orders/advised-items/types";
-import type { AdvisedItemWithOrder } from "@/lib/orders/advised-items/service";
-import type { OrderWithBuyer } from "@/lib/orders/service";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,16 +26,17 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber } from "@/lib/format";
 
 interface Props {
-  items: AdvisedItemWithOrder[];
-  orders: OrderWithBuyer[];
+  /** The order these advised items belong to — fixed for this page. */
+  fixedOrder: { id: string; order_number: string | null };
+  items: OrderAdvisedItem[];
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
 }
 
-export function AdvisedItemsClient({
+export function AdvisedItemsEditor({
+  fixedOrder,
   items,
-  orders,
   canCreate,
   canEdit,
   canDelete,
@@ -47,7 +47,6 @@ export function AdvisedItemsClient({
 
   const [formOpen, setFormOpen] = useState(false);
   useCreateIntent(() => setFormOpen(true));
-  const [orderId, setOrderId] = useState("");
   const [description, setDescription] = useState("");
   const [attribute, setAttribute] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -56,7 +55,6 @@ export function AdvisedItemsClient({
   const [remarks, setRemarks] = useState("");
 
   function resetForm() {
-    setOrderId("");
     setDescription("");
     setAttribute("");
     setQuantity("");
@@ -70,7 +68,7 @@ export function AdvisedItemsClient({
     e.preventDefault();
     startTransition(async () => {
       const result = await addAdvisedItem({
-        sales_order_id: orderId,
+        sales_order_id: fixedOrder.id,
         description: description.trim(),
         attribute: attribute.trim() || null,
         quantity: Number(quantity) || 0,
@@ -112,21 +110,7 @@ export function AdvisedItemsClient({
     });
   }
 
-  const columns: Column<AdvisedItemWithOrder>[] = [
-    {
-      header: "Order",
-      cell: (i) => (
-        <span className="font-mono text-xs">
-          {i.sales_orders?.order_number ?? "—"}
-        </span>
-      ),
-    },
-    {
-      header: "Buyer",
-      cell: (i) => (
-        <span className="text-sm">{i.sales_orders?.buyers?.name ?? "—"}</span>
-      ),
-    },
+  const columns: Column<OrderAdvisedItem>[] = [
     {
       header: "Item",
       cell: (i) => <span className="text-sm font-medium">{i.description}</span>,
@@ -181,7 +165,7 @@ export function AdvisedItemsClient({
           {
             header: "",
             align: "right",
-            cell: (i: AdvisedItemWithOrder) => (
+            cell: (i: OrderAdvisedItem) => (
               <Button
                 size="sm"
                 variant="ghost"
@@ -192,7 +176,7 @@ export function AdvisedItemsClient({
                 Delete
               </Button>
             ),
-          } satisfies Column<AdvisedItemWithOrder>,
+          } satisfies Column<OrderAdvisedItem>,
         ]
       : []),
   ];
@@ -221,23 +205,6 @@ export function AdvisedItemsClient({
               onSubmit={handleAdd}
               className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
             >
-              <div>
-                <Label htmlFor="ai-order">Order *</Label>
-                <Select
-                  id="ai-order"
-                  value={orderId}
-                  onChange={(e) => setOrderId(e.target.value)}
-                  required
-                >
-                  <option value="">— select order —</option>
-                  {orders.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.order_number ?? o.id.slice(0, 8)}
-                      {o.buyers?.name ? ` — ${o.buyers.name}` : ""}
-                    </option>
-                  ))}
-                </Select>
-              </div>
               <div>
                 <Label htmlFor="ai-desc">Item *</Label>
                 <Input
@@ -287,7 +254,7 @@ export function AdvisedItemsClient({
                   placeholder="Optional"
                 />
               </div>
-              <div className="sm:col-span-2 lg:col-span-3">
+              <div className="sm:col-span-2 lg:col-span-1">
                 <Label htmlFor="ai-rem">Remarks</Label>
                 <Input
                   id="ai-rem"
@@ -310,7 +277,7 @@ export function AdvisedItemsClient({
         columns={columns}
         rows={items}
         getKey={(i) => i.id}
-        empty="No advised items yet."
+        empty="No advised items for this order yet. Use 'New advised item' above."
       />
     </div>
   );

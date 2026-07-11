@@ -3,8 +3,10 @@ import { requirePermission } from "@/lib/auth/server";
 import { getOpportunities, getBuyers } from "@/lib/sales/service";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
+import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Card, CardBody } from "@/components/ui/card";
 import { NewOpportunityForm } from "./new-opportunity-form";
 import type { OpportunityRow } from "@/lib/sales/service";
 import type { StatusTone } from "@/components/ui/status-pill";
@@ -88,12 +90,39 @@ export default async function SalesPipelinePage() {
     },
   ];
 
+  const registers: { href: string; label: string; desc: string }[] = [
+    { href: "/sales/registers?tab=cost-sheets", label: "Cost Sheets", desc: "All cost sheets across opportunities." },
+    { href: "/sales/registers?tab=quotes", label: "Quotes", desc: "All quotes across opportunities." },
+    { href: "/sales/registers?tab=samples", label: "Samples", desc: "All sample requests across opportunities." },
+  ];
+
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title="Sales Pipeline"
         description="Track opportunities from enquiry to win"
+        actions={
+          <Link href="/sales/create">
+            <Button variant="outline" size="sm">
+              Create Opportunities
+            </Button>
+          </Link>
+        }
       />
+
+      {/* Cross-opportunity registers (also reachable from the opportunity tabs). */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {registers.map((r) => (
+          <Link key={r.href} href={r.href}>
+            <Card className="h-full cursor-pointer transition-colors hover:bg-surface-muted">
+              <CardBody>
+                <div className="font-semibold text-foreground">{r.label}</div>
+                <p className="mt-0.5 text-sm text-muted-foreground">{r.desc}</p>
+              </CardBody>
+            </Card>
+          </Link>
+        ))}
+      </div>
 
       <NewOpportunityForm buyers={buyers} />
 

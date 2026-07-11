@@ -109,28 +109,28 @@ export default async function MaterialsMastersPage() {
               key={c.slug}
               href={href}
               className={cn(
-                "group flex items-center gap-3 rounded-xl border bg-surface p-4 transition-colors hover:border-primary",
-                empty ? "border-dashed border-border" : "border-border",
+                "group flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary",
               )}
             >
-              <span
-                className={cn(
-                  "grid h-10 w-10 shrink-0 place-items-center rounded-lg",
-                  empty ? "bg-surface-muted text-muted-foreground" : "bg-primary/10 text-primary",
-                )}
-              >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
                 <Tag className="h-[18px] w-[18px]" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-foreground">{c.label}</span>
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {empty ? "Not set up yet" : c.description}
+                  {c.description}
                 </span>
               </span>
               {isLink ? (
                 <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               ) : (
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-muted-foreground">
+                <span
+                  className={cn(
+                    "shrink-0 text-sm font-semibold tabular-nums",
+                    empty ? "text-muted-foreground/60" : "text-muted-foreground",
+                  )}
+                  title={empty ? "No records yet — click to add" : `${count} records`}
+                >
                   {count}
                 </span>
               )}

@@ -125,10 +125,10 @@ export const SUBMODULES: SubmoduleDef[] = [
     children: [
       { slug: "state", label: "State", singular: "State", description: "GST state codes", type: "custom", custom: "gst_state" },
       { slug: "hsn-detail", label: "HSN detail", singular: "HSN Detail", description: "HSN master (code · description · GST rate)", type: "custom", custom: "hsn_detail" },
-      { slug: "gst-no-assign-vendor", label: "GST No Assign to Vendor", singular: "GST No Assignment (Vendor)", description: "Assign GST numbers to vendors", type: "todo" },
-      { slug: "gst-no-assign-customer", label: "GST No Assign to Customer", singular: "GST No Assignment (Customer)", description: "Assign GST numbers to customers", type: "todo" },
-      { slug: "hsn-assign-material", label: "HSN Assign to Material", singular: "HSN Assignment (Material)", description: "Assign HSN codes to materials", type: "todo" },
-      { slug: "hsn-assign-process", label: "HSN Assign to Process", singular: "HSN Assignment (Process)", description: "Assign HSN codes to processes", type: "todo" },
+      { slug: "gst-no-assign-vendor", label: "GST No Assign to Vendor", singular: "GST No Assignment (Vendor)", description: "Bulk-assign GST Type & GSTIN to vendors (opens the Associates screen)", type: "link", href: "/masters/associates/gst-assign-to-vendors" },
+      { slug: "gst-no-assign-customer", label: "GST No Assign to Customer", singular: "GST No Assignment (Customer)", description: "Bulk-assign GSTIN to customers (opens the Associates screen)", type: "link", href: "/masters/associates/gst-assign-to-customers" },
+      { slug: "hsn-assign-material", label: "HSN Assign to Material", singular: "HSN Assignment (Material)", description: "Bulk-assign HSN codes to materials (opens the Materials screen)", type: "link", href: "/masters/materials/hsn-assign" },
+      { slug: "hsn-assign-process", label: "HSN Assign to Process", singular: "HSN Assignment (Process)", description: "Bulk-assign HSN codes to sub-contract processes", type: "custom", custom: "hsn_assign_process" },
     ],
   },
   {

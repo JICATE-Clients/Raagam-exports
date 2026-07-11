@@ -80,7 +80,12 @@ Reorganizes the legacy EDP2 deep-capture (11 modules / 31 sub-modules / 433 form
 - **Prepare Advised Items** ✅ *(built + migrated — `/orders/advised-items`)*
 - **Packing List Advice** ✅ *(built + migrated — `/orders/packing-advice`)*
 - Garment order **cancellation / completion** — ◐ partial (status flag only, no dedicated flow)
-- **TA masters:** TA Activity ✅ · TA Department Assign ✅ *(built + migrated — `/orders/ta-masters`, activity catalogue with owning department & default plan offset)* · TA User Rights · TA Style · TA Followups 🔲 *(niche config — deferred; User Rights largely covered by RBAC)*
+- **TA (Time & Action)** — legacy submodule now folded into Orders as children, to be built one by one:
+  - **TA Activity** ✅ *(built to legacy form — nav "TA Activity" → `/orders/ta-masters`; fields: Short Name, Name, Type (▼ config_lookups `ta_activity_type` picker w/ Add/Modify), Has Sub activities, Consider for Delivery Date, Blocked. Migration `0266` — ✅ APPLIED 2026-07-11)*
+  - **TA Department Assign** ✅ *(built to legacy form — `/orders/ta-department-assign`; master-detail: Entry No (auto TDA) · Entered Dt · Location (ⓘ locations) · Department (ⓘ config_lookups `department`) + activity grid (Activity ⓘ `ta_activities` · Owner ✓). Migration `0267` — ✅ APPLIED 2026-07-11)*
+  - **TA Plan** ✅ *(built to legacy form — `/orders/ta-plan`; separate document `ta_plan_docs`/`ta_plan_activities` (existing per-order `ta_plans`/`ta_milestones` UNTOUCHED). Header: No (auto TAPLAN) · Dt · Customer (ⓘ buyers) · SC No (ⓘ sales_orders, auto-fills customer/order-no/qty/deliv) · SH Ref No (ⓘ shipment_plans) · Order No · Start Dt · Style (ⓘ garment_styles) + footer Deliv/Order Qty/Proposed/Target/No-of-days. Grid: Activity (ⓘ) · From Activity (▼ predecessor) · Details · Start/Days/End (End auto = Start+Days). Migration `0271` — ✅ APPLIED 2026-07-11)*
+  - **TA Style** ◐ *(scaffolded/wired by parallel session — `/orders/ta-style`)* · **TA Followups** ◐ *(scaffolded — `/orders/ta-followups`)* · **TA Completion** ◐ *(scaffolded — `/orders/ta-completion`)* — remaining screens to build one by one
+  - **TA User Rights** ✅ *(built to legacy form — `/orders/ta-user-rights`, **system_admin-gated**; per-user permission matrix: User (ⓘ profiles) + rows "All Activities" + each `ta_activities` × All/View/Add/Modify/Delete → `ta_user_rights` (View/Add/Modify/Delete = view/create/edit/delete). Captures rights only — enforcement is a future step. Migration `0269` — ✅ APPLIED 2026-07-11)*
 - *(Material BOM for accepted orders → handled in Planning module)*
 
 ---

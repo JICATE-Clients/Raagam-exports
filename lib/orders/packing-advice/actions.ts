@@ -4,123 +4,138 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import {
-  packingAdviceInput,
-  packingLineInput,
-  PLA_STATUSES,
-  type PackingAdviceInput,
-  type PackingLineInput,
-  type PlaStatus,
-} from "./types";
+import { packingAdviceInput, type PackingAdviceInput } from "./types";
 
-type ActionResult = { ok: true } | { ok: false; error: string };
-type CreateResult = { ok: true; adviceId: string } | { ok: false; error: string };
+type Result = { ok: true } | { ok: false; error: string };
 
-const LIST_PATH = "/orders/packing-advice";
+function fail(msg: string): Result {
+  return { ok: false, error: msg };
+}
+function rev(): void {
+  revalidatePath("/orders/packing-advice");
+  revalidatePath("/orders");
+}
 
-export async function createPackingAdvice(
-  payload: PackingAdviceInput,
-): Promise<CreateResult> {
-  if (!(await can("orders", "create"))) {
-    throw new Error("Forbidden");
+const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+
+/** Drop fully-empty line rows, renumber sort_order. */
+function normalizeLines(data: PackingAdviceInput) {
+  return data.lines
+    .map((l) => ({
+      ctn_from: clean(l.ctn_from),
+      ctn_to: clean(l.ctn_to),
+      ctns: Number(l.ctns) || 0,
+      sc_no_id: l.sc_no_id,
+      po_no: clean(l.po_no),
+      country_id: l.country_id,
+      ref_no: clean(l.ref_no),
+      assort_type: clean(l.assort_type),
+      customer_order_no: clean(l.customer_order_no),
+      multiple_pack: !!l.multiple_pack,
+      qty_per_ctn: Number(l.qty_per_ctn) || 0,
+      total_qty: Number(l.total_qty) || 0,
+      unit_id: l.unit_id,
+      measurement: clean(l.measurement),
+    }))
+    .filter(
+      (l) =>
+        l.ctn_from ||
+        l.ctn_to ||
+        l.ctns ||
+        l.sc_no_id ||
+        l.po_no ||
+        l.country_id ||
+        l.ref_no ||
+        l.assort_type ||
+        l.customer_order_no ||
+        l.qty_per_ctn ||
+        l.total_qty ||
+        l.unit_id ||
+        l.measurement,
+    )
+    .map((l, i) => ({ ...l, sort_order: i + 1 }));
+}
+
+/** Replace the line grid wholesale for a given advice id. */
+async function writeLines(
+  s: Awaited<ReturnType<typeof createClient>>,
+  adviceId: string,
+  data: PackingAdviceInput,
+): Promise<Result> {
+  const { error: delErr } = await s
+    .from("packing_advice_lines")
+    .delete()
+    .eq("advice_id", adviceId);
+  if (delErr) return fail(delErr.message);
+
+  const rows = normalizeLines(data);
+  if (rows.length) {
+    const { error } = await s
+      .from("packing_advice_lines")
+      .insert(rows.map((r) => ({ ...r, advice_id: adviceId })));
+    if (error) return fail(error.message);
   }
+  return { ok: true };
+}
 
-  const parsed = packingAdviceInput.safeParse(payload);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  }
+/** Strip the line array so only header columns hit packing_advices. */
+function headerOnly(data: PackingAdviceInput) {
+  const { lines: _l, ...header } = data;
+  void _l;
+  return header;
+}
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
+export async function createPackingAdvice(data: PackingAdviceInput): Promise<Result> {
+  if (!(await can("orders", "create"))) return fail("Forbidden");
+  const p = packingAdviceInput.safeParse(data);
+  if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  const s = await createClient();
+  const { data: created, error } = await s
     .from("packing_advices")
-    .insert(parsed.data)
+    .insert(headerOnly(p.data))
     .select("id")
     .single();
-
-  if (error || !data) {
-    return { ok: false, error: error?.message ?? "Failed to create packing advice" };
-  }
-
+  if (error || !created) return fail(error?.message ?? "Failed to create packing advice");
+  const lineRes = await writeLines(s, created.id, p.data);
+  if (!lineRes.ok) return lineRes;
   await writeAudit({
     action: "packing_advice.created",
     entityType: "packing_advice",
-    entityId: data.id,
+    entityId: created.id,
   });
-
-  revalidatePath(LIST_PATH);
-  return { ok: true, adviceId: data.id };
-}
-
-export async function addPackingLine(
-  adviceId: string,
-  data: PackingLineInput,
-): Promise<ActionResult> {
-  if (!(await can("orders", "edit"))) {
-    throw new Error("Forbidden");
-  }
-
-  const parsed = packingLineInput.safeParse(data);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  }
-
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("packing_advice_lines")
-    .insert({ ...parsed.data, advice_id: adviceId });
-
-  if (error) {
-    return { ok: false, error: error.message };
-  }
-
-  revalidatePath(`${LIST_PATH}/${adviceId}`);
+  rev();
   return { ok: true };
 }
 
-export async function deletePackingLine(
-  lineId: string,
-  adviceId: string,
-): Promise<ActionResult> {
-  if (!(await can("orders", "delete"))) {
-    throw new Error("Forbidden");
-  }
-
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("packing_advice_lines")
-    .delete()
-    .eq("id", lineId);
-
-  if (error) {
-    return { ok: false, error: error.message };
-  }
-
-  revalidatePath(`${LIST_PATH}/${adviceId}`);
-  return { ok: true };
-}
-
-export async function setPackingAdviceStatus(
-  adviceId: string,
-  status: PlaStatus,
-): Promise<ActionResult> {
-  if (!(await can("orders", "edit"))) {
-    throw new Error("Forbidden");
-  }
-  if (!PLA_STATUSES.includes(status)) {
-    return { ok: false, error: "Invalid status" };
-  }
-
-  const supabase = await createClient();
-  const { error } = await supabase
+export async function updatePackingAdvice(
+  id: string,
+  data: PackingAdviceInput,
+): Promise<Result> {
+  if (!(await can("orders", "edit"))) return fail("Forbidden");
+  const p = packingAdviceInput.safeParse(data);
+  if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  const s = await createClient();
+  const { error } = await s
     .from("packing_advices")
-    .update({ status })
-    .eq("id", adviceId);
+    .update(headerOnly(p.data))
+    .eq("id", id);
+  if (error) return fail(error.message);
+  const lineRes = await writeLines(s, id, p.data);
+  if (!lineRes.ok) return lineRes;
+  await writeAudit({
+    action: "packing_advice.updated",
+    entityType: "packing_advice",
+    entityId: id,
+  });
+  rev();
+  return { ok: true };
+}
 
-  if (error) {
-    return { ok: false, error: error.message };
-  }
-
-  revalidatePath(`${LIST_PATH}/${adviceId}`);
-  revalidatePath(LIST_PATH);
+export async function deletePackingAdvice(id: string): Promise<Result> {
+  if (!(await can("orders", "delete"))) return fail("Forbidden");
+  const s = await createClient();
+  const { error } = await s.from("packing_advices").delete().eq("id", id); // lines cascade
+  if (error) return fail(error.message);
+  rev();
   return { ok: true };
 }

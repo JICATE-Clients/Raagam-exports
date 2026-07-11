@@ -1,55 +1,53 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
-import { getBuyers } from "@/lib/orders/service";
-import { getColorCards, type ColorCardWithBuyer } from "@/lib/orders/color-cards/service";
-import { colorCardStatusTone } from "@/lib/orders/color-cards/types";
-import { fmtDate } from "@/lib/format";
+import {
+  getCustomersWithCardCounts,
+  type CustomerCardSummary,
+} from "@/lib/orders/color-cards/service";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
-import { NewColorCardForm } from "./new-color-card-form";
 
-const columns: Column<ColorCardWithBuyer>[] = [
+const columns: Column<CustomerCardSummary>[] = [
   {
-    header: "Code",
+    header: "Customer",
     cell: (row) => (
       <Link
-        href={`/orders/color-cards/${row.id}`}
+        href={`/orders/color-cards/customer/${row.id}`}
         className="font-mono text-xs font-medium text-primary hover:underline"
       >
         {row.code ?? "—"}
       </Link>
     ),
   },
-  { header: "Buyer", cell: (row) => <span className="text-sm">{row.buyers?.name ?? "—"}</span> },
-  { header: "Card name", cell: (row) => <span className="text-sm font-medium">{row.name}</span> },
   {
-    header: "Season",
+    header: "Customer Name",
     cell: (row) => (
-      <span className="text-sm text-muted-foreground">{row.season ?? "—"}</span>
+      <Link
+        href={`/orders/color-cards/customer/${row.id}`}
+        className="text-sm font-medium hover:underline"
+      >
+        {row.name}
+      </Link>
     ),
   },
   {
-    header: "Colours",
-    align: "right",
-    cell: (row) => <span className="tabular-nums text-sm">{row.color_count}</span>,
-  },
-  {
-    header: "Status",
+    header: "Country",
     cell: (row) => (
-      <StatusPill tone={colorCardStatusTone(row.status)}>
-        {row.status === "active" ? "Active" : "Archived"}
-      </StatusPill>
+      <span className="text-sm text-muted-foreground">{row.country ?? "—"}</span>
     ),
   },
   {
-    header: "Created",
+    header: "Cards",
     align: "right",
     cell: (row) => (
-      <span className="tabular-nums text-xs text-muted-foreground">
-        {fmtDate(row.created_at)}
-      </span>
+      <Link
+        href={`/orders/color-cards/customer/${row.id}`}
+        className="inline-flex items-center gap-1 tabular-nums text-sm text-primary hover:underline"
+      >
+        {row.card_count}
+        <span aria-hidden>→</span>
+      </Link>
     ),
   },
 ];
@@ -57,13 +55,13 @@ const columns: Column<ColorCardWithBuyer>[] = [
 export default async function ColorCardsPage() {
   await requirePermission("orders", "view");
 
-  const [cards, buyers] = await Promise.all([getColorCards(), getBuyers()]);
+  const customers = await getCustomersWithCardCounts();
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Customer Colour Cards"
-        description="Buyer-approved colour palettes reused across orders"
+        title="Define Customer Colour Cards"
+        description="Select a customer to define their buyer-approved colour palettes"
         actions={
           <Link href="/orders">
             <Button variant="outline" size="sm">
@@ -73,13 +71,11 @@ export default async function ColorCardsPage() {
         }
       />
 
-      <NewColorCardForm buyers={buyers} />
-
       <DataTable
         columns={columns}
-        rows={cards}
+        rows={customers}
         getKey={(row) => row.id}
-        empty="No colour cards yet. Use 'New colour card' above to create the first."
+        empty="No customers yet. Add buyers in Master Data first."
       />
     </div>
   );

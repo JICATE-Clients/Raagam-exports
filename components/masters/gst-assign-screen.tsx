@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { FilterBar } from "@/components/masters/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { saveVendorGst, type VendorGstChange } from "@/lib/masters/vendor-gst-actions";
@@ -195,13 +196,18 @@ export function GstAssignScreen({ rows, perms }: { rows: VendorGstRow[]; perms: 
   return (
     <div className="space-y-4">
       {/* toolbar */}
-      <div className="flex flex-wrap items-end gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search vendor code or name…"
-          className="max-w-xs flex-1 basis-full text-base sm:basis-auto md:text-sm"
-        />
+      <FilterBar
+        search={query}
+        onSearch={setQuery}
+        searchPlaceholder="Search vendor code or name…"
+        activeCount={[fStatus, fType, fGst, fCat].filter(Boolean).length}
+        onReset={resetFilters}
+        right={
+          <>
+            {filtered.length} of {rows.length} · {missing} missing GSTIN
+          </>
+        }
+      >
         <Select value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="Filter status" className="h-9 text-base md:text-sm">
           <option value="">All status</option>
           {VENDOR_STATUSES.map((s) => (
@@ -235,18 +241,7 @@ export function GstAssignScreen({ rows, perms }: { rows: VendorGstRow[]; perms: 
             </option>
           ))}
         </Select>
-        <button
-          type="button"
-          onClick={resetFilters}
-          className="h-9 px-2 text-sm font-medium text-primary hover:underline"
-        >
-          Reset
-        </button>
-        <div className="flex-1" />
-        <span className="text-xs text-muted-foreground">
-          {filtered.length} of {rows.length} · {missing} missing GSTIN
-        </span>
-      </div>
+      </FilterBar>
 
       {/* bulk action bar */}
       {perms.canEdit && selected.size > 0 && (

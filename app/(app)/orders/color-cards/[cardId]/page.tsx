@@ -32,9 +32,9 @@ export default async function ColorCardDetailPage({
         title={card.name}
         description={`${card.code ?? "—"} · ${card.buyers?.name ?? "Unknown buyer"}`}
         actions={
-          <Link href="/orders/color-cards">
+          <Link href={`/orders/color-cards/customer/${card.buyer_id}`}>
             <Button variant="outline" size="sm">
-              ← All colour cards
+              ← {card.buyers?.name ?? "Customer"} cards
             </Button>
           </Link>
         }
