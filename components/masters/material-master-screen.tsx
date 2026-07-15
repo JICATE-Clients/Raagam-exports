@@ -7,28 +7,41 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/material-actions";
-import { createItemClass } from "@/lib/masters/category-actions";
-import { LookupPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker, CategoryPicker } from "@/components/masters/lookup-picker";
 import {
   MATERIAL_FORMS,
   MATERIAL_TYPES,
+  FABRIC_STRUCTURE_UOM,
   itemClassForm,
   type Material,
   type MaterialInput,
   type DetailFieldKey,
+  type MaterialFormKey,
 } from "@/lib/masters/material-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
 import type { Uom } from "@/lib/masters/types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
-type CostHead = { id: string; name: string };
-type MixRow = { key: string; description: string; shade: string; uom_id: string };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
+type MixRow = {
+  key: string;
+  description: string;
+  shade: string;
+  uom_id: string;
+  component_item_id: string;
+  count_id: string;
+  blend_pct: string;
+};
 type ConvRow = { key: string; alt_qty: string; alt_uom_id: string; base_qty: string; base_uom_id: string };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -47,6 +60,10 @@ const BLANK = {
   count_id: "",
   purity_id: "",
   shade: "",
+  fabric_type_id: "",
+  yarn_type_id: "",
+  ply: "",
+  direct_purchase: false,
   base_uom_id: "",
   stock_uom_id: "",
   billing_uom_id: "",
@@ -55,7 +72,7 @@ const BLANK = {
   cost_head_id: "",
   budget_rate: "",
   budget_rate_uom_id: "",
-  blocked: false,
+  inactive: false,
 };
 type Form = typeof BLANK;
 
@@ -66,8 +83,10 @@ export function MaterialMasterScreen({
   counts,
   purities,
   hsnCodes,
+  fabricTypes,
+  yarnTypes,
+  fabricStructures,
   units,
-  costHeads,
   perms,
 }: {
   rows: Material[];
@@ -76,14 +95,15 @@ export function MaterialMasterScreen({
   counts: ConfigLookup[];
   purities: ConfigLookup[];
   hsnCodes: ConfigLookup[];
+  fabricTypes: ConfigLookup[];
+  yarnTypes: ConfigLookup[];
+  fabricStructures: ConfigLookup[];
   units: Uom[];
-  costHeads: CostHead[];
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [section, setSection] = useState<"details" | "uom">("details");
@@ -93,34 +113,78 @@ export function MaterialMasterScreen({
   const keySeq = useRef(0);
   const newKey = () => `r${keySeq.current++}`;
 
-  // inline item-class add
-  const [extraClasses, setExtraClasses] = useState<ConfigLookup[]>([]);
-  const [showNewClass, setShowNewClass] = useState(false);
-  const [newClassCode, setNewClassCode] = useState("");
-  const [newClassName, setNewClassName] = useState("");
-  const allClasses = useMemo(() => {
-    const seen = new Set<string>();
-    return [...itemClasses, ...extraClasses].filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
-  }, [itemClasses, extraClasses]);
-
-  const classLabel = useMemo(() => new Map(allClasses.map((c) => [c.id, c.name])), [allClasses]);
+  const classLabel = useMemo(() => new Map(itemClasses.map((c) => [c.id, c.name])), [itemClasses]);
   const catLabel = useMemo(() => new Map(categories.map((c) => [c.id, c.name ?? "—"])), [categories]);
+  const unitCodeById = useMemo(() => new Map(units.map((u) => [u.id, u.code.toUpperCase()])), [units]);
+  // Cascading picker rule (mirrors material-attribute-master-screen.tsx): Category
+  // only ever shows rows scoped to the selected Item Class, never the full list.
+  const scopedCategories = useMemo(
+    () => categories.filter((c) => c.item_class_id === form.item_class_id),
+    [categories, form.item_class_id],
+  );
+  const yarnClassId = useMemo(() => itemClasses.find((c) => c.code?.toUpperCase() === "YARN")?.id ?? null, [itemClasses]);
+  const yarnItems = useMemo(() => rows.filter((r) => r.item_class_id === yarnClassId), [rows, yarnClassId]);
+  const structureCodeById = useMemo(() => new Map(fabricStructures.map((s) => [s.id, s.code])), [fabricStructures]);
+  const unitIdByCode = useMemo(() => new Map(units.map((u) => [u.code, u.id])), [units]);
+  const countLabel = useMemo(() => new Map(counts.map((c) => [c.id, c.name])), [counts]);
+  const purityLabel = useMemo(() => new Map(purities.map((p) => [p.id, p.name])), [purities]);
+  const fabricTypeLabel = useMemo(() => new Map(fabricTypes.map((t) => [t.id, t.name])), [fabricTypes]);
+  const yarnItemName = useMemo(() => new Map(yarnItems.map((y) => [y.id, y.name])), [yarnItems]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+    search: (r, q) =>
       [r.code, r.name, classLabel.get(r.item_class_id ?? ""), r.hsn_code]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q),
-    );
-  }, [rows, query, classLabel]);
+    filters: {
+      status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
+      itemClass: (r, v) => r.item_class_id === v,
+      materialType: (r, v) => r.material_type === v,
+      category: (r, v) => r.category_id === v,
+    },
+    initialFilters: { status: "", itemClass: "", materialType: "", category: "" },
+  });
+
+  const pg = usePagination(filtered, 10);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
-  const selectedClassCode = allClasses.find((c) => c.id === form.item_class_id)?.code ?? null;
-  const formDef = MATERIAL_FORMS[itemClassForm(selectedClassCode)];
+  const selectedClassCode = itemClasses.find((c) => c.id === form.item_class_id)?.code ?? null;
+  const formKey: MaterialFormKey = itemClassForm(selectedClassCode);
+  const formDef = formKey === "A" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
+  const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
+  const structureCode = selectedCategory?.fabric_structure_id
+    ? structureCodeById.get(selectedCategory.fabric_structure_id) ?? null
+    : null;
+
+  // Fabric: auto-derive UOM from the category's Structure (0279 — Circular=kg,
+  // Flat Knit=numbers+weight, Woven=meters+kg). Pure lookup only — no ref access.
+  function structureUomHint(code: string | null): { baseId?: string; secondaryId?: string } {
+    if (!code) return {};
+    const hint = FABRIC_STRUCTURE_UOM[code];
+    if (!hint) return {};
+    return {
+      baseId: unitIdByCode.get(hint.base),
+      secondaryId: hint.secondary ? unitIdByCode.get(hint.secondary) : undefined,
+    };
+  }
+  // Top-level handler (same shape as addMix/delMix below) so newKey()'s ref
+  // read happens in a spot the compiler can prove is event-handler-only —
+  // a handler nested inside the fabricDetails() render-helper trips the
+  // react-hooks/refs check even though it's only ever invoked from onChange.
+  function handleFabricCategoryChange(catId: string) {
+    const cat = categories.find((c) => c.id === catId);
+    const code = cat?.fabric_structure_id ? structureCodeById.get(cat.fabric_structure_id) ?? null : null;
+    const { baseId, secondaryId } = structureUomHint(code);
+    set({
+      category_id: catId,
+      ...(baseId && !form.base_uom_id ? { base_uom_id: baseId, stock_uom_id: baseId } : {}),
+    });
+    if (baseId && secondaryId && conversions.length === 0) {
+      setConversions([{ key: newKey(), alt_qty: "", alt_uom_id: baseId, base_qty: "", base_uom_id: secondaryId }]);
+    }
+  }
 
   function openAdd() {
     setEditId(null);
@@ -128,7 +192,6 @@ export function MaterialMasterScreen({
     setMixings([]);
     setConversions([]);
     setSection("details");
-    setShowNewClass(false);
     setOpen(true);
   }
   function openEdit(r: Material) {
@@ -147,6 +210,10 @@ export function MaterialMasterScreen({
       count_id: r.count_id ?? "",
       purity_id: r.purity_id ?? "",
       shade: r.shade ?? "",
+      fabric_type_id: r.fabric_type_id ?? "",
+      yarn_type_id: r.yarn_type_id ?? "",
+      ply: r.ply != null ? String(r.ply) : "",
+      direct_purchase: r.direct_purchase,
       base_uom_id: r.base_uom_id ?? "",
       stock_uom_id: r.stock_uom_id ?? "",
       billing_uom_id: r.billing_uom_id ?? "",
@@ -155,7 +222,7 @@ export function MaterialMasterScreen({
       cost_head_id: r.cost_head_id ?? "",
       budget_rate: r.budget_rate != null ? String(r.budget_rate) : "",
       budget_rate_uom_id: r.budget_rate_uom_id ?? "",
-      blocked: !r.is_active,
+      inactive: !r.is_active,
     });
     setMixings(
       r.mixings.map((m) => ({
@@ -163,6 +230,9 @@ export function MaterialMasterScreen({
         description: m.description ?? "",
         shade: m.shade ?? "",
         uom_id: m.uom_id ?? "",
+        component_item_id: m.component_item_id ?? "",
+        count_id: m.count_id ?? "",
+        blend_pct: m.blend_pct != null ? String(m.blend_pct) : "",
       })),
     );
     setConversions(
@@ -175,31 +245,17 @@ export function MaterialMasterScreen({
       })),
     );
     setSection("details");
-    setShowNewClass(false);
     setOpen(true);
   }
 
-  function addItemClass() {
-    startTransition(async () => {
-      const res = await createItemClass({ code: newClassCode.trim() || null, name: newClassName });
-      if (res.ok) {
-        setExtraClasses((xs) => [
-          ...xs,
-          { id: res.id, kind: "item_class", code: newClassCode.trim() || null, name: newClassName.trim(), notes: null, is_active: true, created_at: "", updated_at: "" },
-        ]);
-        set({ item_class_id: res.id });
-        setShowNewClass(false);
-        setNewClassCode("");
-        setNewClassName("");
-        success("Item Class added.");
-        router.refresh();
-      } else error(res.error);
-    });
-  }
-
   // grid mutators
-  const addMix = () => setMixings((xs) => [...xs, { key: newKey(), description: "", shade: "", uom_id: "" }]);
+  const addMix = () =>
+    setMixings((xs) => [
+      ...xs,
+      { key: newKey(), description: "", shade: "", uom_id: "", component_item_id: "", count_id: "", blend_pct: "" },
+    ]);
   const setMix = (key: string, patch: Partial<MixRow>) => setMixings((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const mixPctSum = mixings.reduce((sum, m) => sum + (numOrNull(m.blend_pct) ?? 0), 0);
   const delMix = (key: string) => setMixings((xs) => xs.filter((r) => r.key !== key));
   const addConv = () => setConversions((xs) => [...xs, { key: newKey(), alt_qty: "", alt_uom_id: "", base_qty: "", base_uom_id: "" }]);
   const setConv = (key: string, patch: Partial<ConvRow>) => setConversions((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -210,7 +266,7 @@ export function MaterialMasterScreen({
       const payload: MaterialInput = {
         code: form.code.trim(),
         name: form.name.trim() || null,
-        is_active: !form.blocked,
+        is_active: !form.inactive,
         item_class_id: form.item_class_id || null,
         hsn_code: form.hsn_code || null,
         hsn_id: form.hsn_id || null,
@@ -222,6 +278,10 @@ export function MaterialMasterScreen({
         count_id: form.count_id || null,
         purity_id: form.purity_id || null,
         shade: form.shade || null,
+        fabric_type_id: form.fabric_type_id || null,
+        yarn_type_id: form.yarn_type_id || null,
+        ply: numOrNull(form.ply),
+        direct_purchase: form.direct_purchase,
         base_uom_id: form.base_uom_id || null,
         stock_uom_id: form.stock_uom_id || null,
         billing_uom_id: form.billing_uom_id || null,
@@ -230,7 +290,15 @@ export function MaterialMasterScreen({
         cost_head_id: form.cost_head_id || null,
         budget_rate: numOrNull(form.budget_rate),
         budget_rate_uom_id: form.budget_rate_uom_id || null,
-        mixings: mixings.map((m) => ({ sno: 0, description: m.description || null, shade: m.shade || null, uom_id: m.uom_id || null })),
+        mixings: mixings.map((m) => ({
+          sno: 0,
+          description: m.description || null,
+          shade: m.shade || null,
+          uom_id: m.uom_id || null,
+          component_item_id: m.component_item_id || null,
+          count_id: m.count_id || null,
+          blend_pct: numOrNull(m.blend_pct),
+        })),
         conversions: conversions.map((c) => ({
           sno: 0,
           alt_qty: numOrNull(c.alt_qty),
@@ -248,11 +316,13 @@ export function MaterialMasterScreen({
     });
   }
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   function remove(r: Material) {
     startTransition(async () => {
       const res = await deleteMaterial(r.id);
       if (res.ok) {
-        success("Material deleted.");
+        success(res.inactive ? `"${r.name}" is in use — marked inactive instead of deleted, history preserved.` : `"${r.name}" deleted.`);
+        setConfirmDeleteId(null);
         router.refresh();
       } else error(res.error);
     });
@@ -274,17 +344,17 @@ export function MaterialMasterScreen({
     switch (key) {
       case "category_id":
         return (
-          <div key={key}>
-            <Label>Category</Label>
-            <Select value={form.category_id} onChange={(e) => set({ category_id: e.target.value })} className="text-base md:text-sm">
-              <option value="">— None —</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name ?? c.short_name ?? "—"}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <CategoryPicker
+            key={key}
+            label="Category"
+            categories={scopedCategories}
+            value={form.category_id}
+            onChange={(v) => set({ category_id: v })}
+            itemClassId={form.item_class_id}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+          />
         );
       case "material_type":
         return (
@@ -326,7 +396,7 @@ export function MaterialMasterScreen({
         );
       case "count_id":
         return (
-          <LookupPicker
+          <LookupDialogPicker
             key={key}
             kind="yarn_count"
             label="Count"
@@ -339,7 +409,7 @@ export function MaterialMasterScreen({
         );
       case "purity_id":
         return (
-          <LookupPicker
+          <LookupDialogPicker
             key={key}
             kind="yarn_purity"
             label="Purity"
@@ -360,38 +430,263 @@ export function MaterialMasterScreen({
     }
   }
 
+  // Live auto-name preview (0279) — Yarn: Count + Category + Purity/Mixing%;
+  // Fabric: Structure + Yarn(s) + %. Non-destructive: shown as a suggestion the
+  // operator can apply, never silently overwrites what they've typed.
+  const suggestedName = useMemo(() => {
+    if (formKey === "YARN") {
+      const parts = [
+        form.count_id ? countLabel.get(form.count_id) : null,
+        selectedCategory?.made ?? null,
+        form.purity_id ? purityLabel.get(form.purity_id) : null,
+      ].filter(Boolean);
+      if (mixings.length && selectedCategory?.made === "Mixed") {
+        parts.push(mixings.map((m) => `${m.blend_pct || "?"}% ${m.component_item_id ? yarnItemName.get(m.component_item_id) ?? "?" : m.description || "?"}`).join(" / "));
+      }
+      return parts.join(" ") || null;
+    }
+    if (formKey === "FABRIC") {
+      const structureName = structureCode ? fabricStructures.find((s) => s.code === structureCode)?.name : null;
+      const parts = [structureName, form.fabric_type_id ? fabricTypeLabel.get(form.fabric_type_id) : null].filter(Boolean);
+      if (mixings.length) {
+        parts.push(mixings.map((m) => `${m.blend_pct || "?"}% ${m.component_item_id ? yarnItemName.get(m.component_item_id) ?? "?" : m.description || "?"}`).join(" / "));
+      }
+      return parts.join(" ") || null;
+    }
+    return null;
+  }, [formKey, form.count_id, form.purity_id, form.fabric_type_id, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, structureCode, fabricStructures, yarnItemName]);
+
+  /** Shared blend/mixing grid — Fabric ("Using" Single/Multiple yarn, Decision 4)
+   *  and Yarn (only when Category nature = Mixed, Decision 7). Each row links to
+   *  a real Yarn `items` record where possible; % must sum to 100 to save. */
+  function mixingGrid() {
+    return (
+      <div className="space-y-2 border-t border-border pt-3">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mixing</div>
+          {mixings.length > 0 && (
+            <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
+              {mixPctSum}% of 100%
+            </span>
+          )}
+        </div>
+        {mixings.map((m, i) => (
+          <div key={m.key} className="space-y-2 rounded-lg border border-border p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
+              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delMix(m.key)}>
+                ✕
+              </Button>
+            </div>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Select value={m.component_item_id} onChange={(e) => setMix(m.key, { component_item_id: e.target.value })} className="text-base md:text-sm">
+                <option value="">— Component yarn —</option>
+                {yarnItems.map((y) => (
+                  <option key={y.id} value={y.id}>
+                    {y.code} — {y.name}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="%"
+                value={m.blend_pct}
+                onChange={(e) => setMix(m.key, { blend_pct: e.target.value })}
+                className="w-20 text-base md:text-sm"
+              />
+            </div>
+            {!m.component_item_id && (
+              <Input placeholder="Description (if no linked yarn record)" value={m.description} onChange={(e) => setMix(m.key, { description: e.target.value })} className="text-base md:text-sm" />
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} className="text-base md:text-sm" />
+              {uomSelect(m.uom_id, (v) => setMix(m.key, { uom_id: v }))}
+            </div>
+          </div>
+        ))}
+        <Button type="button" variant="outline" size="sm" onClick={addMix}>
+          + Add mixing row
+        </Button>
+      </div>
+    );
+  }
+
+  /** Fabric Details (0279) — Structure is inherited read-only from Category
+   *  (Decision 2); it drives UOM auto-derivation on category change. */
+  function fabricDetails() {
+    return (
+      <>
+        <CategoryPicker
+          label="Category"
+          categories={scopedCategories}
+          value={form.category_id}
+          onChange={handleFabricCategoryChange}
+          itemClassId={form.item_class_id}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+        />
+        <div>
+          <Label>Structure</Label>
+          <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
+            {structureCode ? fabricStructures.find((s) => s.code === structureCode)?.name ?? structureCode : "Set on the Category — pick a Category above"}
+          </div>
+        </div>
+        <div>
+          <Label>
+            Fabric Type <span className="text-danger">*</span>
+          </Label>
+          <LookupDialogPicker
+            kind="fabric_type"
+            label=""
+            options={fabricTypes}
+            value={form.fabric_type_id}
+            onChange={(v) => set({ fabric_type_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            isSuperAdmin={perms.isSuperAdmin}
+            adminOnly
+          />
+          <p className="mt-1 text-xs text-muted-foreground">Solid, Yarn-dyed or Melange — determines the dyeing PO type.</p>
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 border-t border-border pt-3">
+          <input
+            type="checkbox"
+            className="h-4 w-4 cursor-pointer accent-primary"
+            checked={form.direct_purchase}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              set({ direct_purchase: checked });
+              if (checked) setMixings([]);
+            }}
+          />
+          <span className="text-sm text-foreground">Direct Purchase (finished fabric bought from vendor — no yarn composition needed)</span>
+        </label>
+        {!form.direct_purchase && mixingGrid()}
+      </>
+    );
+  }
+
+  /** Yarn Details (0279) — Nature (categories.made) drives Purity vs Mixing. */
+  function yarnDetails() {
+    const nature = selectedCategory?.made ?? null;
+    return (
+      <>
+        <LookupDialogPicker
+          kind="yarn_count"
+          label="Count"
+          options={counts}
+          value={form.count_id}
+          onChange={(v) => set({ count_id: v })}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+        />
+        <CategoryPicker
+          label="Category"
+          categories={scopedCategories}
+          value={form.category_id}
+          onChange={(v) => set({ category_id: v })}
+          itemClassId={form.item_class_id}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+        />
+        {nature && (
+          <div>
+            <Label>Nature</Label>
+            <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
+          </div>
+        )}
+        {nature === "Mixed" ? (
+          mixingGrid()
+        ) : (
+          <LookupDialogPicker
+            kind="yarn_purity"
+            label="Purity"
+            options={purities}
+            value={form.purity_id}
+            onChange={(v) => set({ purity_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+          />
+        )}
+        <LookupDialogPicker
+          kind="yarn_type"
+          label="Yarn Type"
+          options={yarnTypes}
+          value={form.yarn_type_id}
+          onChange={(v) => set({ yarn_type_id: v })}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isSuperAdmin={perms.isSuperAdmin}
+          adminOnly
+        />
+        <div>
+          <Label>Ply</Label>
+          <Input type="number" min={1} step={1} value={form.ply} onChange={(e) => set({ ply: e.target.value })} className="text-base md:text-sm" />
+        </div>
+      </>
+    );
+  }
+
+  const uomCell = (id: string | null) => <span className="text-xs text-muted-foreground">{id ? unitCodeById.get(id) ?? "—" : "—"}</span>;
+
   const columns: Column<Material>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "Item Class",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}</span>,
     },
     {
-      header: "Category",
+      header: "Category Name",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.category_id ? catLabel.get(r.category_id) ?? "—" : "—"}</span>,
     },
+    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
+    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    { header: "HSN Code", cell: (r) => <span className="text-xs text-muted-foreground">{r.hsn_code ?? "—"}</span> },
+    { header: "Base", cell: (r) => uomCell(r.base_uom_id) },
+    { header: "Stock", cell: (r) => uomCell(r.stock_uom_id) },
+    { header: "Billing", cell: (r) => uomCell(r.billing_uom_id) },
+    { header: "Planning", cell: (r) => uomCell(r.planning_uom_id) },
+    { header: "Purchase", cell: (r) => uomCell(r.purchase_uom_id) },
+    { header: "Created User", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_by ?? "—"}</span> },
+    { header: "Created Dt", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_at ? r.created_at.slice(0, 10) : "—"}</span> },
     {
       header: "Status",
-      cell: (r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Blocked"}</StatusPill>,
+      cell: (r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>,
     },
     {
       header: "",
       align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
+      cell: (r) =>
+        confirmDeleteId === r.id ? (
+          <div className="flex justify-end gap-1">
+            <span className="self-center text-xs text-muted-foreground">Delete?</span>
+            <Button variant="outline" size="sm" onClick={() => setConfirmDeleteId(null)}>
+              Cancel
             </Button>
-          )}
-          {perms.canDelete && (
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" disabled={isPending} onClick={() => remove(r)}>
-              Delete
+            <Button variant="danger" size="sm" disabled={isPending} onClick={() => remove(r)}>
+              {isPending ? "…" : "Confirm"}
             </Button>
-          )}
-        </div>
-      ),
+          </div>
+        ) : (
+          <div className="flex justify-end gap-1">
+            {perms.canEdit && (
+              <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
+                Edit
+              </Button>
+            )}
+            {perms.canDelete && (
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => setConfirmDeleteId(r.id)}>
+                Delete
+              </Button>
+            )}
+          </div>
+        ),
     },
   ];
 
@@ -412,33 +707,116 @@ export function MaterialMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search materials…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Material
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search materials…"
+          activeCount={activeCount}
+          onReset={() => {
+            reset();
+            pg.setPage(1);
+          }}
+        >
+          <div>
+            <Label htmlFor="material-filter-status">Status</Label>
+            <Select
+              id="material-filter-status"
+              value={filterValues.status}
+              onChange={(e) => {
+                setFilter("status", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="material-filter-class">Item Class</Label>
+            <Select
+              id="material-filter-class"
+              value={filterValues.itemClass}
+              onChange={(e) => {
+                setFilter("itemClass", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {itemClasses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="material-filter-type">Material Type</Label>
+            <Select
+              id="material-filter-type"
+              value={filterValues.materialType}
+              onChange={(e) => {
+                setFilter("materialType", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {MATERIAL_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="material-filter-category">Category</Label>
+            <Select
+              id="material-filter-category"
+              value={filterValues.category}
+              onChange={(e) => {
+                setFilter("category", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {catLabel.get(c.id) ?? "—"}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="materials" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Material
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No materials yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No materials yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No materials yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -450,13 +828,22 @@ export function MaterialMasterScreen({
                   <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
                   <div className="mt-0.5 font-mono text-xs text-muted-foreground">{r.code}</div>
                 </div>
-                <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Blocked"}</StatusPill>
+                <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
               </div>
               {r.item_class_id && <div className="mt-2 text-[13px] text-muted-foreground">{classLabel.get(r.item_class_id)}</div>}
             </button>
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -468,7 +855,11 @@ export function MaterialMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.code.trim()} onClick={submit}>
+            <Button
+              size="md"
+              disabled={isPending || !form.code.trim() || (formKey === "FABRIC" && !form.fabric_type_id)}
+              onClick={submit}
+            >
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -476,40 +867,18 @@ export function MaterialMasterScreen({
       >
         <div className="space-y-4">
           {/* header: Item Class + HSN */}
-          <div>
-            <Label htmlFor="mt-class">Item Class</Label>
-            <div className="flex gap-2">
-              <Select id="mt-class" value={form.item_class_id} onChange={(e) => set({ item_class_id: e.target.value })} className="flex-1 text-base md:text-sm">
-                <option value="">— Select —</option>
-                {allClasses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                  </option>
-                ))}
-              </Select>
-              {perms.canCreate && (
-                <Button type="button" variant="outline" size="md" onClick={() => setShowNewClass((v) => !v)}>
-                  {showNewClass ? "Cancel" : "+ New"}
-                </Button>
-              )}
-            </div>
-            {showNewClass && (
-              <div className="mt-2 flex items-end gap-2 rounded-lg border border-border p-2.5">
-                <div className="w-24">
-                  <Label htmlFor="mt-class-code">Code</Label>
-                  <Input id="mt-class-code" value={newClassCode} onChange={(e) => setNewClassCode(e.target.value)} className="text-base md:text-sm" />
-                </div>
-                <div className="flex-1">
-                  <Label htmlFor="mt-class-name">Name</Label>
-                  <Input id="mt-class-name" value={newClassName} onChange={(e) => setNewClassName(e.target.value)} className="text-base md:text-sm" />
-                </div>
-                <Button type="button" size="md" disabled={isPending || !newClassName.trim()} onClick={addItemClass}>
-                  Add
-                </Button>
-              </div>
-            )}
-          </div>
-          <LookupPicker
+          <LookupDialogPicker
+            kind="item_class"
+            label="Item Class"
+            options={itemClasses}
+            value={form.item_class_id}
+            onChange={(v) => set({ item_class_id: v, category_id: "" })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            isSuperAdmin={perms.isSuperAdmin}
+          />
+          <LookupDialogPicker
             kind="hsn_code"
             label="HSN Code"
             options={hsnCodes}
@@ -530,33 +899,12 @@ export function MaterialMasterScreen({
             <div className="space-y-4">
               {!form.item_class_id ? (
                 <p className="text-xs text-muted-foreground">Select an Item Class above to see its detail fields.</p>
+              ) : formKey === "FABRIC" ? (
+                fabricDetails()
+              ) : formKey === "YARN" ? (
+                yarnDetails()
               ) : (
-                formDef.fields.map((k) => detailField(k))
-              )}
-
-              {/* Mixing grid (Form B) */}
-              {formDef.mixing && (
-                <div className="space-y-2 border-t border-border pt-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mixing</div>
-                  {mixings.map((m, i) => (
-                    <div key={m.key} className="space-y-2 rounded-lg border border-border p-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-                        <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delMix(m.key)}>
-                          ✕
-                        </Button>
-                      </div>
-                      <Input placeholder="Description" value={m.description} onChange={(e) => setMix(m.key, { description: e.target.value })} className="text-base md:text-sm" />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} className="text-base md:text-sm" />
-                        {uomSelect(m.uom_id, (v) => setMix(m.key, { uom_id: v }))}
-                      </div>
-                    </div>
-                  ))}
-                  <Button type="button" variant="outline" size="sm" onClick={addMix}>
-                    + Add mixing row
-                  </Button>
-                </div>
+                formDef?.fields.map((k) => detailField(k))
               )}
 
               {/* Short Name + Name (common) */}
@@ -572,6 +920,16 @@ export function MaterialMasterScreen({
                   <Input id="mt-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="text-base md:text-sm" />
                 </div>
               </div>
+              {suggestedName && suggestedName !== form.name && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-muted px-3 py-2">
+                  <span className="truncate text-xs text-muted-foreground">
+                    Suggested: <span className="text-foreground">{suggestedName}</span>
+                  </span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => set({ name: suggestedName })}>
+                    Use
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
@@ -629,35 +987,13 @@ export function MaterialMasterScreen({
                 </div>
               </div>
 
-              {/* budget */}
-              <div className="space-y-3 border-t border-border pt-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget</div>
-                <div>
-                  <Label>Cost Head</Label>
-                  <Select value={form.cost_head_id} onChange={(e) => set({ cost_head_id: e.target.value })} className="text-base md:text-sm">
-                    <option value="">— None —</option>
-                    {costHeads.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="grid grid-cols-[1fr_1.4fr] gap-2">
-                  <div>
-                    <Label>Budget Rate</Label>
-                    <Input type="number" step="0.0001" value={form.budget_rate} onChange={(e) => set({ budget_rate: e.target.value })} className="text-base md:text-sm" />
-                  </div>
-                  <div>
-                    <Label>per</Label>
-                    {uomSelect(form.budget_rate_uom_id, (v) => set({ budget_rate_uom_id: v }))}
-                  </div>
-                </div>
-              </div>
+              {/* Budget section removed from the UOM tab (client walkthrough, 0279) —
+                  existing budget_rate/cost_head data is preserved on save, just no
+                  longer editable here. */}
 
               <label className="flex cursor-pointer items-center gap-2 border-t border-border pt-3">
-                <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.blocked} onChange={(e) => set({ blocked: e.target.checked })} />
-                <span className="text-sm text-foreground">Blocked (inactive)</span>
+                <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
+                <span className="text-sm text-foreground">Inactive (inactive)</span>
               </label>
             </div>
           )}

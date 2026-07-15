@@ -8,6 +8,17 @@ import {
   contractorInput,
   WORKER_TYPES,
 } from "@/lib/hr/types";
+import { commodityInput } from "@/lib/masters/commodity-types";
+import { categoryInput } from "@/lib/masters/category-types";
+import { compositionInput } from "@/lib/masters/composition-types";
+import { processInput } from "@/lib/masters/process-types";
+import { componentInput } from "@/lib/masters/component-types";
+import { materialInput } from "@/lib/masters/material-types";
+import { stockUnitInput } from "@/lib/masters/stock-unit-types";
+import { lookupInput, attributeInput } from "@/lib/masters/extras-types";
+import { levyInput } from "@/lib/masters/levy-types";
+import { materialAttributeInput } from "@/lib/masters/material-attribute-types";
+import { outDocumentTermInput } from "@/lib/masters/out-document-term-types";
 
 /**
  * Data Import/Export engine — one descriptor per importable/exportable entity.
@@ -191,6 +202,194 @@ export const IO_ENTITIES: IoEntity[] = [
       { key: "contact_person", header: "Contact Person", kind: "string" },
       { key: "phone", header: "Phone", kind: "string" },
       IS_ACTIVE,
+    ],
+  },
+
+  // ---- Master Data ▸ Materials ---------------------------------------
+  {
+    key: "commodities",
+    label: "Commodities",
+    table: "commodities",
+    module: "masters",
+    revalidate: ["/masters/materials/commodities"],
+    schema: commodityInput,
+    fields: [
+      { key: "short_name", header: "Short Name", kind: "string" },
+      { key: "name", header: "Name", kind: "string" },
+    ],
+  },
+  {
+    key: "categories",
+    label: "Categories",
+    table: "categories",
+    module: "masters",
+    revalidate: ["/masters/materials/categories"],
+    schema: categoryInput,
+    fields: [
+      { key: "short_name", header: "Short Name", kind: "string" },
+      { key: "name", header: "Name", kind: "string" },
+      { key: "made", header: "Made", kind: "string" },
+      IS_ACTIVE,
+    ],
+  },
+  {
+    key: "compositions",
+    label: "Compositions",
+    table: "compositions",
+    module: "masters",
+    revalidate: ["/masters/materials/compositions"],
+    schema: compositionInput,
+    fields: [
+      { key: "short_name", header: "Short Name", kind: "string" },
+      { key: "name", header: "Name", kind: "string" },
+    ],
+  },
+  {
+    key: "processes",
+    label: "Processes",
+    table: "processes",
+    module: "masters",
+    revalidate: ["/masters/materials/processes"],
+    schema: processInput,
+    fields: [
+      { key: "name", header: "Name", kind: "string", required: true },
+      { key: "short_description", header: "Short Description", kind: "string" },
+      { key: "hsn_code", header: "HSN Code", kind: "string" },
+    ],
+  },
+  {
+    key: "components",
+    label: "Components",
+    table: "components",
+    module: "masters",
+    revalidate: ["/masters/materials/components"],
+    schema: componentInput,
+    fields: [
+      { key: "short_name", header: "Short Name", kind: "string" },
+      { key: "description", header: "Description", kind: "string" },
+    ],
+  },
+  {
+    key: "materials",
+    label: "Materials",
+    table: "items",
+    module: "masters",
+    revalidate: ["/masters/materials/materials"],
+    schema: materialInput,
+    fields: [
+      { key: "code", header: "Code", kind: "string", required: true },
+      { key: "name", header: "Name", kind: "string" },
+    ],
+  },
+  {
+    key: "stock-units",
+    label: "Stock Units",
+    table: "uoms",
+    module: "masters",
+    revalidate: ["/masters/materials/stock-units"],
+    schema: stockUnitInput,
+    fields: [
+      { key: "code", header: "Code", kind: "string", required: true },
+      { key: "name", header: "Name", kind: "string", required: true },
+      { key: "description", header: "Description", kind: "string" },
+    ],
+  },
+  {
+    key: "gauges",
+    label: "Gauges",
+    table: "config_lookups",
+    module: "masters",
+    revalidate: ["/masters/materials/gauges"],
+    schema: lookupInput,
+    fields: [
+      { key: "code", header: "Code", kind: "string" },
+      { key: "name", header: "Name", kind: "string", required: true },
+    ],
+  },
+  {
+    key: "knitting-dias",
+    label: "Knitting Dias",
+    table: "config_lookups",
+    module: "masters",
+    revalidate: ["/masters/materials/knitting-dias"],
+    schema: lookupInput,
+    fields: [
+      { key: "code", header: "Code", kind: "string" },
+      { key: "name", header: "Name", kind: "string", required: true },
+    ],
+  },
+  {
+    key: "counts",
+    label: "Counts",
+    table: "config_lookups",
+    module: "masters",
+    revalidate: ["/masters/materials/counts"],
+    schema: lookupInput,
+    fields: [
+      { key: "code", header: "Code", kind: "string" },
+      { key: "name", header: "Name", kind: "string", required: true },
+    ],
+  },
+  {
+    key: "yarn-purities",
+    label: "Yarn Purities",
+    table: "config_lookups",
+    module: "masters",
+    revalidate: ["/masters/materials/yarn-purities"],
+    schema: lookupInput,
+    fields: [
+      { key: "code", header: "Code", kind: "string" },
+      { key: "name", header: "Name", kind: "string", required: true },
+    ],
+  },
+  {
+    key: "attributes",
+    label: "Attributes",
+    table: "config_lookups",
+    module: "masters",
+    revalidate: ["/masters/materials/attributes"],
+    schema: attributeInput,
+    fields: [
+      { key: "code", header: "Code", kind: "string" },
+      { key: "name", header: "Name", kind: "string", required: true },
+    ],
+  },
+  {
+    key: "levies",
+    label: "Levies",
+    table: "levies",
+    module: "masters",
+    revalidate: ["/masters/materials/levies"],
+    schema: levyInput,
+    fields: [
+      { key: "type", header: "Type", kind: "string" },
+      { key: "description", header: "Description", kind: "string" },
+      { key: "effective_from", header: "Effective From", kind: "date" },
+    ],
+  },
+  {
+    key: "material-attributes",
+    label: "Material Attributes",
+    table: "material_attributes",
+    module: "masters",
+    revalidate: ["/masters/materials/material-attributes"],
+    schema: materialAttributeInput,
+    fields: [
+      { key: "item_class_id", header: "Item Class Id", kind: "uuid" },
+      { key: "category_id", header: "Category Id", kind: "uuid" },
+    ],
+  },
+  {
+    key: "out-document-terms",
+    label: "Out Document Terms",
+    table: "out_document_terms",
+    module: "masters",
+    revalidate: ["/masters/materials/out-document-terms"],
+    schema: outDocumentTermInput,
+    fields: [
+      { key: "type", header: "Type", kind: "string" },
+      { key: "entry_date", header: "Entry Date", kind: "date" },
+      { key: "item_class_id", header: "Item Class Id", kind: "uuid" },
     ],
   },
 ];

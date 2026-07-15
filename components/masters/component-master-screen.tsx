@@ -1,14 +1,20 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createComponent,
   updateComponent,
@@ -16,14 +22,14 @@ import {
 } from "@/lib/masters/component-actions";
 import type { Component, ComponentInput } from "@/lib/masters/component-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type CoordinateRow = { key: string; coordinate: string };
 
-const BLANK = { short_name: "", description: "", all_coordinates: true, blocked: false };
+const BLANK = { short_name: "", description: "", all_coordinates: true, inactive: false };
 
 /**
  * Master-detail CRUD for the legacy "Component" master: a header (Short Name
- * req · Description · All Coordinates · Blocked) plus a "Coordinates" grid of
+ * req · Description · All Coordinates · Inactive) plus a "Coordinates" grid of
  * free-text coordinate labels. Dense table on desktop, cards on mobile, shared
  * <Sheet> editor.
  */
@@ -37,7 +43,6 @@ export function ComponentMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -45,17 +50,22 @@ export function ComponentMasterScreen({
   const keySeq = useRef(0);
   const newKey = () => `c${keySeq.current++}`;
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+    search: (r, q) =>
       [r.short_name, r.description, ...r.coordinates.map((c) => c.coordinate)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q),
-    );
-  }, [rows, query]);
+    filters: {
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
+      allCoordinates: (r, v) =>
+        v === "yes" ? r.all_coordinates : v === "no" ? !r.all_coordinates : true,
+    },
+    initialFilters: { status: "", allCoordinates: "" },
+  });
+
+  const pg = usePagination(filtered, 10);
 
   function openAdd() {
     setEditId(null);
@@ -69,7 +79,7 @@ export function ComponentMasterScreen({
       short_name: r.short_name,
       description: r.description ?? "",
       all_coordinates: r.all_coordinates,
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setCoordinates(r.coordinates.map((c) => ({ key: newKey(), coordinate: c.coordinate })));
     setOpen(true);
@@ -107,7 +117,7 @@ export function ComponentMasterScreen({
         short_name: form.short_name.trim(),
         description: form.description.trim() || null,
         all_coordinates: form.all_coordinates,
-        blocked: form.blocked,
+        inactive: form.inactive,
         coordinates: resolveCoordinates(),
       };
       const res = editId ? await updateComponent(editId, payload) : await createComponent(payload);
@@ -154,8 +164,8 @@ export function ComponentMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Blocked" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -189,33 +199,75 @@ export function ComponentMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search component…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Component
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search component…"
+          activeCount={activeCount}
+          onReset={() => {
+            reset();
+            pg.setPage(1);
+          }}
+        >
+          <div>
+            <Label htmlFor="component-filter-status">Status</Label>
+            <Select
+              id="component-filter-status"
+              value={filterValues.status}
+              onChange={(e) => {
+                setFilter("status", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="component-filter-allcoords">All Coordinates</Label>
+            <Select
+              id="component-filter-allcoords"
+              value={filterValues.allCoordinates}
+              onChange={(e) => {
+                setFilter("allCoordinates", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="components" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Component
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No component records yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No component records yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No component records yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -231,8 +283,8 @@ export function ComponentMasterScreen({
                     <div className="mt-0.5 text-xs text-muted-foreground">{r.description}</div>
                   )}
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
               <div className="mt-2 text-[13px] text-muted-foreground">
@@ -246,6 +298,15 @@ export function ComponentMasterScreen({
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -339,10 +400,10 @@ export function ComponentMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

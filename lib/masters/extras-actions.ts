@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 import {
   lookupInput,
   transporterInput,
@@ -17,6 +19,7 @@ import {
 } from "./extras-types";
 
 type Result = { ok: true } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean } | { ok: false; error: string };
 
 function rev(): void {
   revalidatePath("/masters");
@@ -26,7 +29,7 @@ function revAttributes(): void {
   revalidatePath("/masters/materials");
   revalidatePath("/masters/materials/attributes");
 }
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 
@@ -36,7 +39,21 @@ export async function createLookup(data: LookupInput): Promise<Result> {
   const p = lookupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { error } = await s.from("config_lookups").insert(p.data);
+  const dup = await checkDuplicateName(s, "config_lookups", p.data.name, { scope: { kind: p.data.kind } });
+  if (!dup.ok) return fail(dup.error);
+  const {
+    data: { user },
+  } = await s.auth.getUser();
+  let createdBy: string | null = null;
+  if (user) {
+    const { data: profile } = await s
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+    createdBy = profile?.full_name || profile?.email || null;
+  }
+  const { error } = await s.from("config_lookups").insert({ ...p.data, created_by: createdBy });
   if (error) return fail(error.message);
   rev();
   return { ok: true };
@@ -46,25 +63,28 @@ export async function updateLookup(id: string, data: LookupInput): Promise<Resul
   const p = lookupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "config_lookups", p.data.name, {
+    excludeId: id,
+    scope: { kind: p.data.kind },
+  });
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("config_lookups").update(p.data).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };
 }
-export async function deleteLookup(id: string): Promise<Result> {
+export async function deleteLookup(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("config_lookups").delete().eq("id", id);
-  if (error) return fail(error.message);
+  const res = await deleteOrDeactivate(s, "config_lookups", id, "is_active");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive };
 }
 
-// ---------- attributes (master-detail) ----------
-/** Normalize the value grid: clear when Has Attributes is off; else drop blanks
- *  and renumber sno 1..n so the persisted rows always mirror the checkbox. */
+// ---------- attributes (= Item Class rows, merged by 0293) ----------
+/** Drop blanks and renumber sno 1..n so the persisted rows always mirror the grid. */
 function normalizeValues(data: AttributeInput): { sno: number; value: string }[] {
-  if (!data.has_attributes) return [];
   return data.values
     .map((v) => ({ ...v, value: v.value.trim() }))
     .filter((v) => v.value.length > 0)
@@ -78,9 +98,11 @@ export async function createAttribute(data: AttributeInput): Promise<Result> {
   const s = await createClient();
   const { values: _drop, ...header } = p.data;
   void _drop;
+  const dup = await checkDuplicateName(s, "config_lookups", header.name, { scope: { kind: "item_class" } });
+  if (!dup.ok) return fail(dup.error);
   const { data: created, error } = await s
-    .from("attributes")
-    .insert(header)
+    .from("config_lookups")
+    .insert({ ...header, kind: "item_class" })
     .select("id")
     .single();
   if (error) return fail(error.message);
@@ -88,7 +110,7 @@ export async function createAttribute(data: AttributeInput): Promise<Result> {
   if (rows.length) {
     const { error: vErr } = await s
       .from("attribute_values")
-      .insert(rows.map((r) => ({ ...r, attribute_id: created.id })));
+      .insert(rows.map((r) => ({ ...r, item_class_id: created.id })));
     if (vErr) return fail(vErr.message);
   }
   revAttributes();
@@ -102,29 +124,34 @@ export async function updateAttribute(id: string, data: AttributeInput): Promise
   const s = await createClient();
   const { values: _drop, ...header } = p.data;
   void _drop;
-  const { error } = await s.from("attributes").update(header).eq("id", id);
+  const dup = await checkDuplicateName(s, "config_lookups", header.name, {
+    excludeId: id,
+    scope: { kind: "item_class" },
+  });
+  if (!dup.ok) return fail(dup.error);
+  const { error } = await s.from("config_lookups").update(header).eq("id", id);
   if (error) return fail(error.message);
   // Replace the child grid wholesale (small, fully-loaded set).
-  const { error: delErr } = await s.from("attribute_values").delete().eq("attribute_id", id);
+  const { error: delErr } = await s.from("attribute_values").delete().eq("item_class_id", id);
   if (delErr) return fail(delErr.message);
   const rows = normalizeValues(p.data);
   if (rows.length) {
     const { error: vErr } = await s
       .from("attribute_values")
-      .insert(rows.map((r) => ({ ...r, attribute_id: id })));
+      .insert(rows.map((r) => ({ ...r, item_class_id: id })));
     if (vErr) return fail(vErr.message);
   }
   revAttributes();
   return { ok: true };
 }
 
-export async function deleteAttribute(id: string): Promise<Result> {
+export async function deleteAttribute(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("attributes").delete().eq("id", id); // values cascade
-  if (error) return fail(error.message);
+  const res = await deleteOrDeactivate(s, "config_lookups", id, "is_active");
+  if (!res.ok) return fail(res.error);
   revAttributes();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive };
 }
 
 // ---------- transporters ----------
@@ -200,7 +227,7 @@ export async function updateCurrency(code: string, data: CurrencyInput): Promise
 export async function deleteCurrency(code: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  // May be blocked by FK references (buyers/customers/etc. hold currency_code) —
+  // May be inactive by FK references (buyers/customers/etc. hold currency_code) —
   // Postgres returns a foreign-key violation which we surface to the user.
   const { error } = await s.from("currencies").delete().eq("code", code);
   if (error) return fail(error.message);

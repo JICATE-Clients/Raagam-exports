@@ -8,36 +8,37 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createAttribute,
   updateAttribute,
   deleteAttribute,
 } from "@/lib/masters/extras-actions";
-import {
-  ATTRIBUTE_TYPES,
-  type Attribute,
-  type AttributeInput,
-  type AttributeType,
-} from "@/lib/masters/extras-types";
+import { type Attribute, type AttributeInput } from "@/lib/masters/extras-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 type ValueRow = { key: string; value: string };
 
 const BLANK = {
   code: "",
-  type: "" as "" | AttributeType,
-  description: "",
-  blocked: false,
-  has_attributes: false,
+  name: "",
+  type_code: "",
+  notes: "",
+  inactive: false,
 };
 
 /**
- * Master-detail CRUD for the legacy "Attribute" master: a header (code, type,
- * description, blocked, has-attributes) plus a child grid of attribute values.
- * Dense table on desktop, record cards on mobile, shared <Sheet> editor.
+ * Attributes = Item Class (config_lookups kind `item_class`, merged 0293) —
+ * Code/Name/Type/Inactive header, plus a child grid of named attribute values
+ * (e.g. GSM, Width) that Material Attribute Lines pick from. Dense table on
+ * desktop, record cards on mobile, shared <Sheet> editor.
  */
 export function AttributeMasterScreen({
   rows,
@@ -49,7 +50,6 @@ export function AttributeMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -57,17 +57,29 @@ export function AttributeMasterScreen({
   const keySeq = useRef(0);
   const newKey = () => `v${keySeq.current++}`;
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.code, r.type, r.description, ...r.values.map((v) => v.value)]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query]);
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+    rows,
+    {
+      search: (r, q) =>
+        [r.code, r.name, r.type_code, r.notes, ...r.values.map((v) => v.value)]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+      filters: {
+        status: (r, v) => (v === "active" ? !!r.is_active : v === "inactive" ? !r.is_active : true),
+        type: (r, v) => r.type_code === v,
+      },
+      initialFilters: { status: "", type: "" },
+    },
+  );
+
+  const typeOptions = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.type_code).filter((v): v is string => !!v))).sort(),
+    [rows],
+  );
+
+  const pg = usePagination(filtered, 10);
 
   function openAdd() {
     setEditId(null);
@@ -78,21 +90,16 @@ export function AttributeMasterScreen({
   function openEdit(r: Attribute) {
     setEditId(r.id);
     setForm({
-      code: r.code,
-      type: r.type ?? "",
-      description: r.description ?? "",
-      blocked: r.blocked,
-      has_attributes: r.has_attributes,
+      code: r.code ?? "",
+      name: r.name,
+      type_code: r.type_code ?? "",
+      notes: r.notes ?? "",
+      inactive: !r.is_active,
     });
     setValues(r.values.map((v) => ({ key: newKey(), value: v.value })));
     setOpen(true);
   }
 
-  function toggleHasAttributes(checked: boolean) {
-    setForm((f) => ({ ...f, has_attributes: checked }));
-    // Give the grid one empty row to start editing into.
-    if (checked && values.length === 0) setValues([{ key: newKey(), value: "" }]);
-  }
   function addValueRow() {
     setValues((vs) => [...vs, { key: newKey(), value: "" }]);
   }
@@ -106,16 +113,14 @@ export function AttributeMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: AttributeInput = {
-        code: form.code.trim(),
-        type: form.type ? form.type : null,
-        description: form.description.trim() || null,
-        blocked: form.blocked,
-        has_attributes: form.has_attributes,
-        values: form.has_attributes
-          ? values
-              .filter((v) => v.value.trim())
-              .map((v, i) => ({ sno: i + 1, value: v.value.trim() }))
-          : [],
+        code: form.code.trim() || null,
+        name: form.name.trim(),
+        type_code: form.type_code.trim() || null,
+        notes: form.notes.trim() || null,
+        is_active: !form.inactive,
+        values: values
+          .filter((v) => v.value.trim())
+          .map((v, i) => ({ sno: i + 1, value: v.value.trim() })),
       };
       const res = editId
         ? await updateAttribute(editId, payload)
@@ -134,7 +139,7 @@ export function AttributeMasterScreen({
     startTransition(async () => {
       const res = await deleteAttribute(r.id);
       if (res.ok) {
-        success("Attribute deleted.");
+        success(res.inactive ? "Attribute is in use — marked inactive instead of deleted." : "Attribute deleted.");
         router.refresh();
       } else {
         error(res.error);
@@ -143,28 +148,21 @@ export function AttributeMasterScreen({
   }
 
   const columns: Column<Attribute>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Type", cell: (r) => <span className="text-sm">{r.type ?? "—"}</span> },
+    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
+    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    { header: "Type", cell: (r) => <span className="text-sm text-muted-foreground">{r.type_code ?? "—"}</span> },
     {
-      header: "Description",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">{r.description ?? "—"}</span>
-      ),
-    },
-    {
-      header: "Values",
+      header: "Attributes",
       align: "right",
       cell: (r) => (
-        <span className="tabular-nums text-sm text-muted-foreground">
-          {r.has_attributes ? r.values.length : "—"}
-        </span>
+        <span className="tabular-nums text-sm text-muted-foreground">{r.values.length || "—"}</span>
       ),
     },
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Blocked" : "Active"}
+        <StatusPill tone={r.is_active ? "success" : "danger"}>
+          {r.is_active ? "Active" : "Inactive"}
         </StatusPill>
       ),
     },
@@ -198,25 +196,67 @@ export function AttributeMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search attribute…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Attribute
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search attribute…"
+          activeCount={activeCount}
+          onReset={reset}
+        >
+          <div>
+            <Label htmlFor="at-filter-status">Status</Label>
+            <Select
+              id="at-filter-status"
+              value={filterValues.status}
+              onChange={(e) => {
+                setFilter("status", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="at-filter-type">Type</Label>
+            <Select
+              id="at-filter-type"
+              value={filterValues.type}
+              onChange={(e) => {
+                setFilter("type", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {typeOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="attributes" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Attribute
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
         <DataTable
           columns={columns}
-          rows={filtered}
+          rows={pg.paged}
           getKey={(r) => r.id}
           empty="No attribute records yet."
         />
@@ -224,12 +264,12 @@ export function AttributeMasterScreen({
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No attribute records yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -239,20 +279,15 @@ export function AttributeMasterScreen({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-semibold text-foreground">
-                    {r.code}
+                    {r.name}
                   </div>
-                  {r.type && (
-                    <div className="mt-0.5 text-xs text-muted-foreground">{r.type}</div>
-                  )}
+                  {r.code && <div className="mt-0.5 text-xs text-muted-foreground">{r.code}</div>}
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.is_active ? "success" : "danger"}>
+                  {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>
-              {r.description && (
-                <div className="mt-2 text-[13px] text-muted-foreground">{r.description}</div>
-              )}
-              {r.has_attributes && r.values.length > 0 && (
+              {r.values.length > 0 && (
                 <div className="mt-2 text-[13px] text-muted-foreground">
                   {r.values.length} value{r.values.length === 1 ? "" : "s"}
                 </div>
@@ -261,6 +296,15 @@ export function AttributeMasterScreen({
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -274,7 +318,7 @@ export function AttributeMasterScreen({
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.code.trim()}
+              disabled={isPending || !form.name.trim()}
               onClick={submit}
             >
               {isPending ? "Saving…" : "Save"}
@@ -283,44 +327,46 @@ export function AttributeMasterScreen({
         }
       >
         <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="at-code">Code</Label>
+              <Input
+                id="at-code"
+                value={form.code}
+                onChange={(e) => setForm({ ...form, code: e.target.value })}
+                placeholder="Unique code"
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="at-type">Type</Label>
+              <Input
+                id="at-type"
+                value={form.type_code}
+                onChange={(e) => setForm({ ...form, type_code: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </div>
           <div>
-            <Label htmlFor="at-code">
-              Code <span className="text-danger">*</span>
+            <Label htmlFor="at-name">
+              Name <span className="text-danger">*</span>
             </Label>
             <Input
-              id="at-code"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              placeholder="Unique code"
+              id="at-name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
               className="text-base md:text-sm"
             />
           </div>
           <div>
-            <Label htmlFor="at-type">Type</Label>
-            <Select
-              id="at-type"
-              value={form.type}
-              onChange={(e) =>
-                setForm({ ...form, type: e.target.value as "" | AttributeType })
-              }
-              className="text-base md:text-sm"
-            >
-              <option value="">— Select —</option>
-              {ATTRIBUTE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="at-desc">Description</Label>
+            <Label htmlFor="at-notes">Notes</Label>
             <Textarea
-              id="at-desc"
-              rows={2}
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              id="at-notes"
+              rows={3}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
               className="text-base md:text-sm"
             />
           </div>
@@ -328,57 +374,48 @@ export function AttributeMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
 
-          {/* Has Attributes → child value grid */}
+          {/* value grid — named properties (GSM, Width, …) scoped to this Item Class */}
           <div className="rounded-lg border border-border">
-            <label className="flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2.5">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.has_attributes}
-                onChange={(e) => toggleHasAttributes(e.target.checked)}
-              />
-              <span className="text-sm font-medium text-foreground">Has Attributes</span>
-            </label>
-
-            {form.has_attributes && (
-              <div className="space-y-2 p-3">
-                {values.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No values yet.</p>
-                )}
-                {values.map((v, i) => (
-                  <div key={v.key} className="flex items-center gap-2">
-                    <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                      {i + 1}
-                    </span>
-                    <Input
-                      value={v.value}
-                      onChange={(e) => setValueAt(v.key, e.target.value)}
-                      placeholder="Attribute value"
-                      className="flex-1 text-base md:text-sm"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0 text-muted-foreground hover:text-danger"
-                      onClick={() => removeValueRow(v.key)}
-                      aria-label="Remove value"
-                    >
-                      ✕
-                    </Button>
-                  </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" onClick={addValueRow}>
-                  + Add value
-                </Button>
-              </div>
-            )}
+            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
+              Attributes
+            </div>
+            <div className="space-y-2 p-3">
+              {values.length === 0 && (
+                <p className="text-xs text-muted-foreground">No attributes yet.</p>
+              )}
+              {values.map((v, i) => (
+                <div key={v.key} className="flex items-center gap-2">
+                  <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <Input
+                    value={v.value}
+                    onChange={(e) => setValueAt(v.key, e.target.value)}
+                    placeholder="Attribute value"
+                    className="flex-1 text-base md:text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 text-muted-foreground hover:text-danger"
+                    onClick={() => removeValueRow(v.key)}
+                    aria-label="Remove value"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={addValueRow}>
+                + Add attribute
+              </Button>
+            </div>
           </div>
         </div>
       </Sheet>

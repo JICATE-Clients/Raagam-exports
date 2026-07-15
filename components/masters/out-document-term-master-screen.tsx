@@ -7,8 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createOutDocumentTerm,
   updateOutDocumentTerm,
@@ -22,7 +28,7 @@ import {
 } from "@/lib/masters/out-document-term-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin?: boolean; canExport?: boolean };
 type ProcessOption = { id: string; name: string };
 type LineRow = { key: string; description: string };
 
@@ -47,7 +53,6 @@ export function OutDocumentTermMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editEntryNo, setEditEntryNo] = useState<number | null>(null);
@@ -69,10 +74,11 @@ export function OutDocumentTermMasterScreen({
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+    OutDocumentTerm,
+    { type: string; process: string; itemClass: string }
+  >(rows, {
+    search: (r, q) =>
       [
         String(r.entry_no),
         r.type,
@@ -84,8 +90,15 @@ export function OutDocumentTermMasterScreen({
         .join(" ")
         .toLowerCase()
         .includes(q),
-    );
-  }, [rows, query, processLabel, classLabel]);
+    filters: {
+      type: (r, v) => r.type === v,
+      process: (r, v) => r.process_id === v,
+      itemClass: (r, v) => r.item_class_id === v,
+    },
+    initialFilters: { type: "", process: "", itemClass: "" },
+  });
+
+  const pg = usePagination(filtered, 10);
 
   function openAdd() {
     setEditId(null);
@@ -208,33 +221,88 @@ export function OutDocumentTermMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search out document term…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Out Document Term
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search out document term…"
+          activeCount={activeCount}
+          onReset={reset}
+        >
+          <Select
+            value={filterValues.type ?? ""}
+            onChange={(e) => {
+              setFilter("type", e.target.value);
+              pg.setPage(1);
+            }}
+            aria-label="Filter type"
+            className="h-9 text-base md:text-sm"
+          >
+            <option value="">All types</option>
+            {OUT_DOC_TERM_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={filterValues.process ?? ""}
+            onChange={(e) => {
+              setFilter("process", e.target.value);
+              pg.setPage(1);
+            }}
+            aria-label="Filter process"
+            className="h-9 text-base md:text-sm"
+          >
+            <option value="">All processes</option>
+            {processes.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={filterValues.itemClass ?? ""}
+            onChange={(e) => {
+              setFilter("itemClass", e.target.value);
+              pg.setPage(1);
+            }}
+            aria-label="Filter item class"
+            className="h-9 text-base md:text-sm"
+          >
+            <option value="">All item classes</option>
+            {itemClasses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="out-document-terms" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Out Document Term
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No out document terms yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No out document terms yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No out document terms yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -259,6 +327,15 @@ export function OutDocumentTermMasterScreen({
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -330,22 +407,17 @@ export function OutDocumentTermMasterScreen({
               ))}
             </Select>
           </div>
-          <div>
-            <Label htmlFor="odt-class">Item Class</Label>
-            <Select
-              id="odt-class"
-              value={form.item_class_id}
-              onChange={(e) => set({ item_class_id: e.target.value })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— None —</option>
-              {itemClasses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code ? `${c.code} — ${c.name}` : c.name}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <LookupDialogPicker
+            kind="item_class"
+            label="Item Class"
+            options={itemClasses}
+            value={form.item_class_id}
+            onChange={(v) => set({ item_class_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            isSuperAdmin={perms.isSuperAdmin}
+          />
 
           {/* Description grid */}
           <div className="rounded-lg border border-border">

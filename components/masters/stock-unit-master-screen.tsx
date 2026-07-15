@@ -1,28 +1,30 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createStockUnit,
   updateStockUnit,
   deleteStockUnit,
 } from "@/lib/masters/stock-unit-actions";
-import {
-  STOCK_UNIT_ITEM_CLASSES,
-  type StockUnit,
-  type StockUnitInput,
-  type StockUnitItemClass,
-} from "@/lib/masters/stock-unit-types";
+import { type StockUnit, type StockUnitInput } from "@/lib/masters/stock-unit-types";
+import type { ConfigLookup } from "@/lib/masters/extras-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
 type Form = {
   code: string;
@@ -31,7 +33,7 @@ type Form = {
   decimal_places: string;
   for_all_item_classes: boolean;
   item_classes: string[];
-  blocked: boolean;
+  inactive: boolean;
 };
 
 const BLANK: Form = {
@@ -41,31 +43,41 @@ const BLANK: Form = {
   decimal_places: "0",
   for_all_item_classes: true,
   item_classes: [],
-  blocked: false,
+  inactive: false,
 };
 
 export function StockUnitMasterScreen({
   rows,
+  itemClasses,
   perms,
 }: {
   rows: StockUnit[];
+  itemClasses: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(BLANK);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.code, r.name, r.description].filter(Boolean).join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+    rows,
+    {
+      search: (r, q) =>
+        [r.code, r.name, r.description].filter(Boolean).join(" ").toLowerCase().includes(q),
+      filters: {
+        status: (r, v) => (v === "active" ? !!r.is_active : v === "inactive" ? !r.is_active : true),
+        itemClass: (r, v) => r.for_all_item_classes || r.item_classes.includes(v),
+        forAll: (r, v) =>
+          v === "yes" ? r.for_all_item_classes : v === "no" ? !r.for_all_item_classes : true,
+      },
+      initialFilters: { status: "", itemClass: "", forAll: "" },
+    },
+  );
+
+  const pg = usePagination(filtered, 10);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const toggleClass = (cls: string) =>
@@ -90,7 +102,7 @@ export function StockUnitMasterScreen({
       decimal_places: String(r.decimal_places),
       for_all_item_classes: r.for_all_item_classes,
       item_classes: r.item_classes ?? [],
-      blocked: !r.is_active,
+      inactive: !r.is_active,
     });
     setOpen(true);
   }
@@ -105,10 +117,10 @@ export function StockUnitMasterScreen({
         for_all_item_classes: form.for_all_item_classes,
         item_classes: form.for_all_item_classes
           ? []
-          : (form.item_classes.filter((c) =>
-              (STOCK_UNIT_ITEM_CLASSES as readonly string[]).includes(c),
-            ) as StockUnitItemClass[]),
-        is_active: !form.blocked,
+          : form.item_classes.filter((c) =>
+              itemClasses.some((ic) => ic.code === c),
+            ),
+        is_active: !form.inactive,
       };
       const res = editId ? await updateStockUnit(editId, payload) : await createStockUnit(payload);
       if (res.ok) {
@@ -152,7 +164,7 @@ export function StockUnitMasterScreen({
       header: "Status",
       cell: (r) => (
         <StatusPill tone={r.is_active ? "success" : "neutral"}>
-          {r.is_active ? "Active" : "Blocked"}
+          {r.is_active ? "Active" : "Inactive"}
         </StatusPill>
       ),
     },
@@ -186,33 +198,94 @@ export function StockUnitMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search stock units…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Stock Unit
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search stock units…"
+          activeCount={activeCount}
+          onReset={reset}
+        >
+          <div>
+            <Label htmlFor="su-filter-status">Status</Label>
+            <Select
+              id="su-filter-status"
+              value={filterValues.status}
+              onChange={(e) => {
+                setFilter("status", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="su-filter-itemclass">Item Class</Label>
+            <Select
+              id="su-filter-itemclass"
+              value={filterValues.itemClass}
+              onChange={(e) => {
+                setFilter("itemClass", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {itemClasses.map((c) => {
+                const code = c.code ?? c.name;
+                return (
+                  <option key={c.id} value={code}>
+                    {c.code ? `${c.code} — ${c.name}` : c.name}
+                  </option>
+                );
+              })}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="su-filter-forall">For All Item Classes</Label>
+            <Select
+              id="su-filter-forall"
+              value={filterValues.forAll}
+              onChange={(e) => {
+                setFilter("forAll", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="stock-units" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Stock Unit
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No stock units yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No stock units yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No stock units yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -227,7 +300,7 @@ export function StockUnitMasterScreen({
                   </div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "neutral"}>
-                  {r.is_active ? "Active" : "Blocked"}
+                  {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>
               <div className="mt-2 text-[13px] text-muted-foreground">Classes: {classesLabel(r)}</div>
@@ -235,6 +308,15 @@ export function StockUnitMasterScreen({
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -319,17 +401,22 @@ export function StockUnitMasterScreen({
             </label>
             {!form.for_all_item_classes && (
               <div className="flex flex-wrap gap-x-5 gap-y-2 p-3">
-                {STOCK_UNIT_ITEM_CLASSES.map((cls) => (
-                  <label key={cls} className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.item_classes.includes(cls)}
-                      onChange={() => toggleClass(cls)}
-                    />
-                    <span className="text-sm text-foreground">{cls}</span>
-                  </label>
-                ))}
+                {itemClasses.map((c) => {
+                  const code = c.code ?? c.name;
+                  return (
+                    <label key={c.id} className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                        checked={form.item_classes.includes(code)}
+                        onChange={() => toggleClass(code)}
+                      />
+                      <span className="text-sm text-foreground">
+                        {c.code ? `${c.code} — ${c.name}` : c.name}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -338,10 +425,10 @@ export function StockUnitMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked (inactive)</span>
+            <span className="text-sm text-foreground">Inactive (inactive)</span>
           </label>
         </div>
       </Sheet>

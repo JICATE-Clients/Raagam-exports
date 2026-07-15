@@ -4,14 +4,18 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { materialInput, type MaterialInput } from "./material-types";
+import { deleteOrDeactivate } from "./delete-guard";
+import { findDuplicateYarn } from "./material-service";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean } | { ok: false; error: string };
 
 function rev(): void {
   revalidatePath("/masters/materials");
   revalidatePath("/masters/materials/materials");
 }
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 
@@ -33,13 +37,26 @@ function toHeader(d: MaterialInput) {
 
 function normMixings(d: MaterialInput) {
   return d.mixings
-    .filter((m) => (m.description?.trim() || m.shade?.trim() || m.uom_id))
+    .filter((m) => (m.description?.trim() || m.shade?.trim() || m.uom_id || m.component_item_id || m.blend_pct != null))
     .map((m, i) => ({
       sno: i + 1,
       description: m.description?.trim() || null,
       shade: m.shade?.trim() || null,
       uom_id: m.uom_id,
+      component_item_id: m.component_item_id,
+      count_id: m.count_id,
+      blend_pct: m.blend_pct,
     }));
+}
+
+/** Resolve an item_class_id to its config_lookups code (server-verified, not
+ *  trusted from the client) — scopes the Yarn duplicate guard and the Fabric
+ *  mandatory-fabric_type check to the correct class regardless of what code
+ *  the client sends. */
+async function resolveItemClassCode(s: Awaited<ReturnType<typeof createClient>>, itemClassId: string | null): Promise<string | null> {
+  if (!itemClassId) return null;
+  const { data } = await s.from("config_lookups").select("code").eq("id", itemClassId).maybeSingle();
+  return data?.code?.toUpperCase() ?? null;
 }
 function normConversions(d: MaterialInput) {
   return d.conversions
@@ -58,7 +75,21 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
   const p = materialInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { data: created, error } = await s.from("items").insert(toHeader(p.data)).select("id").single();
+  const classCode = await resolveItemClassCode(s, p.data.item_class_id);
+  const header = toHeader(p.data);
+  if (classCode === "YARN") {
+    const dup = await findDuplicateYarn(p.data.item_class_id as string, p.data.count_id, p.data.category_id, p.data.purity_id);
+    if (dup) return fail(`A yarn with this Count/Category/Purity already exists: "${dup.name}". Select it instead of creating a duplicate.`);
+  } else {
+    const dup = await checkDuplicateName(s, "items", header.name, {
+      scope: { item_class_id: p.data.item_class_id },
+    });
+    if (!dup.ok) return fail(dup.error);
+  }
+  if (classCode === "FABRIC" && !p.data.fabric_type_id) {
+    return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
+  }
+  const { data: created, error } = await s.from("items").insert(header).select("id").single();
   if (error) return fail(error.message);
   const mx = normMixings(p.data);
   if (mx.length) {
@@ -79,7 +110,22 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   const p = materialInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { error } = await s.from("items").update(toHeader(p.data)).eq("id", id);
+  const classCode = await resolveItemClassCode(s, p.data.item_class_id);
+  const header = toHeader(p.data);
+  if (classCode === "YARN") {
+    const dup = await findDuplicateYarn(p.data.item_class_id as string, p.data.count_id, p.data.category_id, p.data.purity_id, id);
+    if (dup) return fail(`A yarn with this Count/Category/Purity already exists: "${dup.name}". Select it instead of creating a duplicate.`);
+  } else {
+    const dup = await checkDuplicateName(s, "items", header.name, {
+      excludeId: id,
+      scope: { item_class_id: p.data.item_class_id },
+    });
+    if (!dup.ok) return fail(dup.error);
+  }
+  if (classCode === "FABRIC" && !p.data.fabric_type_id) {
+    return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
+  }
+  const { error } = await s.from("items").update(header).eq("id", id);
   if (error) return fail(error.message);
   // Replace both child grids wholesale.
   const d1 = await s.from("material_mixings").delete().eq("item_id", id);
@@ -100,11 +146,11 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   return { ok: true };
 }
 
-export async function deleteMaterial(id: string): Promise<Result> {
+export async function deleteMaterial(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("items").delete().eq("id", id); // grids cascade; FK-in-use → clear error
-  if (error) return fail(error.message);
+  const res = await deleteOrDeactivate(s, "items", id, "is_active"); // grids cascade; FK-in-use → inactive instead
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive };
 }

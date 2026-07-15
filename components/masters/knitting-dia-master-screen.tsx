@@ -1,43 +1,53 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { usePagination } from "@/lib/use-pagination";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { Select } from "@/components/ui/select";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
-const BLANK = { dia: "", description: "", blocked: false };
+const BLANK = { dia: "", description: "", inactive: false };
 
 /**
  * Legacy "Knitting Dia" master — a simple flat list (Dia req numeric ·
- * Description · Blocked). Backed by `config_lookups` kind `knitting_dia`:
- * dia→code, description→name (falls back to dia), blocked→!is_active. Reuses
+ * Description · Inactive). Backed by `config_lookups` kind `knitting_dia`:
+ * dia→code, description→name (falls back to dia), inactive→!is_active. Reuses
  * the shared lookup actions (no dedicated table).
  */
 export function KnittingDiaMasterScreen({ rows, perms }: { rows: ConfigLookup[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.code, r.name].filter(Boolean).join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+    rows,
+    {
+      search: (r, q) => [r.code, r.name].filter(Boolean).join(" ").toLowerCase().includes(q),
+      filters: {
+        status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
+      },
+      initialFilters: { status: "" },
+    },
+  );
+
+  const pg = usePagination(filtered, 10);
 
   function openAdd() {
     setEditId(null);
@@ -49,7 +59,7 @@ export function KnittingDiaMasterScreen({ rows, perms }: { rows: ConfigLookup[];
     setForm({
       dia: r.code ?? "",
       description: r.name === r.code ? "" : r.name,
-      blocked: !r.is_active,
+      inactive: !r.is_active,
     });
     setEditId(r.id);
     setOpen(true);
@@ -63,7 +73,7 @@ export function KnittingDiaMasterScreen({ rows, perms }: { rows: ConfigLookup[];
         code: dia || null,
         name: form.description.trim() || dia, // Description optional → fall back to Dia
         notes: null,
-        is_active: !form.blocked,
+        is_active: !form.inactive,
       };
       const res = editId ? await updateLookup(editId, payload) : await createLookup(payload);
       if (res.ok) {
@@ -100,7 +110,7 @@ export function KnittingDiaMasterScreen({ rows, perms }: { rows: ConfigLookup[];
       header: "Status",
       cell: (r) => (
         <StatusPill tone={r.is_active ? "success" : "danger"}>
-          {r.is_active ? "Active" : "Blocked"}
+          {r.is_active ? "Active" : "Inactive"}
         </StatusPill>
       ),
     },
@@ -134,33 +144,59 @@ export function KnittingDiaMasterScreen({ rows, perms }: { rows: ConfigLookup[];
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search knitting dia…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Knitting Dia
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search knitting dia…"
+          activeCount={activeCount}
+          onReset={() => {
+            reset();
+            pg.setPage(1);
+          }}
+        >
+          <div>
+            <Label htmlFor="knitting-dia-filter-status">Status</Label>
+            <Select
+              id="knitting-dia-filter-status"
+              value={filterValues.status}
+              onChange={(e) => {
+                setFilter("status", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="knitting-dias" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Knitting Dia
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No knitting dia records yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No knitting dia records yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No knitting dia records yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -175,13 +211,22 @@ export function KnittingDiaMasterScreen({ rows, perms }: { rows: ConfigLookup[];
                   )}
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "danger"}>
-                  {r.is_active ? "Active" : "Blocked"}
+                  {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>
             </button>
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -228,10 +273,10 @@ export function KnittingDiaMasterScreen({ rows, perms }: { rows: ConfigLookup[];
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

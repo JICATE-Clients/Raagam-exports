@@ -7,22 +7,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createMaterialAttribute,
   updateMaterialAttribute,
   deleteMaterialAttribute,
 } from "@/lib/masters/material-attribute-actions";
-import {
-  ITEM_CLASSES,
-  type MaterialAttribute,
-  type MaterialAttributeInput,
-} from "@/lib/masters/material-attribute-types";
-import type { Attribute, ConfigLookup } from "@/lib/masters/extras-types";
+import type { MaterialAttribute, MaterialAttributeInput } from "@/lib/masters/material-attribute-types";
+import type { Attribute } from "@/lib/masters/extras-types";
+import type { Category } from "@/lib/masters/category-types";
 import type { Uom } from "@/lib/masters/types";
+import { CategoryPicker, AttributePicker, LookupDialogPicker } from "@/components/masters/lookup-picker";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 
 type LineRow = {
   key: string;
@@ -33,11 +36,18 @@ type LineRow = {
   unit_id: string;
   step_value: string;
   mandatory: boolean;
-  blocked: boolean;
+  inactive: boolean;
 };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 
+/**
+ * Master-detail CRUD for the legacy "Material attributes" master: a header
+ * (Item Class scoped to Pack/Sew · Category) plus a per-attribute value-spec
+ * grid (range/step/unit/mandatory/inactive), each line picking one of the
+ * selected Item Class's Attribute Values (0293: Attribute was merged into
+ * Item Class — the named-value child grid is what these lines pick from).
+ */
 export function MaterialAttributeMasterScreen({
   rows,
   attributes,
@@ -47,44 +57,81 @@ export function MaterialAttributeMasterScreen({
 }: {
   rows: MaterialAttribute[];
   attributes: Attribute[];
-  categories: ConfigLookup[];
+  categories: Category[];
   units: Uom[];
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [itemClass, setItemClass] = useState("");
+  const [itemClassId, setItemClassId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
+  const classLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of attributes) m.set(a.id, a.name);
+    return m;
+  }, [attributes]);
   const categoryName = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of categories) m.set(c.id, c.name);
+    for (const c of categories) m.set(c.id, c.name || c.short_name || "—");
     return m;
   }, [categories]);
-  const attrCode = useMemo(() => {
+  const categoryShortName = useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of attributes) m.set(a.id, a.code);
+    for (const c of categories) m.set(c.id, c.short_name || "—");
+    return m;
+  }, [categories]);
+  const attrValueLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of attributes) for (const v of a.values) m.set(v.id, v.value);
     return m;
   }, [attributes]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.item_class, categoryName.get(r.category_id ?? ""), ...r.lines.map((l) => attrCode.get(l.attribute_id ?? ""))]
+  // Cascading options: Category and Attribute Value only ever show rows
+  // scoped to the selected Item Class — never the full/global list.
+  const scopedCategories = useMemo(
+    () => categories.filter((c) => c.item_class_id === itemClassId),
+    [categories, itemClassId],
+  );
+  const scopedAttributeValues = useMemo(
+    () => attributes.find((a) => a.id === itemClassId)?.values ?? [],
+    [attributes, itemClassId],
+  );
+
+  function changeItemClass(v: string) {
+    setItemClassId(v);
+    setCategoryId("");
+  }
+
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+    MaterialAttribute,
+    { itemClass: string; category: string }
+  >(rows, {
+    search: (r, q) =>
+      [
+        classLabel.get(r.item_class_id ?? ""),
+        categoryName.get(r.category_id ?? ""),
+        categoryShortName.get(r.category_id ?? ""),
+        ...r.lines.map((l) => attrValueLabel.get(l.attribute_id ?? "")),
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q),
-    );
-  }, [rows, query, categoryName, attrCode]);
+    filters: {
+      itemClass: (r, v) => r.item_class_id === v,
+      category: (r, v) => r.category_id === v,
+    },
+    initialFilters: { itemClass: "", category: "" },
+  });
+
+  const pg = usePagination(filtered, 10);
 
   function blankLine(): LineRow {
     return {
@@ -96,20 +143,20 @@ export function MaterialAttributeMasterScreen({
       unit_id: "",
       step_value: "",
       mandatory: false,
-      blocked: false,
+      inactive: false,
     };
   }
 
   function openAdd() {
     setEditId(null);
-    setItemClass("");
+    setItemClassId("");
     setCategoryId("");
     setLines([blankLine()]);
     setOpen(true);
   }
   function openEdit(r: MaterialAttribute) {
     setEditId(r.id);
-    setItemClass(r.item_class ?? "");
+    setItemClassId(r.item_class_id ?? "");
     setCategoryId(r.category_id ?? "");
     setLines(
       r.lines.length
@@ -122,7 +169,7 @@ export function MaterialAttributeMasterScreen({
             unit_id: l.unit_id ?? "",
             step_value: l.step_value != null ? String(l.step_value) : "",
             mandatory: l.mandatory,
-            blocked: l.blocked,
+            inactive: l.inactive,
           }))
         : [blankLine()],
     );
@@ -137,7 +184,7 @@ export function MaterialAttributeMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: MaterialAttributeInput = {
-        item_class: itemClass || null,
+        item_class_id: itemClassId || null,
         category_id: categoryId || null,
         lines: lines
           .filter((l) => l.attribute_id)
@@ -150,7 +197,7 @@ export function MaterialAttributeMasterScreen({
             unit_id: l.unit_id || null,
             step_value: numOrNull(l.step_value),
             mandatory: l.mandatory,
-            blocked: l.blocked,
+            inactive: l.inactive,
           })),
       };
       const res = editId
@@ -179,10 +226,21 @@ export function MaterialAttributeMasterScreen({
   }
 
   const columns: Column<MaterialAttribute>[] = [
-    { header: "Item Class", cell: (r) => <span className="text-sm">{r.item_class ?? "—"}</span> },
+    {
+      header: "Item Class",
+      cell: (r) => <span className="text-sm">{r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}</span>,
+    },
     {
       header: "Category",
       cell: (r) => <span className="text-sm">{r.category_id ? categoryName.get(r.category_id) ?? "—" : "—"}</span>,
+    },
+    {
+      header: "Category Short Name",
+      cell: (r) => (
+        <span className="text-sm text-muted-foreground">
+          {r.category_id ? categoryShortName.get(r.category_id) ?? "—" : "—"}
+        </span>
+      ),
     },
     {
       header: "Attributes",
@@ -215,46 +273,91 @@ export function MaterialAttributeMasterScreen({
     },
   ];
 
-  const attrLabel = (a: Attribute) => (a.description ? `${a.code} — ${a.description}` : a.code);
-
   return (
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search material attributes…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Material Attribute
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search material attributes…"
+          activeCount={activeCount}
+          onReset={reset}
+        >
+          <div>
+            <Label htmlFor="ma-filter-class">Item Class</Label>
+            <Select
+              id="ma-filter-class"
+              value={filterValues.itemClass}
+              onChange={(e) => {
+                setFilter("itemClass", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {attributes.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="ma-filter-cat">Category</Label>
+            <Select
+              id="ma-filter-cat"
+              value={filterValues.category}
+              onChange={(e) => {
+                setFilter("category", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name || c.short_name || "—"}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="material-attributes" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Material Attribute
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No material attributes yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No material attributes yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No material attributes yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
               onClick={() => perms.canEdit && openEdit(r)}
               className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
             >
-              <div className="text-[15px] font-semibold text-foreground">{r.item_class ?? "—"}</div>
+              <div className="text-[15px] font-semibold text-foreground">
+                {r.item_class_id ? classLabel.get(r.item_class_id) ?? "—" : "—"}
+              </div>
               <div className="mt-0.5 text-xs text-muted-foreground">
                 {r.category_id ? categoryName.get(r.category_id) ?? "—" : "No category"}
               </div>
@@ -266,6 +369,15 @@ export function MaterialAttributeMasterScreen({
         )}
       </div>
 
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
+
       {/* editor */}
       <Sheet
         open={open}
@@ -276,7 +388,7 @@ export function MaterialAttributeMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !itemClass || !categoryId} onClick={submit}>
+            <Button size="md" disabled={isPending || !itemClassId || !categoryId} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -285,41 +397,43 @@ export function MaterialAttributeMasterScreen({
         <div className="space-y-4">
           {/* header */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <LookupDialogPicker
+              kind="item_class"
+              label="Item Class"
+              required
+              options={attributes}
+              value={itemClassId}
+              onChange={changeItemClass}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isSuperAdmin={perms.isSuperAdmin}
+            />
             <div>
-              <Label htmlFor="ma-class">
-                Item Class <span className="text-danger">*</span>
-              </Label>
-              <Select
-                id="ma-class"
-                value={itemClass}
-                onChange={(e) => setItemClass(e.target.value)}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {ITEM_CLASSES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </Select>
+              <CategoryPicker
+                label="Category"
+                required
+                categories={scopedCategories}
+                value={categoryId}
+                onChange={setCategoryId}
+                itemClassId={itemClassId}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
+              {!itemClassId && (
+                <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
+              )}
             </div>
             <div>
-              <Label htmlFor="ma-cat">
-                Category <span className="text-danger">*</span>
-              </Label>
-              <Select
-                id="ma-cat"
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
+              <Label>Category Short Name</Label>
+              <Input
+                readOnly
+                disabled
+                value={categoryId ? categoryShortName.get(categoryId) ?? "—" : ""}
+                placeholder="Pick a Category first"
                 className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
+              />
             </div>
           </div>
 
@@ -342,19 +456,15 @@ export function MaterialAttributeMasterScreen({
                   </Button>
                 </div>
                 <div>
-                  <Label>Attribute</Label>
-                  <Select
+                  <AttributePicker
+                    label="Attribute"
+                    values={scopedAttributeValues}
                     value={l.attribute_id}
-                    onChange={(e) => setLineAt(l.key, { attribute_id: e.target.value })}
-                    className="text-base md:text-sm"
-                  >
-                    <option value="">— Select attribute —</option>
-                    {attributes.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {attrLabel(a)}
-                      </option>
-                    ))}
-                  </Select>
+                    onChange={(v) => setLineAt(l.key, { attribute_id: v })}
+                  />
+                  {!itemClassId && (
+                    <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -408,7 +518,7 @@ export function MaterialAttributeMasterScreen({
                     [
                       ["value_in_steps", "Value in steps"],
                       ["mandatory", "Mandatory"],
-                      ["blocked", "Blocked"],
+                      ["inactive", "Inactive"],
                     ] as const
                   ).map(([field, label]) => (
                     <label key={field} className="flex cursor-pointer items-center gap-2">

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { stockUnitInput, type StockUnitInput } from "./stock-unit-types";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -33,6 +34,8 @@ export async function createStockUnit(data: StockUnitInput): Promise<Result> {
   const p = stockUnitInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "uoms", p.data.name);
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("uoms").insert(toRow(p.data));
   if (error) return fail(error.message);
   rev();
@@ -44,6 +47,8 @@ export async function updateStockUnit(id: string, data: StockUnitInput): Promise
   const p = stockUnitInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "uoms", p.data.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("uoms").update(toRow(p.data)).eq("id", id);
   if (error) return fail(error.message);
   rev();

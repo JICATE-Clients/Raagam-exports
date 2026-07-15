@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { processInput, type ProcessInput } from "./process-types";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -40,9 +41,23 @@ export async function createProcess(data: ProcessInput): Promise<Result> {
   const s = await createClient();
   const { sub_categories: _drop, ...header } = p.data;
   void _drop;
+  const {
+    data: { user },
+  } = await s.auth.getUser();
+  let createdBy: string | null = null;
+  if (user) {
+    const { data: profile } = await s
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+    createdBy = profile?.full_name || profile?.email || null;
+  }
+  const dup = await checkDuplicateName(s, "processes", header.name);
+  if (!dup.ok) return fail(dup.error);
   const { data: created, error } = await s
     .from("processes")
-    .insert(header)
+    .insert({ ...header, created_by: createdBy })
     .select("id")
     .single();
   if (error) return fail(error.message);
@@ -64,6 +79,8 @@ export async function updateProcess(id: string, data: ProcessInput): Promise<Res
   const s = await createClient();
   const { sub_categories: _drop, ...header } = p.data;
   void _drop;
+  const dup = await checkDuplicateName(s, "processes", header.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("processes").update(header).eq("id", id);
   if (error) return fail(error.message);
   // Replace the sub-category grid wholesale (small, fully-loaded set).

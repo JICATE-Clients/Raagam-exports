@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { requirePermission, can } from "@/lib/auth/server";
+import { requirePermission, can, getAppUser } from "@/lib/auth/server";
 import { listConfigLookups, listAttributes } from "@/lib/masters/extras-service";
 import {
   findMaterialChild,
@@ -35,10 +35,7 @@ import { YarnPurityMasterScreen } from "@/components/masters/yarn-purity-master-
 import { listStockUnits } from "@/lib/masters/stock-unit-service";
 import { StockUnitMasterScreen } from "@/components/masters/stock-unit-master-screen";
 import { listMaterials } from "@/lib/masters/material-service";
-import { getActiveHeads } from "@/lib/finance/cost-heads/service";
 import { MaterialMasterScreen } from "@/components/masters/material-master-screen";
-import { listMaterialHsn } from "@/lib/masters/material-hsn-service";
-import { MaterialHsnAssignScreen } from "@/components/masters/material-hsn-assign-screen";
 
 export default async function MaterialEntityPage({
   params,
@@ -52,52 +49,71 @@ export default async function MaterialEntityPage({
   if (!child) notFound();
   if (isLinkChild(child)) redirect(child.href); // rich masters that live in their own tabs
 
-  const [canCreate, canEdit, canDelete] = await Promise.all([
+  const [canCreate, canEdit, canDelete, canExport, appUser] = await Promise.all([
     can("masters", "create"),
     can("masters", "edit"),
     can("masters", "delete"),
+    can("masters", "export"),
+    getAppUser(),
   ]);
-  const perms = { canCreate, canEdit, canDelete };
+  const perms = { canCreate, canEdit, canDelete, canExport, isSuperAdmin: appUser?.isSuperAdmin ?? false };
 
   let screen: React.ReactNode;
   if (isCustomChild(child)) {
     if (child.custom === "levies") {
-      const [levies, accounts] = await Promise.all([listLevies(), getAccountsForPicker()]);
-      screen = <LevyMasterScreen rows={levies} accounts={accounts} perms={perms} />;
+      const [levies, accounts, lookups] = await Promise.all([listLevies(), getAccountsForPicker(), listConfigLookups()]);
+      screen = (
+        <LevyMasterScreen
+          rows={levies}
+          accounts={accounts}
+          dutyCategories={lookups.filter((l) => l.kind === "duty_category")}
+          perms={perms}
+        />
+      );
     } else if (child.custom === "categories") {
-      const [categories, lookups, levies] = await Promise.all([
+      const [categories, lookups, levies, commodities] = await Promise.all([
         listCategories(),
         listConfigLookups(),
         listLevies(),
+        listCommodities(),
       ]);
       screen = (
         <CategoryMasterScreen
           rows={categories}
           itemClasses={lookups.filter((l) => l.kind === "item_class")}
           levies={levies}
-          commodities={lookups.filter((l) => l.kind === "commodity")}
+          commodities={commodities}
+          fabricStructures={lookups.filter((l) => l.kind === "fabric_structure")}
           perms={perms}
         />
       );
     } else if (child.custom === "material_attributes") {
-      const [maRows, attributes, lookups, units] = await Promise.all([
+      const [maRows, categories, attributes, units] = await Promise.all([
         listMaterialAttributes(),
+        listCategories(),
         listAttributes(),
-        listConfigLookups(),
         listUoms(),
       ]);
       screen = (
         <MaterialAttributeMasterScreen
           rows={maRows}
-          attributes={attributes}
-          categories={lookups.filter((l) => l.kind === "material_category")}
+          categories={categories}
+          // Material Attribute only ever applies to Pack & Sew accessories —
+          // never the full item-class list (Fabric, Yarn, Capital Goods, …).
+          attributes={attributes.filter((a) => ["PACK", "SEW"].includes(a.code ?? ""))}
           units={units}
           perms={perms}
         />
       );
     } else if (child.custom === "stock_units") {
-      const stockUnits = await listStockUnits();
-      screen = <StockUnitMasterScreen rows={stockUnits} perms={perms} />;
+      const [stockUnits, all] = await Promise.all([listStockUnits(), listConfigLookups()]);
+      screen = (
+        <StockUnitMasterScreen
+          rows={stockUnits}
+          itemClasses={all.filter((l) => l.kind === "item_class")}
+          perms={perms}
+        />
+      );
     } else if (child.custom === "counts") {
       const all = await listConfigLookups();
       screen = (
@@ -113,17 +129,18 @@ export default async function MaterialEntityPage({
       screen = (
         <CompositionMasterScreen
           rows={compositions}
-          itemClasses={all.filter((l) => l.kind === "item_class")}
+          // Composition (fibre mixing %) only ever applies to Fabric — never
+          // the full item-class list (Yarn, Pack, Sew, Garments, …).
+          itemClasses={all.filter((l) => l.kind === "item_class" && l.code === "FABRIC")}
           perms={perms}
         />
       );
     } else if (child.custom === "materials") {
-      const [materials, all, categories, units, costHeads] = await Promise.all([
+      const [materials, all, categories, units] = await Promise.all([
         listMaterials(),
         listConfigLookups(),
         listCategories(),
         listUoms(),
-        getActiveHeads(),
       ]);
       screen = (
         <MaterialMasterScreen
@@ -133,17 +150,24 @@ export default async function MaterialEntityPage({
           counts={all.filter((l) => l.kind === "yarn_count")}
           purities={all.filter((l) => l.kind === "yarn_purity")}
           hsnCodes={all.filter((l) => l.kind === "hsn_code")}
+          fabricTypes={all.filter((l) => l.kind === "fabric_type")}
+          yarnTypes={all.filter((l) => l.kind === "yarn_type")}
+          fabricStructures={all.filter((l) => l.kind === "fabric_structure")}
           units={units}
-          costHeads={costHeads}
           perms={perms}
         />
       );
     } else if (child.custom === "processes") {
-      const [processes, all] = await Promise.all([listProcesses(), listConfigLookups()]);
+      const [processes, commodities, all] = await Promise.all([
+        listProcesses(),
+        listCommodities(),
+        listConfigLookups(),
+      ]);
       screen = (
         <ProcessMasterScreen
           rows={processes}
-          commodities={all.filter((l) => l.kind === "commodity")}
+          commodities={commodities}
+          itemClasses={all.filter((l) => l.kind === "item_class")}
           perms={perms}
         />
       );
@@ -178,21 +202,6 @@ export default async function MaterialEntityPage({
         <CommodityMasterScreen
           rows={commodities}
           itemClasses={all.filter((l) => l.kind === "item_class")}
-          perms={perms}
-        />
-      );
-    } else if (child.custom === "hsn_assign") {
-      const [materialRows, all, cats] = await Promise.all([
-        listMaterialHsn(),
-        listConfigLookups(),
-        listCategories(),
-      ]);
-      screen = (
-        <MaterialHsnAssignScreen
-          rows={materialRows}
-          hsnOptions={all.filter((l) => l.kind === "hsn_code")}
-          itemClasses={all.filter((l) => l.kind === "item_class")}
-          categories={cats}
           perms={perms}
         />
       );

@@ -7,29 +7,37 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createComposition,
   updateComposition,
   deleteComposition,
 } from "@/lib/masters/composition-actions";
-import { createItemClass } from "@/lib/masters/category-actions";
+import { LookupDialogPicker } from "@/components/masters/lookup-picker";
 import type { Composition, CompositionInput } from "@/lib/masters/composition-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type LineRow = { key: string; description: string; mixing_pct: string };
 
-const BLANK = { item_class_id: "", short_name: "", name: "", blocked: false };
+const BLANK = { item_class_id: "", short_name: "", name: "", inactive: false };
 
 /**
  * Master-detail CRUD for the legacy "Composition" master: a header (Item Class
- * req · Short Name · Name · Blocked) plus a "Mixing" grid of free-text fibre
- * descriptions + their mixing %. Dense table on desktop, cards on mobile,
- * shared <Sheet> editor.
+ * · Short Name · Name · Inactive) plus a "Mixing" grid of free-text fibre
+ * descriptions + their mixing %. Composition only ever applies to Fabric, so
+ * Item Class uses the same LookupDialogPicker as every other master (search +
+ * Add/Modify/Delete), just fed a Fabric-only options list from page.tsx —
+ * mirrors Material Attribute's PACK/SEW restriction, category.tsx's picker.
+ * Dense table on desktop, cards on mobile, shared <Sheet> editor.
  */
 export function CompositionMasterScreen({
   rows,
@@ -43,7 +51,6 @@ export function CompositionMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -51,48 +58,32 @@ export function CompositionMasterScreen({
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
-  // Item classes added inline this session, merged with server props (deduped).
-  const [extraClasses, setExtraClasses] = useState<ConfigLookup[]>([]);
-  const [showNewClass, setShowNewClass] = useState(false);
-  const [newClassCode, setNewClassCode] = useState("");
-  const [newClassName, setNewClassName] = useState("");
-
-  const allClasses = useMemo(() => {
-    const seen = new Set<string>();
-    return [...itemClasses, ...extraClasses].filter((c) => {
-      if (seen.has(c.id)) return false;
-      seen.add(c.id);
-      return true;
-    });
-  }, [itemClasses, extraClasses]);
+  const fabricClass = itemClasses[0];
   const classLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of allClasses) m.set(c.id, c.name);
+    for (const c of itemClasses) m.set(c.id, c.name);
     return m;
-  }, [allClasses]);
+  }, [itemClasses]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+    search: (r, q) =>
       [r.name, r.short_name, classLabel.get(r.item_class_id), ...r.lines.map((l) => l.description)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q),
-    );
-  }, [rows, query, classLabel]);
+    filters: {
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
+    },
+    initialFilters: { status: "" },
+  });
 
-  function resetNewClass() {
-    setShowNewClass(false);
-    setNewClassCode("");
-    setNewClassName("");
-  }
+  const pg = usePagination(filtered, 10);
+
   function openAdd() {
     setEditId(null);
-    setForm(BLANK);
+    setForm({ ...BLANK, item_class_id: fabricClass?.id ?? "" });
     setLines([{ key: newKey(), description: "", mixing_pct: "" }]);
-    resetNewClass();
     setOpen(true);
   }
   function openEdit(r: Composition) {
@@ -101,12 +92,11 @@ export function CompositionMasterScreen({
       item_class_id: r.item_class_id,
       short_name: r.short_name ?? "",
       name: r.name ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setLines(
       r.lines.map((l) => ({ key: newKey(), description: l.description, mixing_pct: String(l.mixing_pct) })),
     );
-    resetNewClass();
     setOpen(true);
   }
 
@@ -125,40 +115,13 @@ export function CompositionMasterScreen({
     [lines],
   );
 
-  function addItemClass() {
-    startTransition(async () => {
-      const res = await createItemClass({ code: newClassCode.trim() || null, name: newClassName });
-      if (res.ok) {
-        setExtraClasses((xs) => [
-          ...xs,
-          {
-            id: res.id,
-            kind: "item_class",
-            code: newClassCode.trim() || null,
-            name: newClassName.trim(),
-            notes: null,
-            is_active: true,
-            created_at: "",
-            updated_at: "",
-          },
-        ]);
-        setForm((f) => ({ ...f, item_class_id: res.id }));
-        resetNewClass();
-        success("Item Class added.");
-        router.refresh();
-      } else {
-        error(res.error);
-      }
-    });
-  }
-
   function submit() {
     startTransition(async () => {
       const payload: CompositionInput = {
         item_class_id: form.item_class_id,
         short_name: form.short_name.trim() || null,
         name: form.name.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
         lines: lines
           .filter((l) => l.description.trim())
           .map((l, i) => ({ sno: i + 1, description: l.description.trim(), mixing_pct: Number(l.mixing_pct) || 0 })),
@@ -205,8 +168,8 @@ export function CompositionMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Blocked" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -240,33 +203,59 @@ export function CompositionMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search composition…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Composition
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search composition…"
+          activeCount={activeCount}
+          onReset={() => {
+            reset();
+            pg.setPage(1);
+          }}
+        >
+          <div>
+            <Label htmlFor="composition-filter-status">Status</Label>
+            <Select
+              id="composition-filter-status"
+              value={filterValues.status}
+              onChange={(e) => {
+                setFilter("status", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="compositions" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Composition
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No composition records yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No composition records yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No composition records yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -282,8 +271,8 @@ export function CompositionMasterScreen({
                     {classLabel.get(r.item_class_id) ?? "—"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
               {r.lines.length > 0 && (
@@ -295,6 +284,15 @@ export function CompositionMasterScreen({
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -313,57 +311,22 @@ export function CompositionMasterScreen({
         }
       >
         <div className="space-y-4">
-          {/* Item Class (required) + inline add */}
-          <div>
-            <Label htmlFor="cmp-class">
-              Item Class <span className="text-danger">*</span>
-            </Label>
-            <div className="flex gap-2">
-              <Select
-                id="cmp-class"
-                value={form.item_class_id}
-                onChange={(e) => setForm({ ...form, item_class_id: e.target.value })}
-                className="flex-1 text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {allClasses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                  </option>
-                ))}
-              </Select>
-              {perms.canCreate && (
-                <Button type="button" variant="outline" size="md" onClick={() => setShowNewClass((v) => !v)}>
-                  {showNewClass ? "Cancel" : "+ New"}
-                </Button>
-              )}
-            </div>
-            {showNewClass && (
-              <div className="mt-2 flex items-end gap-2 rounded-lg border border-border p-2.5">
-                <div className="w-24">
-                  <Label htmlFor="cmp-class-code">Code</Label>
-                  <Input
-                    id="cmp-class-code"
-                    value={newClassCode}
-                    onChange={(e) => setNewClassCode(e.target.value)}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <div className="flex-1">
-                  <Label htmlFor="cmp-class-name">Name</Label>
-                  <Input
-                    id="cmp-class-name"
-                    value={newClassName}
-                    onChange={(e) => setNewClassName(e.target.value)}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <Button type="button" size="md" disabled={isPending || !newClassName.trim()} onClick={addItemClass}>
-                  Add
-                </Button>
-              </div>
-            )}
-          </div>
+          {/* Item Class — same LookupDialogPicker every master uses (search +
+              inline Add/Modify/Delete). Composition only ever applies to
+              Fabric, so `itemClasses` from page.tsx is already filtered to
+              that single row — the dialog just naturally lists only Fabric. */}
+          <LookupDialogPicker
+            kind="item_class"
+            label="Item Class"
+            required
+            options={itemClasses}
+            value={form.item_class_id}
+            onChange={(v) => setForm({ ...form, item_class_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            isSuperAdmin={perms.isSuperAdmin}
+          />
 
           <div>
             <Label htmlFor="cmp-short">Short Name</Label>
@@ -438,10 +401,10 @@ export function CompositionMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

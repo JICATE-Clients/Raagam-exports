@@ -7,14 +7,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { usePagination } from "@/lib/use-pagination";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createProcess, updateProcess, deleteProcess } from "@/lib/masters/process-actions";
 import { BILLING_ON, type BillingOn, type Process, type ProcessInput } from "@/lib/masters/process-types";
+import type { Commodity } from "@/lib/masters/commodity-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { CommodityPicker } from "@/components/masters/commodity-picker";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type SubRow = { key: string; sub_category: string; short_description: string; hsn_code: string };
 
 const BLANK = {
@@ -32,7 +39,8 @@ const BLANK = {
   designwise_delivery: false,
   is_conversion: false,
   has_sub_categories: false,
-  blocked: false,
+  sl_no: 9,
+  inactive: false,
 };
 
 const FOR_FLAGS: { key: keyof typeof BLANK; label: string }[] = [
@@ -45,22 +53,25 @@ const FOR_FLAGS: { key: keyof typeof BLANK; label: string }[] = [
 
 /**
  * Master-detail CRUD for the legacy "Process" master: a header (name, commodity,
- * billing basis, "For" applicability + planning flags) plus an optional
- * "Sub Categories" line grid. Table on desktop, cards on mobile, Sheet editor.
+ * billing basis, HSN code, Sl No, "For" applicability + planning flags) plus an
+ * optional "Sub Categories" line grid. Commodity is sourced from the real
+ * `commodities` table (not the stale config_lookups snapshot). Table on
+ * desktop, cards on mobile, Sheet editor.
  */
 export function ProcessMasterScreen({
   rows,
   commodities,
+  itemClasses,
   perms,
 }: {
   rows: Process[];
-  commodities: ConfigLookup[];
+  commodities: Commodity[];
+  itemClasses: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -70,23 +81,36 @@ export function ProcessMasterScreen({
 
   const commodityLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of commodities) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of commodities) m.set(c.id, c.short_name ?? c.name ?? "—");
     return m;
   }, [commodities]);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+    Process,
+    { status: string; for: string; billingOn: string; commodity: string }
+  >(rows, {
+    search: (r, q) =>
       [r.name, r.short_description, r.billing_on, r.hsn_code]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q),
-    );
-  }, [rows, query]);
+    filters: {
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
+      for: (r, v) => {
+        if (!v) return true;
+        const flag = FOR_FLAGS.find((f) => f.key === v);
+        return flag ? !!r[flag.key as keyof Process] : true;
+      },
+      billingOn: (r, v) => r.billing_on === v,
+      commodity: (r, v) => r.commodity_id === v,
+    },
+    initialFilters: { status: "", for: "", billingOn: "", commodity: "" },
+  });
+
+  const pg = usePagination(filtered, 10);
 
   function openAdd() {
     setEditId(null);
@@ -111,7 +135,8 @@ export function ProcessMasterScreen({
       designwise_delivery: r.designwise_delivery,
       is_conversion: r.is_conversion,
       has_sub_categories: r.has_sub_categories,
-      blocked: r.blocked,
+      sl_no: r.sl_no,
+      inactive: r.inactive,
     });
     setSubs(
       r.sub_categories.map((c) => ({
@@ -156,7 +181,8 @@ export function ProcessMasterScreen({
         designwise_delivery: form.designwise_delivery,
         is_conversion: form.is_conversion,
         has_sub_categories: form.has_sub_categories,
-        blocked: form.blocked,
+        sl_no: form.sl_no,
+        inactive: form.inactive,
         sub_categories: form.has_sub_categories
           ? subs
               .filter((s) => s.sub_category.trim())
@@ -199,6 +225,18 @@ export function ProcessMasterScreen({
   const columns: Column<Process>[] = [
     { header: "Process", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
+      header: "Commodity",
+      cell: (r) => (
+        <span className="text-sm text-muted-foreground">
+          {r.commodity_id ? commodityLabel.get(r.commodity_id) ?? "—" : "—"}
+        </span>
+      ),
+    },
+    {
+      header: "HSN Code",
+      cell: (r) => <span className="text-sm text-muted-foreground">{r.hsn_code ?? "—"}</span>,
+    },
+    {
       header: "Billing On",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.billing_on ?? "—"}</span>,
     },
@@ -213,10 +251,21 @@ export function ProcessMasterScreen({
       ),
     },
     {
+      header: "Designwise",
+      cell: (r) => <span className="text-sm text-muted-foreground">{r.designwise_delivery ? "Yes" : "—"}</span>,
+    },
+    {
+      header: "Sl No",
+      align: "right",
+      cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.sl_no}</span>,
+    },
+    { header: "Created Dt", cell: (r) => <span className="text-sm">{r.created_at.slice(0, 10)}</span> },
+    { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by || "—"}</span> },
+    {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Blocked" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -250,33 +299,101 @@ export function ProcessMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search process…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Process
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search process…"
+          activeCount={activeCount}
+          onReset={reset}
+        >
+          <Select
+            value={filterValues.status ?? ""}
+            onChange={(e) => {
+              setFilter("status", e.target.value);
+              pg.setPage(1);
+            }}
+            aria-label="Filter status"
+            className="h-9 text-base md:text-sm"
+          >
+            <option value="">All status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </Select>
+          <Select
+            value={filterValues.for ?? ""}
+            onChange={(e) => {
+              setFilter("for", e.target.value);
+              pg.setPage(1);
+            }}
+            aria-label="Filter for"
+            className="h-9 text-base md:text-sm"
+          >
+            <option value="">All For</option>
+            {FOR_FLAGS.map((f) => (
+              <option key={f.key} value={f.key}>
+                {f.label}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={filterValues.billingOn ?? ""}
+            onChange={(e) => {
+              setFilter("billingOn", e.target.value);
+              pg.setPage(1);
+            }}
+            aria-label="Filter billing on"
+            className="h-9 text-base md:text-sm"
+          >
+            <option value="">All billing</option>
+            {BILLING_ON.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={filterValues.commodity ?? ""}
+            onChange={(e) => {
+              setFilter("commodity", e.target.value);
+              pg.setPage(1);
+            }}
+            aria-label="Filter commodity"
+            className="h-9 text-base md:text-sm"
+          >
+            <option value="">All commodities</option>
+            {commodities.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.short_name ?? c.name ?? "—"}
+              </option>
+            ))}
+          </Select>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="processes" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Process
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No process records yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No process records yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No process records yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -290,14 +407,23 @@ export function ProcessMasterScreen({
                     {r.billing_on ?? "—"} · For: {forSummary(r)}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -337,23 +463,16 @@ export function ProcessMasterScreen({
               className="text-base md:text-sm"
             />
           </div>
-          <div>
-            <Label htmlFor="pr-commodity">Commodity</Label>
-            <Select
-              id="pr-commodity"
-              value={form.commodity_id}
-              onChange={(e) => set({ commodity_id: e.target.value })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— None —</option>
-              {commodities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {commodityLabel.get(c.id)}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          <CommodityPicker
+            commodities={commodities}
+            itemClasses={itemClasses}
+            value={form.commodity_id}
+            onChange={(v) => set({ commodity_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+          />
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <Label htmlFor="pr-billing">Billing On</Label>
               <Select
@@ -376,6 +495,16 @@ export function ProcessMasterScreen({
                 id="pr-hsn"
                 value={form.hsn_code}
                 onChange={(e) => set({ hsn_code: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="pr-slno">Sl No</Label>
+              <Input
+                id="pr-slno"
+                type="number"
+                value={form.sl_no}
+                onChange={(e) => set({ sl_no: Number(e.target.value) || 0 })}
                 className="text-base md:text-sm"
               />
             </div>
@@ -492,10 +621,10 @@ export function ProcessMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

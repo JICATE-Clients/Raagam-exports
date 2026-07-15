@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { componentInput, type ComponentInput } from "./component-types";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -31,6 +32,8 @@ export async function createComponent(data: ComponentInput): Promise<Result> {
   const s = await createClient();
   const { coordinates: _drop, ...header } = p.data;
   void _drop;
+  const dup = await checkDuplicateName(s, "components", header.short_name, { nameColumn: "short_name" });
+  if (!dup.ok) return fail(dup.error);
   const { data: created, error } = await s
     .from("components")
     .insert(header)
@@ -55,6 +58,11 @@ export async function updateComponent(id: string, data: ComponentInput): Promise
   const s = await createClient();
   const { coordinates: _drop, ...header } = p.data;
   void _drop;
+  const dup = await checkDuplicateName(s, "components", header.short_name, {
+    nameColumn: "short_name",
+    excludeId: id,
+  });
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("components").update(header).eq("id", id);
   if (error) return fail(error.message);
   // Replace the coordinates grid wholesale (small, fully-loaded set).

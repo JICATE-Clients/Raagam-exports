@@ -27,6 +27,7 @@ export function DataIoToolbar({
 }) {
   const { error: toastError } = useToast();
   const [importOpen, setImportOpen] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const entity = getIoEntity(entityKey);
 
@@ -67,26 +68,44 @@ export function DataIoToolbar({
       )}
 
       {canExport && (
-        <>
+        <div className="relative">
           <Button
             variant="outline"
             size="sm"
             disabled={busy}
-            onClick={() => run(() => exportEntity(entity, exportRows, "xlsx"), "export Excel")}
+            onClick={() => setDownloadOpen((o) => !o)}
           >
             <Download className="h-4 w-4" />
-            Excel
+            Download
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => run(() => exportEntity(entity, exportRows, "csv"), "export CSV")}
-          >
-            <Download className="h-4 w-4" />
-            CSV
-          </Button>
-        </>
+          {downloadOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setDownloadOpen(false)} />
+              <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-md border border-border bg-surface p-1 shadow-lg">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-foreground hover:bg-surface-muted"
+                  onClick={() => {
+                    setDownloadOpen(false);
+                    run(() => exportEntity(entity, exportRows, "xlsx"), "export Excel");
+                  }}
+                >
+                  Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-foreground hover:bg-surface-muted"
+                  onClick={() => {
+                    setDownloadOpen(false);
+                    run(() => exportEntity(entity, exportRows, "csv"), "export CSV");
+                  }}
+                >
+                  CSV
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {canImport && (

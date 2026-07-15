@@ -7,20 +7,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { usePagination } from "@/lib/use-pagination";
+import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
+import { LookupDialogPicker, LevyPicker } from "@/components/masters/lookup-picker";
+import { CommodityPicker } from "@/components/masters/commodity-picker";
+import { FilterBar } from "@/components/masters/filter-bar";
+import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import {
-  createCategory,
-  updateCategory,
-  deleteCategory,
-  createItemClass,
-} from "@/lib/masters/category-actions";
-import { MADE_TYPES, type Category, type CategoryInput, type MadeType } from "@/lib/masters/category-types";
+  MADE_TYPES,
+  showsUserDefined,
+  type Category,
+  type CategoryInput,
+  type MadeType,
+} from "@/lib/masters/category-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
+import type { Commodity } from "@/lib/masters/commodity-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
 const BLANK = {
   item_class_id: "",
@@ -30,56 +39,47 @@ const BLANK = {
   made: "" as "" | MadeType,
   levy_id: "",
   commodity_id: "",
-  blocked: false,
+  fabric_structure_id: "",
+  user_defined: false,
+  inactive: false,
 };
 
 /**
- * Rich CRUD for the legacy "Category" master. Item Class is a required picker of
- * the `item_class` reference list (with an inline "+ New" add mirroring the
- * legacy Add button); Levy and Commodity pick from their own masters.
+ * Rich CRUD for the legacy "Category" master. Item Class/Levy/Commodity are
+ * dialog pickers over their stored master data; User Defined and Fabric
+ * Structure only render for the item classes the legacy form shows them on.
  */
 export function CategoryMasterScreen({
   rows,
   itemClasses,
   levies,
   commodities,
+  fabricStructures,
   perms,
 }: {
   rows: Category[];
   itemClasses: ConfigLookup[];
   levies: Levy[];
-  commodities: ConfigLookup[];
+  commodities: Commodity[];
+  fabricStructures: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
 
-  // Item classes added inline this session, merged with server props (deduped).
-  const [extraClasses, setExtraClasses] = useState<ConfigLookup[]>([]);
-  const [showNewClass, setShowNewClass] = useState(false);
-  const [newClassCode, setNewClassCode] = useState("");
-  const [newClassName, setNewClassName] = useState("");
-
-  const allClasses = useMemo(() => {
-    const seen = new Set<string>();
-    return [...itemClasses, ...extraClasses].filter((c) => {
-      if (seen.has(c.id)) return false;
-      seen.add(c.id);
-      return true;
-    });
-  }, [itemClasses, extraClasses]);
-
-  // display maps
+  // display maps — LookupDialogPicker owns merging in session-added classes and
+  // filtering out inactive ones from the picker itself; this screen only
+  // needs the raw list to resolve labels (including inactive, so an existing
+  // category that references a inactive class still shows its name).
   const classLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of allClasses) m.set(c.id, c.name);
+    for (const c of itemClasses) m.set(c.id, c.name);
     return m;
-  }, [allClasses]);
+  }, [itemClasses]);
   const levyLabel = useMemo(() => {
     const m = new Map<string, string>();
     for (const l of levies) m.set(l.id, l.description || `Entry #${l.entry_no}`);
@@ -87,39 +87,62 @@ export function CategoryMasterScreen({
   }, [levies]);
   const commodityLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of commodities) m.set(c.id, c.name);
+    for (const c of commodities) m.set(c.id, c.name ?? c.short_name ?? "—");
     return m;
   }, [commodities]);
+  const commodityShortLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of commodities) m.set(c.id, c.short_name ?? "—");
+    return m;
+  }, [commodities]);
+  const fabricStructureLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of fabricStructures) m.set(f.id, f.name);
+    return m;
+  }, [fabricStructures]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [
-        r.name,
-        r.short_name,
-        r.short_spec,
-        r.made,
-        classLabel.get(r.item_class_id),
-        r.levy_id ? levyLabel.get(r.levy_id) : "",
-        r.commodity_id ? commodityLabel.get(r.commodity_id) : "",
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query, classLabel, levyLabel, commodityLabel]);
+  // The selected Item Class's code drives which extra fields the legacy form
+  // shows — User Defined (Capital/General/Sewing/Packing/Garments) and Fabric
+  // Structure (Fabric only).
+  const selectedClassCode = useMemo(
+    () => itemClasses.find((c) => c.id === form.item_class_id)?.code?.toUpperCase() ?? null,
+    [itemClasses, form.item_class_id],
+  );
+  const showUserDefined = showsUserDefined(selectedClassCode);
+  const showFabricStructure = selectedClassCode === "FABRIC";
 
-  function resetNewClass() {
-    setShowNewClass(false);
-    setNewClassCode("");
-    setNewClassName("");
-  }
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+    rows,
+    {
+      search: (r, q) =>
+        [
+          r.name,
+          r.short_name,
+          r.short_spec,
+          r.made,
+          classLabel.get(r.item_class_id),
+          r.levy_id ? levyLabel.get(r.levy_id) : "",
+          r.commodity_id ? commodityLabel.get(r.commodity_id) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+      filters: {
+        status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
+        itemClass: (r, v) => r.item_class_id === v,
+        made: (r, v) => r.made === v,
+        levy: (r, v) => r.levy_id === v,
+      },
+      initialFilters: { status: "", itemClass: "", made: "", levy: "" },
+    },
+  );
+
+  const pg = usePagination(filtered, 10);
+
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
-    resetNewClass();
     setOpen(true);
   }
   function openEdit(r: Category) {
@@ -132,37 +155,11 @@ export function CategoryMasterScreen({
       made: r.made ?? "",
       levy_id: r.levy_id ?? "",
       commodity_id: r.commodity_id ?? "",
-      blocked: r.blocked,
+      fabric_structure_id: r.fabric_structure_id ?? "",
+      user_defined: r.user_defined,
+      inactive: r.inactive,
     });
-    resetNewClass();
     setOpen(true);
-  }
-
-  function addItemClass() {
-    startTransition(async () => {
-      const res = await createItemClass({ code: newClassCode.trim() || null, name: newClassName });
-      if (res.ok) {
-        setExtraClasses((xs) => [
-          ...xs,
-          {
-            id: res.id,
-            kind: "item_class",
-            code: newClassCode.trim() || null,
-            name: newClassName.trim(),
-            notes: null,
-            is_active: true,
-            created_at: "",
-            updated_at: "",
-          },
-        ]);
-        setForm((f) => ({ ...f, item_class_id: res.id }));
-        resetNewClass();
-        success("Item Class added.");
-        router.refresh();
-      } else {
-        error(res.error);
-      }
-    });
   }
 
   function submit() {
@@ -175,7 +172,9 @@ export function CategoryMasterScreen({
         made: form.made ? form.made : null,
         levy_id: form.levy_id || null,
         commodity_id: form.commodity_id || null,
-        blocked: form.blocked,
+        fabric_structure_id: form.fabric_structure_id || null,
+        user_defined: form.user_defined,
+        inactive: form.inactive,
       };
       const res = editId ? await updateCategory(editId, payload) : await createCategory(payload);
       if (res.ok) {
@@ -192,7 +191,7 @@ export function CategoryMasterScreen({
     startTransition(async () => {
       const res = await deleteCategory(r.id);
       if (res.ok) {
-        success("Category deleted.");
+        success(res.inactive ? "Category is in use — marked inactive instead of deleted." : "Category deleted.");
         router.refresh();
       } else {
         error(res.error);
@@ -205,10 +204,22 @@ export function CategoryMasterScreen({
       header: "Item Class",
       cell: (r) => <span className="text-sm">{classLabel.get(r.item_class_id) ?? "—"}</span>,
     },
+    { header: "Short Name", cell: (r) => <span className="text-sm">{r.short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
-    { header: "Made", cell: (r) => <span className="text-sm text-muted-foreground">{r.made ?? "—"}</span> },
     {
-      header: "Levy",
+      header: "Short Description",
+      cell: (r) => <span className="text-sm text-muted-foreground">{r.short_spec ?? "—"}</span>,
+    },
+    {
+      header: "Type",
+      cell: (r) => (
+        <span className="text-sm text-muted-foreground">
+          {r.made ?? (r.fabric_structure_id ? fabricStructureLabel.get(r.fabric_structure_id) : null) ?? "—"}
+        </span>
+      ),
+    },
+    {
+      header: "Levy Description",
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
           {r.levy_id ? levyLabel.get(r.levy_id) ?? "—" : "—"}
@@ -219,15 +230,25 @@ export function CategoryMasterScreen({
       header: "Commodity",
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
-          {r.commodity_id ? commodityLabel.get(r.commodity_id) ?? "—" : "—"}
+          {r.commodity_id ? commodityShortLabel.get(r.commodity_id) ?? "—" : "—"}
         </span>
       ),
     },
     {
-      header: "Status",
+      header: "Commodity Description",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Blocked" : "Active"}
+        <span className="text-sm text-muted-foreground">
+          {r.commodity_id ? commodityLabel.get(r.commodity_id) ?? "—" : "—"}
+        </span>
+      ),
+    },
+    { header: "Created Dt", cell: (r) => <span className="text-sm">{r.created_at.slice(0, 10)}</span> },
+    { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by_name || "—"}</span> },
+    {
+      header: "Inactive",
+      cell: (r) => (
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -261,33 +282,116 @@ export function CategoryMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search category…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Category
-          </Button>
-        )}
+        <FilterBar
+          search={query}
+          onSearch={(v) => {
+            setQuery(v);
+            pg.setPage(1);
+          }}
+          searchPlaceholder="Search category…"
+          activeCount={activeCount}
+          onReset={() => {
+            reset();
+            pg.setPage(1);
+          }}
+        >
+          <div>
+            <Label htmlFor="category-filter-status">Status</Label>
+            <Select
+              id="category-filter-status"
+              value={filterValues.status}
+              onChange={(e) => {
+                setFilter("status", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="category-filter-class">Item Class</Label>
+            <Select
+              id="category-filter-class"
+              value={filterValues.itemClass}
+              onChange={(e) => {
+                setFilter("itemClass", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {itemClasses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="category-filter-made">Made</Label>
+            <Select
+              id="category-filter-made"
+              value={filterValues.made}
+              onChange={(e) => {
+                setFilter("made", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {MADE_TYPES.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="category-filter-levy">Levy</Label>
+            <Select
+              id="category-filter-levy"
+              value={filterValues.levy}
+              onChange={(e) => {
+                setFilter("levy", e.target.value);
+                pg.setPage(1);
+              }}
+              className="text-base md:text-sm"
+            >
+              <option value="">All</option>
+              {levies.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.description || `Entry #${l.entry_no}`}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </FilterBar>
+        <div className="flex flex-1 items-center justify-end gap-2">
+          <DataIoToolbar entityKey="categories" rows={filtered} canExport={perms.canExport} />
+          {perms.canCreate && (
+            <Button size="md" onClick={openAdd}>
+              + Add Category
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No category records yet." />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No category records yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
+        {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
             No category records yet.
           </div>
         ) : (
-          filtered.map((r) => (
+          pg.paged.map((r) => (
             <button
               key={r.id}
               type="button"
@@ -304,14 +408,23 @@ export function CategoryMasterScreen({
                     {r.made ? ` · ${r.made}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
           ))
         )}
       </div>
+
+      <PaginationBar
+        page={pg.page}
+        pageCount={pg.pageCount}
+        total={pg.total}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
 
       {/* editor */}
       <Sheet
@@ -330,67 +443,33 @@ export function CategoryMasterScreen({
         }
       >
         <div className="space-y-4">
-          {/* Item Class (required) + inline add */}
-          <div>
-            <Label htmlFor="cat-class">
-              Item Class <span className="text-danger">*</span>
-            </Label>
-            <div className="flex gap-2">
+          <LookupDialogPicker
+            kind="item_class"
+            label="Item Class"
+            required
+            options={itemClasses}
+            value={form.item_class_id}
+            onChange={(v) => setForm({ ...form, item_class_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            isSuperAdmin={perms.isSuperAdmin}
+          />
+
+          {showUserDefined && (
+            <div>
+              <Label htmlFor="cat-user-defined">User Defined</Label>
               <Select
-                id="cat-class"
-                value={form.item_class_id}
-                onChange={(e) => setForm({ ...form, item_class_id: e.target.value })}
-                className="flex-1 text-base md:text-sm"
+                id="cat-user-defined"
+                value={form.user_defined ? "yes" : "no"}
+                onChange={(e) => setForm({ ...form, user_defined: e.target.value === "yes" })}
+                className="text-base md:text-sm"
               >
-                <option value="">— Select —</option>
-                {allClasses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                  </option>
-                ))}
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
               </Select>
-              {perms.canCreate && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="md"
-                  onClick={() => setShowNewClass((v) => !v)}
-                >
-                  {showNewClass ? "Cancel" : "+ New"}
-                </Button>
-              )}
             </div>
-            {showNewClass && (
-              <div className="mt-2 flex items-end gap-2 rounded-lg border border-border p-2.5">
-                <div className="w-24">
-                  <Label htmlFor="cat-class-code">Code</Label>
-                  <Input
-                    id="cat-class-code"
-                    value={newClassCode}
-                    onChange={(e) => setNewClassCode(e.target.value)}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <div className="flex-1">
-                  <Label htmlFor="cat-class-name">Name</Label>
-                  <Input
-                    id="cat-class-name"
-                    value={newClassName}
-                    onChange={(e) => setNewClassName(e.target.value)}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="md"
-                  disabled={isPending || !newClassName.trim()}
-                  onClick={addItemClass}
-                >
-                  Add
-                </Button>
-              </div>
-            )}
-          </div>
+          )}
 
           <div>
             <Label htmlFor="cat-short-name">Short Name</Label>
@@ -410,15 +489,20 @@ export function CategoryMasterScreen({
               className="text-base md:text-sm"
             />
           </div>
-          <div>
-            <Label htmlFor="cat-spec">Short Spec</Label>
-            <Input
-              id="cat-spec"
-              value={form.short_spec}
-              onChange={(e) => setForm({ ...form, short_spec: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          {/* Short Spec removed for new entries (functional spec, 0280) — descriptive
+              data now comes from structured attributes instead. Still shown when
+              editing an existing category so historical data isn't hidden/lost. */}
+          {editId && (
+            <div>
+              <Label htmlFor="cat-spec">Short Spec</Label>
+              <Input
+                id="cat-spec"
+                value={form.short_spec}
+                onChange={(e) => setForm({ ...form, short_spec: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          )}
           <div>
             <Label htmlFor="cat-made">Made</Label>
             <Select
@@ -435,47 +519,44 @@ export function CategoryMasterScreen({
               ))}
             </Select>
           </div>
-          <div>
-            <Label htmlFor="cat-levy">Levy Description</Label>
-            <Select
-              id="cat-levy"
-              value={form.levy_id}
-              onChange={(e) => setForm({ ...form, levy_id: e.target.value })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— None —</option>
-              {levies.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.description || `Entry #${l.entry_no}`}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="cat-commodity">Commodity</Label>
-            <Select
-              id="cat-commodity"
-              value={form.commodity_id}
-              onChange={(e) => setForm({ ...form, commodity_id: e.target.value })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— None —</option>
-              {commodities.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code ? `${c.code} — ${c.name}` : c.name}
-                </option>
-              ))}
-            </Select>
-          </div>
+          {showFabricStructure && (
+            <LookupDialogPicker
+              kind="fabric_structure"
+              label="Fabric Structure"
+              options={fabricStructures}
+              value={form.fabric_structure_id}
+              onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isSuperAdmin={perms.isSuperAdmin}
+              adminOnly
+            />
+          )}
+          <LevyPicker
+            label="Levy Description"
+            levies={levies}
+            value={form.levy_id}
+            onChange={(v) => setForm({ ...form, levy_id: v })}
+          />
+          <CommodityPicker
+            commodities={commodities}
+            itemClasses={itemClasses}
+            value={form.commodity_id}
+            onChange={(v) => setForm({ ...form, commodity_id: v })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+          />
 
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

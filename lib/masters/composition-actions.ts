@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { compositionInput, type CompositionInput } from "./composition-types";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -31,6 +32,8 @@ export async function createComposition(data: CompositionInput): Promise<Result>
   const s = await createClient();
   const { lines: _drop, ...header } = p.data;
   void _drop;
+  const dup = await checkDuplicateName(s, "compositions", header.name);
+  if (!dup.ok) return fail(dup.error);
   const { data: created, error } = await s
     .from("compositions")
     .insert(header)
@@ -55,6 +58,8 @@ export async function updateComposition(id: string, data: CompositionInput): Pro
   const s = await createClient();
   const { lines: _drop, ...header } = p.data;
   void _drop;
+  const dup = await checkDuplicateName(s, "compositions", header.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("compositions").update(header).eq("id", id);
   if (error) return fail(error.message);
   // Replace the mixing grid wholesale (small, fully-loaded set).
