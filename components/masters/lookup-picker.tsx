@@ -31,6 +31,11 @@ export type PickerRow = {
   disabled?: boolean;
 };
 
+// These kinds store `code` as an internal lowercase slug of `name` (e.g.
+// code "yarn_dyed" / name "Yarn-dyed") rather than a genuinely distinct
+// business code — showing "code — name" there just repeats the same word.
+const SLUG_CODE_KINDS = new Set<LookupKind>(["fabric_type", "yarn_type", "fabric_structure"]);
+
 type PickerDraft = { code: string; name: string; typeCode?: string };
 type ManageConfig = {
   canCreate: boolean;
@@ -384,17 +389,18 @@ export function LookupDialogPicker({
 
   // Inactive values must be excluded from new selections but stay resolvable
   // for a record that already references them.
+  const isSlugCode = SLUG_CODE_KINDS.has(kind);
   const rows: PickerRow[] = useMemo(
     () =>
       all
         .filter((o) => o.is_active || o.id === value)
         .map((o) => ({
           id: o.id,
-          label: o.code ? `${o.code} — ${o.name}` : o.name,
-          sublabel: o.code ?? undefined,
+          label: o.code && !isSlugCode ? `${o.code} — ${o.name}` : o.name,
+          sublabel: isSlugCode ? undefined : o.code ?? undefined,
           disabled: !o.is_active,
         })),
-    [all, value],
+    [all, value, isSlugCode],
   );
 
   const manage: ManageConfig | undefined =

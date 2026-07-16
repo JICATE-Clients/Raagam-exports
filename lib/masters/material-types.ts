@@ -48,6 +48,15 @@ export interface Material {
   shade: string | null;
   /** Fabric type (Melange/Yarn-dyed/Grey, kind `fabric_type`) — Fabric only. */
   fabric_type_id: string | null;
+  /** Fabric "Type" in the legacy sense — Circular Knit/Flat Knit/Woven, kind
+   *  `fabric_structure` — Fabric only. A direct field on the material; drives
+   *  UOM auto-derivation on change (0301). Distinct from `category_id`, which
+   *  on Fabric holds the legacy "Structure" (e.g. "1X1 FANCY RIB" — a specific
+   *  knit/weave pattern, still labeled "Structure" in the Fabric Details UI). */
+  fabric_structure_id: string | null;
+  /** Fabric "Using" — Single Yarn / Multiple Yarn, free values (see
+   *  `FABRIC_USING`). Fabric only, stored as-is (no behavior tied to it). */
+  fabric_using: string | null;
   /** Yarn type (Grey/Melange/Doubling, kind `yarn_type`) — Yarn only. */
   yarn_type_id: string | null;
   ply: number | null;
@@ -83,6 +92,9 @@ export type DetailFieldKey =
 
 // "Type" is a selection-only dropdown.
 export const MATERIAL_TYPES = ["Production", "Purchased", "Converted"] as const;
+
+// Fabric "Using" — legacy fixed-choice dropdown (0302).
+export const FABRIC_USING = ["Single Yarn", "Multiple Yarn"] as const;
 
 export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
 
@@ -163,6 +175,8 @@ export const materialInput = z.object({
   purity_id: uuidN,
   shade: z.string().optional().nullable(),
   fabric_type_id: uuidN,
+  fabric_structure_id: uuidN,
+  fabric_using: z.string().optional().nullable(),
   yarn_type_id: uuidN,
   ply: z.coerce.number().int().positive().nullable().default(null),
   direct_purchase: z.boolean().default(false),

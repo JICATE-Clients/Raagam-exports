@@ -21,6 +21,7 @@ import { LookupDialogPicker, CategoryPicker } from "@/components/masters/lookup-
 import {
   MATERIAL_FORMS,
   MATERIAL_TYPES,
+  FABRIC_USING,
   FABRIC_STRUCTURE_UOM,
   itemClassForm,
   type Material,
@@ -61,6 +62,8 @@ const BLANK = {
   purity_id: "",
   shade: "",
   fabric_type_id: "",
+  fabric_structure_id: "",
+  fabric_using: "",
   yarn_type_id: "",
   ply: "",
   direct_purchase: false,
@@ -154,12 +157,12 @@ export function MaterialMasterScreen({
   const formKey: MaterialFormKey = itemClassForm(selectedClassCode);
   const formDef = formKey === "A" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
   const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
-  const structureCode = selectedCategory?.fabric_structure_id
-    ? structureCodeById.get(selectedCategory.fabric_structure_id) ?? null
+  const structureCode = form.fabric_structure_id
+    ? structureCodeById.get(form.fabric_structure_id) ?? null
     : null;
 
-  // Fabric: auto-derive UOM from the category's Structure (0279 — Circular=kg,
-  // Flat Knit=numbers+weight, Woven=meters+kg). Pure lookup only — no ref access.
+  // Fabric: auto-derive UOM from Type (0279/0301 — Circular=kg, Flat
+  // Knit=numbers+weight, Woven=meters+kg). Pure lookup only — no ref access.
   function structureUomHint(code: string | null): { baseId?: string; secondaryId?: string } {
     if (!code) return {};
     const hint = FABRIC_STRUCTURE_UOM[code];
@@ -173,12 +176,11 @@ export function MaterialMasterScreen({
   // read happens in a spot the compiler can prove is event-handler-only —
   // a handler nested inside the fabricDetails() render-helper trips the
   // react-hooks/refs check even though it's only ever invoked from onChange.
-  function handleFabricCategoryChange(catId: string) {
-    const cat = categories.find((c) => c.id === catId);
-    const code = cat?.fabric_structure_id ? structureCodeById.get(cat.fabric_structure_id) ?? null : null;
+  function handleFabricTypeChange(structureId: string) {
+    const code = structureId ? structureCodeById.get(structureId) ?? null : null;
     const { baseId, secondaryId } = structureUomHint(code);
     set({
-      category_id: catId,
+      fabric_structure_id: structureId,
       ...(baseId && !form.base_uom_id ? { base_uom_id: baseId, stock_uom_id: baseId } : {}),
     });
     if (baseId && secondaryId && conversions.length === 0) {
@@ -211,6 +213,8 @@ export function MaterialMasterScreen({
       purity_id: r.purity_id ?? "",
       shade: r.shade ?? "",
       fabric_type_id: r.fabric_type_id ?? "",
+      fabric_structure_id: r.fabric_structure_id ?? "",
+      fabric_using: r.fabric_using ?? "",
       yarn_type_id: r.yarn_type_id ?? "",
       ply: r.ply != null ? String(r.ply) : "",
       direct_purchase: r.direct_purchase,
@@ -279,6 +283,8 @@ export function MaterialMasterScreen({
         purity_id: form.purity_id || null,
         shade: form.shade || null,
         fabric_type_id: form.fabric_type_id || null,
+        fabric_structure_id: form.fabric_structure_id || null,
+        fabric_using: form.fabric_using || null,
         yarn_type_id: form.yarn_type_id || null,
         ply: numOrNull(form.ply),
         direct_purchase: form.direct_purchase,
@@ -458,8 +464,94 @@ export function MaterialMasterScreen({
 
   /** Shared blend/mixing grid — Fabric ("Using" Single/Multiple yarn, Decision 4)
    *  and Yarn (only when Category nature = Mixed, Decision 7). Each row links to
-   *  a real Yarn `items` record where possible; % must sum to 100 to save. */
-  function mixingGrid() {
+   *  a real Yarn `items` record where possible; % must sum to 100 to save.
+   *
+   *  `variant: "fabric"` renders the legacy "Attributes" table (# | Description
+   *  | Mixing %) — Description still prefers a linked Yarn item, falling back
+   *  to free text when none is picked, same as before, just without the Shade
+   *  and UOM columns legacy doesn't show here. `variant: "yarn"` is unchanged
+   *  (Component yarn/%, Shade, UOM) — no legacy screen confirms trimming it. */
+  function mixingGrid(variant: "fabric" | "yarn" = "yarn") {
+    if (variant === "fabric") {
+      const descCell = (m: MixRow) => (
+        <div className="space-y-1">
+          <Select value={m.component_item_id} onChange={(e) => setMix(m.key, { component_item_id: e.target.value })} className="text-base md:text-sm">
+            <option value="">— Component yarn —</option>
+            {yarnItems.map((y) => (
+              <option key={y.id} value={y.id}>
+                {y.code} — {y.name}
+              </option>
+            ))}
+          </Select>
+          {!m.component_item_id && (
+            <Input placeholder="Description" value={m.description} onChange={(e) => setMix(m.key, { description: e.target.value })} className="text-base md:text-sm" />
+          )}
+        </div>
+      );
+      return (
+        <div className="space-y-2 border-t border-border pt-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attributes</div>
+            {mixings.length > 0 && (
+              <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
+                {mixPctSum}% of 100%
+              </span>
+            )}
+          </div>
+
+          {/* desktop table */}
+          <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
+            <table className="w-full min-w-[420px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-muted">
+                  <th className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
+                  <th className="border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Description</th>
+                  <th className="w-24 border-l border-border px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">Mixing %</th>
+                  <th className="w-8 border-l border-border" />
+                </tr>
+              </thead>
+              <tbody>
+                {mixings.map((m, i) => (
+                  <tr key={m.key} className="border-b border-border last:border-0">
+                    <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
+                    <td className="border-l border-border px-2 py-1.5">{descCell(m)}</td>
+                    <td className="border-l border-border px-2 py-1.5">
+                      <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
+                    </td>
+                    <td className="border-l border-border px-1 py-1.5 text-center">
+                      <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delMix(m.key)} aria-label="Remove row">
+                        ✕
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* mobile cards */}
+          <div className="space-y-2 md:hidden">
+            {mixings.map((m, i) => (
+              <div key={m.key} className="space-y-2 rounded-lg border border-border p-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
+                  <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delMix(m.key)}>
+                    ✕
+                  </Button>
+                </div>
+                {descCell(m)}
+                <Input type="number" step="0.01" placeholder="Mixing %" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
+              </div>
+            ))}
+          </div>
+
+          <Button type="button" variant="outline" size="sm" onClick={addMix}>
+            + Add row
+          </Button>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-2 border-t border-border pt-3">
         <div className="flex items-center justify-between">
@@ -512,27 +604,43 @@ export function MaterialMasterScreen({
     );
   }
 
-  /** Fabric Details (0279) — Structure is inherited read-only from Category
-   *  (Decision 2); it drives UOM auto-derivation on category change. */
+  /** Fabric Details (0301/0302) — legacy order Type → Structure → Fabric Type
+   *  → Direct Purchase → Using → Attributes:
+   *  - Type: Circular Knit/Flat Knit/Woven, a direct field on the material —
+   *    drives UOM auto-derivation on change.
+   *  - Structure: the specific knit/weave pattern (e.g. "1X1 FANCY RIB") —
+   *    this is `category_id`, scoped to the Fabric item class same as every
+   *    other class's Category, just labeled "Structure" here (confirmed
+   *    against legacy + existing Fabric-scoped category data). NOT the same
+   *    field as Type, despite both having lived under one picker briefly. */
   function fabricDetails() {
     return (
       <>
+        <div>
+          <Label>Type</Label>
+          <LookupDialogPicker
+            kind="fabric_structure"
+            label=""
+            options={fabricStructures}
+            value={form.fabric_structure_id}
+            onChange={handleFabricTypeChange}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+            canDelete={perms.canDelete}
+            isSuperAdmin={perms.isSuperAdmin}
+            adminOnly
+          />
+        </div>
         <CategoryPicker
-          label="Category"
+          label="Structure"
           categories={scopedCategories}
           value={form.category_id}
-          onChange={handleFabricCategoryChange}
+          onChange={(v) => set({ category_id: v })}
           itemClassId={form.item_class_id}
           canCreate={perms.canCreate}
           canEdit={perms.canEdit}
           canDelete={perms.canDelete}
         />
-        <div>
-          <Label>Structure</Label>
-          <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-            {structureCode ? fabricStructures.find((s) => s.code === structureCode)?.name ?? structureCode : "Set on the Category — pick a Category above"}
-          </div>
-        </div>
         <div>
           <Label>
             Fabric Type <span className="text-danger">*</span>
@@ -562,9 +670,22 @@ export function MaterialMasterScreen({
               if (checked) setMixings([]);
             }}
           />
-          <span className="text-sm text-foreground">Direct Purchase (finished fabric bought from vendor — no yarn composition needed)</span>
+          <span className="text-sm text-foreground">Direct Purchase</span>
         </label>
-        {!form.direct_purchase && mixingGrid()}
+        {!form.direct_purchase && (
+          <div>
+            <Label>Using</Label>
+            <Select value={form.fabric_using} onChange={(e) => set({ fabric_using: e.target.value })} className="text-base md:text-sm">
+              <option value="">— None —</option>
+              {FABRIC_USING.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+        {!form.direct_purchase && mixingGrid("fabric")}
       </>
     );
   }
@@ -601,7 +722,7 @@ export function MaterialMasterScreen({
           </div>
         )}
         {nature === "Mixed" ? (
-          mixingGrid()
+          mixingGrid("yarn")
         ) : (
           <LookupDialogPicker
             kind="yarn_purity"
