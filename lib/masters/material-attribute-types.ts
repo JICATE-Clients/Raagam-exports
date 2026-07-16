@@ -1,23 +1,11 @@
 import { z } from "zod";
 
 // ============================================================================
-// Material Attributes — master-detail (0222). Header = Item Class + Category;
-// lines = per-attribute value specs (range / step / unit / mandatory / blocked).
+// Material Attributes — master-detail (0222). Header = Item Class (→
+// config_lookups kind `item_class`) + Category (→ `categories`, scoped to
+// that Item Class); lines = per-attribute (→ `attributes`, also scoped to
+// that Item Class) value specs (range / step / unit / mandatory / inactive).
 // ============================================================================
-
-// NOTE: no "item class" master exists — this mirrors the fixed class list the
-// Attributes master uses for `type`. Provisional; extend if the legacy picker differs.
-export const ITEM_CLASSES = [
-  "Yarn",
-  "Fabric",
-  "Sewing Accessories",
-  "Packing Accessories",
-  "General",
-  "Garments",
-  "Consumables",
-  "Capital Items",
-] as const;
-export type ItemClass = (typeof ITEM_CLASSES)[number];
 
 export interface MaterialAttributeLine {
   id: string;
@@ -30,12 +18,12 @@ export interface MaterialAttributeLine {
   unit_id: string | null;
   step_value: number | null;
   mandatory: boolean;
-  blocked: boolean;
+  inactive: boolean;
 }
 
 export interface MaterialAttribute {
   id: string;
-  item_class: string | null;
+  item_class_id: string | null;
   category_id: string | null;
   created_at: string;
   updated_at: string;
@@ -53,11 +41,11 @@ export const materialAttributeLineInput = z.object({
   unit_id: z.string().uuid().nullable().default(null),
   step_value: num,
   mandatory: z.boolean().default(false),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 
 export const materialAttributeInput = z.object({
-  item_class: z.string().optional().nullable(),
+  item_class_id: z.string().uuid().nullable().default(null),
   category_id: z.string().uuid().nullable().default(null),
   lines: z.array(materialAttributeLineInput).default([]),
 });

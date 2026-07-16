@@ -27,8 +27,9 @@ export async function listGstRates(): Promise<GstRate[]> {
 export async function listAttributes(): Promise<Attribute[]> {
   const s = await createClient();
   const { data } = await s
-    .from("attributes")
+    .from("config_lookups")
     .select("*, values:attribute_values(*)")
+    .eq("kind", "item_class")
     .order("code");
   return ((data ?? []) as Attribute[]).map((a) => ({
     ...a,

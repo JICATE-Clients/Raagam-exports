@@ -32,8 +32,10 @@ export interface Process {
   designwise_delivery: boolean;
   is_conversion: boolean;
   has_sub_categories: boolean;
-  blocked: boolean;
+  sl_no: number;
+  inactive: boolean;
   created_at: string;
+  created_by: string | null;
   updated_at: string;
   sub_categories: ProcessSubCategory[];
 }
@@ -59,7 +61,8 @@ export const processInput = z.object({
   designwise_delivery: z.boolean().default(false),
   is_conversion: z.boolean().default(false),
   has_sub_categories: z.boolean().default(false),
-  blocked: z.boolean().default(false),
+  sl_no: z.coerce.number().int().default(9),
+  inactive: z.boolean().default(false),
   sub_categories: z.array(processSubCategoryInput).default([]),
 });
 export type ProcessInput = z.infer<typeof processInput>;

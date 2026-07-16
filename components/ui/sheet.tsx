@@ -4,10 +4,17 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
+// Ref-counts open Sheets so a nested Sheet's cleanup doesn't clear the scroll
+// lock a still-open outer Sheet depends on (e.g. a field picker inside an
+// entity editor).
+let openSheetCount = 0;
+
 /**
  * Responsive editor surface: a right-hand slide-over on desktop (≥md), a
  * bottom sheet on mobile. Portal + scrim + body-scroll-lock + Escape-to-close.
- * The one editor primitive for master/detail forms across modules.
+ * The one editor primitive for master/detail forms across modules. Sheets can
+ * nest (e.g. a picker Sheet opened from within an entity editor Sheet) — pass
+ * a higher `zIndexBase` on the inner one so it reliably stacks above the outer.
  */
 export function Sheet({
   open,
@@ -15,12 +22,14 @@ export function Sheet({
   title,
   children,
   footer,
+  zIndexBase = 90,
 }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  zIndexBase?: number;
 }) {
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
@@ -33,10 +42,12 @@ export function Sheet({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
+    openSheetCount += 1;
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      openSheetCount = Math.max(0, openSheetCount - 1);
+      if (openSheetCount === 0) document.body.style.overflow = "";
     };
   }, [open, onClose]);
 
@@ -47,8 +58,9 @@ export function Sheet({
       {/* scrim */}
       <div
         onClick={onClose}
+        style={{ zIndex: zIndexBase }}
         className={cn(
-          "fixed inset-0 z-[90] bg-black/40 transition-opacity duration-200",
+          "fixed inset-0 bg-black/40 transition-opacity duration-200",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       />
@@ -56,8 +68,9 @@ export function Sheet({
       <div
         role="dialog"
         aria-modal="true"
+        style={{ zIndex: zIndexBase + 1 }}
         className={cn(
-          "fixed z-[91] flex flex-col bg-surface shadow-lg transition-transform duration-200 ease-out",
+          "fixed flex flex-col bg-surface shadow-lg transition-transform duration-200 ease-out",
           "inset-x-0 bottom-0 max-h-[88vh] rounded-t-2xl border-t border-border",
           "md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[420px] md:max-w-[92vw] md:rounded-none md:border-l md:border-t-0",
           open

@@ -31,7 +31,7 @@ function normalizeLines(data: MaterialAttributeInput) {
       unit_id: l.unit_id,
       step_value: l.step_value,
       mandatory: l.mandatory,
-      blocked: l.blocked,
+      inactive: l.inactive,
     }));
 }
 

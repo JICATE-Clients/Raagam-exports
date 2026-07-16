@@ -17,7 +17,17 @@ export interface Category {
   made: MadeType | null;
   levy_id: string | null;
   commodity_id: string | null;
-  blocked: boolean;
+  /** Fabric structure (Circular/Flat/Woven, kind `fabric_structure`) — set once
+   *  per category and inherited by every Material in it, never re-picked per item. */
+  fabric_structure_id: string | null;
+  /** Legacy "User Defined" Yes/No flag — inert, stored as-is (same as the
+   *  Materials master's own `user_defined` field; see doc/masters-open-questions.md #6).
+   *  Only shown on the form for USER_DEFINED_CLASS_CODES item classes. */
+  user_defined: boolean;
+  inactive: boolean;
+  /** Who entered the record — joined in category-service, not a raw column read. */
+  created_by: string | null;
+  created_by_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +40,15 @@ export const categoryInput = z.object({
   made: z.enum(MADE_TYPES).nullable().default(null),
   levy_id: z.string().uuid().nullable().default(null),
   commodity_id: z.string().uuid().nullable().default(null),
-  blocked: z.boolean().default(false),
+  fabric_structure_id: z.string().uuid().nullable().default(null),
+  user_defined: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type CategoryInput = z.infer<typeof categoryInput>;
+
+// Item classes whose legacy Category form shows the "User Defined" field
+// (Capital/General/Sewing/Packing/Garments) — Fabric/Yarn never show it.
+export const USER_DEFINED_CLASS_CODES = new Set(["CAP", "GEN", "SEW", "PACK", "GAR"]);
+export function showsUserDefined(code: string | null | undefined): boolean {
+  return !!code && USER_DEFINED_CLASS_CODES.has(code.toUpperCase());
+}

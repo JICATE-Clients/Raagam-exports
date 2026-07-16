@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CURRENCY_RE } from "@/lib/validation/formats";
 
 // ============================================================================
 // Config lookups — generic kind-discriminated material/spec masters (0218)
@@ -55,6 +56,12 @@ export const LOOKUP_KINDS = [
   "warehouse",
   // Orders ▸ TA ▸ TA Activity ▸ Type picker (0266)
   "ta_activity_type",
+  // Materials ▸ Fabric/Yarn textile logic (0279)
+  "fabric_structure",
+  "fabric_type",
+  "yarn_type",
+  // Materials ▸ Levy ▸ Duty Structure ▸ Annexure Category (0282)
+  "duty_category",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -102,6 +109,10 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   roll_form_print: "Roll Form Prints",
   warehouse: "Warehouses",
   ta_activity_type: "TA Activity Types",
+  fabric_structure: "Fabric Structures",
+  fabric_type: "Fabric Types",
+  yarn_type: "Yarn Types",
+  duty_category: "Duty Categories",
 };
 
 export interface ConfigLookup {
@@ -109,43 +120,40 @@ export interface ConfigLookup {
   kind: LookupKind;
   code: string | null;
   name: string;
+  /** Functional grouping distinct from Code — only meaningful for
+   *  kind='item_class' (e.g. FABRIC's type is "FAB"; Button groups under
+   *  "GEN" despite being its own class). Null/absent for every other kind
+   *  (0287) — optional so the many inline-add optimistic-update call sites
+   *  across the masters screens don't all need updating for one edge kind. */
+  type_code?: string | null;
   notes: string | null;
   is_active: boolean;
+  /** Legacy attribution (e.g. "SELVARAJ", "admin") — free text, not a
+   *  profiles FK, since config_lookups must carry legacy usernames that
+   *  don't correspond to real Supabase Auth accounts (0290). Populated
+   *  server-side on create; not user-editable via the form. Optional so
+   *  the many inline-add optimistic-update call sites across the masters
+   *  screens don't all need updating (mirrors `type_code` above, 0287). */
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 // ============================================================================
-// Attributes — master-detail (0220). Legacy EDP2 "Attribute" master: a header
-// with a fixed material-category Type + an optional child grid of values.
+// Attributes (0220, merged into Item Class by 0293). The legacy "Attribute"
+// master turned out to be the same data as Item Class (config_lookups kind
+// `item_class`) — confirmed against the client's legacy "Attributes - U2"
+// report. An "Attribute" row IS an Item Class row; the child grid of named
+// values (e.g. GSM, Width) is what Material Attribute Lines actually pick
+// from, scoped per Item Class.
 // ============================================================================
-export const ATTRIBUTE_TYPES = [
-  "Yarn",
-  "Fabric",
-  "Sewing Accessories",
-  "Packing Accessories",
-  "General",
-  "Garments",
-  "Consumables",
-  "Capital Items",
-] as const;
-export type AttributeType = (typeof ATTRIBUTE_TYPES)[number];
-
 export interface AttributeValue {
   id: string;
-  attribute_id: string;
+  item_class_id: string;
   sno: number;
   value: string;
 }
-export interface Attribute {
-  id: string;
-  code: string;
-  type: AttributeType | null;
-  description: string | null;
-  blocked: boolean;
-  has_attributes: boolean;
-  created_at: string;
-  updated_at: string;
+export interface Attribute extends ConfigLookup {
   values: AttributeValue[];
 }
 
@@ -154,11 +162,11 @@ export const attributeValueInput = z.object({
   value: z.string().min(1),
 });
 export const attributeInput = z.object({
-  code: z.string().min(1, "Code is required"),
-  type: z.enum(ATTRIBUTE_TYPES).nullable().default(null),
-  description: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
-  has_attributes: z.boolean().default(false),
+  code: z.string().optional().nullable(),
+  name: z.string().min(1, "Name is required"),
+  type_code: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  is_active: z.boolean().default(true),
   values: z.array(attributeValueInput).default([]),
 });
 export type AttributeInput = z.infer<typeof attributeInput>;
@@ -166,6 +174,7 @@ export const lookupInput = z.object({
   kind: z.enum(LOOKUP_KINDS),
   code: z.string().optional().nullable(),
   name: z.string().min(1),
+  type_code: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   is_active: z.boolean().default(true),
 });
@@ -217,7 +226,7 @@ export type GstRateInput = z.infer<typeof gstRateInput>;
 // Currency management (existing `currencies` table; PK = code)
 // ============================================================================
 export const currencyInput = z.object({
-  code: z.string().min(1).max(8),
+  code: z.string().min(1).max(8).regex(CURRENCY_RE, "Enter a 3-letter ISO currency code (e.g. INR)"),
   name: z.string().min(1),
   symbol: z.string().optional().nullable(),
 });

@@ -17,7 +17,7 @@ export interface Composition {
   item_class_id: string;
   short_name: string | null;
   name: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
   lines: CompositionLine[];
@@ -32,7 +32,7 @@ export const compositionInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
   short_name: z.string().optional().nullable(),
   name: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   lines: z.array(compositionLineInput).default([]),
 });
 export type CompositionInput = z.infer<typeof compositionInput>;

@@ -84,7 +84,7 @@ export function LookupMasterScreen({
     startTransition(async () => {
       const res = await deleteLookup(r.id);
       if (res.ok) {
-        success(`${singular} deleted.`);
+        success(res.inactive ? `${singular} is in use — marked inactive instead of deleted.` : `${singular} deleted.`);
         router.refresh();
       } else {
         error(res.error);

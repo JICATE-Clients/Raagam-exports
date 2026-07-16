@@ -2,14 +2,17 @@ import type { LookupKind } from "./extras-types";
 
 /**
  * Master Data ▸ Materials — the 15 legacy EDP2 child masters, in legacy order.
+ * (HSN Assign to Materials moved to Master Data ▸ GST — it's a GST/tax
+ * classification assignment, not a materials master; see `submodules.ts`.)
  *
- * 13 are generic named-lists backed by `config_lookups` (keyed by `kind`) and
- * render through the shared <LookupMasterScreen>. Two keep their own rich
- * tables and are surfaced as link-out cards:
- *   - Stock Units → the UOMs tab   (`/masters?tab=uoms`)
- *   - Materials   → the Items tab  (`/masters?tab=items`)
+ * Every entry is a `CustomChild` with its own rich screen + dedicated
+ * table/service (no plain `LookupChild` remain — Stock Units and Materials
+ * each grew a full CRUD screen instead of staying flat `config_lookups`
+ * lookups or link-out cards). `LookupChild`/`isLookupChild` are kept for the
+ * shape they document, but no current entry uses that path.
  *
- * Adding a lookup-backed master = one entry here + (if new) a `kind` in 0219.
+ * Adding a master here means giving it its own `custom` branch in
+ * `app/(app)/masters/materials/[entity]/page.tsx`.
  */
 export type LookupChild = {
   slug: string;
@@ -31,7 +34,7 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "hsn_assign";
+  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
@@ -51,7 +54,6 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "knitting-dias", label: "Knitting Dias", singular: "Knitting Dia", description: "Knitting diameters", custom: "knitting_dias" },
   { slug: "out-document-terms", label: "Out Document Terms", singular: "Out Document Term", description: "Sub-contract issue terms", custom: "out_document_terms" },
   { slug: "commodities", label: "Commodities", singular: "Commodity", description: "Customs commodity classes", custom: "commodities" },
-  { slug: "hsn-assign", label: "HSN Assign to Materials", singular: "HSN Assignment", description: "Bulk-assign HSN codes to materials/items", custom: "hsn_assign" },
 ];
 
 export function findMaterialChild(slug: string): MaterialChild | undefined {
