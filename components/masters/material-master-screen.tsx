@@ -941,27 +941,74 @@ export function MaterialMasterScreen({
                 {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }))}
               </div>
 
-              {/* conversion grid */}
+              {/* conversion grid — mirrors the legacy SlNo | Alternate (Qty, Uom) | = | Base (Qty, Uom) table */}
               <div className="space-y-2 border-t border-border pt-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Alternate ↔ Base conversions</div>
-                {conversions.map((c, i) => (
-                  <div key={c.key} className="space-y-2 rounded-lg border border-border p-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-                      <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delConv(c.key)}>
-                        ✕
-                      </Button>
+
+                {/* desktop table */}
+                <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
+                  <table className="w-full min-w-[560px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-surface-muted">
+                        <th rowSpan={2} className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
+                        <th colSpan={2} className="border-l border-border px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">Alternate</th>
+                        <th rowSpan={2} className="w-8 border-l border-border px-1 py-1.5 text-center text-xs font-semibold text-muted-foreground">=</th>
+                        <th colSpan={2} className="border-l border-border px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">Base</th>
+                        <th rowSpan={2} className="w-8 border-l border-border" />
+                      </tr>
+                      <tr className="border-b border-border bg-surface-muted">
+                        <th className="border-l border-border px-2 py-1.5 text-xs font-medium text-muted-foreground">Qty</th>
+                        <th className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Uom</th>
+                        <th className="border-l border-border px-2 py-1.5 text-xs font-medium text-muted-foreground">Qty</th>
+                        <th className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Uom</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conversions.map((c, i) => (
+                        <tr key={c.key} className="border-b border-border last:border-0">
+                          <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
+                          <td className="border-l border-border px-2 py-1.5">
+                            <Input type="number" step="0.0001" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-base md:text-sm" />
+                          </td>
+                          <td className="px-2 py-1.5">{uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }))}</td>
+                          <td className="border-l border-border px-1 py-1.5 text-center text-muted-foreground">=</td>
+                          <td className="border-l border-border px-2 py-1.5">
+                            <Input type="number" step="0.0001" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-base md:text-sm" />
+                          </td>
+                          <td className="px-2 py-1.5">{uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v }))}</td>
+                          <td className="border-l border-border px-1 py-1.5 text-center">
+                            <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delConv(c.key)} aria-label="Remove conversion">
+                              ✕
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* mobile cards */}
+                <div className="space-y-2 md:hidden">
+                  {conversions.map((c, i) => (
+                    <div key={c.key} className="space-y-2 rounded-lg border border-border p-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
+                        <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delConv(c.key)}>
+                          ✕
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-[1fr_1.4fr] gap-2">
+                        <Input type="number" step="0.0001" placeholder="Alt qty" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-base md:text-sm" />
+                        {uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }))}
+                      </div>
+                      <div className="grid grid-cols-[1fr_1.4fr] items-center gap-2">
+                        <Input type="number" step="0.0001" placeholder="Base qty" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-base md:text-sm" />
+                        {uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v }))}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-[1fr_1.4fr] gap-2">
-                      <Input type="number" step="0.0001" placeholder="Alt qty" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-base md:text-sm" />
-                      {uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }))}
-                    </div>
-                    <div className="grid grid-cols-[1fr_1.4fr] items-center gap-2">
-                      <Input type="number" step="0.0001" placeholder="Base qty" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-base md:text-sm" />
-                      {uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v }))}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
                 <Button type="button" variant="outline" size="sm" onClick={addConv}>
                   + Add conversion
                 </Button>
