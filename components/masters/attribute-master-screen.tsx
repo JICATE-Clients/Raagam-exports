@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,6 @@ import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createAttribute,
   updateAttribute,
-  deleteAttribute,
 } from "@/lib/masters/extras-actions";
 import { type Attribute, type AttributeInput } from "@/lib/masters/extras-types";
 
@@ -33,6 +32,21 @@ const BLANK = {
   notes: "",
   inactive: false,
 };
+
+// Fixed legacy list — the old RP-Software Attribute editor hardcoded this
+// exact 8-value Type dropdown; matches the type_code values already stored
+// on existing rows (CAP, FAB, GAR, GEN, PAK, SEW, YRN).
+const TYPE_OPTIONS = [
+  { code: "YRN", label: "Yarn" },
+  { code: "FAB", label: "Fabric" },
+  { code: "SEW", label: "Sewing Accessories" },
+  { code: "PAK", label: "Packing Accessories" },
+  { code: "GEN", label: "General" },
+  { code: "GAR", label: "Garments" },
+  { code: "CON", label: "Consumables" },
+  { code: "CAP", label: "Capital Items" },
+] as const;
+const TYPE_LABELS = new Map<string, string>(TYPE_OPTIONS.map((t) => [t.code, t.label]));
 
 /**
  * Attributes = Item Class (config_lookups kind `item_class`, merged 0293) —
@@ -72,11 +86,6 @@ export function AttributeMasterScreen({
       },
       initialFilters: { status: "", type: "" },
     },
-  );
-
-  const typeOptions = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.type_code).filter((v): v is string => !!v))).sort(),
-    [rows],
   );
 
   const pg = usePagination(filtered, 10);
@@ -135,11 +144,19 @@ export function AttributeMasterScreen({
     });
   }
 
-  function remove(r: Attribute) {
+  function deactivate(r: Attribute) {
     startTransition(async () => {
-      const res = await deleteAttribute(r.id);
+      const payload: AttributeInput = {
+        code: r.code ?? null,
+        name: r.name,
+        type_code: r.type_code ?? null,
+        notes: r.notes ?? null,
+        is_active: false,
+        values: r.values.map((v) => ({ sno: v.sno, value: v.value })),
+      };
+      const res = await updateAttribute(r.id, payload);
       if (res.ok) {
-        success(res.inactive ? "Attribute is in use — marked inactive instead of deleted." : "Attribute deleted.");
+        success("Attribute marked inactive.");
         router.refresh();
       } else {
         error(res.error);
@@ -150,7 +167,14 @@ export function AttributeMasterScreen({
   const columns: Column<Attribute>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
-    { header: "Type", cell: (r) => <span className="text-sm text-muted-foreground">{r.type_code ?? "—"}</span> },
+    {
+      header: "Type",
+      cell: (r) => (
+        <span className="text-sm text-muted-foreground">
+          {r.type_code ? TYPE_LABELS.get(r.type_code) ?? r.type_code : "—"}
+        </span>
+      ),
+    },
     {
       header: "Attributes",
       align: "right",
@@ -176,15 +200,15 @@ export function AttributeMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
+          {perms.canDelete && r.is_active && (
             <Button
               variant="ghost"
               size="sm"
               className="text-muted-foreground hover:text-danger"
               disabled={isPending}
-              onClick={() => remove(r)}
+              onClick={() => deactivate(r)}
             >
-              Delete
+              Deactivate
             </Button>
           )}
         </div>
@@ -234,9 +258,9 @@ export function AttributeMasterScreen({
               className="text-base md:text-sm"
             >
               <option value="">All</option>
-              {typeOptions.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {TYPE_OPTIONS.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.label}
                 </option>
               ))}
             </Select>
@@ -340,12 +364,19 @@ export function AttributeMasterScreen({
             </div>
             <div>
               <Label htmlFor="at-type">Type</Label>
-              <Input
+              <Select
                 id="at-type"
                 value={form.type_code}
                 onChange={(e) => setForm({ ...form, type_code: e.target.value })}
                 className="text-base md:text-sm"
-              />
+              >
+                <option value="">— Select —</option>
+                {TYPE_OPTIONS.map((t) => (
+                  <option key={t.code} value={t.code}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
           <div>
