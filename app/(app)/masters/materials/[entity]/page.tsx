@@ -30,6 +30,20 @@ import { OutDocumentTermMasterScreen } from "@/components/masters/out-document-t
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { CommodityMasterScreen } from "@/components/masters/commodity-master-screen";
 import { listCommodities } from "@/lib/masters/commodity-service";
+import { SeasonMasterScreen } from "@/components/masters/season-master-screen";
+import { listSeasons } from "@/lib/masters/season-service";
+import { ColorMasterScreen } from "@/components/masters/color-master-screen";
+import { listColors } from "@/lib/masters/color-service";
+import { BrandMasterScreen } from "@/components/masters/brand-master-screen";
+import { listBrands } from "@/lib/masters/brand-service";
+import { BinMasterScreen } from "@/components/masters/bin-master-screen";
+import { listBins } from "@/lib/masters/bin-service";
+import { SizeGroupMasterScreen } from "@/components/masters/size-group-master-screen";
+import { listSizeGroups } from "@/lib/masters/size-group-service";
+import { ShadeGroupMasterScreen } from "@/components/masters/shade-group-master-screen";
+import { listShadeGroups } from "@/lib/masters/shade-group-service";
+import { listCountries } from "@/lib/masters/country-service";
+import { listEmployeeLocations } from "@/lib/masters/employee-service";
 import { CountMasterScreen } from "@/components/masters/count-master-screen";
 import { YarnPurityMasterScreen } from "@/components/masters/yarn-purity-master-screen";
 import { listStockUnits } from "@/lib/masters/stock-unit-service";
@@ -205,6 +219,24 @@ export default async function MaterialEntityPage({
           perms={perms}
         />
       );
+    } else if (child.custom === "seasons") {
+      const rows = await listSeasons();
+      screen = <SeasonMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "colors") {
+      const rows = await listColors();
+      screen = <ColorMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "brands") {
+      const [rows, countries] = await Promise.all([listBrands(), listCountries()]);
+      screen = <BrandMasterScreen rows={rows} countries={countries} perms={perms} />;
+    } else if (child.custom === "bins") {
+      const [rows, locations] = await Promise.all([listBins(), listEmployeeLocations()]);
+      screen = <BinMasterScreen rows={rows} locations={locations} perms={perms} />;
+    } else if (child.custom === "size_groups") {
+      const rows = await listSizeGroups();
+      screen = <SizeGroupMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "shade_groups") {
+      const rows = await listShadeGroups();
+      screen = <ShadeGroupMasterScreen rows={rows} perms={perms} />;
     } else {
       const attributes = await listAttributes();
       screen = <AttributeMasterScreen rows={attributes} perms={perms} />;

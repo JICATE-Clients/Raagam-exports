@@ -87,6 +87,14 @@ import { listDepartments } from "@/lib/masters/department-service";
 import { DepartmentMasterScreen } from "@/components/masters/department-master-screen";
 import { listPfEsiControls } from "@/lib/masters/pf-esi-control-service";
 import { PfEsiControlMasterScreen } from "@/components/masters/pf-esi-control-master-screen";
+import { listOurBanks } from "@/lib/masters/our-bank-service";
+import { OurBankMasterScreen } from "@/components/masters/our-bank-master-screen";
+import { listZones } from "@/lib/masters/zone-service";
+import { ZoneMasterScreen } from "@/components/masters/zone-master-screen";
+import { listCertifications } from "@/lib/masters/certification-service";
+import { CertificationMasterScreen } from "@/components/masters/certification-master-screen";
+import { listDivisions } from "@/lib/masters/division-service";
+import { DivisionMasterScreen } from "@/components/masters/division-master-screen";
 
 export default async function SubEntityPage({
   params,
@@ -491,6 +499,18 @@ export default async function SubEntityPage({
     } else if (child.custom === "advance_loan_type") {
       const rows = await listAdvanceLoanTypes();
       screen = <AdvanceLoanTypeMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "our_bank") {
+      const rows = await listOurBanks();
+      screen = <OurBankMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "zone") {
+      const rows = await listZones();
+      screen = <ZoneMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "certification") {
+      const rows = await listCertifications();
+      screen = <CertificationMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "division") {
+      const rows = await listDivisions();
+      screen = <DivisionMasterScreen rows={rows} perms={perms} />;
     }
   }
 

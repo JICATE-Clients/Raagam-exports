@@ -12,6 +12,12 @@ import { listProcesses } from "@/lib/masters/process-service";
 import { listComponents } from "@/lib/masters/component-service";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { listCommodities } from "@/lib/masters/commodity-service";
+import { listSeasons } from "@/lib/masters/season-service";
+import { listColors } from "@/lib/masters/color-service";
+import { listBrands } from "@/lib/masters/brand-service";
+import { listBins } from "@/lib/masters/bin-service";
+import { listSizeGroups } from "@/lib/masters/size-group-service";
+import { listShadeGroups } from "@/lib/masters/shade-group-service";
 import {
   MATERIALS_CHILDREN,
   isLookupChild,
@@ -23,7 +29,7 @@ import { cn } from "@/lib/utils";
 
 export default async function MaterialsMastersPage() {
   await requirePermission("masters", "view");
-  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, commodities] =
+  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, commodities, seasons, colors, brands, bins, sizeGroups, shadeGroups] =
     await Promise.all([
       listConfigLookups(),
       listAttributes(),
@@ -37,6 +43,12 @@ export default async function MaterialsMastersPage() {
       listComponents(),
       listOutDocumentTerms(),
       listCommodities(),
+      listSeasons(),
+      listColors(),
+      listBrands(),
+      listBins(),
+      listSizeGroups(),
+      listShadeGroups(),
     ]);
   const counts = new Map<string, number>();
   for (const l of lookups) counts.set(l.kind, (counts.get(l.kind) ?? 0) + 1);
@@ -51,6 +63,12 @@ export default async function MaterialsMastersPage() {
   const componentCount = components.length;
   const outDocTermCount = outDocTerms.length;
   const commodityCount = commodities.length;
+  const seasonCount = seasons.length;
+  const colorCount = colors.length;
+  const brandCount = brands.length;
+  const binCount = bins.length;
+  const sizeGroupCount = sizeGroups.length;
+  const shadeGroupCount = shadeGroups.length;
 
   return (
     <div className="space-y-4">
@@ -100,7 +118,19 @@ export default async function MaterialsMastersPage() {
                                           ? outDocTermCount
                                           : c.custom === "commodities"
                                             ? commodityCount
-                                            : materialCount
+                                            : c.custom === "seasons"
+                                              ? seasonCount
+                                              : c.custom === "colors"
+                                                ? colorCount
+                                                : c.custom === "brands"
+                                                  ? brandCount
+                                                  : c.custom === "bins"
+                                                    ? binCount
+                                                    : c.custom === "size_groups"
+                                                      ? sizeGroupCount
+                                                      : c.custom === "shade_groups"
+                                                        ? shadeGroupCount
+                                                        : materialCount
               : null;
           const href = isLink ? c.href : `/masters/materials/${c.slug}`;
           const empty = count === 0;

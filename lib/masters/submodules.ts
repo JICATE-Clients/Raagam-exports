@@ -80,6 +80,9 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "tcs-assign-to-customers", label: "TCS Assign to Customers", singular: "TCS Assignment", description: "TCS assignment to customers", type: "custom", custom: "tcs_assign" },
       { slug: "gst-assign-to-vendors", label: "GST Assign to Vendors", singular: "GST Assignment", description: "Bulk-assign GST Type & GSTIN to vendors", type: "custom", custom: "gst_assign" },
       { slug: "gst-assign-to-customers", label: "GST Assign to Customers", singular: "Customer GST Assignment", description: "Bulk-assign GSTIN to customers", type: "custom", custom: "customer_gst_assign" },
+      { slug: "our-banks", label: "Our Banks", singular: "Our Bank", description: "Company's own bank accounts", type: "custom", custom: "our_bank" },
+      { slug: "zones", label: "Zones", singular: "Zone", description: "Sales territory zones", type: "custom", custom: "zone" },
+      { slug: "certifications", label: "Certifications", singular: "Certification", description: "Certification standards & validity", type: "custom", custom: "certification" },
     ],
   },
   {
@@ -138,6 +141,7 @@ export const SUBMODULES: SubmoduleDef[] = [
     status: "provisional",
     note: "Legacy Configure ▸ System — the children in legacy order (screenshots _161417 + _161547; list may be incomplete mid-scroll between 'Completion' and 'Assign Coordinator Type'). System is a maintenance/admin grab-bag, NOT a clean master set. Roughly: config masters (Document No format · Menu group · User · Company Detail · User defined stock · Garment rejection rule · Document Copy Name); BULK-ASSIGN grids (Cost Centre Assign · Department assign · Assign Coordinator Type / Fabric / Cutting Coordinators — clone the TCS-assign pattern); one-off DATA-MAINTENANCE 'Updation' utilities (BOMs / Original BOMs / BOM Amendments / Transaction Garments/Rates / Actual Cost / Document No / Cost Centre / Finance / Account Group / Ledger Updation — recompute/migrate data, likely admin tools not masters); workflow utilities (PO Completion Control / PO Completion / Completion / Excess Order and Receipt / Reset No of Copies Printed); Tally integration (Tally Porting · Tally Master Import). Several (User · Company Detail · Menu group) likely already live in Administration. Confirm per child which become real Master Data screens vs. live in Administration/Finance.",
     children: [
+      { slug: "divisions", label: "Division", singular: "Division", description: "Business units / divisions", type: "custom", custom: "division" },
       { slug: "document-no-format", label: "Document No format", singular: "Document No Format", description: "Document numbering formats", type: "custom", custom: "document_no_format" },
       { slug: "garment-rejection-rule", label: "Garment rejection rule", singular: "Garment Rejection Rule", description: "Garment rejection rules", type: "custom", custom: "garment_rejection_rule" },
       { slug: "excess-order-and-receipt", label: "Excess Order and Receipt", singular: "Excess Order / Receipt", description: "Excess order & receipt tolerances", type: "todo" },
