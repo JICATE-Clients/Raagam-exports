@@ -34,7 +34,7 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "seasons" | "colors" | "brands" | "bins" | "size_groups" | "shade_groups";
+  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "seasons" | "colors" | "brands" | "bins" | "size_groups" | "shade_groups" | "style_names" | "style_levels" | "packing_instructions" | "packing_methods";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
@@ -60,6 +60,10 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "bins", label: "Bins", singular: "Bin", description: "Storage bin locations", custom: "bins" },
   { slug: "size-groups", label: "Size Groups", singular: "Size Group", description: "Size groupings (S/M/L/XL sets)", custom: "size_groups" },
   { slug: "shade-groups", label: "Shade Groups", singular: "Shade Group", description: "Shade groupings with individual shades", custom: "shade_groups" },
+  { slug: "style-names", label: "Style Names", singular: "Style Name", description: "Garment style naming standards", custom: "style_names" },
+  { slug: "style-levels", label: "Style Levels", singular: "Style Level", description: "Style level classification (1/2/3)", custom: "style_levels" },
+  { slug: "packing-instructions", label: "Packing Instructions", singular: "Packing Instruction", description: "Packing instruction specifications", custom: "packing_instructions" },
+  { slug: "packing-methods", label: "Packing Methods", singular: "Packing Method", description: "Packing method definitions with categories", custom: "packing_methods" },
 ];
 
 export function findMaterialChild(slug: string): MaterialChild | undefined {

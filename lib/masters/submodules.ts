@@ -83,6 +83,7 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "our-banks", label: "Our Banks", singular: "Our Bank", description: "Company's own bank accounts", type: "custom", custom: "our_bank" },
       { slug: "zones", label: "Zones", singular: "Zone", description: "Sales territory zones", type: "custom", custom: "zone" },
       { slug: "certifications", label: "Certifications", singular: "Certification", description: "Certification standards & validity", type: "custom", custom: "certification" },
+      { slug: "default-account-head", label: "Default Account Head", singular: "Default Account Head", description: "Default GL account heads for transactions", type: "custom", custom: "default_account_head" },
     ],
   },
   {

@@ -44,6 +44,14 @@ import { ShadeGroupMasterScreen } from "@/components/masters/shade-group-master-
 import { listShadeGroups } from "@/lib/masters/shade-group-service";
 import { listCountries } from "@/lib/masters/country-service";
 import { listEmployeeLocations } from "@/lib/masters/employee-service";
+import { StyleNameMasterScreen } from "@/components/masters/style-name-master-screen";
+import { listStyleNames } from "@/lib/masters/style-name-service";
+import { StyleLevelMasterScreen } from "@/components/masters/style-level-master-screen";
+import { listStyleLevels } from "@/lib/masters/style-level-service";
+import { PackingInstructionMasterScreen } from "@/components/masters/packing-instruction-master-screen";
+import { listPackingInstructions } from "@/lib/masters/packing-instruction-service";
+import { PackingMethodMasterScreen } from "@/components/masters/packing-method-master-screen";
+import { listPackingMethods } from "@/lib/masters/packing-method-service";
 import { CountMasterScreen } from "@/components/masters/count-master-screen";
 import { YarnPurityMasterScreen } from "@/components/masters/yarn-purity-master-screen";
 import { listStockUnits } from "@/lib/masters/stock-unit-service";
@@ -239,6 +247,18 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "shade_groups") {
       const rows = await listShadeGroups();
       screen = <ShadeGroupMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "style_names") {
+      const rows = await listStyleNames();
+      screen = <StyleNameMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "style_levels") {
+      const rows = await listStyleLevels();
+      screen = <StyleLevelMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "packing_instructions") {
+      const rows = await listPackingInstructions();
+      screen = <PackingInstructionMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "packing_methods") {
+      const rows = await listPackingMethods();
+      screen = <PackingMethodMasterScreen rows={rows} perms={perms} />;
     } else {
       const attributes = await listAttributes();
       screen = <AttributeMasterScreen rows={attributes} perms={perms} />;

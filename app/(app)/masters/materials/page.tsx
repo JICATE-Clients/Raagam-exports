@@ -12,6 +12,10 @@ import { listProcesses } from "@/lib/masters/process-service";
 import { listComponents } from "@/lib/masters/component-service";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { listCommodities } from "@/lib/masters/commodity-service";
+import { listStyleNames } from "@/lib/masters/style-name-service";
+import { listStyleLevels } from "@/lib/masters/style-level-service";
+import { listPackingInstructions } from "@/lib/masters/packing-instruction-service";
+import { listPackingMethods } from "@/lib/masters/packing-method-service";
 import { listSeasons } from "@/lib/masters/season-service";
 import { listColors } from "@/lib/masters/color-service";
 import { listBrands } from "@/lib/masters/brand-service";
@@ -29,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 export default async function MaterialsMastersPage() {
   await requirePermission("masters", "view");
-  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, commodities, seasons, colors, brands, bins, sizeGroups, shadeGroups] =
+  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, commodities, styleNames, styleLevels, packingInstructions, packingMethods, seasons, colors, brands, bins, sizeGroups, shadeGroups] =
     await Promise.all([
       listConfigLookups(),
       listAttributes(),
@@ -43,6 +47,10 @@ export default async function MaterialsMastersPage() {
       listComponents(),
       listOutDocumentTerms(),
       listCommodities(),
+      listStyleNames(),
+      listStyleLevels(),
+      listPackingInstructions(),
+      listPackingMethods(),
       listSeasons(),
       listColors(),
       listBrands(),
@@ -63,6 +71,10 @@ export default async function MaterialsMastersPage() {
   const componentCount = components.length;
   const outDocTermCount = outDocTerms.length;
   const commodityCount = commodities.length;
+  const styleNameCount = styleNames.length;
+  const styleLevelCount = styleLevels.length;
+  const packingInstructionCount = packingInstructions.length;
+  const packingMethodCount = packingMethods.length;
   const seasonCount = seasons.length;
   const colorCount = colors.length;
   const brandCount = brands.length;
@@ -130,7 +142,15 @@ export default async function MaterialsMastersPage() {
                                                       ? sizeGroupCount
                                                       : c.custom === "shade_groups"
                                                         ? shadeGroupCount
-                                                        : materialCount
+                                                        : c.custom === "style_names"
+                                                          ? styleNameCount
+                                                          : c.custom === "style_levels"
+                                                            ? styleLevelCount
+                                                            : c.custom === "packing_instructions"
+                                                              ? packingInstructionCount
+                                                              : c.custom === "packing_methods"
+                                                                ? packingMethodCount
+                                                                : materialCount
               : null;
           const href = isLink ? c.href : `/masters/materials/${c.slug}`;
           const empty = count === 0;

@@ -95,6 +95,8 @@ import { listCertifications } from "@/lib/masters/certification-service";
 import { CertificationMasterScreen } from "@/components/masters/certification-master-screen";
 import { listDivisions } from "@/lib/masters/division-service";
 import { DivisionMasterScreen } from "@/components/masters/division-master-screen";
+import { getDefaultAccountHead } from "@/lib/masters/default-account-head-service";
+import { DefaultAccountHeadScreen } from "@/components/masters/default-account-head-screen";
 
 export default async function SubEntityPage({
   params,
@@ -511,6 +513,18 @@ export default async function SubEntityPage({
     } else if (child.custom === "division") {
       const rows = await listDivisions();
       screen = <DivisionMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "default_account_head") {
+      const [dahRow, accountHeads] = await Promise.all([
+        getDefaultAccountHead(),
+        listAccountHeads(),
+      ]);
+      screen = (
+        <DefaultAccountHeadScreen
+          row={dahRow}
+          accountHeads={accountHeads}
+          perms={{ canEdit: perms.canEdit }}
+        />
+      );
     }
   }
 
