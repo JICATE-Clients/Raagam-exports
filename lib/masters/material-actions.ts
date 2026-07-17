@@ -19,11 +19,12 @@ function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 
-/** Header row for `items` (everything except the two child grids). */
+/** Header row for `items` (everything except the child grids). */
 function toHeader(d: MaterialInput) {
-  const { mixings: _m, conversions: _c, ...rest } = d;
+  const { mixings: _m, conversions: _c, using_items: _u, ...rest } = d;
   void _m;
   void _c;
+  void _u;
   return {
     ...rest,
     name: (d.name?.trim() || d.code.trim()) as string, // Name falls back to Short Name
@@ -69,6 +70,17 @@ function normConversions(d: MaterialInput) {
       base_uom_id: c.base_uom_id,
     }));
 }
+function normUsingItems(d: MaterialInput) {
+  return d.using_items
+    .filter((u) => u.used_item_id || u.description?.trim() || u.shade?.trim() || u.uom_id)
+    .map((u, i) => ({
+      sno: i + 1,
+      used_item_id: u.used_item_id,
+      description: u.description?.trim() || null,
+      shade: u.shade?.trim() || null,
+      uom_id: u.uom_id,
+    }));
+}
 
 export async function createMaterial(data: MaterialInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
@@ -101,6 +113,11 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
     const { error: e } = await s.from("material_uom_conversions").insert(cv.map((r) => ({ ...r, item_id: created.id })));
     if (e) return fail(e.message);
   }
+  const ui = normUsingItems(p.data);
+  if (ui.length) {
+    const { error: e } = await s.from("material_using_items").insert(ui.map((r) => ({ ...r, item_id: created.id })));
+    if (e) return fail(e.message);
+  }
   rev();
   return { ok: true };
 }
@@ -127,11 +144,13 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   }
   const { error } = await s.from("items").update(header).eq("id", id);
   if (error) return fail(error.message);
-  // Replace both child grids wholesale.
+  // Replace all child grids wholesale.
   const d1 = await s.from("material_mixings").delete().eq("item_id", id);
   if (d1.error) return fail(d1.error.message);
   const d2 = await s.from("material_uom_conversions").delete().eq("item_id", id);
   if (d2.error) return fail(d2.error.message);
+  const d3 = await s.from("material_using_items").delete().eq("item_id", id);
+  if (d3.error) return fail(d3.error.message);
   const mx = normMixings(p.data);
   if (mx.length) {
     const { error: e } = await s.from("material_mixings").insert(mx.map((r) => ({ ...r, item_id: id })));
@@ -140,6 +159,11 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   const cv = normConversions(p.data);
   if (cv.length) {
     const { error: e } = await s.from("material_uom_conversions").insert(cv.map((r) => ({ ...r, item_id: id })));
+    if (e) return fail(e.message);
+  }
+  const ui = normUsingItems(p.data);
+  if (ui.length) {
+    const { error: e } = await s.from("material_using_items").insert(ui.map((r) => ({ ...r, item_id: id })));
     if (e) return fail(e.message);
   }
   rev();

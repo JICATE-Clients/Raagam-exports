@@ -492,6 +492,32 @@ export function LevyPicker({
 }
 
 /**
+ * Select-only picker over the entire Materials master (`items`, any item
+ * class) — used by the "Using (Items)" grid to link a line to a real
+ * material regardless of which class it belongs to (0304). No inline
+ * Add/Modify: Items already have their own dedicated Materials master.
+ */
+export function ItemPicker({
+  label,
+  items,
+  value,
+  onChange,
+  clearable = true,
+}: {
+  label: string;
+  items: { id: string; code: string; name: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  clearable?: boolean;
+}) {
+  const rows: PickerRow[] = useMemo(
+    () => items.map((it) => ({ id: it.id, label: it.name, sublabel: it.code })),
+    [items],
+  );
+  return <DialogListPicker label={label} rows={rows} value={value} onChange={onChange} clearable={clearable} />;
+}
+
+/**
  * Picker over the rich `categories` master (0223) — the caller scopes
  * `categories` to the parent Item Class before passing it in, so this never
  * shows categories from other item classes (cascading-picker rule). When

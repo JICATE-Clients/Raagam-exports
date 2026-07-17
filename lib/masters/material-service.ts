@@ -6,12 +6,15 @@ export async function listMaterials(): Promise<Material[]> {
   const s = await createClient();
   const { data } = await s
     .from("items")
-    .select("*, mixings:material_mixings!material_mixings_item_id_fkey(*), conversions:material_uom_conversions(*)")
+    .select(
+      "*, mixings:material_mixings!material_mixings_item_id_fkey(*), conversions:material_uom_conversions(*), using_items:material_using_items!material_using_items_item_id_fkey(*)",
+    )
     .order("name");
   return ((data ?? []) as Material[]).map((m) => ({
     ...m,
     mixings: [...(m.mixings ?? [])].sort((a, b) => a.sno - b.sno),
     conversions: [...(m.conversions ?? [])].sort((a, b) => a.sno - b.sno),
+    using_items: [...(m.using_items ?? [])].sort((a, b) => a.sno - b.sno),
   }));
 }
 

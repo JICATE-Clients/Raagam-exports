@@ -17,7 +17,7 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/material-actions";
-import { LookupDialogPicker, CategoryPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker, CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import {
   MATERIAL_FORMS,
   MATERIAL_TYPES,
@@ -44,6 +44,7 @@ type MixRow = {
   blend_pct: string;
 };
 type ConvRow = { key: string; alt_qty: string; alt_uom_id: string; base_qty: string; base_uom_id: string };
+type UsingItemRow = { key: string; used_item_id: string; description: string; shade: string; uom_id: string };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 
@@ -113,6 +114,7 @@ export function MaterialMasterScreen({
   const [form, setForm] = useState<Form>(BLANK);
   const [mixings, setMixings] = useState<MixRow[]>([]);
   const [conversions, setConversions] = useState<ConvRow[]>([]);
+  const [usingItems, setUsingItems] = useState<UsingItemRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `r${keySeq.current++}`;
 
@@ -127,6 +129,9 @@ export function MaterialMasterScreen({
   );
   const yarnClassId = useMemo(() => itemClasses.find((c) => c.code?.toUpperCase() === "YARN")?.id ?? null, [itemClasses]);
   const yarnItems = useMemo(() => rows.filter((r) => r.item_class_id === yarnClassId), [rows, yarnClassId]);
+  // Every other Material (any item class) — General's "Using (Items)" grid can
+  // reference anything, just not the record currently being edited.
+  const usingItemOptions = useMemo(() => rows.filter((r) => r.id !== editId), [rows, editId]);
   const structureCodeById = useMemo(() => new Map(fabricStructures.map((s) => [s.id, s.code])), [fabricStructures]);
   const unitIdByCode = useMemo(() => new Map(units.map((u) => [u.code, u.id])), [units]);
   const countLabel = useMemo(() => new Map(counts.map((c) => [c.id, c.name])), [counts]);
@@ -193,6 +198,7 @@ export function MaterialMasterScreen({
     setForm(BLANK);
     setMixings([]);
     setConversions([]);
+    setUsingItems([]);
     setSection("details");
     setOpen(true);
   }
@@ -248,6 +254,15 @@ export function MaterialMasterScreen({
         base_uom_id: c.base_uom_id ?? "",
       })),
     );
+    setUsingItems(
+      r.using_items.map((u) => ({
+        key: newKey(),
+        used_item_id: u.used_item_id ?? "",
+        description: u.description ?? "",
+        shade: u.shade ?? "",
+        uom_id: u.uom_id ?? "",
+      })),
+    );
     setSection("details");
     setOpen(true);
   }
@@ -264,6 +279,9 @@ export function MaterialMasterScreen({
   const addConv = () => setConversions((xs) => [...xs, { key: newKey(), alt_qty: "", alt_uom_id: "", base_qty: "", base_uom_id: "" }]);
   const setConv = (key: string, patch: Partial<ConvRow>) => setConversions((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const delConv = (key: string) => setConversions((xs) => xs.filter((r) => r.key !== key));
+  const addUsingRow = () => setUsingItems((xs) => [...xs, { key: newKey(), used_item_id: "", description: "", shade: "", uom_id: "" }]);
+  const setUsingRow = (key: string, patch: Partial<UsingItemRow>) => setUsingItems((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const delUsingRow = (key: string) => setUsingItems((xs) => xs.filter((r) => r.key !== key));
 
   function submit() {
     startTransition(async () => {
@@ -311,6 +329,13 @@ export function MaterialMasterScreen({
           alt_uom_id: c.alt_uom_id || null,
           base_qty: numOrNull(c.base_qty),
           base_uom_id: c.base_uom_id || null,
+        })),
+        using_items: usingItems.map((u) => ({
+          sno: 0,
+          used_item_id: u.used_item_id || null,
+          description: u.description || null,
+          shade: u.shade || null,
+          uom_id: u.uom_id || null,
         })),
       };
       const res = editId ? await updateMaterial(editId, payload) : await createMaterial(payload);
@@ -489,7 +514,7 @@ export function MaterialMasterScreen({
         </div>
       );
       return (
-        <div className="space-y-2 border-t border-border pt-3">
+        <div className="space-y-3 rounded-lg border border-border p-3">
           <div className="flex items-center justify-between">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attributes</div>
             {mixings.length > 0 && (
@@ -553,7 +578,7 @@ export function MaterialMasterScreen({
     }
 
     return (
-      <div className="space-y-2 border-t border-border pt-3">
+      <div className="space-y-3 rounded-lg border border-border p-3">
         <div className="flex items-center justify-between">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mixing</div>
           {mixings.length > 0 && (
@@ -604,6 +629,19 @@ export function MaterialMasterScreen({
     );
   }
 
+  /** Bordered "card" wrapper — groups a set of related fields under a small
+   *  uppercase label, same visual language as the Attributes/Mixing/Using
+   *  (Items) grids below, so a long Details tab reads as a few clear blocks
+   *  instead of one flat stack of fields. */
+  function detailSection(label: ReactNode, content: ReactNode) {
+    return (
+      <div className="space-y-3 rounded-lg border border-border p-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+        {content}
+      </div>
+    );
+  }
+
   /** Fabric Details (0301/0302) — legacy order Type → Structure → Fabric Type
    *  → Direct Purchase → Using → Attributes:
    *  - Type: Circular Knit/Flat Knit/Woven, a direct field on the material —
@@ -616,74 +654,84 @@ export function MaterialMasterScreen({
   function fabricDetails() {
     return (
       <>
-        <div>
-          <Label>Type</Label>
-          <LookupDialogPicker
-            kind="fabric_structure"
-            label=""
-            options={fabricStructures}
-            value={form.fabric_structure_id}
-            onChange={handleFabricTypeChange}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-            isSuperAdmin={perms.isSuperAdmin}
-            adminOnly
-          />
-        </div>
-        <CategoryPicker
-          label="Structure"
-          categories={scopedCategories}
-          value={form.category_id}
-          onChange={(v) => set({ category_id: v })}
-          itemClassId={form.item_class_id}
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          canDelete={perms.canDelete}
-        />
-        <div>
-          <Label>
-            Fabric Type <span className="text-danger">*</span>
-          </Label>
-          <LookupDialogPicker
-            kind="fabric_type"
-            label=""
-            options={fabricTypes}
-            value={form.fabric_type_id}
-            onChange={(v) => set({ fabric_type_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-            isSuperAdmin={perms.isSuperAdmin}
-            adminOnly
-          />
-          <p className="mt-1 text-xs text-muted-foreground">Solid, Yarn-dyed or Melange — determines the dyeing PO type.</p>
-        </div>
-        <label className="flex cursor-pointer items-center gap-2 border-t border-border pt-3">
-          <input
-            type="checkbox"
-            className="h-4 w-4 cursor-pointer accent-primary"
-            checked={form.direct_purchase}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              set({ direct_purchase: checked });
-              if (checked) setMixings([]);
-            }}
-          />
-          <span className="text-sm text-foreground">Direct Purchase</span>
-        </label>
-        {!form.direct_purchase && (
-          <div>
-            <Label>Using</Label>
-            <Select value={form.fabric_using} onChange={(e) => set({ fabric_using: e.target.value })} className="text-base md:text-sm">
-              <option value="">— None —</option>
-              {FABRIC_USING.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </Select>
-          </div>
+        {detailSection(
+          "Classification",
+          <>
+            <div>
+              <Label>Type</Label>
+              <LookupDialogPicker
+                kind="fabric_structure"
+                label=""
+                options={fabricStructures}
+                value={form.fabric_structure_id}
+                onChange={handleFabricTypeChange}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+                isSuperAdmin={perms.isSuperAdmin}
+                adminOnly
+              />
+            </div>
+            <CategoryPicker
+              label="Structure"
+              categories={scopedCategories}
+              value={form.category_id}
+              onChange={(v) => set({ category_id: v })}
+              itemClassId={form.item_class_id}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+            />
+            <div>
+              <Label>
+                Fabric Type <span className="text-danger">*</span>
+              </Label>
+              <LookupDialogPicker
+                kind="fabric_type"
+                label=""
+                options={fabricTypes}
+                value={form.fabric_type_id}
+                onChange={(v) => set({ fabric_type_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+                isSuperAdmin={perms.isSuperAdmin}
+                adminOnly
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Solid, Yarn-dyed or Melange — determines the dyeing PO type.</p>
+            </div>
+          </>,
+        )}
+        {detailSection(
+          "Composition",
+          <>
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.direct_purchase}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  set({ direct_purchase: checked });
+                  if (checked) setMixings([]);
+                }}
+              />
+              <span className="text-sm text-foreground">Direct Purchase</span>
+            </label>
+            {!form.direct_purchase && (
+              <div>
+                <Label>Using</Label>
+                <Select value={form.fabric_using} onChange={(e) => set({ fabric_using: e.target.value })} className="text-base md:text-sm">
+                  <option value="">— None —</option>
+                  {FABRIC_USING.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
+          </>,
         )}
         {!form.direct_purchase && mixingGrid("fabric")}
       </>
@@ -695,63 +743,152 @@ export function MaterialMasterScreen({
     const nature = selectedCategory?.made ?? null;
     return (
       <>
-        <LookupDialogPicker
-          kind="yarn_count"
-          label="Count"
-          options={counts}
-          value={form.count_id}
-          onChange={(v) => set({ count_id: v })}
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          canDelete={perms.canDelete}
-        />
-        <CategoryPicker
-          label="Category"
-          categories={scopedCategories}
-          value={form.category_id}
-          onChange={(v) => set({ category_id: v })}
-          itemClassId={form.item_class_id}
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          canDelete={perms.canDelete}
-        />
-        {nature && (
-          <div>
-            <Label>Nature</Label>
-            <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
-          </div>
+        {detailSection(
+          "Classification",
+          <>
+            <LookupDialogPicker
+              kind="yarn_count"
+              label="Count"
+              options={counts}
+              value={form.count_id}
+              onChange={(v) => set({ count_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+            />
+            <CategoryPicker
+              label="Category"
+              categories={scopedCategories}
+              value={form.category_id}
+              onChange={(v) => set({ category_id: v })}
+              itemClassId={form.item_class_id}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+            />
+            {nature && (
+              <div>
+                <Label>Nature</Label>
+                <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
+              </div>
+            )}
+          </>,
         )}
         {nature === "Mixed" ? (
           mixingGrid("yarn")
         ) : (
-          <LookupDialogPicker
-            kind="yarn_purity"
-            label="Purity"
-            options={purities}
-            value={form.purity_id}
-            onChange={(v) => set({ purity_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-          />
+          detailSection(
+            "Composition",
+            <LookupDialogPicker
+              kind="yarn_purity"
+              label="Purity"
+              options={purities}
+              value={form.purity_id}
+              onChange={(v) => set({ purity_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+            />,
+          )
         )}
-        <LookupDialogPicker
-          kind="yarn_type"
-          label="Yarn Type"
-          options={yarnTypes}
-          value={form.yarn_type_id}
-          onChange={(v) => set({ yarn_type_id: v })}
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          canDelete={perms.canDelete}
-          isSuperAdmin={perms.isSuperAdmin}
-          adminOnly
-        />
-        <div>
-          <Label>Ply</Label>
-          <Input type="number" min={1} step={1} value={form.ply} onChange={(e) => set({ ply: e.target.value })} className="text-base md:text-sm" />
-        </div>
+        {detailSection(
+          "Other",
+          <>
+            <LookupDialogPicker
+              kind="yarn_type"
+              label="Yarn Type"
+              options={yarnTypes}
+              value={form.yarn_type_id}
+              onChange={(v) => set({ yarn_type_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isSuperAdmin={perms.isSuperAdmin}
+              adminOnly
+            />
+            <div>
+              <Label>Ply</Label>
+              <Input type="number" min={1} step={1} value={form.ply} onChange={(e) => set({ ply: e.target.value })} className="text-base md:text-sm" />
+            </div>
+          </>,
+        )}
+        {usingItemsGrid()}
       </>
+    );
+  }
+
+  /** "Using (Items)" — General item class only: which other items (any item
+   *  class) this material uses, plus Shade/UOM per line (0304). Description
+   *  prefers a linked Item via `ItemPicker`, falling back to free text when
+   *  none is picked — same dual-mode as the Fabric Attributes grid. */
+  function usingItemsGrid() {
+    const descCell = (u: UsingItemRow) => (
+      <div className="space-y-1">
+        <ItemPicker label="" items={usingItemOptions} value={u.used_item_id} onChange={(v) => setUsingRow(u.key, { used_item_id: v })} />
+        {!u.used_item_id && (
+          <Input placeholder="Description" value={u.description} onChange={(e) => setUsingRow(u.key, { description: e.target.value })} className="text-base md:text-sm" />
+        )}
+      </div>
+    );
+    return (
+      <div className="space-y-3 rounded-lg border border-border p-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Using (Items)</div>
+
+        {/* desktop table */}
+        <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
+          <table className="w-full min-w-[520px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface-muted">
+                <th className="w-12 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">S No</th>
+                <th className="border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Description</th>
+                <th className="w-32 border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Shade</th>
+                <th className="w-40 border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Uom</th>
+                <th className="w-8 border-l border-border" />
+              </tr>
+            </thead>
+            <tbody>
+              {usingItems.map((u, i) => (
+                <tr key={u.key} className="border-b border-border last:border-0">
+                  <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
+                  <td className="border-l border-border px-2 py-1.5">{descCell(u)}</td>
+                  <td className="border-l border-border px-2 py-1.5">
+                    <Input value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" />
+                  </td>
+                  <td className="border-l border-border px-2 py-1.5">{uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v }))}</td>
+                  <td className="border-l border-border px-1 py-1.5 text-center">
+                    <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delUsingRow(u.key)} aria-label="Remove row">
+                      ✕
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* mobile cards */}
+        <div className="space-y-2 md:hidden">
+          {usingItems.map((u, i) => (
+            <div key={u.key} className="space-y-2 rounded-lg border border-border p-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
+                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delUsingRow(u.key)}>
+                  ✕
+                </Button>
+              </div>
+              {descCell(u)}
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Shade" value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" />
+                {uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v }))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <Button type="button" variant="outline" size="sm" onClick={addUsingRow}>
+          + Add row
+        </Button>
+      </div>
     );
   }
 
@@ -1025,8 +1162,9 @@ export function MaterialMasterScreen({
               ) : formKey === "YARN" ? (
                 yarnDetails()
               ) : (
-                formDef?.fields.map((k) => detailField(k))
+                detailSection("Classification", formDef?.fields.map((k) => detailField(k)))
               )}
+              {["GEN", "PACK", "SEW"].includes(selectedClassCode ?? "") && usingItemsGrid()}
 
               {/* Short Name + Name (common) */}
               <div className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2">

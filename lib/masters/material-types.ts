@@ -29,6 +29,17 @@ export interface MaterialUomConversion {
   base_qty: number | null;
   base_uom_id: string | null;
 }
+/** "Using (Items)" grid — General item class only (0304): which other items
+ *  (any class) this material uses, plus Shade/UOM per line. */
+export interface MaterialUsingItem {
+  id: string;
+  item_id: string;
+  sno: number;
+  used_item_id: string | null;
+  description: string | null;
+  shade: string | null;
+  uom_id: string | null;
+}
 
 export interface Material {
   id: string;
@@ -75,6 +86,7 @@ export interface Material {
   created_by: string | null;
   mixings: MaterialMixing[];
   conversions: MaterialUomConversion[];
+  using_items: MaterialUsingItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +170,13 @@ export const conversionInput = z.object({
   base_qty: numN,
   base_uom_id: uuidN,
 });
+export const usingItemInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  used_item_id: uuidN,
+  description: z.string().optional().nullable(),
+  shade: z.string().optional().nullable(),
+  uom_id: uuidN,
+});
 
 export const materialInput = z.object({
   code: z.string().min(1, "Short Name is required"),
@@ -190,6 +209,7 @@ export const materialInput = z.object({
   budget_rate_uom_id: uuidN,
   mixings: z.array(mixingInput).default([]),
   conversions: z.array(conversionInput).default([]),
+  using_items: z.array(usingItemInput).default([]),
 }).refine(
   (d) => {
     const pcts = d.mixings.map((m) => m.blend_pct).filter((v): v is number => v != null);
