@@ -9,6 +9,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { DetailSection } from "@/components/masters/detail-section";
 import { LocationPicker } from "@/components/masters/location-picker";
 import {
   createDepartment,
@@ -32,6 +33,15 @@ const blankHeader = () => ({
   doc_prefix: "",
   warehouse: false,
   inactive: false,
+  is_outsourcing: false,
+  sequence_no: "" as string | number,
+  staff_sequence_no: "" as string | number,
+  is_fabric: false,
+  is_yarn: false,
+  is_sewing: false,
+  is_packing: false,
+  is_general: false,
+  is_garment: false,
 });
 
 /**
@@ -93,6 +103,15 @@ export function DepartmentMasterScreen({
       doc_prefix: r.doc_prefix ?? "",
       warehouse: r.warehouse,
       inactive: r.inactive,
+      is_outsourcing: r.is_outsourcing,
+      sequence_no: r.sequence_no ?? "",
+      staff_sequence_no: r.staff_sequence_no ?? "",
+      is_fabric: r.is_fabric,
+      is_yarn: r.is_yarn,
+      is_sewing: r.is_sewing,
+      is_packing: r.is_packing,
+      is_general: r.is_general,
+      is_garment: r.is_garment,
     });
     setItemClasses(
       r.item_classes.filter((c): c is DepartmentItemClass =>
@@ -135,6 +154,15 @@ export function DepartmentMasterScreen({
         doc_prefix: form.doc_prefix.trim() || null,
         warehouse: form.warehouse,
         inactive: form.inactive,
+        is_outsourcing: form.is_outsourcing,
+        sequence_no: form.sequence_no === "" ? null : Number(form.sequence_no),
+        staff_sequence_no: form.staff_sequence_no === "" ? null : Number(form.staff_sequence_no),
+        is_fabric: form.is_fabric,
+        is_yarn: form.is_yarn,
+        is_sewing: form.is_sewing,
+        is_packing: form.is_packing,
+        is_general: form.is_general,
+        is_garment: form.is_garment,
         item_classes: itemClasses,
         locations: locs
           .filter((l) => l.location_id)
@@ -333,11 +361,43 @@ export function DepartmentMasterScreen({
             </div>
           </div>
 
-          {/* Item-Class applicability */}
-          <div className="rounded-lg border border-border p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Item Classes
+          {/* Sequence numbers + outsourcing */}
+          <DetailSection label="Sequence & Outsourcing">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="dep-seq">Sequence No</Label>
+                <Input
+                  id="dep-seq"
+                  type="number"
+                  value={form.sequence_no}
+                  onChange={(e) => set({ sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="dep-staff-seq">Staff Sequence No</Label>
+                <Input
+                  id="dep-staff-seq"
+                  type="number"
+                  value={form.staff_sequence_no}
+                  onChange={(e) => set({ staff_sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
+                  className="text-base md:text-sm"
+                />
+              </div>
             </div>
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.is_outsourcing}
+                onChange={(e) => set({ is_outsourcing: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Outsourcing</span>
+            </label>
+          </DetailSection>
+
+          {/* Item-Class applicability */}
+          <DetailSection label="Item Classes">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {DEPARTMENT_ITEM_CLASSES.map((c) => (
                 <label key={c} className="flex cursor-pointer items-center gap-2">
@@ -351,7 +411,7 @@ export function DepartmentMasterScreen({
                 </label>
               ))}
             </div>
-          </div>
+          </DetailSection>
 
           {/* Location grid */}
           <div className="rounded-lg border border-border">

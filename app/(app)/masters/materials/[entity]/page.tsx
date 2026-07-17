@@ -85,11 +85,12 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "categories") {
-      const [categories, lookups, levies, commodities] = await Promise.all([
+      const [categories, lookups, levies, commodities, sizeGroups] = await Promise.all([
         listCategories(),
         listConfigLookups(),
         listLevies(),
         listCommodities(),
+        listSizeGroups(),
       ]);
       screen = (
         <CategoryMasterScreen
@@ -98,6 +99,7 @@ export default async function MaterialEntityPage({
           levies={levies}
           commodities={commodities}
           fabricStructures={lookups.filter((l) => l.kind === "fabric_structure")}
+          sizeGroups={sizeGroups}
           perms={perms}
         />
       );

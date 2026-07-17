@@ -18,7 +18,14 @@ function rev(): void {
 
 /** Blank date/text → null so empty picker/date fields don't hit NOT-NULL/date casts. */
 function clean(data: EmployeeInput): EmployeeInput {
-  return { ...data, dob: data.dob && data.dob.trim() ? data.dob : null };
+  const blankToNull = (v: string | null | undefined) => v && v.trim() ? v : null;
+  return {
+    ...data,
+    dob: blankToNull(data.dob),
+    doj: blankToNull(data.doj),
+    date_of_confirmation: blankToNull(data.date_of_confirmation),
+    date_of_filing: blankToNull(data.date_of_filing),
+  };
 }
 
 export async function createEmployee(data: EmployeeInput): Promise<Result> {

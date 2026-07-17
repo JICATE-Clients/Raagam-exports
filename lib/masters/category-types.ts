@@ -20,6 +20,17 @@ export interface Category {
   /** Fabric structure (Circular/Flat/Woven, kind `fabric_structure`) — set once
    *  per category and inherited by every Material in it, never re-picked per item. */
   fabric_structure_id: string | null;
+  /** Costing percentages — set at category level and used in pricing/costing
+   *  calculations downstream (mirror of legacy FrmItemCategory fields). */
+  wastage_per: number | null;
+  profit_per: number | null;
+  freight_per: number | null;
+  insurance_per: number | null;
+  interest_per: number | null;
+  /** FK to size_groups — the default size group for items in this category. */
+  size_group_id: string | null;
+  /** Free-text status monitoring classification. */
+  status_monitoring_type: string | null;
   /** Legacy "User Defined" Yes/No flag — inert, stored as-is (same as the
    *  Materials master's own `user_defined` field; see doc/masters-open-questions.md #6).
    *  Only shown on the form for USER_DEFINED_CLASS_CODES item classes. */
@@ -41,6 +52,13 @@ export const categoryInput = z.object({
   levy_id: z.string().uuid().nullable().default(null),
   commodity_id: z.string().uuid().nullable().default(null),
   fabric_structure_id: z.string().uuid().nullable().default(null),
+  wastage_per: z.coerce.number().default(0),
+  profit_per: z.coerce.number().default(0),
+  freight_per: z.coerce.number().default(0),
+  insurance_per: z.coerce.number().default(0),
+  interest_per: z.coerce.number().default(0),
+  size_group_id: z.string().uuid().nullable().default(null),
+  status_monitoring_type: z.string().nullable().default(null),
   user_defined: z.boolean().default(false),
   inactive: z.boolean().default(false),
 });

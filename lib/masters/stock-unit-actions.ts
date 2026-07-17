@@ -23,8 +23,16 @@ function toRow(d: StockUnitInput) {
     name: d.name.trim(),
     description: d.description?.trim() || null,
     decimal_places: d.decimal_places,
+    decimal_places_allowed: d.decimal_places_allowed,
+    unit_code: d.unit_code?.trim() || null,
     for_all_item_classes: d.for_all_item_classes,
     item_classes: d.for_all_item_classes ? [] : d.item_classes,
+    is_fabric: d.is_fabric,
+    is_yarn: d.is_yarn,
+    is_sewing: d.is_sewing,
+    is_packing: d.is_packing,
+    is_general: d.is_general,
+    is_garment: d.is_garment,
     is_active: d.is_active,
   };
 }

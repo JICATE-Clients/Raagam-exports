@@ -27,6 +27,15 @@ import { SHIP_MODES, PAY_MODES } from "./applicant-types";
 
 export { SHIP_MODES, PAY_MODES };
 
+export const BUSINESS_ENTITIES = [
+  "Proprietorship",
+  "Partnership",
+  "Pvt Ltd",
+  "Pub Ltd",
+  "LLP",
+  "Others",
+] as const;
+
 export interface CustomerContact {
   id: string;
   customer_id: string;
@@ -114,6 +123,9 @@ export interface Customer {
   pref_courier_id: string | null;
   packing_list_format_id: string | null;
   commercial_invoice_format_id: string | null;
+  also_notify: boolean;
+  business_entity: string | null;
+  inhouse_unit_id: string | null;
   color_spec_applicable: boolean;
   tcs_applicable: boolean;
   gst_no: string | null;
@@ -203,6 +215,9 @@ export const customerInput = z.object({
   pref_courier_id: uuidN,
   packing_list_format_id: uuidN,
   commercial_invoice_format_id: uuidN,
+  also_notify: z.boolean().default(false),
+  business_entity: nullableText,
+  inhouse_unit_id: nullableText,
   color_spec_applicable: z.boolean().default(false),
   tcs_applicable: z.boolean().default(false),
   gst_no: nullableText,

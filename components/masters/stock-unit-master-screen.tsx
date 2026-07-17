@@ -33,8 +33,16 @@ type Form = {
   name: string;
   description: string;
   decimal_places: string;
+  decimal_places_allowed: string;
+  unit_code: string;
   for_all_item_classes: boolean;
   item_classes: string[];
+  is_fabric: boolean;
+  is_yarn: boolean;
+  is_sewing: boolean;
+  is_packing: boolean;
+  is_general: boolean;
+  is_garment: boolean;
   inactive: boolean;
 };
 
@@ -43,8 +51,16 @@ const BLANK: Form = {
   name: "",
   description: "",
   decimal_places: "0",
+  decimal_places_allowed: "2",
+  unit_code: "",
   for_all_item_classes: true,
   item_classes: [],
+  is_fabric: false,
+  is_yarn: false,
+  is_sewing: false,
+  is_packing: false,
+  is_general: false,
+  is_garment: false,
   inactive: false,
 };
 
@@ -102,8 +118,16 @@ export function StockUnitMasterScreen({
       name: r.name,
       description: r.description ?? "",
       decimal_places: String(r.decimal_places),
+      decimal_places_allowed: String(r.decimal_places_allowed ?? 2),
+      unit_code: r.unit_code ?? "",
       for_all_item_classes: r.for_all_item_classes,
       item_classes: r.item_classes ?? [],
+      is_fabric: r.is_fabric ?? false,
+      is_yarn: r.is_yarn ?? false,
+      is_sewing: r.is_sewing ?? false,
+      is_packing: r.is_packing ?? false,
+      is_general: r.is_general ?? false,
+      is_garment: r.is_garment ?? false,
       inactive: !r.is_active,
     });
     setOpen(true);
@@ -116,12 +140,20 @@ export function StockUnitMasterScreen({
         name: form.name,
         description: form.description || null,
         decimal_places: Number(form.decimal_places) || 0,
+        decimal_places_allowed: Number(form.decimal_places_allowed) ?? 2,
+        unit_code: form.unit_code || null,
         for_all_item_classes: form.for_all_item_classes,
         item_classes: form.for_all_item_classes
           ? []
           : form.item_classes.filter((c) =>
               itemClasses.some((ic) => ic.code === c),
             ),
+        is_fabric: form.is_fabric,
+        is_yarn: form.is_yarn,
+        is_sewing: form.is_sewing,
+        is_packing: form.is_packing,
+        is_general: form.is_general,
+        is_garment: form.is_garment,
         is_active: !form.inactive,
       };
       const res = editId ? await updateStockUnit(editId, payload) : await createStockUnit(payload);
@@ -370,6 +402,30 @@ export function StockUnitMasterScreen({
                 className="text-base md:text-sm"
               />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="su-uqc">UQC Code</Label>
+                <Input
+                  id="su-uqc"
+                  value={form.unit_code}
+                  onChange={(e) => set({ unit_code: e.target.value })}
+                  placeholder="KGS"
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="su-dpa">Decimal Places Allowed</Label>
+                <Input
+                  id="su-dpa"
+                  type="number"
+                  min="0"
+                  max="9"
+                  value={form.decimal_places_allowed}
+                  onChange={(e) => set({ decimal_places_allowed: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
             <div>
               <Label htmlFor="su-desc">Description</Label>
               <Textarea
@@ -379,6 +435,30 @@ export function StockUnitMasterScreen({
                 onChange={(e) => set({ description: e.target.value })}
                 className="text-base md:text-sm"
               />
+            </div>
+          </DetailSection>
+
+          {/* applicable-for flags */}
+          <DetailSection label="Applicable For">
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              {([
+                ["is_yarn", "Yarn"],
+                ["is_fabric", "Fabric"],
+                ["is_sewing", "Sewing"],
+                ["is_packing", "Packing"],
+                ["is_garment", "Garments"],
+                ["is_general", "General"],
+              ] as const).map(([key, label]) => (
+                <label key={key} className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form[key]}
+                    onChange={(e) => set({ [key]: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">{label}</span>
+                </label>
+              ))}
             </div>
           </DetailSection>
 

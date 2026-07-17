@@ -17,13 +17,18 @@ import { EmployeePicker } from "@/components/masters/employee-picker";
 import { createEmployee, updateEmployee, deleteEmployee } from "@/lib/masters/employee-actions";
 import {
   GUARDIAN_RELATIONS,
+  SPOUSE_TYPES,
+  EMPLOYEE_TYPES,
+  EMPLOYEE_TYPE_LABELS,
   MARITAL_STATUSES,
   SEXES,
+  PAY_MODES,
   type Employee,
   type EmployeeInput,
   type EmployeeLocation,
   type EmployeeRef,
 } from "@/lib/masters/employee-types";
+import { DetailSection } from "@/components/masters/detail-section";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -64,6 +69,26 @@ type Form = {
   sex: string;
   nationality: string;
   religion: string;
+  // 0277 — employment & statutory
+  doj: string;
+  emp_type: string;
+  mobile: string;
+  father_name: string;
+  mother_name: string;
+  spouse_name: string;
+  pf_no: string;
+  esi_no: string;
+  uan: string;
+  pan_no: string;
+  aadhar_no: string;
+  pay_mode: string;
+  bank_name: string;
+  bank_acc_no: string;
+  // 0279 — enrichment
+  spouse_type: string;
+  date_of_confirmation: string;
+  date_of_filing: string;
+  employee_type: string;
 };
 const BLANK: Form = {
   code: "",
@@ -98,6 +123,24 @@ const BLANK: Form = {
   sex: "Male",
   nationality: "",
   religion: "",
+  doj: "",
+  emp_type: "",
+  mobile: "",
+  father_name: "",
+  mother_name: "",
+  spouse_name: "",
+  pf_no: "",
+  esi_no: "",
+  uan: "",
+  pan_no: "",
+  aadhar_no: "",
+  pay_mode: "Bank",
+  bank_name: "",
+  bank_acc_no: "",
+  spouse_type: "",
+  date_of_confirmation: "",
+  date_of_filing: "",
+  employee_type: "S",
 };
 
 /** Whole-year age from a YYYY-MM-DD DOB string (legacy shows an auto Age box). */
@@ -212,6 +255,24 @@ export function EmployeeMasterScreen({
       sex: r.sex ?? "Male",
       nationality: r.nationality ?? "",
       religion: r.religion ?? "",
+      doj: r.doj ?? "",
+      emp_type: r.emp_type ?? "",
+      mobile: r.mobile ?? "",
+      father_name: r.father_name ?? "",
+      mother_name: r.mother_name ?? "",
+      spouse_name: r.spouse_name ?? "",
+      pf_no: r.pf_no ?? "",
+      esi_no: r.esi_no ?? "",
+      uan: r.uan ?? "",
+      pan_no: r.pan_no ?? "",
+      aadhar_no: r.aadhar_no ?? "",
+      pay_mode: r.pay_mode ?? "Bank",
+      bank_name: r.bank_name ?? "",
+      bank_acc_no: r.bank_acc_no ?? "",
+      spouse_type: r.spouse_type ?? "",
+      date_of_confirmation: r.date_of_confirmation ?? "",
+      date_of_filing: r.date_of_filing ?? "",
+      employee_type: r.employee_type ?? "S",
     });
     setOpen(true);
   }
@@ -253,6 +314,24 @@ export function EmployeeMasterScreen({
         sex: (form.sex as EmployeeInput["sex"]) || null,
         nationality: form.nationality.trim() || null,
         religion: form.religion.trim() || null,
+        doj: form.doj || null,
+        emp_type: form.emp_type.trim() || null,
+        mobile: form.mobile.trim() || null,
+        father_name: form.father_name.trim() || null,
+        mother_name: form.mother_name.trim() || null,
+        spouse_name: form.spouse_name.trim() || null,
+        pf_no: form.pf_no.trim() || null,
+        esi_no: form.esi_no.trim() || null,
+        uan: form.uan.trim() || null,
+        pan_no: form.pan_no.trim() || null,
+        aadhar_no: form.aadhar_no.trim() || null,
+        pay_mode: (form.pay_mode as EmployeeInput["pay_mode"]) || null,
+        bank_name: form.bank_name.trim() || null,
+        bank_acc_no: form.bank_acc_no.trim() || null,
+        spouse_type: (form.spouse_type as EmployeeInput["spouse_type"]) || null,
+        date_of_confirmation: form.date_of_confirmation || null,
+        date_of_filing: form.date_of_filing || null,
+        employee_type: (form.employee_type as EmployeeInput["employee_type"]) || "S",
         is_draft: asDraft,
       };
       const res = editId ? await updateEmployee(editId, payload) : await createEmployee(payload);
@@ -570,17 +649,218 @@ export function EmployeeMasterScreen({
             <span className="text-sm text-foreground">Inactive</span>
           </label>
 
+          {/* ---- Personal ---- */}
+          <DetailSection label="Personal">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="emp-employee-type">Employee Type</Label>
+                <Select
+                  id="emp-employee-type"
+                  value={form.employee_type}
+                  onChange={(e) => set({ employee_type: e.target.value })}
+                  className="text-base md:text-sm"
+                >
+                  {EMPLOYEE_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {EMPLOYEE_TYPE_LABELS[t]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="emp-spouse-type">Spouse Type</Label>
+                <Select
+                  id="emp-spouse-type"
+                  value={form.spouse_type}
+                  onChange={(e) => set({ spouse_type: e.target.value })}
+                  className="text-base md:text-sm"
+                >
+                  <option value="">— None —</option>
+                  {SPOUSE_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="emp-spouse-name">Spouse Name</Label>
+                <Input
+                  id="emp-spouse-name"
+                  value={form.spouse_name}
+                  onChange={(e) => set({ spouse_name: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-mobile">Mobile</Label>
+                <ValidatedInput
+                  id="emp-mobile"
+                  format="mobile"
+                  value={form.mobile}
+                  onChange={(e) => set({ mobile: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="emp-father">Father Name</Label>
+                <Input
+                  id="emp-father"
+                  value={form.father_name}
+                  onChange={(e) => set({ father_name: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-mother">Mother Name</Label>
+                <Input
+                  id="emp-mother"
+                  value={form.mother_name}
+                  onChange={(e) => set({ mother_name: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
+          </DetailSection>
+
+          {/* ---- Dates ---- */}
+          <DetailSection label="Dates">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <Label htmlFor="emp-doj">Date of Joining</Label>
+                <Input
+                  id="emp-doj"
+                  type="date"
+                  value={form.doj}
+                  onChange={(e) => set({ doj: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-doc">Date of Confirmation</Label>
+                <Input
+                  id="emp-doc"
+                  type="date"
+                  value={form.date_of_confirmation}
+                  onChange={(e) => set({ date_of_confirmation: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-dof">Date of Filing</Label>
+                <Input
+                  id="emp-dof"
+                  type="date"
+                  value={form.date_of_filing}
+                  onChange={(e) => set({ date_of_filing: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
+          </DetailSection>
+
+          {/* ---- Statutory IDs ---- */}
+          <DetailSection label="Statutory IDs">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="emp-pf">PF No</Label>
+                <Input
+                  id="emp-pf"
+                  value={form.pf_no}
+                  onChange={(e) => set({ pf_no: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-esi">ESI No</Label>
+                <Input
+                  id="emp-esi"
+                  value={form.esi_no}
+                  onChange={(e) => set({ esi_no: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-uan">UAN</Label>
+                <Input
+                  id="emp-uan"
+                  value={form.uan}
+                  onChange={(e) => set({ uan: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-pan">PAN No</Label>
+                <Input
+                  id="emp-pan"
+                  value={form.pan_no}
+                  onChange={(e) => set({ pan_no: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-aadhar">Aadhar No</Label>
+                <Input
+                  id="emp-aadhar"
+                  value={form.aadhar_no}
+                  onChange={(e) => set({ aadhar_no: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
+          </DetailSection>
+
+          {/* ---- Bank Details ---- */}
+          <DetailSection label="Bank Details">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <Label htmlFor="emp-paymode">Pay Mode</Label>
+                <Select
+                  id="emp-paymode"
+                  value={form.pay_mode}
+                  onChange={(e) => set({ pay_mode: e.target.value })}
+                  className="text-base md:text-sm"
+                >
+                  {PAY_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="emp-bankname">Bank Name</Label>
+                <Input
+                  id="emp-bankname"
+                  value={form.bank_name}
+                  onChange={(e) => set({ bank_name: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-bankacc">Account No</Label>
+                <Input
+                  id="emp-bankacc"
+                  value={form.bank_acc_no}
+                  onChange={(e) => set({ bank_acc_no: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
+          </DetailSection>
+
           {/* Photo — upload deferred; field reserved. */}
           <div className="rounded-lg border border-dashed border-border bg-surface-muted/40 px-4 py-4 text-center text-xs text-muted-foreground">
             Photo upload — coming soon.
           </div>
 
           {/* ---- General ---- */}
-          <div className="rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-              General
-            </div>
-            <div className="space-y-4 p-3">
+          <DetailSection label="General">
+            <div className="space-y-4">
               {/* Permanent Address */}
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">Permanent Address</p>
@@ -781,7 +1061,7 @@ export function EmployeeMasterScreen({
                 </div>
               </div>
             </div>
-          </div>
+          </DetailSection>
         </div>
       </Sheet>
     </div>

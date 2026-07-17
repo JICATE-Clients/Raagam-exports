@@ -30,6 +30,7 @@ import {
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
+import type { SizeGroup } from "@/lib/masters/size-group-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -42,6 +43,13 @@ const BLANK = {
   levy_id: "",
   commodity_id: "",
   fabric_structure_id: "",
+  wastage_per: 0,
+  profit_per: 0,
+  freight_per: 0,
+  insurance_per: 0,
+  interest_per: 0,
+  size_group_id: "",
+  status_monitoring_type: "",
   user_defined: false,
   inactive: false,
 };
@@ -57,6 +65,7 @@ export function CategoryMasterScreen({
   levies,
   commodities,
   fabricStructures,
+  sizeGroups,
   perms,
 }: {
   rows: Category[];
@@ -64,6 +73,7 @@ export function CategoryMasterScreen({
   levies: Levy[];
   commodities: Commodity[];
   fabricStructures: ConfigLookup[];
+  sizeGroups: SizeGroup[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -158,6 +168,13 @@ export function CategoryMasterScreen({
       levy_id: r.levy_id ?? "",
       commodity_id: r.commodity_id ?? "",
       fabric_structure_id: r.fabric_structure_id ?? "",
+      wastage_per: r.wastage_per ?? 0,
+      profit_per: r.profit_per ?? 0,
+      freight_per: r.freight_per ?? 0,
+      insurance_per: r.insurance_per ?? 0,
+      interest_per: r.interest_per ?? 0,
+      size_group_id: r.size_group_id ?? "",
+      status_monitoring_type: r.status_monitoring_type ?? "",
       user_defined: r.user_defined,
       inactive: r.inactive,
     });
@@ -175,6 +192,13 @@ export function CategoryMasterScreen({
         levy_id: form.levy_id || null,
         commodity_id: form.commodity_id || null,
         fabric_structure_id: form.fabric_structure_id || null,
+        wastage_per: form.wastage_per,
+        profit_per: form.profit_per,
+        freight_per: form.freight_per,
+        insurance_per: form.insurance_per,
+        interest_per: form.interest_per,
+        size_group_id: form.size_group_id || null,
+        status_monitoring_type: form.status_monitoring_type.trim() || null,
         user_defined: form.user_defined,
         inactive: form.inactive,
       };
@@ -544,6 +568,94 @@ export function CategoryMasterScreen({
               canEdit={perms.canEdit}
               canDelete={perms.canDelete}
             />
+          </DetailSection>
+
+          <DetailSection label="Costing">
+            <div>
+              <Label htmlFor="cat-wastage">Wastage %</Label>
+              <Input
+                id="cat-wastage"
+                type="number"
+                step="0.01"
+                value={form.wastage_per}
+                onChange={(e) => setForm({ ...form, wastage_per: +e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cat-profit">Profit %</Label>
+              <Input
+                id="cat-profit"
+                type="number"
+                step="0.01"
+                value={form.profit_per}
+                onChange={(e) => setForm({ ...form, profit_per: +e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cat-freight">Freight %</Label>
+              <Input
+                id="cat-freight"
+                type="number"
+                step="0.01"
+                value={form.freight_per}
+                onChange={(e) => setForm({ ...form, freight_per: +e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cat-insurance">Insurance %</Label>
+              <Input
+                id="cat-insurance"
+                type="number"
+                step="0.01"
+                value={form.insurance_per}
+                onChange={(e) => setForm({ ...form, insurance_per: +e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cat-interest">Interest %</Label>
+              <Input
+                id="cat-interest"
+                type="number"
+                step="0.01"
+                value={form.interest_per}
+                onChange={(e) => setForm({ ...form, interest_per: +e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
+
+          <DetailSection label="Additional">
+            <div>
+              <Label htmlFor="cat-size-group">Size Group</Label>
+              <Select
+                id="cat-size-group"
+                value={form.size_group_id}
+                onChange={(e) => setForm({ ...form, size_group_id: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— None —</option>
+                {sizeGroups
+                  .filter((sg) => !sg.inactive)
+                  .map((sg) => (
+                    <option key={sg.id} value={sg.id}>
+                      {sg.size_group_name ?? sg.size_group_no ?? sg.id}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="cat-status-monitoring">Status Monitoring Type</Label>
+              <Input
+                id="cat-status-monitoring"
+                value={form.status_monitoring_type}
+                onChange={(e) => setForm({ ...form, status_monitoring_type: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
           </DetailSection>
 
           <label className="flex cursor-pointer items-center gap-2">

@@ -34,6 +34,7 @@ import {
   type CustomerInput,
   SHIP_MODES,
   PAY_MODES,
+  BUSINESS_ENTITIES,
 } from "@/lib/masters/customer-types";
 import type { Applicant } from "@/lib/masters/applicant-types";
 import type { Country } from "@/lib/masters/country-types";
@@ -59,6 +60,9 @@ type HeaderForm = {
   doc_prefix: string;
   doc_id: string;
   also_consignee: boolean;
+  also_notify: boolean;
+  business_entity: string;
+  inhouse_unit_id: string;
   country_id: string;
   // Address
   street: string;
@@ -95,6 +99,9 @@ const BLANK: HeaderForm = {
   doc_prefix: "",
   doc_id: "",
   also_consignee: false,
+  also_notify: false,
+  business_entity: "",
+  inhouse_unit_id: "",
   country_id: "",
   street: "",
   city_id: "",
@@ -289,6 +296,9 @@ export function CustomerMasterScreen({
       doc_prefix: r.doc_prefix ?? "",
       doc_id: r.doc_id ?? "",
       also_consignee: r.also_consignee,
+      also_notify: r.also_notify,
+      business_entity: r.business_entity ?? "",
+      inhouse_unit_id: r.inhouse_unit_id ?? "",
       country_id: r.country_id ?? "",
       street: r.street ?? "",
       city_id: r.city_id ?? "",
@@ -394,6 +404,9 @@ export function CustomerMasterScreen({
         doc_prefix: form.doc_prefix.trim() || null,
         doc_id: form.doc_id.trim() || null,
         also_consignee: form.also_consignee,
+        also_notify: form.also_notify,
+        business_entity: form.business_entity || null,
+        inhouse_unit_id: form.inhouse_unit_id.trim() || null,
         country_id: form.country_id || null,
         street: form.street.trim() || null,
         city_id: form.city_id || null,
@@ -664,6 +677,7 @@ export function CustomerMasterScreen({
                     <span>· {countryLabel.get(form.country_id)}</span>
                   )}
                   {form.also_consignee && <span>· Also consignee</span>}
+                  {form.also_notify && <span>· Also notify</span>}
                 </div>
               </div>
             </div>
@@ -775,8 +789,23 @@ export function CustomerMasterScreen({
                           <option value="yes">Yes</option>
                         </Select>
                       </div>
+                      <label className="flex cursor-pointer items-center gap-2 sm:pt-6">
+                        <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.also_notify} onChange={(e) => set({ also_notify: e.target.checked })} />
+                        <span className="text-sm text-foreground">Also Notify</span>
+                      </label>
                       <div>
                         <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
+                      </div>
+                      <div>
+                        <Label htmlFor="cu-bizentity">Business Entity</Label>
+                        <Select id="cu-bizentity" value={form.business_entity} onChange={(e) => set({ business_entity: e.target.value })} className="text-base md:text-sm">
+                          <option value="">—</option>
+                          {BUSINESS_ENTITIES.map((b) => <option key={b} value={b}>{b}</option>)}
+                        </Select>
+                      </div>
+                      <div>
+                        <Label htmlFor="cu-inhouseunit">In-house Unit ID</Label>
+                        <Input id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} className="text-base md:text-sm" />
                       </div>
                     </div>
                   </SectionBody>

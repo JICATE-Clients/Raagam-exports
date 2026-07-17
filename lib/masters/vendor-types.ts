@@ -67,6 +67,10 @@ export interface Vendor {
   gst_no: string | null;
   debit_group_id: string | null;
   credit_group_id: string | null;
+  enterprise_status: string | null;
+  memorandum_no: string | null;
+  inhouse_unit_id: string | null;
+  duty_against: string | null;
   is_draft: boolean;
   created_at: string;
   updated_at: string;
@@ -118,6 +122,10 @@ export const vendorInput = z
     gst_no: nullableFormat(GSTIN_RE, "Invalid GSTIN (e.g. 33ABCDE1234F1Z5)"),
     debit_group_id: uuidN,
     credit_group_id: uuidN,
+    enterprise_status: nullableText,
+    memorandum_no: nullableText,
+    inhouse_unit_id: nullableText,
+    duty_against: nullableText,
     is_draft: z.boolean().default(false),
     addresses: z.array(vendorAddressInput).default([]),
   })

@@ -33,6 +33,15 @@ export interface Department {
   doc_prefix: string | null;
   warehouse: boolean;
   inactive: boolean;
+  is_outsourcing: boolean;
+  sequence_no: number | null;
+  staff_sequence_no: number | null;
+  is_fabric: boolean;
+  is_yarn: boolean;
+  is_sewing: boolean;
+  is_packing: boolean;
+  is_general: boolean;
+  is_garment: boolean;
   item_classes: string[];
   locations: DepartmentLocation[];
   created_at: string;
@@ -51,6 +60,15 @@ export const departmentInput = z.object({
   doc_prefix: z.string().optional().nullable(),
   warehouse: z.boolean().default(false),
   inactive: z.boolean().default(false),
+  is_outsourcing: z.boolean().default(false),
+  sequence_no: z.coerce.number().int().nullable().default(null),
+  staff_sequence_no: z.coerce.number().int().nullable().default(null),
+  is_fabric: z.boolean().default(false),
+  is_yarn: z.boolean().default(false),
+  is_sewing: z.boolean().default(false),
+  is_packing: z.boolean().default(false),
+  is_general: z.boolean().default(false),
+  is_garment: z.boolean().default(false),
   item_classes: z.array(z.enum(DEPARTMENT_ITEM_CLASSES)).default([]),
   locations: z.array(departmentLocationInput).default([]),
 });

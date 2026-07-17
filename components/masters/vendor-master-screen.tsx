@@ -76,6 +76,10 @@ type HeaderForm = {
   gst_no: string;
   debit_group_id: string;
   credit_group_id: string;
+  enterprise_status: string;
+  memorandum_no: string;
+  inhouse_unit_id: string;
+  duty_against: string;
 };
 const BLANK: HeaderForm = {
   code: "",
@@ -103,6 +107,10 @@ const BLANK: HeaderForm = {
   gst_no: "",
   debit_group_id: "",
   credit_group_id: "",
+  enterprise_status: "",
+  memorandum_no: "",
+  inhouse_unit_id: "",
+  duty_against: "",
 };
 
 type AddressRow = {
@@ -249,6 +257,10 @@ export function VendorMasterScreen({
       gst_no: r.gst_no ?? "",
       debit_group_id: r.debit_group_id ?? "",
       credit_group_id: r.credit_group_id ?? "",
+      enterprise_status: r.enterprise_status ?? "",
+      memorandum_no: r.memorandum_no ?? "",
+      inhouse_unit_id: r.inhouse_unit_id ?? "",
+      duty_against: r.duty_against ?? "",
     });
     setAddresses(
       r.addresses.map((a) => ({
@@ -310,6 +322,10 @@ export function VendorMasterScreen({
         gst_no: form.gst_no.trim() || null,
         debit_group_id: form.debit_group_id || null,
         credit_group_id: form.credit_group_id || null,
+        enterprise_status: form.enterprise_status.trim() || null,
+        memorandum_no: form.memorandum_no.trim() || null,
+        inhouse_unit_id: form.inhouse_unit_id.trim() || null,
+        duty_against: form.duty_against.trim() || null,
         is_draft: asDraft,
         addresses: addresses.map((a, i) => ({
           sno: i + 1,
@@ -362,7 +378,11 @@ export function VendorMasterScreen({
     form.gst_reg_status ||
     form.gst_no ||
     form.debit_group_id ||
-    form.credit_group_id
+    form.credit_group_id ||
+    form.enterprise_status ||
+    form.memorandum_no ||
+    form.inhouse_unit_id ||
+    form.duty_against
   );
   const done: Record<SectionKey, boolean> = {
     identity: hasIdentity,
@@ -1083,6 +1103,46 @@ export function VendorMasterScreen({
                           value={form.credit_group_id || null}
                           onChange={(id) => set({ credit_group_id: id ?? "" })}
                           label="Credit Group"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2 mt-2 border-t border-border pt-4">
+                        <h3 className="mb-3 text-[13px] font-bold text-foreground">Additional Details</h3>
+                      </div>
+                      <div>
+                        <Label htmlFor="ve-enterprise-status">Enterprise Status</Label>
+                        <Input
+                          id="ve-enterprise-status"
+                          value={form.enterprise_status}
+                          onChange={(e) => set({ enterprise_status: e.target.value })}
+                          className="text-base md:text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ve-memorandum-no">Memorandum No</Label>
+                        <Input
+                          id="ve-memorandum-no"
+                          value={form.memorandum_no}
+                          onChange={(e) => set({ memorandum_no: e.target.value })}
+                          className="text-base md:text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ve-inhouse-unit">Inhouse Unit ID</Label>
+                        <Input
+                          id="ve-inhouse-unit"
+                          value={form.inhouse_unit_id}
+                          onChange={(e) => set({ inhouse_unit_id: e.target.value })}
+                          className="text-base md:text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ve-duty-against">Duty Against</Label>
+                        <Input
+                          id="ve-duty-against"
+                          value={form.duty_against}
+                          onChange={(e) => set({ duty_against: e.target.value })}
+                          className="text-base md:text-sm"
                         />
                       </div>
                     </div>
