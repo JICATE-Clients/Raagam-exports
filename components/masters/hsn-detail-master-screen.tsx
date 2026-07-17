@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -32,13 +33,13 @@ const BLANK = {
   for_type: "materials" as HsnDetailFor,
   description: "",
   hsn_code: "",
-  blocked: false,
+  inactive: false,
 };
 
 /**
  * Legacy GST "HSN detail" master. Flat form: Item Class (ⓘ →
  * config_lookups 'item_class') · For (Materials / Process) · Description ·
- * HSN Code · Blocked, with Save / Save-As-Drafts (draft = `is_draft`).
+ * HSN Code · Inactive, with Save / Save-As-Drafts (draft = `is_draft`).
  */
 export function HsnDetailMasterScreen({
   rows,
@@ -89,7 +90,7 @@ export function HsnDetailMasterScreen({
       for_type: r.for_type,
       description: r.description ?? "",
       hsn_code: r.hsn_code ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -101,7 +102,7 @@ export function HsnDetailMasterScreen({
         for_type: form.for_type,
         description: form.description.trim() || null,
         hsn_code: form.hsn_code.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
         is_draft: asDraft,
       };
       const res = editId ? await updateHsnDetail(editId, payload) : await createHsnDetail(payload);
@@ -129,7 +130,7 @@ export function HsnDetailMasterScreen({
 
   function statusPill(r: HsnDetail) {
     if (r.is_draft) return <StatusPill tone="warning">Draft</StatusPill>;
-    if (r.blocked) return <StatusPill tone="danger">Blocked</StatusPill>;
+    if (r.inactive) return <StatusPill tone="danger">Inactive</StatusPill>;
     return <StatusPill tone="success">Active</StatusPill>;
   }
 
@@ -296,8 +297,9 @@ export function HsnDetailMasterScreen({
           </div>
           <div>
             <Label htmlFor="hsn-code">HSN Code</Label>
-            <Input
+            <ValidatedInput
               id="hsn-code"
+              format="hsn"
               value={form.hsn_code}
               onChange={(e) => set({ hsn_code: e.target.value })}
               className="text-base md:text-sm"
@@ -307,10 +309,10 @@ export function HsnDetailMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

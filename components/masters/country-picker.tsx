@@ -24,7 +24,7 @@ type FormState = {
   ecgc_code: string;
   isd_code: string;
   default_country: boolean;
-  blocked: boolean;
+  inactive: boolean;
 };
 const BLANK_FORM: FormState = {
   code: "",
@@ -33,7 +33,7 @@ const BLANK_FORM: FormState = {
   ecgc_code: "",
   isd_code: "",
   default_country: false,
-  blocked: false,
+  inactive: false,
 };
 
 /**
@@ -121,7 +121,7 @@ export function CountryPicker({
       ecgc_code: c.ecgc_code ?? "",
       isd_code: c.isd_code ?? "",
       default_country: c.default_country,
-      blocked: c.blocked,
+      inactive: c.inactive,
     });
     setMode("form");
   }
@@ -135,7 +135,7 @@ export function CountryPicker({
         ecgc_code: form.ecgc_code.trim() || null,
         isd_code: form.isd_code.trim() || null,
         default_country: form.default_country,
-        blocked: form.blocked,
+        inactive: form.inactive,
         is_draft: false,
       };
       const res = formEditId
@@ -363,10 +363,10 @@ export function CountryPicker({
                       <input
                         type="checkbox"
                         className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.blocked}
-                        onChange={(e) => setForm((f) => ({ ...f, blocked: e.target.checked }))}
+                        checked={form.inactive}
+                        onChange={(e) => setForm((f) => ({ ...f, inactive: e.target.checked }))}
                       />
-                      <span className="text-sm text-foreground">Blocked</span>
+                      <span className="text-sm text-foreground">Inactive</span>
                     </label>
                   </div>
                   <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">

@@ -31,12 +31,12 @@ const blankHeader = () => ({
   name: "",
   doc_prefix: "",
   warehouse: false,
-  blocked: false,
+  inactive: false,
 });
 
 /**
  * Department master (HR). Rich master — header (Short Name · Name · Doc Prefix ·
- * Warehouse · Blocked) + an Item-Class applicability checklist + a Location grid
+ * Warehouse · Inactive) + an Item-Class applicability checklist + a Location grid
  * (Location picker + All Divisions). Distinct from the `department`
  * config_lookups kind used by the party pickers.
  */
@@ -92,7 +92,7 @@ export function DepartmentMasterScreen({
       name: r.name ?? "",
       doc_prefix: r.doc_prefix ?? "",
       warehouse: r.warehouse,
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setItemClasses(
       r.item_classes.filter((c): c is DepartmentItemClass =>
@@ -134,7 +134,7 @@ export function DepartmentMasterScreen({
         name: form.name.trim() || null,
         doc_prefix: form.doc_prefix.trim() || null,
         warehouse: form.warehouse,
-        blocked: form.blocked,
+        inactive: form.inactive,
         item_classes: itemClasses,
         locations: locs
           .filter((l) => l.location_id)
@@ -182,7 +182,7 @@ export function DepartmentMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -255,8 +255,8 @@ export function DepartmentMasterScreen({
                     {r.name ?? "—"} · {r.locations.length} location(s)
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -325,10 +325,10 @@ export function DepartmentMasterScreen({
                 <input
                   type="checkbox"
                   className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.blocked}
-                  onChange={(e) => set({ blocked: e.target.checked })}
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
                 />
-                <span className="text-sm text-foreground">Blocked</span>
+                <span className="text-sm text-foreground">Inactive</span>
               </label>
             </div>
           </div>

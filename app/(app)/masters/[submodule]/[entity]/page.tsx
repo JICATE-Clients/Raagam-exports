@@ -60,6 +60,10 @@ import { listCustomerGst } from "@/lib/masters/customer-gst-service";
 import { CustomerGstAssignScreen } from "@/components/masters/customer-gst-assign-screen";
 import { listProcessHsn } from "@/lib/masters/process-hsn-service";
 import { ProcessHsnAssignScreen } from "@/components/masters/process-hsn-assign-screen";
+import { listMaterialHsn } from "@/lib/masters/material-hsn-service";
+import { MaterialHsnAssignScreen } from "@/components/masters/material-hsn-assign-screen";
+import { listCategories } from "@/lib/masters/category-service";
+import { listCommodities } from "@/lib/masters/commodity-service";
 import { CurrencyMasterScreen } from "@/components/masters/currency-master-screen";
 import { listExchangeRateEntries } from "@/lib/masters/exchange-rate-service";
 import { ExchangeRateMasterScreen } from "@/components/masters/exchange-rate-master-screen";
@@ -447,13 +451,34 @@ export default async function SubEntityPage({
     } else if (child.custom === "gst_state") {
       const states = await listStates();
       screen = <StateMasterScreen rows={states} perms={perms} />;
+    } else if (child.custom === "hsn_assign_material") {
+      const [rows, all, cats] = await Promise.all([
+        listMaterialHsn(),
+        listConfigLookups(),
+        listCategories(),
+      ]);
+      screen = (
+        <MaterialHsnAssignScreen
+          rows={rows}
+          hsnOptions={all.filter((l) => l.kind === "hsn_code")}
+          itemClasses={all.filter((l) => l.kind === "item_class")}
+          categories={cats}
+          perms={perms}
+        />
+      );
     } else if (child.custom === "hsn_assign_process") {
-      const [rows, all] = await Promise.all([listProcessHsn(), listConfigLookups()]);
+      const [rows, all, commodities] = await Promise.all([
+        listProcessHsn(),
+        listConfigLookups(),
+        listCommodities(),
+      ]);
       screen = (
         <ProcessHsnAssignScreen
           rows={rows}
           hsnOptions={all.filter((l) => l.kind === "hsn_code")}
-          commodities={all.filter((l) => l.kind === "commodity")}
+          // Commodity is a dedicated table now, not a config_lookups kind —
+          // adapt to the same {id, code, name} display shape HSN options use.
+          commodities={commodities.map((c) => ({ id: c.id, code: c.short_name, name: c.name }))}
           perms={perms}
         />
       );

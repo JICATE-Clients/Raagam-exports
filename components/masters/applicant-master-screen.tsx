@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,7 +34,7 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type HeaderForm = {
   code: string;
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   also_customer: boolean;
   also_consignee: boolean;
   country_id: string;
@@ -61,7 +62,7 @@ type HeaderForm = {
 const BLANK: HeaderForm = {
   code: "",
   name: "",
-  blocked: false,
+  inactive: false,
   also_customer: false,
   also_consignee: false,
   country_id: "",
@@ -108,7 +109,7 @@ const blankContact = (key: string): ContactRow => ({
 
 /**
  * Master-detail CRUD for the legacy "Applicant" master (Associates): a header
- * (Short Name · Name · Blocked · Also Customer · Also Consignee · Country) +
+ * (Short Name · Name · Inactive · Also Customer · Also Consignee · Country) +
  * two tabs (Address | General) + a Contact child grid. Only the header +
  * Address tab + Contact grid are built here; the General tab is deferred.
  *
@@ -188,7 +189,7 @@ export function ApplicantMasterScreen({
     setForm({
       code: r.code ?? "",
       name: r.name,
-      blocked: r.blocked,
+      inactive: r.inactive,
       also_customer: r.also_customer,
       also_consignee: r.also_consignee,
       country_id: r.country_id ?? "",
@@ -242,7 +243,7 @@ export function ApplicantMasterScreen({
       const payload: ApplicantInput = {
         code: form.code.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         also_customer: form.also_customer,
         also_consignee: form.also_consignee,
         country_id: form.country_id || null,
@@ -321,8 +322,8 @@ export function ApplicantMasterScreen({
     {
       header: "Status",
       cell: (r) => {
-        const tone = r.is_draft ? "warning" : r.blocked ? "danger" : "success";
-        const text = r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active";
+        const tone = r.is_draft ? "warning" : r.inactive ? "danger" : "success";
+        const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
     },
@@ -412,8 +413,8 @@ export function ApplicantMasterScreen({
                     {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.is_draft ? "warning" : r.blocked ? "danger" : "success"}>
-                  {r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
+                  {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -507,10 +508,10 @@ export function ApplicantMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
 
           {/* ---- Address | General tabs ---- */}
@@ -552,15 +553,15 @@ export function ApplicantMasterScreen({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="ap-pin">Pin</Label>
-                  <Input
+                  <ValidatedInput
                     id="ap-pin"
+                    format="pincode"
                     value={form.pin}
                     onChange={(e) => set({ pin: e.target.value })}
                     className="text-base md:text-sm"
                   />
                 </div>
                 <div>
-                  <Label>Country</Label>
                   <CountryPicker
                     countries={countries}
                     value={form.address_country_id || null}
@@ -592,9 +593,9 @@ export function ApplicantMasterScreen({
               </div>
               <div>
                 <Label htmlFor="ap-email">E-Mail</Label>
-                <Input
+                <ValidatedInput
                   id="ap-email"
-                  type="email"
+                  format="email"
                   value={form.email}
                   onChange={(e) => set({ email: e.target.value })}
                   className="text-base md:text-sm"
@@ -602,8 +603,9 @@ export function ApplicantMasterScreen({
               </div>
               <div>
                 <Label htmlFor="ap-web">Web site</Label>
-                <Input
+                <ValidatedInput
                   id="ap-web"
+                  format="website"
                   value={form.web_site}
                   onChange={(e) => set({ web_site: e.target.value })}
                   className="text-base md:text-sm"
@@ -675,14 +677,16 @@ export function ApplicantMasterScreen({
                           onChange={(e) => setContactAt(c.key, { land_line: e.target.value })}
                           className="text-base md:text-sm"
                         />
-                        <Input
+                        <ValidatedInput
+                          format="mobile"
                           placeholder="Mobile"
                           value={c.mobile}
                           onChange={(e) => setContactAt(c.key, { mobile: e.target.value })}
                           className="text-base md:text-sm"
                         />
                       </div>
-                      <Input
+                      <ValidatedInput
+                        format="email"
                         placeholder="Email ID"
                         value={c.email_id}
                         onChange={(e) => setContactAt(c.key, { email_id: e.target.value })}
@@ -816,8 +820,9 @@ export function ApplicantMasterScreen({
                 </div>
                 <div>
                   <Label htmlFor="ap-acno">A/c No.</Label>
-                  <Input
+                  <ValidatedInput
                     id="ap-acno"
+                    format="account"
                     value={form.ac_no}
                     onChange={(e) => set({ ac_no: e.target.value })}
                     className="text-base md:text-sm"

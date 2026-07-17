@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -22,7 +23,7 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type HeaderForm = {
   code: string;
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   country_id: string;
   street: string;
   city_id: string;
@@ -37,7 +38,7 @@ type HeaderForm = {
 const BLANK: HeaderForm = {
   code: "",
   name: "",
-  blocked: false,
+  inactive: false,
   country_id: "",
   street: "",
   city_id: "",
@@ -73,7 +74,7 @@ const blankContact = (key: string): ContactRow => ({
 
 /**
  * Master-detail CRUD for the legacy "Notify" master (Associates): a header
- * (Short Name · Name · Blocked · Country) + Address fields + a Contact child
+ * (Short Name · Name · Inactive · Country) + Address fields + a Contact child
  * grid. City / State and the grid's Department / Designation / Internal
  * Department are config_lookups pickers (searchable dialog + Add/Modify); both
  * Country fields reuse the shared CountryPicker.
@@ -138,7 +139,7 @@ export function NotifyMasterScreen({
     setForm({
       code: r.code ?? "",
       name: r.name,
-      blocked: r.blocked,
+      inactive: r.inactive,
       country_id: r.country_id ?? "",
       street: r.street ?? "",
       city_id: r.city_id ?? "",
@@ -180,7 +181,7 @@ export function NotifyMasterScreen({
       const payload: NotifyInput = {
         code: form.code.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         country_id: form.country_id || null,
         street: form.street.trim() || null,
         city_id: form.city_id || null,
@@ -247,7 +248,7 @@ export function NotifyMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -321,8 +322,8 @@ export function NotifyMasterScreen({
                     {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -380,10 +381,10 @@ export function NotifyMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
 
           {/* Address */}
@@ -460,9 +461,9 @@ export function NotifyMasterScreen({
               </div>
               <div>
                 <Label htmlFor="nt-email">E-Mail</Label>
-                <Input
+                <ValidatedInput
+                  format="email"
                   id="nt-email"
-                  type="email"
                   value={form.email}
                   onChange={(e) => set({ email: e.target.value })}
                   className="text-base md:text-sm"
@@ -470,7 +471,8 @@ export function NotifyMasterScreen({
               </div>
               <div>
                 <Label htmlFor="nt-web">Web site</Label>
-                <Input
+                <ValidatedInput
+                  format="website"
                   id="nt-web"
                   value={form.web_site}
                   onChange={(e) => set({ web_site: e.target.value })}
@@ -548,7 +550,8 @@ export function NotifyMasterScreen({
                       className="text-base md:text-sm"
                     />
                   </div>
-                  <Input
+                  <ValidatedInput
+                    format="email"
                     placeholder="Email ID"
                     value={c.email_id}
                     onChange={(e) => setContactAt(c.key, { email_id: e.target.value })}

@@ -81,7 +81,7 @@ export function MaterialHsnAssignScreen({
     return rows.filter((r) => {
       if (q && !`${r.code ?? ""} ${r.name}`.toLowerCase().includes(q)) return false;
       if (fStatus === "Active" && !r.is_active) return false;
-      if (fStatus === "Blocked" && r.is_active) return false;
+      if (fStatus === "Inactive" && r.is_active) return false;
       if (fClass === "__none" && r.item_class_id) return false;
       if (fClass && fClass !== "__none" && r.item_class_id !== fClass) return false;
       if (fCat === "__none" && r.category_id) return false;
@@ -187,7 +187,7 @@ export function MaterialHsnAssignScreen({
         <Select value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="Filter status" className="h-9 text-base md:text-sm">
           <option value="">All status</option>
           <option value="Active">Active</option>
-          <option value="Blocked">Blocked</option>
+          <option value="Inactive">Inactive</option>
         </Select>
         <Select value={fClass} onChange={(e) => setFClass(e.target.value)} aria-label="Filter item class" className="h-9 text-base md:text-sm">
           <option value="">All item classes</option>
@@ -294,7 +294,7 @@ export function MaterialHsnAssignScreen({
                     </td>
                     <td className="px-3 py-2">
                       <StatusPill tone={r.is_active ? "success" : "danger"}>
-                        {r.is_active ? "Active" : "Blocked"}
+                        {r.is_active ? "Active" : "Inactive"}
                       </StatusPill>
                     </td>
                     <td className="px-3 py-2">{hsnSelect(r)}</td>
@@ -331,7 +331,7 @@ export function MaterialHsnAssignScreen({
                   <div className="flex shrink-0 items-center gap-2">
                     {d && <span className="text-[10px] font-bold uppercase tracking-wide text-warning">Edited</span>}
                     <StatusPill tone={r.is_active ? "success" : "danger"}>
-                      {r.is_active ? "Active" : "Blocked"}
+                      {r.is_active ? "Active" : "Inactive"}
                     </StatusPill>
                   </div>
                 </div>

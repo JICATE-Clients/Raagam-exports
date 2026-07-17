@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
@@ -194,12 +195,12 @@ export function CurrencyMasterScreen({ rows, perms }: { rows: Currency[]; perms:
               <Label htmlFor="cur-code">
                 Code <span className="text-danger">*</span>
               </Label>
-              <Input
+              <ValidatedInput
                 id="cur-code"
+                format="currency"
                 value={form.code}
                 onChange={(e) => set({ code: e.target.value.toUpperCase() })}
                 disabled={!!editCode}
-                maxLength={8}
                 placeholder="INR"
                 className="font-mono text-base md:text-sm"
               />

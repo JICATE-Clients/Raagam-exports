@@ -28,12 +28,12 @@ const BLANK = {
   short_name: "",
   description: "",
   loan_type: "Salary Advance" as LoanType,
-  blocked: false,
+  inactive: false,
 };
 
 /**
  * Legacy "Advance and Loan Type" master (HR). Flat form: Short Name (required) ·
- * Description · Type (Salary Advance / Monthly Repayment / Loan) · Blocked.
+ * Description · Type (Salary Advance / Monthly Repayment / Loan) · Inactive.
  */
 export function AdvanceLoanTypeMasterScreen({ rows, perms }: { rows: AdvanceLoanType[]; perms: Perms }) {
   const router = useRouter();
@@ -65,7 +65,7 @@ export function AdvanceLoanTypeMasterScreen({ rows, perms }: { rows: AdvanceLoan
       short_name: r.short_name,
       description: r.description ?? "",
       loan_type: r.loan_type,
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -76,7 +76,7 @@ export function AdvanceLoanTypeMasterScreen({ rows, perms }: { rows: AdvanceLoan
         short_name: form.short_name.trim(),
         description: form.description.trim() || null,
         loan_type: form.loan_type,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId
         ? await updateAdvanceLoanType(editId, payload)
@@ -110,7 +110,7 @@ export function AdvanceLoanTypeMasterScreen({ rows, perms }: { rows: AdvanceLoan
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -184,8 +184,8 @@ export function AdvanceLoanTypeMasterScreen({ rows, perms }: { rows: AdvanceLoan
                     {r.description ? ` · ${r.description}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -227,10 +227,10 @@ export function AdvanceLoanTypeMasterScreen({ rows, perms }: { rows: AdvanceLoan
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
           <div>

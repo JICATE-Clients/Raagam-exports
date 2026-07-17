@@ -18,7 +18,7 @@ export interface Allowance {
   name: string;
   sequence: number;
   allowance_type: AllowanceType;
-  blocked: boolean;
+  inactive: boolean;
   base_head: boolean;
   pf_eligible: boolean;
   esi_eligible: boolean;
@@ -32,7 +32,7 @@ export const allowanceInput = z.object({
   name: z.string().min(1, "Name is required"),
   sequence: z.coerce.number().int().min(0).default(0),
   allowance_type: z.enum(ALLOWANCE_TYPES).default("Allowance"),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   base_head: z.boolean().default(false),
   pf_eligible: z.boolean().default(false),
   esi_eligible: z.boolean().default(false),

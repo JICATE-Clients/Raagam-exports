@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { nullableFormat, EMAIL_RE, WEBSITE_RE } from "@/lib/validation/formats";
 import { SHIP_MODES, PAY_MODES } from "./applicant-types";
 
 // ============================================================================
 // Customers — master-detail (0240 base + 0247 tabs). Legacy EDP2 "Customer"
-// form: header (Short Name · Blocked · Name · Doc Prefix · ID · Also Consignee ·
+// form: header (Short Name · Inactive · Name · Doc Prefix · ID · Also Consignee ·
 // Country) + Applicant(s) slots + five tabs:
 //   Address · Agents · Customer Supplied Items · Customer Nominated Vendors ·
 //   CustomerGeneral.
@@ -84,7 +85,7 @@ export interface Customer {
   id: string;
   code: string | null; // "Short Name"
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   doc_prefix: string | null;
   doc_id: string | null; // the "ID" field
   also_consignee: boolean;
@@ -139,7 +140,7 @@ export const customerContactInput = z.object({
   designation_id: uuidN,
   land_line: nullableText,
   mobile: nullableText,
-  email_id: nullableText,
+  email_id: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   internal_department_id: uuidN,
 });
 
@@ -174,7 +175,7 @@ export const customerMarkingInput = z.object({
 export const customerInput = z.object({
   code: nullableText,
   name: z.string().min(1, "Name is required"),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   doc_prefix: nullableText,
   doc_id: nullableText,
   also_consignee: z.boolean().default(false),
@@ -186,8 +187,8 @@ export const customerInput = z.object({
   address_country_id: uuidN,
   land_line: nullableText,
   fax: nullableText,
-  email: nullableText,
-  web_site: nullableText,
+  email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
+  web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   // General (scalar)
   currency_1: nullableText,
   currency_2: nullableText,

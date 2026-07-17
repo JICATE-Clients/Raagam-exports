@@ -6,6 +6,7 @@ import { X, User, MapPin, SlidersHorizontal, Trash2, type LucideIcon } from "luc
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,7 +52,7 @@ type CategoryKey = (typeof CATEGORY_FLAGS)[number]["key"];
 type HeaderForm = {
   code: string;
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   vendor_type: "" | VendorType;
   country_id: string;
   group_id: string;
@@ -79,7 +80,7 @@ type HeaderForm = {
 const BLANK: HeaderForm = {
   code: "",
   name: "",
-  blocked: false,
+  inactive: false,
   vendor_type: "",
   country_id: "",
   group_id: "",
@@ -225,7 +226,7 @@ export function VendorMasterScreen({
     setForm({
       code: r.code ?? "",
       name: r.name,
-      blocked: r.blocked,
+      inactive: r.inactive,
       vendor_type: r.vendor_type ?? "",
       country_id: r.country_id ?? "",
       group_id: r.group_id ?? "",
@@ -286,7 +287,7 @@ export function VendorMasterScreen({
       const payload: VendorInput = {
         code: form.code.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         vendor_type: form.vendor_type ? form.vendor_type : null,
         country_id: form.country_id || null,
         group_id: form.group_id || null,
@@ -389,8 +390,8 @@ export function VendorMasterScreen({
       cell: (r) =>
         r.is_draft ? (
           <StatusPill tone="warning">Draft</StatusPill>
-        ) : r.blocked ? (
-          <StatusPill tone="danger">Blocked</StatusPill>
+        ) : r.inactive ? (
+          <StatusPill tone="danger">Inactive</StatusPill>
         ) : (
           <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>
         ),
@@ -470,8 +471,8 @@ export function VendorMasterScreen({
                 </div>
                 {r.is_draft ? (
                   <StatusPill tone="warning">Draft</StatusPill>
-                ) : r.blocked ? (
-                  <StatusPill tone="danger">Blocked</StatusPill>
+                ) : r.inactive ? (
+                  <StatusPill tone="danger">Inactive</StatusPill>
                 ) : (
                   <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>
                 )}
@@ -513,8 +514,8 @@ export function VendorMasterScreen({
                   <span className="truncate text-[15px] font-bold tracking-tight text-foreground">
                     {form.name.trim() || "Untitled vendor"}
                   </span>
-                  {form.blocked && <StatusPill tone="danger">Blocked</StatusPill>}
-                  {!form.blocked && <StatusPill tone={statusTone(form.status)}>{form.status}</StatusPill>}
+                  {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+                  {!form.inactive && <StatusPill tone={statusTone(form.status)}>{form.status}</StatusPill>}
                   {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
@@ -611,10 +612,10 @@ export function VendorMasterScreen({
                         <input
                           type="checkbox"
                           className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={form.blocked}
-                          onChange={(e) => set({ blocked: e.target.checked })}
+                          checked={form.inactive}
+                          onChange={(e) => set({ inactive: e.target.checked })}
                         />
-                        <span className="text-sm text-foreground">Blocked</span>
+                        <span className="text-sm text-foreground">Inactive</span>
                       </label>
                       <div className="sm:col-span-2">
                         <Label htmlFor="ve-name">
@@ -714,8 +715,9 @@ export function VendorMasterScreen({
                         </div>
                         <div>
                           <Label htmlFor="ve-pan">PAN No</Label>
-                          <Input
+                          <ValidatedInput
                             id="ve-pan"
+                            format="pan"
                             value={form.pan_no}
                             onChange={(e) => set({ pan_no: e.target.value })}
                             className="text-base md:text-sm"
@@ -741,8 +743,9 @@ export function VendorMasterScreen({
                         </div>
                         <div className="sm:col-span-2">
                           <Label htmlFor="ve-web">Web site</Label>
-                          <Input
+                          <ValidatedInput
                             id="ve-web"
+                            format="website"
                             value={form.web_site}
                             onChange={(e) => set({ web_site: e.target.value })}
                             className="text-base md:text-sm"
@@ -838,7 +841,8 @@ export function VendorMasterScreen({
                                       />
                                     </td>
                                     <td className="px-1.5 py-1.5">
-                                      <Input
+                                      <ValidatedInput
+                                        format="pincode"
                                         value={a.pin}
                                         onChange={(e) => setAddressAt(a.key, { pin: e.target.value })}
                                         className="h-8 min-w-[80px] text-sm"
@@ -859,7 +863,8 @@ export function VendorMasterScreen({
                                       />
                                     </td>
                                     <td className="px-1.5 py-1.5">
-                                      <Input
+                                      <ValidatedInput
+                                        format="email"
                                         value={a.email_id}
                                         onChange={(e) => setAddressAt(a.key, { email_id: e.target.value })}
                                         className="h-8 min-w-[150px] text-sm"
@@ -947,7 +952,8 @@ export function VendorMasterScreen({
                                   />
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                  <Input
+                                  <ValidatedInput
+                                    format="pincode"
                                     placeholder="Pin"
                                     value={a.pin}
                                     onChange={(e) => setAddressAt(a.key, { pin: e.target.value })}
@@ -967,7 +973,8 @@ export function VendorMasterScreen({
                                     onChange={(e) => setAddressAt(a.key, { fax: e.target.value })}
                                     className="text-base md:text-sm"
                                   />
-                                  <Input
+                                  <ValidatedInput
+                                    format="email"
                                     placeholder="Email ID"
                                     value={a.email_id}
                                     onChange={(e) => setAddressAt(a.key, { email_id: e.target.value })}
@@ -1006,8 +1013,9 @@ export function VendorMasterScreen({
                       </div>
                       <div>
                         <Label htmlFor="ve-acno">A/c No</Label>
-                        <Input
+                        <ValidatedInput
                           id="ve-acno"
+                          format="account"
                           value={form.ac_no}
                           onChange={(e) => set({ ac_no: e.target.value })}
                           className="text-base md:text-sm"
@@ -1015,8 +1023,9 @@ export function VendorMasterScreen({
                       </div>
                       <div>
                         <Label htmlFor="ve-ifsc">IFSC Code</Label>
-                        <Input
+                        <ValidatedInput
                           id="ve-ifsc"
+                          format="ifsc"
                           value={form.ifsc_code}
                           onChange={(e) => set({ ifsc_code: e.target.value })}
                           className="text-base md:text-sm"
@@ -1051,8 +1060,9 @@ export function VendorMasterScreen({
                       </div>
                       <div>
                         <Label htmlFor="ve-gstno">GST Number</Label>
-                        <Input
+                        <ValidatedInput
                           id="ve-gstno"
+                          format="gstin"
                           value={form.gst_no}
                           onChange={(e) => set({ gst_no: e.target.value })}
                           className="text-base md:text-sm"

@@ -9,16 +9,27 @@ import type { StatusTone } from "@/components/ui/status-pill";
 // Currency → currencies. Reuses the 'sales' permission.
 // ============================================================================
 
-export const QC_STATUSES = ["draft", "finalised"] as const;
+export const QC_STATUSES = ["draft", "finalised", "approved", "rejected"] as const;
 export type QcStatus = (typeof QC_STATUSES)[number];
 
 export const QC_STATUS_LABELS: Record<QcStatus, string> = {
   draft: "Draft",
   finalised: "Finalised",
+  approved: "Approved",
+  rejected: "Rejected",
 };
 
 export function qcStatusTone(status: QcStatus): StatusTone {
-  return status === "finalised" ? "success" : "neutral";
+  switch (status) {
+    case "approved":
+      return "success";
+    case "rejected":
+      return "danger";
+    case "finalised":
+      return "info";
+    default:
+      return "neutral";
+  }
 }
 
 export interface QuoteCosting {
@@ -43,6 +54,9 @@ export interface QuoteCosting {
   margin_pct: number;
   fob_value: number;
   notes: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  approval_reason: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

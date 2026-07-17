@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // ============================================================================
 // Leave Types — HR master (0259). Legacy EDP2 "Leave Type" form: ID (code) ·
-// Loss Of Pay · Blocked · Description · Encash Possible (Yes/No) · For (Both/
+// Loss Of Pay · Inactive · Description · Encash Possible (Yes/No) · For (Both/
 // Male/Female) · No of Days (yearly). Flat header master.
 // ============================================================================
 
@@ -17,7 +17,7 @@ export interface LeaveType {
   encash_possible: boolean;
   applies_to: LeaveAppliesTo | null;
   no_of_days: number;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +29,6 @@ export const leaveTypeInput = z.object({
   encash_possible: z.boolean().default(false),
   applies_to: z.enum(LEAVE_APPLIES_TO).nullable().default(null),
   no_of_days: z.coerce.number().min(0).default(0),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type LeaveTypeInput = z.infer<typeof leaveTypeInput>;

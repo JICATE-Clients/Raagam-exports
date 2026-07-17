@@ -16,6 +16,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DetailSection } from "@/components/masters/detail-section";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import {
   createStockUnit,
   updateStockUnit,
@@ -178,17 +180,7 @@ export function StockUnitMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -339,58 +331,60 @@ export function StockUnitMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <DetailSection label="Details">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="su-code">
+                  Code <span className="text-danger">*</span>
+                </Label>
+                <Input
+                  id="su-code"
+                  value={form.code}
+                  onChange={(e) => set({ code: e.target.value })}
+                  placeholder="KG"
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="su-dp">No. of Decimal Places</Label>
+                <Input
+                  id="su-dp"
+                  type="number"
+                  min="0"
+                  max="6"
+                  value={form.decimal_places}
+                  onChange={(e) => set({ decimal_places: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
             <div>
-              <Label htmlFor="su-code">
-                Code <span className="text-danger">*</span>
+              <Label htmlFor="su-name">
+                Unit of Measurement <span className="text-danger">*</span>
               </Label>
               <Input
-                id="su-code"
-                value={form.code}
-                onChange={(e) => set({ code: e.target.value })}
-                placeholder="KG"
+                id="su-name"
+                value={form.name}
+                onChange={(e) => set({ name: e.target.value })}
+                placeholder="Kilogram"
                 className="text-base md:text-sm"
               />
             </div>
             <div>
-              <Label htmlFor="su-dp">No. of Decimal Places</Label>
-              <Input
-                id="su-dp"
-                type="number"
-                min="0"
-                max="6"
-                value={form.decimal_places}
-                onChange={(e) => set({ decimal_places: e.target.value })}
+              <Label htmlFor="su-desc">Description</Label>
+              <Textarea
+                id="su-desc"
+                rows={2}
+                value={form.description}
+                onChange={(e) => set({ description: e.target.value })}
                 className="text-base md:text-sm"
               />
             </div>
-          </div>
-          <div>
-            <Label htmlFor="su-name">
-              Unit of Measurement <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="su-name"
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              placeholder="Kilogram"
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="su-desc">Description</Label>
-            <Textarea
-              id="su-desc"
-              rows={2}
-              value={form.description}
-              onChange={(e) => set({ description: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          </DetailSection>
 
           {/* item classes */}
-          <div className="rounded-lg border border-border">
-            <label className="flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2.5">
+          <DetailSection label="Item Classes">
+            <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
@@ -400,7 +394,7 @@ export function StockUnitMasterScreen({
               <span className="text-sm font-medium text-foreground">For all Item Classes</span>
             </label>
             {!form.for_all_item_classes && (
-              <div className="flex flex-wrap gap-x-5 gap-y-2 p-3">
+              <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3">
                 {itemClasses.map((c) => {
                   const code = c.code ?? c.name;
                   return (
@@ -419,7 +413,7 @@ export function StockUnitMasterScreen({
                 })}
               </div>
             )}
-          </div>
+          </DetailSection>
 
           <label className="flex cursor-pointer items-center gap-2">
             <input
@@ -428,7 +422,7 @@ export function StockUnitMasterScreen({
               checked={form.inactive}
               onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Inactive (inactive)</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

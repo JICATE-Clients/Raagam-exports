@@ -26,13 +26,13 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 const BLANK = {
   code: "",
   name: "",
-  blocked: false,
+  inactive: false,
   location_id: "",
 };
 
 /**
  * Legacy "Merchandising Team" master (Associates). Flat form: Short Name ·
- * Blocked · Name · Location (→ locations, select-only picker) with
+ * Inactive · Name · Location (→ locations, select-only picker) with
  * Save / Save-As-Drafts (draft persists with `is_draft = true`).
  */
 export function MerchandisingTeamMasterScreen({
@@ -76,7 +76,7 @@ export function MerchandisingTeamMasterScreen({
     setForm({
       code: r.code ?? "",
       name: r.name,
-      blocked: r.blocked,
+      inactive: r.inactive,
       location_id: r.location_id ?? "",
     });
     setOpen(true);
@@ -87,7 +87,7 @@ export function MerchandisingTeamMasterScreen({
       const payload: MerchandisingTeamInput = {
         code: form.code.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         location_id: form.location_id || null,
         is_draft: asDraft,
       };
@@ -118,7 +118,7 @@ export function MerchandisingTeamMasterScreen({
 
   function statusPill(r: MerchandisingTeam) {
     if (r.is_draft) return <StatusPill tone="warning">Draft</StatusPill>;
-    if (r.blocked) return <StatusPill tone="danger">Blocked</StatusPill>;
+    if (r.inactive) return <StatusPill tone="danger">Inactive</StatusPill>;
     return <StatusPill tone="success">Active</StatusPill>;
   }
 
@@ -251,10 +251,10 @@ export function MerchandisingTeamMasterScreen({
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
           <div>

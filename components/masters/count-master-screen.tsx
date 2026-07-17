@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { Select } from "@/components/ui/select";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -125,17 +126,7 @@ export function CountMasterScreen({ rows, perms }: { rows: ConfigLookup[]; perms
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },

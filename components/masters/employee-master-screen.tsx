@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -39,7 +40,7 @@ type Form = {
   team_id: string;
   manager_id: string;
   dob: string;
-  blocked: boolean;
+  inactive: boolean;
   // Permanent Address
   perm_addr1: string;
   perm_addr2: string;
@@ -76,7 +77,7 @@ const BLANK: Form = {
   team_id: "",
   manager_id: "",
   dob: "",
-  blocked: false,
+  inactive: false,
   perm_addr1: "",
   perm_addr2: "",
   perm_addr3: "",
@@ -114,7 +115,7 @@ function ageFromDob(dob: string): number | null {
 /**
  * CRUD for the legacy "Employee" master (Associates). A flat (single-row)
  * record: a header (ID · Name · guardian · Category/Department/Location/
- * Designation/Team ⓘ pickers · DOB+Age · Manager ⓘ · Blocked) + a General
+ * Designation/Team ⓘ pickers · DOB+Age · Manager ⓘ · Inactive) + a General
  * panel (Permanent + Correspondence addresses · personal details).
  *
  * Every ⓘ field lists stored data: Category/Department/Designation/Team via the
@@ -190,7 +191,7 @@ export function EmployeeMasterScreen({
       team_id: r.team_id ?? "",
       manager_id: r.manager_id ?? "",
       dob: r.dob ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
       perm_addr1: r.perm_addr1 ?? "",
       perm_addr2: r.perm_addr2 ?? "",
       perm_addr3: r.perm_addr3 ?? "",
@@ -230,7 +231,7 @@ export function EmployeeMasterScreen({
         team_id: form.team_id || null,
         manager_id: form.manager_id || null,
         dob: form.dob || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
         photo_url: null,
         perm_addr1: form.perm_addr1.trim() || null,
         perm_addr2: form.perm_addr2.trim() || null,
@@ -299,8 +300,8 @@ export function EmployeeMasterScreen({
     {
       header: "Status",
       cell: (r) => {
-        const tone = r.is_draft ? "warning" : r.blocked ? "danger" : "success";
-        const text = r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active";
+        const tone = r.is_draft ? "warning" : r.inactive ? "danger" : "success";
+        const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
     },
@@ -377,8 +378,8 @@ export function EmployeeMasterScreen({
                     {r.designation_id ? ` · ${desigLabel.get(r.designation_id) ?? ""}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.is_draft ? "warning" : r.blocked ? "danger" : "success"}>
-                  {r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
+                  {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -563,10 +564,10 @@ export function EmployeeMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
 
           {/* Photo — upload deferred; field reserved. */}
@@ -602,7 +603,8 @@ export function EmployeeMasterScreen({
                   className="text-base md:text-sm"
                 />
                 <div className="grid grid-cols-3 gap-2">
-                  <Input
+                  <ValidatedInput
+                    format="pincode"
                     placeholder="Pin"
                     value={form.perm_pin}
                     onChange={(e) => set({ perm_pin: e.target.value })}
@@ -614,7 +616,8 @@ export function EmployeeMasterScreen({
                     onChange={(e) => set({ perm_phone: e.target.value })}
                     className="text-base md:text-sm"
                   />
-                  <Input
+                  <ValidatedInput
+                    format="mobile"
                     placeholder="Mobile"
                     value={form.perm_mobile}
                     onChange={(e) => set({ perm_mobile: e.target.value })}
@@ -662,7 +665,8 @@ export function EmployeeMasterScreen({
                       className="text-base md:text-sm"
                     />
                     <div className="grid grid-cols-3 gap-2">
-                      <Input
+                      <ValidatedInput
+                        format="pincode"
                         placeholder="Pin"
                         value={form.corr_pin}
                         onChange={(e) => set({ corr_pin: e.target.value })}
@@ -674,7 +678,8 @@ export function EmployeeMasterScreen({
                         onChange={(e) => set({ corr_phone: e.target.value })}
                         className="text-base md:text-sm"
                       />
-                      <Input
+                      <ValidatedInput
+                        format="mobile"
                         placeholder="Mobile"
                         value={form.corr_mobile}
                         onChange={(e) => set({ corr_mobile: e.target.value })}
@@ -687,9 +692,9 @@ export function EmployeeMasterScreen({
 
               <div>
                 <Label htmlFor="emp-email">E-Mail</Label>
-                <Input
+                <ValidatedInput
                   id="emp-email"
-                  type="email"
+                  format="email"
                   value={form.email}
                   onChange={(e) => set({ email: e.target.value })}
                   className="text-base md:text-sm"

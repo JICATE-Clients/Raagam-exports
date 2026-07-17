@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,7 +39,7 @@ type Section = "address" | "general" | "notify";
 type HeaderForm = {
   code: string;
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   country_id: string;
   also_notify: boolean;
   customer_id: string;
@@ -70,7 +71,7 @@ type HeaderForm = {
 const BLANK: HeaderForm = {
   code: "",
   name: "",
-  blocked: false,
+  inactive: false,
   country_id: "",
   also_notify: false,
   customer_id: "",
@@ -125,7 +126,7 @@ const blankContact = (key: string): ContactRow => ({
 
 /**
  * Master-detail CRUD for the legacy "Consignee" master (Associates): a header
- * (Short Name · Name · Blocked · Country · Also Notify · Customer) + three tabs
+ * (Short Name · Name · Inactive · Country · Also Notify · Customer) + three tabs
  * (Address | General | Notify) + a Contact child grid on the Address tab. Only
  * the header + Address tab + Contact grid are built here; the General and Notify
  * tabs are deferred (need legacy screenshots).
@@ -222,7 +223,7 @@ export function ConsigneeMasterScreen({
     setForm({
       code: r.code ?? "",
       name: r.name,
-      blocked: r.blocked,
+      inactive: r.inactive,
       country_id: r.country_id ?? "",
       also_notify: r.also_notify,
       customer_id: r.customer_id ?? "",
@@ -303,7 +304,7 @@ export function ConsigneeMasterScreen({
       const payload: ConsigneeInput = {
         code: form.code.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         country_id: form.country_id || null,
         also_notify: form.also_notify,
         customer_id: form.customer_id || null,
@@ -389,8 +390,8 @@ export function ConsigneeMasterScreen({
     {
       header: "Status",
       cell: (r) => {
-        const tone = r.is_draft ? "warning" : r.blocked ? "danger" : "success";
-        const text = r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active";
+        const tone = r.is_draft ? "warning" : r.inactive ? "danger" : "success";
+        const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
     },
@@ -480,8 +481,8 @@ export function ConsigneeMasterScreen({
                     {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.is_draft ? "warning" : r.blocked ? "danger" : "success"}>
-                  {r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
+                  {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -572,10 +573,10 @@ export function ConsigneeMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
 
           {/* ---- Address | General | Notify tabs ---- */}
@@ -626,7 +627,6 @@ export function ConsigneeMasterScreen({
                   />
                 </div>
                 <div>
-                  <Label>Country</Label>
                   <CountryPicker
                     countries={countries}
                     value={form.address_country_id || null}
@@ -658,9 +658,9 @@ export function ConsigneeMasterScreen({
               </div>
               <div>
                 <Label htmlFor="cn-email">E-Mail</Label>
-                <Input
+                <ValidatedInput
+                  format="email"
                   id="cn-email"
-                  type="email"
                   value={form.email}
                   onChange={(e) => set({ email: e.target.value })}
                   className="text-base md:text-sm"
@@ -668,7 +668,8 @@ export function ConsigneeMasterScreen({
               </div>
               <div>
                 <Label htmlFor="cn-web">Web site</Label>
-                <Input
+                <ValidatedInput
+                  format="website"
                   id="cn-web"
                   value={form.web_site}
                   onChange={(e) => set({ web_site: e.target.value })}
@@ -748,7 +749,8 @@ export function ConsigneeMasterScreen({
                           className="text-base md:text-sm"
                         />
                       </div>
-                      <Input
+                      <ValidatedInput
+                        format="email"
                         placeholder="Email ID"
                         value={c.email_id}
                         onChange={(e) => setContactAt(c.key, { email_id: e.target.value })}

@@ -20,6 +20,8 @@ import { fmtNumber } from "@/lib/format";
 import { createLevy, updateLevy, deleteLevy } from "@/lib/masters/levy-actions";
 import { AcHeadPicker } from "@/components/masters/ac-head-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { DetailSection } from "@/components/masters/detail-section";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import {
   LEVY_TYPES,
   CESS_MODES,
@@ -340,17 +342,7 @@ export function LevyMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -416,8 +408,7 @@ export function LevyMasterScreen({
    *  only the labels + bound values differ per type. */
   function rateFieldsBlock(title: string, fields: [string, string, (v: string) => void][]) {
     return (
-      <div className="space-y-3 border-t border-border pt-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
+      <DetailSection label={title}>
         <div className="grid grid-cols-3 gap-2">
           {fields.map(([label, value, onChange]) => (
             <div key={label}>
@@ -434,7 +425,7 @@ export function LevyMasterScreen({
             </div>
           ))}
         </div>
-      </div>
+      </DetailSection>
     );
   }
 
@@ -588,68 +579,64 @@ export function LevyMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            {editEntryNo != null && (
-              <div className="col-span-2">
-                <Label>Entry No</Label>
-                <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-                  {editEntryNo}
+          <DetailSection label="Header">
+            <div className="grid grid-cols-2 gap-3">
+              {editEntryNo != null && (
+                <div className="col-span-2">
+                  <Label>Entry No</Label>
+                  <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
+                    {editEntryNo}
+                  </div>
                 </div>
+              )}
+              <div className="col-span-2">
+                <Label htmlFor="lv-type">Type</Label>
+                <Select
+                  id="lv-type"
+                  value={form.type}
+                  onChange={(e) => {
+                    set({ type: e.target.value as LevyType });
+                    setGstTotalPct("");
+                  }}
+                >
+                  {LEVY_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </Select>
               </div>
-            )}
-            <div className="col-span-2">
-              <Label htmlFor="lv-type">Type</Label>
-              <Select
-                id="lv-type"
-                value={form.type}
-                onChange={(e) => {
-                  set({ type: e.target.value as LevyType });
-                  setGstTotalPct("");
-                }}
-              >
-                {LEVY_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </Select>
+              <div>
+                <Label htmlFor="lv-date">Date</Label>
+                <Input
+                  id="lv-date"
+                  type="date"
+                  value={form.levy_date}
+                  onChange={(e) => set({ levy_date: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="lv-eff">Effective From</Label>
+                <Input
+                  id="lv-eff"
+                  type="date"
+                  value={form.effective_from}
+                  onChange={(e) => set({ effective_from: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="lv-date">Date</Label>
-              <Input
-                id="lv-date"
-                type="date"
-                value={form.levy_date}
-                onChange={(e) => set({ levy_date: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="lv-eff">Effective From</Label>
-              <Input
-                id="lv-eff"
-                type="date"
-                value={form.effective_from}
-                onChange={(e) => set({ effective_from: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </div>
+          </DetailSection>
 
           {isVatCstForm && (
-            <div className="space-y-3 border-t border-border pt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {form.type} Rate
-              </div>
+            <DetailSection label={`${form.type} Rate`}>
               {rateRow(`${form.type} %`, form.vat_cst_pct, (v) => set({ vat_cst_pct: v }), form.vat_cst_ac_head, (v) => set({ vat_cst_ac_head: v }), true)}
-            </div>
+            </DetailSection>
           )}
 
           {!isAnnexureForm && !isVatCstForm && (
-            <div className="space-y-3 border-t border-border pt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Rates &amp; account heads
-              </div>
+            <DetailSection label="Rates & account heads">
               {(act.cgst || act.igst) && (
                 <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5">
                   <Label>GST % (auto-split)</Label>
@@ -696,7 +683,7 @@ export function LevyMasterScreen({
                   {acSelect(form.cess_ac_head, (v) => set({ cess_ac_head: v }), false)}
                 </div>
               </div>
-            </div>
+            </DetailSection>
           )}
 
           {isDutyForm &&
@@ -722,8 +709,7 @@ export function LevyMasterScreen({
 
           {/* Annexure — shared by Duty, TDS and Excise Duty */}
           {isAnnexureForm && (
-            <div className="space-y-3 border-t border-border pt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Annexure</div>
+            <DetailSection label="Annexure">
               <div>
                 <Label>Annexure No</Label>
                 <Input
@@ -770,11 +756,10 @@ export function LevyMasterScreen({
 
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account Head</div>
               {acSelect(form.annexure_ac_head, (v) => set({ annexure_ac_head: v }), false)}
-            </div>
+            </DetailSection>
           )}
 
-          <div className="border-t border-border pt-3">
-            <Label htmlFor="lv-desc">Description</Label>
+          <DetailSection label="Description">
             <Textarea
               id="lv-desc"
               rows={2}
@@ -782,7 +767,7 @@ export function LevyMasterScreen({
               onChange={(e) => set({ description: e.target.value })}
               className="text-base md:text-sm"
             />
-          </div>
+          </DetailSection>
 
           <label className="flex cursor-pointer items-center gap-2">
             <input
@@ -791,7 +776,7 @@ export function LevyMasterScreen({
               checked={form.inactive}
               onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Inactive (inactive)</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

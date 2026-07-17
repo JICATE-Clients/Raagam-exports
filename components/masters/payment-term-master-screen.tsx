@@ -41,7 +41,7 @@ const blankForm = () => ({
   with_interest: false,
   credit_days: "0",
   description: "",
-  blocked: false,
+  inactive: false,
 });
 
 /** Human-readable "AT" phrase from the three dropdowns. */
@@ -57,7 +57,7 @@ function atPhrase(r: Pick<PaymentTerm, "at_basis" | "at_when" | "at_event" | "cr
 /**
  * Legacy "Payment term" master (Associates). Flat header form: auto Entry No,
  * Date, Pay Mode, an "AT" phrase built from three dropdowns, With Interest,
- * Credit Days, Description, Blocked.
+ * Credit Days, Description, Inactive.
  */
 export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; perms: Perms }) {
   const router = useRouter();
@@ -101,7 +101,7 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
       with_interest: r.with_interest,
       credit_days: String(r.credit_days),
       description: r.description ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -117,7 +117,7 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
         with_interest: form.with_interest,
         credit_days: Number(form.credit_days) || 0,
         description: form.description.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updatePaymentTerm(editId, payload) : await createPaymentTerm(payload);
       if (res.ok) {
@@ -155,7 +155,7 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -230,8 +230,8 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
                     {atPhrase(r)} · {r.with_interest ? "With interest" : "No interest"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -384,10 +384,10 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

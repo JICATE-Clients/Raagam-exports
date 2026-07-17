@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -14,11 +15,11 @@ import type { State, StateInput } from "@/lib/masters/state-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
-const blankForm = () => ({ code: "", name: "", is_default: false, blocked: false });
+const blankForm = () => ({ code: "", name: "", is_default: false, inactive: false });
 
 /**
  * Legacy "State" master (GST). Minimal code/name master: Code (GST state code) ·
- * Default · Blocked · State (name).
+ * Default · Inactive · State (name).
  */
 export function StateMasterScreen({ rows, perms }: { rows: State[]; perms: Perms }) {
   const router = useRouter();
@@ -44,7 +45,7 @@ export function StateMasterScreen({ rows, perms }: { rows: State[]; perms: Perms
   }
   function openEdit(r: State) {
     setEditId(r.id);
-    setForm({ code: r.code ?? "", name: r.name, is_default: r.is_default, blocked: r.blocked });
+    setForm({ code: r.code ?? "", name: r.name, is_default: r.is_default, inactive: r.inactive });
     setOpen(true);
   }
 
@@ -54,7 +55,7 @@ export function StateMasterScreen({ rows, perms }: { rows: State[]; perms: Perms
         code: form.code.trim() || null,
         name: form.name.trim(),
         is_default: form.is_default,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateState(editId, payload) : await createState(payload);
       if (res.ok) {
@@ -94,7 +95,7 @@ export function StateMasterScreen({ rows, perms }: { rows: State[]; perms: Perms
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -168,8 +169,8 @@ export function StateMasterScreen({ rows, perms }: { rows: State[]; perms: Perms
                     {r.is_default ? " · Default" : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -197,8 +198,9 @@ export function StateMasterScreen({ rows, perms }: { rows: State[]; perms: Perms
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="st-code">Code</Label>
-              <Input
+              <ValidatedInput
                 id="st-code"
+                format="gst_state"
                 value={form.code}
                 onChange={(e) => set({ code: e.target.value })}
                 className="text-base md:text-sm"
@@ -218,10 +220,10 @@ export function StateMasterScreen({ rows, perms }: { rows: State[]; perms: Perms
                 <input
                   type="checkbox"
                   className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.blocked}
-                  onChange={(e) => set({ blocked: e.target.checked })}
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
                 />
-                <span className="text-sm text-foreground">Blocked</span>
+                <span className="text-sm text-foreground">Inactive</span>
               </label>
             </div>
           </div>

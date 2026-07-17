@@ -98,6 +98,12 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
     });
     if (!dup.ok) return fail(dup.error);
   }
+  const dupCode = await checkDuplicateName(s, "items", header.code, {
+    nameColumn: "code",
+    label: "code",
+    scope: { item_class_id: p.data.item_class_id },
+  });
+  if (!dupCode.ok) return fail(dupCode.error);
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
     return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
   }
@@ -139,6 +145,13 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
     });
     if (!dup.ok) return fail(dup.error);
   }
+  const dupCode = await checkDuplicateName(s, "items", header.code, {
+    nameColumn: "code",
+    label: "code",
+    excludeId: id,
+    scope: { item_class_id: p.data.item_class_id },
+  });
+  if (!dupCode.ok) return fail(dupCode.error);
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
     return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
   }

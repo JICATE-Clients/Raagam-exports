@@ -40,7 +40,7 @@ const blankLine = (key: string): LineRow => ({
 
 /**
  * Legacy "Garment rejection rule" master (System). Master-detail: header (auto
- * Entry No · Effective From · Rule · Blocked) + a Details grid of tiers
+ * Entry No · Effective From · Rule · Inactive) + a Details grid of tiers
  * (Range · From · To · Rejection Allowance).
  */
 export function GarmentRejectionRuleMasterScreen({
@@ -59,7 +59,7 @@ export function GarmentRejectionRuleMasterScreen({
   const [editEntryNo, setEditEntryNo] = useState<number | null>(null);
   const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
   const [rule, setRule] = useState("");
-  const [blocked, setBlocked] = useState(false);
+  const [inactive, setBlocked] = useState(false);
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
@@ -86,7 +86,7 @@ export function GarmentRejectionRuleMasterScreen({
     setEditEntryNo(r.entry_no);
     setEffectiveFrom(r.effective_from);
     setRule(r.rule ?? "");
-    setBlocked(r.blocked);
+    setBlocked(r.inactive);
     setLines(
       r.lines.map((l) => ({
         key: newKey(),
@@ -116,7 +116,7 @@ export function GarmentRejectionRuleMasterScreen({
       const payload: GarmentRejectionRuleInput = {
         effective_from: effectiveFrom,
         rule: rule.trim(),
-        blocked,
+        inactive,
         lines: lines.map((l, i) => ({
           sno: i + 1,
           range_label: l.range_label.trim() || null,
@@ -165,7 +165,7 @@ export function GarmentRejectionRuleMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -240,8 +240,8 @@ export function GarmentRejectionRuleMasterScreen({
                     #{r.entry_no} · {r.effective_from} · {r.lines.length} tier{r.lines.length === 1 ? "" : "s"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -302,10 +302,10 @@ export function GarmentRejectionRuleMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={blocked}
+              checked={inactive}
               onChange={(e) => setBlocked(e.target.checked)}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
 
           {/* Details grid */}

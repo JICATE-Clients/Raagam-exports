@@ -20,14 +20,14 @@ export interface ProcessHsnRow {
   name: string; // legacy "Process Name"
   hsn_code: string | null; // TEXT — the HSN code we assign
   commodity_id: string | null; // config_lookups 'commodity' (replaces item class)
-  blocked: boolean; // Status = Blocked when true
+  inactive: boolean; // Status = Inactive when true
 }
 
 export async function listProcessHsn(): Promise<ProcessHsnRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("processes")
-    .select("id, name, hsn_code, commodity_id, blocked")
+    .select("id, name, hsn_code, commodity_id, inactive")
     .order("name");
   return (data ?? []) as ProcessHsnRow[];
 }

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // ============================================================================
 // Account Groups — Associates master (0244). Legacy EDP2 "Account Group" form
-// (chart-of-accounts groups): Under (self-ref parent) · Blocked · Short Name ·
+// (chart-of-accounts groups): Under (self-ref parent) · Inactive · Short Name ·
 // Name (required) · Nature of Group · Debit Schedule · Credit Schedule. The two
 // Schedule fields point at config_lookups kind 'account_schedule'.
 // ============================================================================
@@ -17,7 +17,7 @@ export interface AccountGroup {
   nature_of_group: NatureOfGroup | null;
   debit_schedule_id: string | null;
   credit_schedule_id: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +29,6 @@ export const accountGroupInput = z.object({
   nature_of_group: z.enum(NATURE_OF_GROUP).nullable().default(null),
   debit_schedule_id: z.string().uuid().nullable().default(null),
   credit_schedule_id: z.string().uuid().nullable().default(null),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type AccountGroupInput = z.infer<typeof accountGroupInput>;

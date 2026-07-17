@@ -58,7 +58,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-xs flex-col gap-2">
+      {/* z-[200]: must outrank Sheet (z-90/91) and dialog pickers (z-100/101), or a Save
+          error fired while one is open renders invisibly behind it. */}
+      <div className="pointer-events-none fixed bottom-4 right-4 z-[200] flex w-full max-w-xs flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}

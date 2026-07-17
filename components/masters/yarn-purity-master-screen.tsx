@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -113,17 +114,7 @@ export function YarnPurityMasterScreen({ rows, perms }: { rows: ConfigLookup[]; 
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },

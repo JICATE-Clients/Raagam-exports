@@ -23,6 +23,8 @@ export async function checkDuplicateName(
     excludeId?: string;
     /** Extra eq()/is() filters that scope the check (e.g. { item_class_id } or { kind }). */
     scope?: Record<string, string | null>;
+    /** Word used in the error message ("name", "code", ...). Default "name". */
+    label?: string;
   } = {},
 ): Promise<DupGuardResult> {
   const trimmed = name?.trim();
@@ -30,6 +32,7 @@ export async function checkDuplicateName(
 
   const nameColumn = opts.nameColumn ?? "name";
   const idColumn = opts.idColumn ?? "id";
+  const label = opts.label ?? "name";
 
   let q = s.from(table).select(idColumn).ilike(nameColumn, trimmed);
   for (const [col, val] of Object.entries(opts.scope ?? {})) {
@@ -40,7 +43,7 @@ export async function checkDuplicateName(
   const { data, error } = await q.limit(1);
   if (error) return { ok: false, error: error.message };
   if (data && data.length > 0) {
-    return { ok: false, error: `"${trimmed}" already exists. Use a different name.` };
+    return { ok: false, error: `"${trimmed}" already exists. Use a different ${label}.` };
   }
   return { ok: true };
 }

@@ -25,7 +25,7 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 const blankForm = () => ({
   short_name: "",
   name: "",
-  blocked: false,
+  inactive: false,
   debit_group_id: null as string | null,
   credit_group_id: null as string | null,
   cost_head_id: null as string | null,
@@ -33,7 +33,7 @@ const blankForm = () => ({
 
 /**
  * CRUD for the legacy "Account Head" master (Associates) — a flat ledger head:
- * Short Name · Blocked · Name · Group Under [If Debits · If Credits] · Cost head.
+ * Short Name · Inactive · Name · Group Under [If Debits · If Credits] · Cost head.
  * The three ⓘ fields list stored data: If Debits / If Credits via the shared
  * AccountGroupPicker (over account_groups), Cost head via CostHeadPicker (over
  * the finance cost_heads master) — both select-only (edited on their own masters).
@@ -83,7 +83,7 @@ export function AccountHeadMasterScreen({
     setForm({
       short_name: r.short_name ?? "",
       name: r.name,
-      blocked: r.blocked,
+      inactive: r.inactive,
       debit_group_id: r.debit_group_id,
       credit_group_id: r.credit_group_id,
       cost_head_id: r.cost_head_id,
@@ -96,7 +96,7 @@ export function AccountHeadMasterScreen({
       const payload: AccountHeadInput = {
         short_name: form.short_name.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         debit_group_id: form.debit_group_id,
         credit_group_id: form.credit_group_id,
         cost_head_id: form.cost_head_id,
@@ -149,8 +149,8 @@ export function AccountHeadMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Blocked" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -225,8 +225,8 @@ export function AccountHeadMasterScreen({
                     {r.debit_group_id ? ` · Dr ${groupName.get(r.debit_group_id) ?? "—"}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -265,10 +265,10 @@ export function AccountHeadMasterScreen({
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
 

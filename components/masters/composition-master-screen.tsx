@@ -22,6 +22,8 @@ import {
   deleteComposition,
 } from "@/lib/masters/composition-actions";
 import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import type { Composition, CompositionInput } from "@/lib/masters/composition-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 
@@ -183,17 +185,7 @@ export function CompositionMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -348,54 +340,33 @@ export function CompositionMasterScreen({
           </div>
 
           {/* Mixing grid */}
-          <div className="rounded-lg border border-border">
-            <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-              <span className="text-sm font-medium text-foreground">Mixing</span>
-              <span
-                className={`text-xs tabular-nums ${pctTotal === 100 ? "text-success" : "text-muted-foreground"}`}
-              >
+          <ChildGrid<LineRow>
+            label="Mixing"
+            badge={
+              <span className={`text-xs tabular-nums ${pctTotal === 100 ? "text-success" : "text-muted-foreground"}`}>
                 Total {fmtNumber(pctTotal)}%
               </span>
-            </div>
-            <div className="space-y-2 p-3">
-              {lines.length === 0 && <p className="text-xs text-muted-foreground">No mixing lines yet.</p>}
-              {lines.map((l, i) => (
-                <div key={l.key} className="flex items-center gap-2">
-                  <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {i + 1}
-                  </span>
-                  <Input
-                    value={l.description}
-                    onChange={(e) => setLineAt(l.key, { description: e.target.value })}
-                    placeholder="Description"
-                    className="flex-1 text-base md:text-sm"
-                  />
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={l.mixing_pct}
-                    onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })}
-                    placeholder="%"
-                    className="w-20 text-base md:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => removeLine(l.key)}
-                    aria-label="Remove line"
-                  >
-                    ✕
-                  </Button>
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>
-                + Add line
-              </Button>
-            </div>
-          </div>
+            }
+            rows={lines}
+            onAdd={addLine}
+            onRemove={(l) => removeLine(l.key)}
+            addLabel="+ Add line"
+            columns={[
+              {
+                header: "Description",
+                cell: (l) => (
+                  <Input value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
+                ),
+              },
+              {
+                header: "%",
+                align: "center",
+                cell: (l) => (
+                  <Input type="number" min="0" step="0.01" value={l.mixing_pct} onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })} placeholder="%" className="text-base md:text-sm" />
+                ),
+              },
+            ]}
+          />
 
           <label className="flex cursor-pointer items-center gap-2">
             <input

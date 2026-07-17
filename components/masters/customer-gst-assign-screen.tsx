@@ -13,15 +13,15 @@ import type { CustomerGstRow } from "@/lib/masters/customer-gst-service";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type CityOption = { id: string; code: string | null; name: string | null };
-const STATUSES = ["Active", "Blocked", "Draft"] as const;
+const STATUSES = ["Active", "Inactive", "Draft"] as const;
 
 function statusOf(r: CustomerGstRow): (typeof STATUSES)[number] {
-  if (r.blocked) return "Blocked";
+  if (r.inactive) return "Inactive";
   if (r.is_draft) return "Draft";
   return "Active";
 }
 function statusTone(s: (typeof STATUSES)[number]): "success" | "danger" | "warning" {
-  return s === "Active" ? "success" : s === "Blocked" ? "danger" : "warning";
+  return s === "Active" ? "success" : s === "Inactive" ? "danger" : "warning";
 }
 
 /**

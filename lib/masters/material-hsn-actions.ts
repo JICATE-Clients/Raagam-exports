@@ -51,7 +51,7 @@ export async function saveMaterialHsn(changes: MaterialHsnChange[]): Promise<Res
   }
 
   revalidatePath("/masters");
-  revalidatePath("/masters/materials");
-  revalidatePath("/masters/materials/hsn-assign");
+  revalidatePath("/masters/gst");
+  revalidatePath("/masters/gst/hsn-assign-material");
   return { ok: true };
 }

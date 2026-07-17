@@ -27,12 +27,12 @@ const blankForm = () => ({
   encash_possible: true,
   applies_to: "Both" as LeaveAppliesTo,
   no_of_days: "0",
-  blocked: false,
+  inactive: false,
 });
 
 /**
  * Legacy "Leave Type" master (HR). Flat header form: ID (code) · Loss Of Pay ·
- * Blocked · Description · Encash Possible (Yes/No radio) · For (Both/Male/Female)
+ * Inactive · Description · Encash Possible (Yes/No radio) · For (Both/Male/Female)
  * · No of Days (yearly allotment).
  */
 export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perms: Perms }) {
@@ -68,7 +68,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
       encash_possible: r.encash_possible,
       applies_to: r.applies_to ?? "Both",
       no_of_days: String(r.no_of_days),
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -82,7 +82,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
         encash_possible: form.encash_possible,
         applies_to: form.applies_to,
         no_of_days: Number(form.no_of_days) || 0,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateLeaveType(editId, payload) : await createLeaveType(payload);
       if (res.ok) {
@@ -125,7 +125,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
     {
       header: "Status",
       cell: (r) => {
-        if (r.blocked) return <StatusPill tone="danger">Blocked</StatusPill>;
+        if (r.inactive) return <StatusPill tone="danger">Inactive</StatusPill>;
         if (r.loss_of_pay) return <StatusPill tone="warning">LOP</StatusPill>;
         return <StatusPill tone="success">Active</StatusPill>;
       },
@@ -202,8 +202,8 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
                     {r.description ?? "—"} · {r.applies_to ?? "—"} · {r.no_of_days}/yr
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : r.loss_of_pay ? "warning" : "success"}>
-                  {r.blocked ? "Blocked" : r.loss_of_pay ? "LOP" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : r.loss_of_pay ? "warning" : "success"}>
+                  {r.inactive ? "Inactive" : r.loss_of_pay ? "LOP" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -255,10 +255,10 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
                 <input
                   type="checkbox"
                   className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.blocked}
-                  onChange={(e) => set({ blocked: e.target.checked })}
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
                 />
-                <span className="text-sm text-foreground">Blocked</span>
+                <span className="text-sm text-foreground">Inactive</span>
               </label>
             </div>
           </div>

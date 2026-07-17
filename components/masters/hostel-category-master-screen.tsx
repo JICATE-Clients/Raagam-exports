@@ -21,12 +21,12 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 const BLANK = {
   code: "",
   name: "",
-  blocked: false,
+  inactive: false,
 };
 
 /**
  * Legacy "Hostel Category" master (HR). The simplest flat master: Code (manual,
- * optional) · Name (required) · Blocked.
+ * optional) · Name (required) · Inactive.
  */
 export function HostelCategoryMasterScreen({ rows, perms }: { rows: HostelCategory[]; perms: Perms }) {
   const router = useRouter();
@@ -52,7 +52,7 @@ export function HostelCategoryMasterScreen({ rows, perms }: { rows: HostelCatego
   }
   function openEdit(r: HostelCategory) {
     setEditId(r.id);
-    setForm({ code: r.code ?? "", name: r.name, blocked: r.blocked });
+    setForm({ code: r.code ?? "", name: r.name, inactive: r.inactive });
     setOpen(true);
   }
 
@@ -61,7 +61,7 @@ export function HostelCategoryMasterScreen({ rows, perms }: { rows: HostelCatego
       const payload: HostelCategoryInput = {
         code: form.code.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId
         ? await updateHostelCategory(editId, payload)
@@ -94,7 +94,7 @@ export function HostelCategoryMasterScreen({ rows, perms }: { rows: HostelCatego
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -165,8 +165,8 @@ export function HostelCategoryMasterScreen({ rows, perms }: { rows: HostelCatego
                   <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
                   <div className="mt-0.5 text-xs text-muted-foreground">{r.code ?? "—"}</div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -205,10 +205,10 @@ export function HostelCategoryMasterScreen({ rows, perms }: { rows: HostelCatego
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
           <div>

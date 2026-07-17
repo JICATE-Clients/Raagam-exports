@@ -21,6 +21,9 @@ import {
   deleteComponent,
 } from "@/lib/masters/component-actions";
 import type { Component, ComponentInput } from "@/lib/masters/component-types";
+import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type CoordinateRow = { key: string; coordinate: string };
@@ -97,28 +100,18 @@ export function ComponentMasterScreen({
 
   function submit() {
     startTransition(async () => {
-      const typed = coordinates
-        .filter((c) => c.coordinate.trim())
-        .map((c, i) => ({ sno: i + 1, coordinate: c.coordinate.trim() }));
-
-      // TODO(you): decide how "All Coordinates" interacts with the grid.
-      // The legacy checkbox means "this component applies to *every* coordinate,"
-      // which makes a specific list redundant. Return the coordinate rows to
-      // persist given `form.all_coordinates`. Trade-off:
-      //   (a) `return typed;`   → keep whatever the user typed (nothing is lost)
-      //   (b) `return form.all_coordinates ? [] : typed;` → clean data, but a
-      //        later un-tick loses the previously-typed list.
-      // Default below keeps typed rows; change it to match how the ERP should behave.
-      function resolveCoordinates(): { sno: number; coordinate: string }[] {
-        return typed;
-      }
-
+      // "All Coordinates" means this component applies to every coordinate,
+      // which makes a specific list meaningless — and the list column never
+      // shows it either way (`r.all_coordinates ? "All" : ...`). Clear it on
+      // save so the DB doesn't carry a stale list nobody can see or edit.
       const payload: ComponentInput = {
         short_name: form.short_name.trim(),
         description: form.description.trim() || null,
         all_coordinates: form.all_coordinates,
         inactive: form.inactive,
-        coordinates: resolveCoordinates(),
+        coordinates: form.all_coordinates
+          ? []
+          : coordinates.filter((c) => c.coordinate.trim()).map((c, i) => ({ sno: i + 1, coordinate: c.coordinate.trim() })),
       };
       const res = editId ? await updateComponent(editId, payload) : await createComponent(payload);
       if (res.ok) {
@@ -179,17 +172,7 @@ export function ComponentMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -325,26 +308,28 @@ export function ComponentMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="cmp-short">
-              Short Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="cmp-short"
-              value={form.short_name}
-              onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="cmp-desc">Description</Label>
-            <Input
-              id="cmp-desc"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="cmp-short">
+                Short Name <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="cmp-short"
+                value={form.short_name}
+                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cmp-desc">Description</Label>
+              <Input
+                id="cmp-desc"
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
 
           <label className="flex cursor-pointer items-center gap-2">
             <input
@@ -358,42 +343,21 @@ export function ComponentMasterScreen({
 
           {/* Coordinates grid — hidden while "All Coordinates" is ticked */}
           {!form.all_coordinates && (
-            <div className="rounded-lg border border-border">
-              <div className="border-b border-border px-3 py-2.5">
-                <span className="text-sm font-medium text-foreground">Coordinates</span>
-              </div>
-              <div className="space-y-2 p-3">
-                {coordinates.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No coordinates yet.</p>
-                )}
-                {coordinates.map((c, i) => (
-                  <div key={c.key} className="flex items-center gap-2">
-                    <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                      {i + 1}
-                    </span>
-                    <Input
-                      value={c.coordinate}
-                      onChange={(e) => setCoordinateAt(c.key, e.target.value)}
-                      placeholder="Coordinate"
-                      className="flex-1 text-base md:text-sm"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0 text-muted-foreground hover:text-danger"
-                      onClick={() => removeCoordinate(c.key)}
-                      aria-label="Remove coordinate"
-                    >
-                      ✕
-                    </Button>
-                  </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" onClick={addCoordinate}>
-                  + Add line
-                </Button>
-              </div>
-            </div>
+            <ChildGrid<CoordinateRow>
+              label="Coordinates"
+              rows={coordinates}
+              onAdd={addCoordinate}
+              onRemove={(c) => removeCoordinate(c.key)}
+              addLabel="+ Add line"
+              columns={[
+                {
+                  header: "Coordinate",
+                  cell: (c) => (
+                    <Input value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
+                  ),
+                },
+              ]}
+            />
           )}
 
           <label className="flex cursor-pointer items-center gap-2">

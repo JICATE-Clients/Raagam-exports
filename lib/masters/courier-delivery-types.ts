@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { nullableFormat, EMAIL_RE, WEBSITE_RE } from "@/lib/validation/formats";
 
 // ============================================================================
 // Courier Delivery Addresses — master-detail (0252). Legacy EDP2 "Courier
 // Delivery Address" form — structurally identical to Notify (0239): a header
-// (Short Name · Name · Blocked · Country) + Address fields + a Contact child
+// (Short Name · Name · Inactive · Country) + Address fields + a Contact child
 // grid. Picker wiring: country/address country → countries; city/state and the
 // grid's department/designation/internal_department → config_lookups.
 // ============================================================================
@@ -25,7 +26,7 @@ export interface CourierDeliveryAddress {
   id: string;
   code: string | null; // "Short Name"
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   country_id: string | null;
   street: string | null;
   city_id: string | null;
@@ -52,14 +53,14 @@ export const courierDeliveryContactInput = z.object({
   designation_id: uuidN,
   land_line: nullableText,
   mobile: nullableText,
-  email_id: nullableText,
+  email_id: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   internal_department_id: uuidN,
 });
 
 export const courierDeliveryInput = z.object({
   code: nullableText,
   name: z.string().min(1, "Name is required"),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   country_id: uuidN,
   street: nullableText,
   city_id: uuidN,
@@ -68,8 +69,8 @@ export const courierDeliveryInput = z.object({
   address_country_id: uuidN,
   land_line: nullableText,
   fax: nullableText,
-  email: nullableText,
-  web_site: nullableText,
+  email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
+  web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   contacts: z.array(courierDeliveryContactInput).default([]),
 });
 export type CourierDeliveryInput = z.infer<typeof courierDeliveryInput>;

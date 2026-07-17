@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -31,7 +32,7 @@ type BranchRow = {
   ifs_code: string;
 };
 
-const BLANK = { code: "", bank_type: "Foreign" as BankType, name: "", blocked: false };
+const BLANK = { code: "", bank_type: "Foreign" as BankType, name: "", inactive: false };
 const blankBranch = (key: string): BranchRow => ({
   key,
   country_id: "",
@@ -49,7 +50,7 @@ const blankBranch = (key: string): BranchRow => ({
 
 /**
  * Master-detail CRUD for the legacy "Bank" master: header (Code · Foreign/Local ·
- * Name · Blocked) + a "Bank Detail" branch grid. The single code column reads
+ * Name · Inactive) + a "Bank Detail" branch grid. The single code column reads
  * "Swift Code" for Foreign banks and "RTGS/NIFT Code" for Local ones.
  */
 export function BankMasterScreen({
@@ -97,7 +98,7 @@ export function BankMasterScreen({
   }
   function openEdit(r: Bank) {
     setEditId(r.id);
-    setForm({ code: r.code ?? "", bank_type: r.bank_type ?? "Foreign", name: r.name, blocked: r.blocked });
+    setForm({ code: r.code ?? "", bank_type: r.bank_type ?? "Foreign", name: r.name, inactive: r.inactive });
     setBranches(
       r.branches.map((b) => ({
         key: newKey(),
@@ -133,7 +134,7 @@ export function BankMasterScreen({
         code: form.code.trim() || null,
         bank_type: form.bank_type,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         branches: branches.map((b, i) => ({
           sno: i + 1,
           country_id: b.country_id || null,
@@ -184,7 +185,7 @@ export function BankMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -258,8 +259,8 @@ export function BankMasterScreen({
                     {r.branches.length === 1 ? "" : "es"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -328,10 +329,10 @@ export function BankMasterScreen({
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
 
           {/* Bank Detail branch grid */}
@@ -374,17 +375,17 @@ export function BankMasterScreen({
                   <div className="grid grid-cols-2 gap-2">
                     <Input placeholder="State" value={b.state} onChange={(e) => setBranchAt(b.key, { state: e.target.value })} className="text-base md:text-sm" />
                     <Input placeholder="City" value={b.city} onChange={(e) => setBranchAt(b.key, { city: e.target.value })} className="text-base md:text-sm" />
-                    <Input placeholder="Pin" value={b.pin} onChange={(e) => setBranchAt(b.key, { pin: e.target.value })} className="text-base md:text-sm" />
+                    <ValidatedInput format="pincode" placeholder="Pin" value={b.pin} onChange={(e) => setBranchAt(b.key, { pin: e.target.value })} className="text-base md:text-sm" />
                     <Input placeholder="Street" value={b.street} onChange={(e) => setBranchAt(b.key, { street: e.target.value })} className="text-base md:text-sm" />
                     <Input placeholder="Land Line" value={b.land_line} onChange={(e) => setBranchAt(b.key, { land_line: e.target.value })} className="text-base md:text-sm" />
                     <Input placeholder="Fax" value={b.fax} onChange={(e) => setBranchAt(b.key, { fax: e.target.value })} className="text-base md:text-sm" />
                   </div>
-                  <Input placeholder="E-Mail" value={b.email} onChange={(e) => setBranchAt(b.key, { email: e.target.value })} className="text-base md:text-sm" />
+                  <ValidatedInput format="email" placeholder="E-Mail" value={b.email} onChange={(e) => setBranchAt(b.key, { email: e.target.value })} className="text-base md:text-sm" />
                   <div className="grid grid-cols-2 gap-2">
                     <Input placeholder={codeLabel} value={b.swift_rtgs_code} onChange={(e) => setBranchAt(b.key, { swift_rtgs_code: e.target.value })} className="text-base md:text-sm" />
-                    <Input placeholder="IFS Code" value={b.ifs_code} onChange={(e) => setBranchAt(b.key, { ifs_code: e.target.value })} className="text-base md:text-sm" />
+                    <ValidatedInput format="ifsc" placeholder="IFS Code" value={b.ifs_code} onChange={(e) => setBranchAt(b.key, { ifs_code: e.target.value })} className="text-base md:text-sm" />
                   </div>
-                  <Input placeholder="Current Acc No" value={b.current_acc_no} onChange={(e) => setBranchAt(b.key, { current_acc_no: e.target.value })} className="text-base md:text-sm" />
+                  <ValidatedInput format="account" placeholder="Current Acc No" value={b.current_acc_no} onChange={(e) => setBranchAt(b.key, { current_acc_no: e.target.value })} className="text-base md:text-sm" />
                 </div>
               ))}
               <Button type="button" variant="outline" size="sm" onClick={addBranch}>

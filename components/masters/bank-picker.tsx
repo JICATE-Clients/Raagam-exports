@@ -17,7 +17,7 @@ import { BANK_TYPES, type Bank, type BankInput, type BankType } from "@/lib/mast
  * searchable grid with Add / Modify / OK / Cancel. `value` is the bank **id**.
  *
  * Add/Modify here only edit the bank *header* (Code · Foreign/Local · Name ·
- * Blocked) — the branch grid is edited on the full Bank master screen. On
+ * Inactive) — the branch grid is edited on the full Bank master screen. On
  * Modify the bank's existing branches are passed back unchanged so the
  * wholesale branch-replace in updateBank does not wipe them.
  */
@@ -52,7 +52,7 @@ export function BankPicker({
   const [code, setCode] = useState("");
   const [bankType, setBankType] = useState<"" | BankType>("");
   const [name, setName] = useState("");
-  const [blocked, setBlocked] = useState(false);
+  const [inactive, setBlocked] = useState(false);
 
   const selected = banks.find((b) => b.id === value) ?? null;
 
@@ -94,7 +94,7 @@ export function BankPicker({
     setCode(b.code ?? "");
     setBankType(b.bank_type ?? "");
     setName(b.name);
-    setBlocked(b.blocked);
+    setBlocked(b.inactive);
     setMode("form");
   }
 
@@ -120,7 +120,7 @@ export function BankPicker({
         code: code.trim() || null,
         bank_type: bankType ? bankType : null,
         name: name.trim(),
-        blocked,
+        inactive,
         branches,
       };
       const res = formEditId ? await updateBank(formEditId, payload) : await createBank(payload);
@@ -308,10 +308,10 @@ export function BankPicker({
                       <input
                         type="checkbox"
                         className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={blocked}
+                        checked={inactive}
                         onChange={(e) => setBlocked(e.target.checked)}
                       />
-                      <span className="text-sm text-foreground">Blocked</span>
+                      <span className="text-sm text-foreground">Inactive</span>
                     </label>
                   </div>
                   <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">

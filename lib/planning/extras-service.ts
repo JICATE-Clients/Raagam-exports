@@ -12,6 +12,7 @@ import type {
   StockCompletion,
   PdRequest,
   PdProduct,
+  PpmCancellation,
 } from "./types";
 
 // shared order picker (reuse budget-service)
@@ -225,6 +226,76 @@ export async function getPpmLines(issueId: string): Promise<PpmIssueLine[]> {
     .eq("ppm_issue_id", issueId)
     .order("sort_order");
   return (data ?? []) as PpmIssueLine[];
+}
+
+/** Issued PPMs — the only PPMs eligible for cancellation / receipt completion. */
+export type PpmPickerOption = { id: string; code: string | null; order_number: string | null };
+export async function getIssuedPpmsForPicker(): Promise<PpmPickerOption[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("ppm_issues")
+    .select("id, code, sales_orders(order_number)")
+    .eq("status", "issued")
+    .order("created_at", { ascending: false });
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    id: row.id as string,
+    code: (row.code as string | null) ?? null,
+    order_number: joined(row, "sales_orders", "order_number"),
+  }));
+}
+
+// ============================================================================
+// Garmenting PPM Cancellation (0275)
+// ============================================================================
+export interface PpmCancellationWithRefs extends PpmCancellation {
+  ppm_code: string | null;
+  ppm_status: string | null;
+}
+export async function listPpmCancellations(): Promise<PpmCancellationWithRefs[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("ppm_cancellations")
+    .select("*, ppm_issues(code, status)")
+    .order("created_at", { ascending: false });
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    ...(row as unknown as PpmCancellation),
+    ppm_code: joined(row, "ppm_issues", "code"),
+    ppm_status: joined(row, "ppm_issues", "status"),
+  }));
+}
+
+// ============================================================================
+// Garmenting PPM Receipt Completion (0276)
+// ============================================================================
+export interface IssuedPpmReceiptRow {
+  id: string;
+  code: string | null;
+  order_number: string | null;
+  issued_qty: number;
+  received_qty: number;
+  completed: boolean;
+}
+export async function listIssuedPpmsWithReceiptTotals(): Promise<IssuedPpmReceiptRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("ppm_issues")
+    .select(
+      "id, code, sales_orders(order_number), ppm_issue_lines(issued_qty, received_qty), ppm_receipt_completions(id)",
+    )
+    .eq("status", "issued")
+    .order("created_at", { ascending: false });
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+    const lines = (row.ppm_issue_lines ?? []) as { issued_qty: number; received_qty: number }[];
+    const completions = (row.ppm_receipt_completions ?? []) as unknown[];
+    return {
+      id: row.id as string,
+      code: (row.code as string | null) ?? null,
+      order_number: joined(row, "sales_orders", "order_number"),
+      issued_qty: lines.reduce((sum, l) => sum + (l.issued_qty ?? 0), 0),
+      received_qty: lines.reduce((sum, l) => sum + (l.received_qty ?? 0), 0),
+      completed: completions.length > 0,
+    };
+  });
 }
 
 // ============================================================================

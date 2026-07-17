@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -15,18 +14,17 @@ import {
   updateDestination,
   deleteDestination,
 } from "@/lib/masters/destination-actions";
-import { createCountryQuick } from "@/lib/masters/country-actions";
 import type { Destination, DestinationInput } from "@/lib/masters/destination-types";
 import type { Country } from "@/lib/masters/country-types";
+import { CountryPicker } from "@/components/masters/country-picker";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
-type CountryOption = Pick<Country, "id" | "code" | "name">;
 
-const BLANK = { short_name: "", country_id: "", name: "", blocked: false };
+const BLANK = { short_name: "", country_id: "", name: "", inactive: false };
 
 /**
- * Legacy "Destination" master (Associates). Short Name · Country (required, a
- * picker into the Country master with an inline "+ New" add) · Name · Blocked.
+ * Legacy "Destination" master (Associates). Short Name · Country (required,
+ * via the ⓘ CountryPicker with Add/Modify) · Name · Inactive.
  */
 export function DestinationMasterScreen({
   rows,
@@ -34,7 +32,7 @@ export function DestinationMasterScreen({
   perms,
 }: {
   rows: Destination[];
-  countries: CountryOption[];
+  countries: Country[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -45,25 +43,11 @@ export function DestinationMasterScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
 
-  // Countries added inline this session, merged with server props (deduped).
-  const [extraCountries, setExtraCountries] = useState<CountryOption[]>([]);
-  const [showNewCountry, setShowNewCountry] = useState(false);
-  const [newCountryCode, setNewCountryCode] = useState("");
-  const [newCountryName, setNewCountryName] = useState("");
-
-  const allCountries = useMemo(() => {
-    const seen = new Set<string>();
-    return [...countries, ...extraCountries].filter((c) => {
-      if (seen.has(c.id)) return false;
-      seen.add(c.id);
-      return true;
-    });
-  }, [countries, extraCountries]);
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of allCountries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
     return m;
-  }, [allCountries]);
+  }, [countries]);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -79,15 +63,9 @@ export function DestinationMasterScreen({
     );
   }, [rows, query, countryLabel]);
 
-  function resetNewCountry() {
-    setShowNewCountry(false);
-    setNewCountryCode("");
-    setNewCountryName("");
-  }
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
-    resetNewCountry();
     setOpen(true);
   }
   function openEdit(r: Destination) {
@@ -96,28 +74,9 @@ export function DestinationMasterScreen({
       short_name: r.short_name ?? "",
       country_id: r.country_id,
       name: r.name ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
-    resetNewCountry();
     setOpen(true);
-  }
-
-  function addCountry() {
-    startTransition(async () => {
-      const res = await createCountryQuick({ code: newCountryCode.trim() || null, name: newCountryName });
-      if (res.ok) {
-        setExtraCountries((xs) => [
-          ...xs,
-          { id: res.id, code: newCountryCode.trim() || null, name: newCountryName.trim() },
-        ]);
-        set({ country_id: res.id });
-        resetNewCountry();
-        success("Country added.");
-        router.refresh();
-      } else {
-        error(res.error);
-      }
-    });
   }
 
   function submit() {
@@ -126,7 +85,7 @@ export function DestinationMasterScreen({
         short_name: form.short_name.trim() || null,
         country_id: form.country_id,
         name: form.name.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateDestination(editId, payload) : await createDestination(payload);
       if (res.ok) {
@@ -161,7 +120,7 @@ export function DestinationMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -236,8 +195,8 @@ export function DestinationMasterScreen({
                     {countryLabel.get(r.country_id) ?? "—"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -280,70 +239,21 @@ export function DestinationMasterScreen({
               className="text-base md:text-sm"
             />
           </div>
-          {/* Country (required) + inline add */}
-          <div>
-            <Label htmlFor="de-country">
-              Country <span className="text-danger">*</span>
-            </Label>
-            <div className="flex gap-2">
-              <Select
-                id="de-country"
-                value={form.country_id}
-                onChange={(e) => set({ country_id: e.target.value })}
-                className="flex-1 text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {allCountries.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                  </option>
-                ))}
-              </Select>
-              {perms.canCreate && (
-                <Button type="button" variant="outline" size="md" onClick={() => setShowNewCountry((v) => !v)}>
-                  {showNewCountry ? "Cancel" : "+ New"}
-                </Button>
-              )}
-            </div>
-            {showNewCountry && (
-              <div className="mt-2 flex items-end gap-2 rounded-lg border border-border p-2.5">
-                <div className="w-24">
-                  <Label htmlFor="de-country-code">Code</Label>
-                  <Input
-                    id="de-country-code"
-                    value={newCountryCode}
-                    onChange={(e) => setNewCountryCode(e.target.value)}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <div className="flex-1">
-                  <Label htmlFor="de-country-name">Name</Label>
-                  <Input
-                    id="de-country-name"
-                    value={newCountryName}
-                    onChange={(e) => setNewCountryName(e.target.value)}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="md"
-                  disabled={isPending || !newCountryName.trim()}
-                  onClick={addCountry}
-                >
-                  Add
-                </Button>
-              </div>
-            )}
-          </div>
+          <CountryPicker
+            countries={countries}
+            value={form.country_id || null}
+            onChange={(id) => set({ country_id: id })}
+            canCreate={perms.canCreate}
+            canEdit={perms.canEdit}
+          />
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

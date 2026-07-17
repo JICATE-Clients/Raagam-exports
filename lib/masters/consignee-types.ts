@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { nullableFormat, EMAIL_RE, WEBSITE_RE } from "@/lib/validation/formats";
 export { SHIP_MODES, PAY_MODES, type ShipMode, type PayMode } from "./applicant-types";
 
 // ============================================================================
 // Consignees — master-detail (0245 header/Address · 0248 General + Notify tabs).
-// Legacy EDP2 "Consignee" form: a header (Short Name · Name · Blocked · Country ⓘ
+// Legacy EDP2 "Consignee" form: a header (Short Name · Name · Inactive · Country ⓘ
 // · Also Notify [Yes/No] · Customer ⓘ) + three tabs:
 //   Address — address fields + Contact child grid
 //   General — currency 1/2/3 → currencies · Ship Mode/Pay Mode fixed lists ·
@@ -51,7 +52,7 @@ export interface Consignee {
   id: string;
   code: string | null; // "Short Name"
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   country_id: string | null;
   also_notify: boolean;
   customer_id: string | null;
@@ -100,7 +101,7 @@ export const consigneeContactInput = z.object({
   designation_id: uuidN,
   land_line: nullableText,
   mobile: nullableText,
-  email_id: nullableText,
+  email_id: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   internal_department_id: uuidN,
 });
 
@@ -117,7 +118,7 @@ export const consigneeNotifyInput = z.object({
 export const consigneeInput = z.object({
   code: nullableText,
   name: z.string().min(1, "Name is required"),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   country_id: uuidN,
   also_notify: z.boolean().default(false),
   customer_id: uuidN,
@@ -128,8 +129,8 @@ export const consigneeInput = z.object({
   address_country_id: uuidN,
   land_line: nullableText,
   fax: nullableText,
-  email: nullableText,
-  web_site: nullableText,
+  email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
+  web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   // General tab
   currency_1: nullableText,
   currency_2: nullableText,

@@ -29,12 +29,12 @@ const BLANK = {
   short_name: "",
   name: "",
   for_type: "staff" as EmployeeCategoryFor,
-  blocked: false,
+  inactive: false,
 };
 
 /**
  * Legacy HR "Employee Category" master. Flat form: Short Name · Name · For
- * (Staff / Worker / Staff-Worker) · Blocked, with Save / Save-As-Draft
+ * (Staff / Worker / Staff-Worker) · Inactive, with Save / Save-As-Draft
  * (draft persists with `is_draft = true`). Twin of the Designation master.
  */
 export function EmployeeCategoryMasterScreen({ rows, perms }: { rows: EmployeeCategory[]; perms: Perms }) {
@@ -71,7 +71,7 @@ export function EmployeeCategoryMasterScreen({ rows, perms }: { rows: EmployeeCa
       short_name: r.short_name ?? "",
       name: r.name,
       for_type: r.for_type,
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -82,7 +82,7 @@ export function EmployeeCategoryMasterScreen({ rows, perms }: { rows: EmployeeCa
         short_name: form.short_name.trim() || null,
         name: form.name.trim(),
         for_type: form.for_type,
-        blocked: form.blocked,
+        inactive: form.inactive,
         is_draft: asDraft,
       };
       const res = editId
@@ -112,7 +112,7 @@ export function EmployeeCategoryMasterScreen({ rows, perms }: { rows: EmployeeCa
 
   function statusPill(r: EmployeeCategory) {
     if (r.is_draft) return <StatusPill tone="warning">Draft</StatusPill>;
-    if (r.blocked) return <StatusPill tone="danger">Blocked</StatusPill>;
+    if (r.inactive) return <StatusPill tone="danger">Inactive</StatusPill>;
     return <StatusPill tone="success">Active</StatusPill>;
   }
 
@@ -243,10 +243,10 @@ export function EmployeeCategoryMasterScreen({ rows, perms }: { rows: EmployeeCa
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
 

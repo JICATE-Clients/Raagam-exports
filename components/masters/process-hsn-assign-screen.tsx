@@ -79,8 +79,8 @@ export function ProcessHsnAssignScreen({
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
       if (q && !r.name.toLowerCase().includes(q)) return false;
-      if (fStatus === "Active" && r.blocked) return false;
-      if (fStatus === "Blocked" && !r.blocked) return false;
+      if (fStatus === "Active" && r.inactive) return false;
+      if (fStatus === "Inactive" && !r.inactive) return false;
       if (fCommodity === "__none" && r.commodity_id) return false;
       if (fCommodity && fCommodity !== "__none" && r.commodity_id !== fCommodity) return false;
       return true;
@@ -187,7 +187,7 @@ export function ProcessHsnAssignScreen({
         <Select value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="Filter status" className="h-9 text-base md:text-sm">
           <option value="">All status</option>
           <option value="Active">Active</option>
-          <option value="Blocked">Blocked</option>
+          <option value="Inactive">Inactive</option>
         </Select>
         <Select value={fCommodity} onChange={(e) => setFCommodity(e.target.value)} aria-label="Filter commodity" className="h-9 text-base md:text-sm">
           <option value="">All commodities</option>
@@ -280,8 +280,8 @@ export function ProcessHsnAssignScreen({
                       {r.commodity_id ? (commodityName.get(r.commodity_id) ?? "—") : "—"}
                     </td>
                     <td className="px-3 py-2">
-                      <StatusPill tone={r.blocked ? "danger" : "success"}>
-                        {r.blocked ? "Blocked" : "Active"}
+                      <StatusPill tone={r.inactive ? "danger" : "success"}>
+                        {r.inactive ? "Inactive" : "Active"}
                       </StatusPill>
                     </td>
                     <td className="px-3 py-2">{hsnSelect(r)}</td>
@@ -316,8 +316,8 @@ export function ProcessHsnAssignScreen({
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {d && <span className="text-[10px] font-bold uppercase tracking-wide text-warning">Edited</span>}
-                    <StatusPill tone={r.blocked ? "danger" : "success"}>
-                      {r.blocked ? "Blocked" : "Active"}
+                    <StatusPill tone={r.inactive ? "danger" : "success"}>
+                      {r.inactive ? "Inactive" : "Active"}
                     </StatusPill>
                   </div>
                 </div>

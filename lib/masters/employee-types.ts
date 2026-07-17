@@ -1,9 +1,15 @@
 import { z } from "zod";
+import {
+  nullableFormat,
+  PINCODE_IN_RE,
+  MOBILE_IN_RE,
+  EMAIL_RE,
+} from "@/lib/validation/formats";
 
 // ============================================================================
 // Employees — Associates master (0243). Legacy EDP2 "Employee" form: a header
 // (ID · Name · S/O + guardian · Category ⓘ · Department ⓘ · Location ⓘ ·
-// Designation ⓘ · DOB + Age · Team ⓘ · Manager ⓘ · Photo · Blocked) + a single
+// Designation ⓘ · DOB + Age · Team ⓘ · Manager ⓘ · Photo · Inactive) + a single
 // "General" panel (Permanent + Correspondence addresses · E-Mail · Qualification
 // · Blood Group · Marital Status · Sex · Nationality · Religion).
 //
@@ -48,7 +54,7 @@ export interface Employee {
   team_id: string | null;
   manager_id: string | null;
   dob: string | null; // date (YYYY-MM-DD)
-  blocked: boolean;
+  inactive: boolean;
   photo_url: string | null;
   // General — Permanent Address
   perm_addr1: string | null;
@@ -93,25 +99,25 @@ export const employeeInput = z.object({
   team_id: uuidN,
   manager_id: uuidN,
   dob: nullableText, // date string; DB coerces
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   photo_url: nullableText,
   // Permanent Address
   perm_addr1: nullableText,
   perm_addr2: nullableText,
   perm_addr3: nullableText,
-  perm_pin: nullableText,
+  perm_pin: nullableFormat(PINCODE_IN_RE, "Enter a 6-digit PIN code"),
   perm_phone: nullableText,
-  perm_mobile: nullableText,
+  perm_mobile: nullableFormat(MOBILE_IN_RE, "Enter a 10-digit mobile (starting 6–9)"),
   // Correspondence Address
   corr_same_as_perm: z.boolean().default(false),
   corr_addr1: nullableText,
   corr_addr2: nullableText,
   corr_addr3: nullableText,
-  corr_pin: nullableText,
+  corr_pin: nullableFormat(PINCODE_IN_RE, "Enter a 6-digit PIN code"),
   corr_phone: nullableText,
-  corr_mobile: nullableText,
+  corr_mobile: nullableFormat(MOBILE_IN_RE, "Enter a 10-digit mobile (starting 6–9)"),
   // personal
-  email: nullableText,
+  email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   qualification: nullableText,
   blood_group: nullableText,
   marital_status: z.enum(MARITAL_STATUSES).nullable().default(null),

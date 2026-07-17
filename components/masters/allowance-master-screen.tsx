@@ -29,7 +29,7 @@ const blankForm = () => ({
   name: "",
   sequence: "0",
   allowance_type: "Allowance" as AllowanceType,
-  blocked: false,
+  inactive: false,
   base_head: false,
   pf_eligible: false,
   esi_eligible: false,
@@ -86,7 +86,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
       name: r.name,
       sequence: String(r.sequence),
       allowance_type: r.allowance_type,
-      blocked: r.blocked,
+      inactive: r.inactive,
       base_head: r.base_head,
       pf_eligible: r.pf_eligible,
       esi_eligible: r.esi_eligible,
@@ -103,7 +103,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
         name: form.name.trim(),
         sequence: Number(form.sequence) || 0,
         allowance_type: form.allowance_type,
-        blocked: form.blocked,
+        inactive: form.inactive,
         base_head: form.base_head,
         pf_eligible: form.pf_eligible,
         esi_eligible: form.esi_eligible,
@@ -143,7 +143,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -216,8 +216,8 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
                     {r.allowance_type} · {flagLabel(r)}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -251,10 +251,10 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
 

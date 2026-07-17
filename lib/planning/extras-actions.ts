@@ -15,6 +15,8 @@ import {
   pdRequestInput,
   pdProductInput,
   nextPdStage,
+  ppmCancellationInput,
+  ppmReceiptCompletionInput,
 } from "./types";
 import type {
   SqNoteInput,
@@ -28,6 +30,8 @@ import type {
   PdRequestInput,
   PdProductInput,
   PdStage,
+  PpmCancellationInput,
+  PpmReceiptCompletionInput,
 } from "./types";
 
 type Err = { ok: false; error: string };
@@ -114,6 +118,28 @@ export async function cancelSqNote(id: string): Promise<R> {
   await guard("edit");
   const s = await createClient();
   const { error } = await s.from("sq_notes").update({ status: "cancelled" }).eq("id", id);
+  if (error) return bad(error.message);
+  revalidateSq(id);
+  return { ok: true };
+}
+
+/** SQ Closure — close an allocated SQ note with a reason (allocated → closed). */
+export async function closeSqNote(id: string, reason: string): Promise<R> {
+  await guard("edit");
+  if (!reason.trim()) return bad("Closure reason is required");
+  const s = await createClient();
+  const { data: row } = await s.from("sq_notes").select("status").eq("id", id).maybeSingle();
+  if (!row || row.status !== "allocated")
+    return bad("Only allocated SQ notes can be closed");
+  const { error } = await s
+    .from("sq_notes")
+    .update({
+      status: "closed",
+      closed_at: new Date().toISOString(),
+      closed_by: await uid(),
+      closure_reason: reason.trim(),
+    })
+    .eq("id", id);
   if (error) return bad(error.message);
   revalidateSq(id);
   return { ok: true };
@@ -568,5 +594,124 @@ export async function deletePdRequest(id: string): Promise<R> {
   const { error } = await s.from("pd_requests").delete().eq("id", id);
   if (error) return bad(error.message);
   revalidatePd();
+  return { ok: true };
+}
+
+// ============================================================================
+// Garmenting PPM Cancellation (0275) — approval doc over an issued PPM.
+// ============================================================================
+function revalidatePpmCancellation(): void {
+  revalidatePath("/planning/ppm-cancellations");
+  revalidatePath("/planning/ppm");
+  revalidatePath("/planning");
+}
+
+export async function createPpmCancellation(payload: PpmCancellationInput): Promise<R> {
+  await guard("create");
+  const p = ppmCancellationInput.safeParse(payload);
+  if (!p.success) return bad(p.error.issues[0]?.message ?? "Invalid input");
+  const s = await createClient();
+  const { error } = await s
+    .from("ppm_cancellations")
+    .insert({ ...p.data, status: "draft", requested_by: await uid(), created_by: await uid() });
+  if (error) return bad(error.message);
+  revalidatePpmCancellation();
+  return { ok: true };
+}
+
+export async function approvePpmCancellation(id: string, reason?: string): Promise<R> {
+  await guard("approve");
+  const s = await createClient();
+  const { data: row } = await s
+    .from("ppm_cancellations")
+    .select("status, ppm_issue_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row || row.status !== "draft") return bad("Only draft cancellations can be approved");
+  const { error } = await s
+    .from("ppm_cancellations")
+    .update({
+      status: "approved",
+      approved_by: await uid(),
+      approved_at: new Date().toISOString(),
+      decided_reason: reason?.trim() || null,
+    })
+    .eq("id", id);
+  if (error) return bad(error.message);
+  // apply: cancel the parent PPM
+  const { error: pErr } = await s
+    .from("ppm_issues")
+    .update({ status: "cancelled" })
+    .eq("id", row.ppm_issue_id);
+  if (pErr) return bad(pErr.message);
+  revalidatePpmCancellation();
+  return { ok: true };
+}
+
+export async function rejectPpmCancellation(id: string, reason?: string): Promise<R> {
+  await guard("approve");
+  const s = await createClient();
+  const { data: row } = await s
+    .from("ppm_cancellations")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row || row.status !== "draft") return bad("Only draft cancellations can be rejected");
+  const { error } = await s
+    .from("ppm_cancellations")
+    .update({
+      status: "rejected",
+      approved_by: await uid(),
+      approved_at: new Date().toISOString(),
+      decided_reason: reason?.trim() || null,
+    })
+    .eq("id", id);
+  if (error) return bad(error.message);
+  revalidatePpmCancellation();
+  return { ok: true };
+}
+
+export async function deletePpmCancellation(id: string): Promise<R> {
+  await guard("delete");
+  const s = await createClient();
+  const { data: row } = await s
+    .from("ppm_cancellations")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row || !["draft", "rejected"].includes(row.status))
+    return bad("Only draft or rejected cancellations can be deleted");
+  const { error } = await s.from("ppm_cancellations").delete().eq("id", id);
+  if (error) return bad(error.message);
+  revalidatePpmCancellation();
+  return { ok: true };
+}
+
+// ============================================================================
+// Garmenting PPM Receipt Completion (0276) — close an issued PPM's receipts.
+// ============================================================================
+export async function completePpmReceipt(
+  ppmId: string,
+  payload: Omit<PpmReceiptCompletionInput, "ppm_issue_id">,
+): Promise<R> {
+  await guard("edit");
+  const p = ppmReceiptCompletionInput.safeParse({ ...payload, ppm_issue_id: ppmId });
+  if (!p.success) return bad(p.error.issues[0]?.message ?? "Invalid input");
+  const s = await createClient();
+  const { data: row } = await s.from("ppm_issues").select("status").eq("id", ppmId).maybeSingle();
+  if (!row || row.status !== "issued")
+    return bad("Only issued PPMs can be marked receipt-complete");
+  const { error } = await s
+    .from("ppm_receipt_completions")
+    .insert({ ppm_issue_id: ppmId, note: p.data.note ?? null, created_by: await uid() });
+  if (error) return bad(error.message);
+  const { error: pErr } = await s
+    .from("ppm_issues")
+    .update({ status: "received" })
+    .eq("id", ppmId);
+  if (pErr) return bad(pErr.message);
+  revalidatePath("/planning/ppm-receipts");
+  revalidatePath("/planning/ppm");
+  revalidatePath("/planning");
   return { ok: true };
 }

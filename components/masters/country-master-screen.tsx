@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -22,7 +23,7 @@ const BLANK = {
   ecgc_code: "",
   isd_code: "",
   default_country: false,
-  blocked: false,
+  inactive: false,
 };
 
 /**
@@ -66,7 +67,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
       ecgc_code: r.ecgc_code ?? "",
       isd_code: r.isd_code ?? "",
       default_country: r.default_country,
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -80,7 +81,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
         ecgc_code: form.ecgc_code.trim() || null,
         isd_code: form.isd_code.trim() || null,
         default_country: form.default_country,
-        blocked: form.blocked,
+        inactive: form.inactive,
         is_draft: asDraft,
       };
       const res = editId ? await updateCountry(editId, payload) : await createCountry(payload);
@@ -108,7 +109,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
 
   function statusPill(r: Country) {
     if (r.is_draft) return <StatusPill tone="warning">Draft</StatusPill>;
-    if (r.blocked) return <StatusPill tone="danger">Blocked</StatusPill>;
+    if (r.inactive) return <StatusPill tone="danger">Inactive</StatusPill>;
     return <StatusPill tone="success">Active</StatusPill>;
   }
 
@@ -277,8 +278,9 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             </div>
             <div>
               <Label htmlFor="co-isd">ISD Code</Label>
-              <Input
+              <ValidatedInput
                 id="co-isd"
+                format="isd"
                 value={form.isd_code}
                 onChange={(e) => set({ isd_code: e.target.value })}
                 className="text-base md:text-sm"
@@ -298,10 +300,10 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

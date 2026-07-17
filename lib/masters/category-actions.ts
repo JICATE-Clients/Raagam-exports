@@ -71,9 +71,16 @@ export async function createItemClass(
   const s = await createClient();
   const dup = await checkDuplicateName(s, "config_lookups", name, { scope: { kind: "item_class" } });
   if (!dup.ok) return { ok: false, error: dup.error };
+  const code = input.code?.trim() || null;
+  const dupCode = await checkDuplicateName(s, "config_lookups", code, {
+    nameColumn: "code",
+    label: "code",
+    scope: { kind: "item_class" },
+  });
+  if (!dupCode.ok) return { ok: false, error: dupCode.error };
   const { data, error } = await s
     .from("config_lookups")
-    .insert({ kind: "item_class", code: input.code?.trim() || null, name, is_active: true })
+    .insert({ kind: "item_class", code, name, is_active: true })
     .select("id")
     .single();
   if (error) return { ok: false, error: error.message };

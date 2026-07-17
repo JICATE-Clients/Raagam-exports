@@ -1,8 +1,16 @@
 import { z } from "zod";
+import {
+  nullableFormat,
+  BANK_ACCT_RE,
+  PINCODE_IN_RE,
+  MOBILE_IN_RE,
+  EMAIL_RE,
+  WEBSITE_RE,
+} from "@/lib/validation/formats";
 
 // ============================================================================
 // Applicants — master-detail (0238 header/Address · 0241 General). Legacy EDP2
-// "Applicant" form: a header (Short Name · Name · Blocked · Also Customer ·
+// "Applicant" form: a header (Short Name · Name · Inactive · Also Customer ·
 // Also Consignee · Country) + two tabs (Address | General) + a Contact child
 // grid.
 //
@@ -38,7 +46,7 @@ export interface Applicant {
   id: string;
   code: string | null; // "Short Name"
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   also_customer: boolean;
   also_consignee: boolean;
   country_id: string | null;
@@ -79,27 +87,27 @@ export const applicantContactInput = z.object({
   contact_name: nullableText,
   designation_id: uuidN,
   land_line: nullableText,
-  mobile: nullableText,
-  email_id: nullableText,
+  mobile: nullableFormat(MOBILE_IN_RE, "Enter a 10-digit mobile (starting 6–9)"),
+  email_id: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   internal_department_id: uuidN,
 });
 
 export const applicantInput = z.object({
   code: nullableText,
   name: z.string().min(1, "Name is required"),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   also_customer: z.boolean().default(false),
   also_consignee: z.boolean().default(false),
   country_id: uuidN,
   street: nullableText,
   city_id: uuidN,
   state_id: uuidN,
-  pin: nullableText,
+  pin: nullableFormat(PINCODE_IN_RE, "Enter a 6-digit PIN code"),
   address_country_id: uuidN,
   land_line: nullableText,
   fax: nullableText,
-  email: nullableText,
-  web_site: nullableText,
+  email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
+  web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   // General tab (0241)
   currency_1: nullableText,
   currency_2: nullableText,
@@ -109,7 +117,7 @@ export const applicantInput = z.object({
   pay_mode: nullableText,
   payment_term_id: uuidN,
   bank_id: uuidN,
-  ac_no: nullableText,
+  ac_no: nullableFormat(BANK_ACCT_RE, "Account number must be 9–18 digits"),
   is_draft: z.boolean().default(false),
   contacts: z.array(applicantContactInput).default([]),
 });

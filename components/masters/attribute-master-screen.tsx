@@ -16,6 +16,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { ChildGrid } from "@/components/masters/child-grid";
 import {
   createAttribute,
   updateAttribute,
@@ -412,42 +413,26 @@ export function AttributeMasterScreen({
           </label>
 
           {/* value grid — named properties (GSM, Width, …) scoped to this Item Class */}
-          <div className="rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-              Attributes
-            </div>
-            <div className="space-y-2 p-3">
-              {values.length === 0 && (
-                <p className="text-xs text-muted-foreground">No attributes yet.</p>
-              )}
-              {values.map((v, i) => (
-                <div key={v.key} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {i + 1}
-                  </span>
+          <ChildGrid<ValueRow>
+            label="Attributes"
+            rows={values}
+            onAdd={addValueRow}
+            onRemove={(v) => removeValueRow(v.key)}
+            addLabel="+ Add attribute"
+            columns={[
+              {
+                header: "Value",
+                cell: (v) => (
                   <Input
                     value={v.value}
                     onChange={(e) => setValueAt(v.key, e.target.value)}
                     placeholder="Attribute value"
-                    className="flex-1 text-base md:text-sm"
+                    className="text-base md:text-sm"
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => removeValueRow(v.key)}
-                    aria-label="Remove value"
-                  >
-                    ✕
-                  </Button>
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={addValueRow}>
-                + Add attribute
-              </Button>
-            </div>
-          </div>
+                ),
+              },
+            ]}
+          />
         </div>
       </Sheet>
     </div>

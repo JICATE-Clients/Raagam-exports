@@ -1,8 +1,18 @@
 import { z } from "zod";
+import {
+  nullableFormat,
+  GSTIN_RE,
+  PAN_RE,
+  IFSC_RE,
+  BANK_ACCT_RE,
+  WEBSITE_RE,
+  EMAIL_RE,
+  PINCODE_IN_RE,
+} from "@/lib/validation/formats";
 
 // ============================================================================
 // Vendors — master-detail (0246). Legacy EDP2 "Vendor" form: a header (Short
-// Name · Blocked · Type · Category flags · Name · Country · Group Name · Status)
+// Name · Inactive · Type · Category flags · Name · Country · Group Name · Status)
 // + a registration footer (TIN · Reg.Caption · Reg.No/Dt · PAN · Web site) +
 // two tabs (Address | Other Details). Phase 1 = header + footer + Address grid;
 // the "Other Details" tab is deferred.
@@ -33,7 +43,7 @@ export interface Vendor {
   id: string;
   code: string | null; // "Short Name"
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   vendor_type: VendorType | null;
   country_id: string | null;
   group_id: string | null;
@@ -75,39 +85,55 @@ export const vendorAddressInput = z.object({
   city_id: uuidN,
   state_id: uuidN,
   country_id: uuidN,
-  pin: nullableText,
+  pin: nullableText, // IN-format enforced conditionally in vendorInput.superRefine
   land_line: nullableText,
   fax: nullableText,
-  email_id: nullableText,
+  email_id: nullableFormat(EMAIL_RE, "Enter a valid email address"),
 });
 
-export const vendorInput = z.object({
-  code: nullableText,
-  name: z.string().min(1, "Name is required"),
-  blocked: z.boolean().default(false),
-  vendor_type: z.enum(VENDOR_TYPES).nullable().default(null),
-  country_id: uuidN,
-  group_id: uuidN,
-  status: z.enum(VENDOR_STATUSES).default("Approved"),
-  is_bought_items_vendor: z.boolean().default(false),
-  is_processor: z.boolean().default(false),
-  is_service_provider: z.boolean().default(false),
-  is_sub_contractor: z.boolean().default(false),
-  tin_no: nullableText,
-  reg_caption: nullableText,
-  reg_no_dt: nullableText,
-  pan_no: nullableText,
-  web_site: nullableText,
-  bank_name: nullableText,
-  branch: nullableText,
-  ac_no: nullableText,
-  ifsc_code: nullableText,
-  ac_type: nullableText,
-  gst_reg_status: z.enum(GST_REG_STATUSES).nullable().default(null),
-  gst_no: nullableText,
-  debit_group_id: uuidN,
-  credit_group_id: uuidN,
-  is_draft: z.boolean().default(false),
-  addresses: z.array(vendorAddressInput).default([]),
-});
+export const vendorInput = z
+  .object({
+    code: nullableText,
+    name: z.string().min(1, "Name is required"),
+    inactive: z.boolean().default(false),
+    vendor_type: z.enum(VENDOR_TYPES).nullable().default(null),
+    country_id: uuidN,
+    group_id: uuidN,
+    status: z.enum(VENDOR_STATUSES).default("Approved"),
+    is_bought_items_vendor: z.boolean().default(false),
+    is_processor: z.boolean().default(false),
+    is_service_provider: z.boolean().default(false),
+    is_sub_contractor: z.boolean().default(false),
+    tin_no: nullableText,
+    reg_caption: nullableText,
+    reg_no_dt: nullableText,
+    pan_no: nullableFormat(PAN_RE, "Invalid PAN (e.g. ABCDE1234F)"),
+    web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
+    bank_name: nullableText,
+    branch: nullableText,
+    ac_no: nullableFormat(BANK_ACCT_RE, "Account number must be 9–18 digits"),
+    ifsc_code: nullableFormat(IFSC_RE, "Invalid IFSC (e.g. HDFC0001234)"),
+    ac_type: nullableText,
+    gst_reg_status: z.enum(GST_REG_STATUSES).nullable().default(null),
+    gst_no: nullableFormat(GSTIN_RE, "Invalid GSTIN (e.g. 33ABCDE1234F1Z5)"),
+    debit_group_id: uuidN,
+    credit_group_id: uuidN,
+    is_draft: z.boolean().default(false),
+    addresses: z.array(vendorAddressInput).default([]),
+  })
+  // PIN codes use the Indian 6-digit format for domestic vendors only; a
+  // Foreign Vendor's address PIN is accepted as-is.
+  .superRefine((v, ctx) => {
+    if (v.vendor_type === "Foreign Vendor") return;
+    v.addresses.forEach((a, i) => {
+      const pin = (a.pin ?? "").trim();
+      if (pin && !PINCODE_IN_RE.test(pin)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Enter a 6-digit PIN code",
+          path: ["addresses", i, "pin"],
+        });
+      }
+    });
+  });
 export type VendorInput = z.infer<typeof vendorInput>;

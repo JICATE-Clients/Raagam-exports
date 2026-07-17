@@ -18,6 +18,9 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/material-actions";
 import { LookupDialogPicker, CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
+import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import {
   MATERIAL_FORMS,
   MATERIAL_TYPES,
@@ -347,13 +350,11 @@ export function MaterialMasterScreen({
     });
   }
 
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   function remove(r: Material) {
     startTransition(async () => {
       const res = await deleteMaterial(r.id);
       if (res.ok) {
         success(res.inactive ? `"${r.name}" is in use — marked inactive instead of deleted, history preserved.` : `"${r.name}" deleted.`);
-        setConfirmDeleteId(null);
         router.refresh();
       } else error(res.error);
     });
@@ -497,104 +498,76 @@ export function MaterialMasterScreen({
    *  and UOM columns legacy doesn't show here. `variant: "yarn"` is unchanged
    *  (Component yarn/%, Shade, UOM) — no legacy screen confirms trimming it. */
   function mixingGrid(variant: "fabric" | "yarn" = "yarn") {
+    const pctBadge = mixings.length > 0 && (
+      <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
+        {mixPctSum}% of 100%
+      </span>
+    );
+    const compCell = (m: MixRow) => (
+      <div className="space-y-1">
+        <Select value={m.component_item_id} onChange={(e) => setMix(m.key, { component_item_id: e.target.value })} className="text-base md:text-sm">
+          <option value="">— Component yarn —</option>
+          {yarnItems.map((y) => (
+            <option key={y.id} value={y.id}>
+              {y.code} — {y.name}
+            </option>
+          ))}
+        </Select>
+        {!m.component_item_id && (
+          <Input
+            placeholder={variant === "fabric" ? "Description" : "Description (if no linked yarn record)"}
+            value={m.description}
+            onChange={(e) => setMix(m.key, { description: e.target.value })}
+            className="text-base md:text-sm"
+          />
+        )}
+      </div>
+    );
+
     if (variant === "fabric") {
-      const descCell = (m: MixRow) => (
-        <div className="space-y-1">
-          <Select value={m.component_item_id} onChange={(e) => setMix(m.key, { component_item_id: e.target.value })} className="text-base md:text-sm">
-            <option value="">— Component yarn —</option>
-            {yarnItems.map((y) => (
-              <option key={y.id} value={y.id}>
-                {y.code} — {y.name}
-              </option>
-            ))}
-          </Select>
-          {!m.component_item_id && (
-            <Input placeholder="Description" value={m.description} onChange={(e) => setMix(m.key, { description: e.target.value })} className="text-base md:text-sm" />
-          )}
-        </div>
-      );
       return (
-        <div className="space-y-3 rounded-lg border border-border p-3">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attributes</div>
-            {mixings.length > 0 && (
-              <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
-                {mixPctSum}% of 100%
-              </span>
-            )}
-          </div>
-
-          {/* desktop table */}
-          <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
-            <table className="w-full min-w-[420px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted">
-                  <th className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
-                  <th className="border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Description</th>
-                  <th className="w-24 border-l border-border px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">Mixing %</th>
-                  <th className="w-8 border-l border-border" />
-                </tr>
-              </thead>
-              <tbody>
-                {mixings.map((m, i) => (
-                  <tr key={m.key} className="border-b border-border last:border-0">
-                    <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="border-l border-border px-2 py-1.5">{descCell(m)}</td>
-                    <td className="border-l border-border px-2 py-1.5">
-                      <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
-                    </td>
-                    <td className="border-l border-border px-1 py-1.5 text-center">
-                      <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delMix(m.key)} aria-label="Remove row">
-                        ✕
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* mobile cards */}
-          <div className="space-y-2 md:hidden">
-            {mixings.map((m, i) => (
-              <div key={m.key} className="space-y-2 rounded-lg border border-border p-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-                  <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delMix(m.key)}>
-                    ✕
-                  </Button>
-                </div>
-                {descCell(m)}
-                <Input type="number" step="0.01" placeholder="Mixing %" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
-              </div>
-            ))}
-          </div>
-
-          <Button type="button" variant="outline" size="sm" onClick={addMix}>
-            + Add row
-          </Button>
-        </div>
+        <ChildGrid<MixRow>
+          label="Attributes"
+          badge={pctBadge}
+          rows={mixings}
+          onAdd={addMix}
+          onRemove={(m) => delMix(m.key)}
+          columns={[
+            { header: "Description", cell: compCell },
+            {
+              header: "Mixing %",
+              align: "center",
+              cell: (m) => (
+                <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
+              ),
+            },
+          ]}
+          renderMobileRow={(m) => (
+            <>
+              {compCell(m)}
+              <Input type="number" step="0.01" placeholder="Mixing %" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
+            </>
+          )}
+        />
       );
     }
 
     return (
-      <div className="space-y-3 rounded-lg border border-border p-3">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mixing</div>
-          {mixings.length > 0 && (
-            <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
-              {mixPctSum}% of 100%
-            </span>
-          )}
-        </div>
-        {mixings.map((m, i) => (
-          <div key={m.key} className="space-y-2 rounded-lg border border-border p-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delMix(m.key)}>
-                ✕
-              </Button>
-            </div>
+      <ChildGrid<MixRow>
+        label="Mixing"
+        badge={pctBadge}
+        rows={mixings}
+        onAdd={addMix}
+        onRemove={(m) => delMix(m.key)}
+        addLabel="+ Add mixing row"
+        columns={[
+          { header: "Component / Description", cell: compCell },
+          { header: "%", align: "center", cell: (m) => <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" /> },
+          { header: "Shade", cell: (m) => <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} className="text-base md:text-sm" /> },
+          { header: "Uom", cell: (m) => uomSelect(m.uom_id, (v) => setMix(m.key, { uom_id: v })) },
+        ]}
+        renderMobileRow={(m) => (
+          <>
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <Select value={m.component_item_id} onChange={(e) => setMix(m.key, { component_item_id: e.target.value })} className="text-base md:text-sm">
                 <option value="">— Component yarn —</option>
@@ -620,25 +593,9 @@ export function MaterialMasterScreen({
               <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} className="text-base md:text-sm" />
               {uomSelect(m.uom_id, (v) => setMix(m.key, { uom_id: v }))}
             </div>
-          </div>
-        ))}
-        <Button type="button" variant="outline" size="sm" onClick={addMix}>
-          + Add mixing row
-        </Button>
-      </div>
-    );
-  }
-
-  /** Bordered "card" wrapper — groups a set of related fields under a small
-   *  uppercase label, same visual language as the Attributes/Mixing/Using
-   *  (Items) grids below, so a long Details tab reads as a few clear blocks
-   *  instead of one flat stack of fields. */
-  function detailSection(label: ReactNode, content: ReactNode) {
-    return (
-      <div className="space-y-3 rounded-lg border border-border p-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-        {content}
-      </div>
+          </>
+        )}
+      />
     );
   }
 
@@ -654,9 +611,7 @@ export function MaterialMasterScreen({
   function fabricDetails() {
     return (
       <>
-        {detailSection(
-          "Classification",
-          <>
+        <DetailSection label="Classification">
             <div>
               <Label>Type</Label>
               <LookupDialogPicker
@@ -700,11 +655,8 @@ export function MaterialMasterScreen({
               />
               <p className="mt-1 text-xs text-muted-foreground">Solid, Yarn-dyed or Melange — determines the dyeing PO type.</p>
             </div>
-          </>,
-        )}
-        {detailSection(
-          "Composition",
-          <>
+        </DetailSection>
+        <DetailSection label="Composition">
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
@@ -731,8 +683,7 @@ export function MaterialMasterScreen({
                 </Select>
               </div>
             )}
-          </>,
-        )}
+        </DetailSection>
         {!form.direct_purchase && mixingGrid("fabric")}
       </>
     );
@@ -743,9 +694,7 @@ export function MaterialMasterScreen({
     const nature = selectedCategory?.made ?? null;
     return (
       <>
-        {detailSection(
-          "Classification",
-          <>
+        <DetailSection label="Classification">
             <LookupDialogPicker
               kind="yarn_count"
               label="Count"
@@ -772,13 +721,11 @@ export function MaterialMasterScreen({
                 <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
               </div>
             )}
-          </>,
-        )}
+        </DetailSection>
         {nature === "Mixed" ? (
           mixingGrid("yarn")
         ) : (
-          detailSection(
-            "Composition",
+          <DetailSection label="Composition">
             <LookupDialogPicker
               kind="yarn_purity"
               label="Purity"
@@ -788,12 +735,10 @@ export function MaterialMasterScreen({
               canCreate={perms.canCreate}
               canEdit={perms.canEdit}
               canDelete={perms.canDelete}
-            />,
-          )
+            />
+          </DetailSection>
         )}
-        {detailSection(
-          "Other",
-          <>
+        <DetailSection label="Other">
             <LookupDialogPicker
               kind="yarn_type"
               label="Yarn Type"
@@ -810,8 +755,7 @@ export function MaterialMasterScreen({
               <Label>Ply</Label>
               <Input type="number" min={1} step={1} value={form.ply} onChange={(e) => set({ ply: e.target.value })} className="text-base md:text-sm" />
             </div>
-          </>,
-        )}
+        </DetailSection>
         {usingItemsGrid()}
       </>
     );
@@ -831,64 +775,26 @@ export function MaterialMasterScreen({
       </div>
     );
     return (
-      <div className="space-y-3 rounded-lg border border-border p-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Using (Items)</div>
-
-        {/* desktop table */}
-        <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
-          <table className="w-full min-w-[520px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-muted">
-                <th className="w-12 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">S No</th>
-                <th className="border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Description</th>
-                <th className="w-32 border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Shade</th>
-                <th className="w-40 border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Uom</th>
-                <th className="w-8 border-l border-border" />
-              </tr>
-            </thead>
-            <tbody>
-              {usingItems.map((u, i) => (
-                <tr key={u.key} className="border-b border-border last:border-0">
-                  <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
-                  <td className="border-l border-border px-2 py-1.5">{descCell(u)}</td>
-                  <td className="border-l border-border px-2 py-1.5">
-                    <Input value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" />
-                  </td>
-                  <td className="border-l border-border px-2 py-1.5">{uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v }))}</td>
-                  <td className="border-l border-border px-1 py-1.5 text-center">
-                    <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delUsingRow(u.key)} aria-label="Remove row">
-                      ✕
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* mobile cards */}
-        <div className="space-y-2 md:hidden">
-          {usingItems.map((u, i) => (
-            <div key={u.key} className="space-y-2 rounded-lg border border-border p-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => delUsingRow(u.key)}>
-                  ✕
-                </Button>
-              </div>
-              {descCell(u)}
-              <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="Shade" value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" />
-                {uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v }))}
-              </div>
+      <ChildGrid<UsingItemRow>
+        label="Using (Items)"
+        rows={usingItems}
+        onAdd={addUsingRow}
+        onRemove={(u) => delUsingRow(u.key)}
+        columns={[
+          { header: "Description", cell: descCell },
+          { header: "Shade", cell: (u) => <Input value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" /> },
+          { header: "Uom", cell: (u) => uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v })) },
+        ]}
+        renderMobileRow={(u) => (
+          <>
+            {descCell(u)}
+            <div className="grid grid-cols-2 gap-2">
+              <Input placeholder="Shade" value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" />
+              {uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v }))}
             </div>
-          ))}
-        </div>
-
-        <Button type="button" variant="outline" size="sm" onClick={addUsingRow}>
-          + Add row
-        </Button>
-      </div>
+          </>
+        )}
+      />
     );
   }
 
@@ -920,31 +826,16 @@ export function MaterialMasterScreen({
     {
       header: "",
       align: "right",
-      cell: (r) =>
-        confirmDeleteId === r.id ? (
-          <div className="flex justify-end gap-1">
-            <span className="self-center text-xs text-muted-foreground">Delete?</span>
-            <Button variant="outline" size="sm" onClick={() => setConfirmDeleteId(null)}>
-              Cancel
+      cell: (r) => (
+        <div className="flex justify-end gap-1">
+          {perms.canEdit && (
+            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
+              Edit
             </Button>
-            <Button variant="danger" size="sm" disabled={isPending} onClick={() => remove(r)}>
-              {isPending ? "…" : "Confirm"}
-            </Button>
-          </div>
-        ) : (
-          <div className="flex justify-end gap-1">
-            {perms.canEdit && (
-              <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-                Edit
-              </Button>
-            )}
-            {perms.canDelete && (
-              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => setConfirmDeleteId(r.id)}>
-                Delete
-              </Button>
-            )}
-          </div>
-        ),
+          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
+        </div>
+      ),
     },
   ];
 
@@ -1162,7 +1053,7 @@ export function MaterialMasterScreen({
               ) : formKey === "YARN" ? (
                 yarnDetails()
               ) : (
-                detailSection("Classification", formDef?.fields.map((k) => detailField(k)))
+                <DetailSection label="Classification">{formDef?.fields.map((k) => detailField(k))}</DetailSection>
               )}
               {["GEN", "PACK", "SEW"].includes(selectedClassCode ?? "") && usingItemsGrid()}
 
@@ -1200,12 +1091,15 @@ export function MaterialMasterScreen({
                 {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }))}
               </div>
 
-              {/* conversion grid — mirrors the legacy SlNo | Alternate (Qty, Uom) | = | Base (Qty, Uom) table */}
-              <div className="space-y-2 border-t border-border pt-3">
+              {/* conversion grid — mirrors the legacy SlNo | Alternate (Qty, Uom) | = | Base (Qty, Uom) table.
+                  @container: the table/card split is driven by this grid's own width, not the
+                  browser viewport — the Sheet is a fixed ~420px drawer, so `md:` would show the
+                  wide table even though there's only ~380px of real room, clobbering the columns. */}
+              <div className="@container space-y-2 border-t border-border pt-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Alternate ↔ Base conversions</div>
 
-                {/* desktop table */}
-                <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
+                {/* wide-container table */}
+                <div className="hidden overflow-x-auto rounded-lg border border-border @lg:block">
                   <table className="w-full min-w-[560px] border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-border bg-surface-muted">
@@ -1246,8 +1140,8 @@ export function MaterialMasterScreen({
                   </table>
                 </div>
 
-                {/* mobile cards */}
-                <div className="space-y-2 md:hidden">
+                {/* narrow-container stacked cards */}
+                <div className="space-y-2 @lg:hidden">
                   {conversions.map((c, i) => (
                     <div key={c.key} className="space-y-2 rounded-lg border border-border p-2.5">
                       <div className="flex items-center justify-between">
@@ -1299,7 +1193,7 @@ export function MaterialMasterScreen({
 
               <label className="flex cursor-pointer items-center gap-2 border-t border-border pt-3">
                 <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
-                <span className="text-sm text-foreground">Inactive (inactive)</span>
+                <span className="text-sm text-foreground">Inactive</span>
               </label>
             </div>
           )}

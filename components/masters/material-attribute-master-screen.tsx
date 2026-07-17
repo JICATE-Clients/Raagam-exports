@@ -24,6 +24,8 @@ import type { Attribute } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
 import type { Uom } from "@/lib/masters/types";
 import { CategoryPicker, AttributePicker, LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 
@@ -257,17 +259,7 @@ export function MaterialAttributeMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -425,119 +417,90 @@ export function MaterialAttributeMasterScreen({
                 <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
               )}
             </div>
-            <div>
-              <Label>Category Short Name</Label>
-              <Input
-                readOnly
-                disabled
-                value={categoryId ? categoryShortName.get(categoryId) ?? "—" : ""}
-                placeholder="Pick a Category first"
-                className="text-base md:text-sm"
-              />
-            </div>
           </div>
 
-          {/* line cards */}
-          <div className="space-y-2 border-t border-border pt-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attributes</div>
-            {lines.map((l, i) => (
-              <div key={l.key} className="space-y-2.5 rounded-lg border border-border p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground hover:text-danger"
-                    onClick={() => removeLine(l.key)}
-                    aria-label="Remove attribute"
-                  >
-                    ✕
-                  </Button>
+          {/* attribute lines */}
+          {(() => {
+            const attrCell = (l: LineRow) => (
+              <div>
+                <AttributePicker label="" values={scopedAttributeValues} value={l.attribute_id} onChange={(v) => setLineAt(l.key, { attribute_id: v })} />
+                {!itemClassId && <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>}
+              </div>
+            );
+            const rangeCell = (l: LineRow) => (
+              <div className="grid grid-cols-3 gap-1.5">
+                <div>
+                  <Label className="text-[11px] font-normal text-muted-foreground">Start Value</Label>
+                  <Input type="number" step="0.0001" value={l.start_value} onChange={(e) => setLineAt(l.key, { start_value: e.target.value })} className="text-base md:text-sm" />
                 </div>
                 <div>
-                  <AttributePicker
-                    label="Attribute"
-                    values={scopedAttributeValues}
-                    value={l.attribute_id}
-                    onChange={(v) => setLineAt(l.key, { attribute_id: v })}
-                  />
-                  {!itemClassId && (
-                    <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
-                  )}
+                  <Label className="text-[11px] font-normal text-muted-foreground">End Value</Label>
+                  <Input type="number" step="0.0001" value={l.end_value} onChange={(e) => setLineAt(l.key, { end_value: e.target.value })} className="text-base md:text-sm" />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label>Start Value</Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      value={l.start_value}
-                      onChange={(e) => setLineAt(l.key, { start_value: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <div>
-                    <Label>End Value</Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      value={l.end_value}
-                      onChange={(e) => setLineAt(l.key, { end_value: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <div>
-                    <Label>Step Value</Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      value={l.step_value}
-                      onChange={(e) => setLineAt(l.key, { step_value: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <div>
-                    <Label>Unit</Label>
-                    <Select
-                      value={l.unit_id}
-                      onChange={(e) => setLineAt(l.key, { unit_id: e.target.value })}
-                      className="text-base md:text-sm"
-                    >
-                      <option value="">— None —</option>
-                      {units.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.code} — {u.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-4 pt-0.5">
-                  {(
-                    [
-                      ["value_in_steps", "Value in steps"],
-                      ["mandatory", "Mandatory"],
-                      ["inactive", "Inactive"],
-                    ] as const
-                  ).map(([field, label]) => (
-                    <label key={field} className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={l[field]}
-                        onChange={(e) => setLineAt(l.key, { [field]: e.target.checked })}
-                      />
-                      <span className="text-sm text-foreground">{label}</span>
-                    </label>
-                  ))}
+                <div>
+                  <Label className="text-[11px] font-normal text-muted-foreground">Step Value</Label>
+                  <Input type="number" step="0.0001" value={l.step_value} onChange={(e) => setLineAt(l.key, { step_value: e.target.value })} className="text-base md:text-sm" />
                 </div>
               </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={addLine}>
-              + Add attribute
-            </Button>
-          </div>
+            );
+            const unitCell = (l: LineRow) => (
+              <div>
+                <Label className="text-[11px] font-normal text-muted-foreground">Unit</Label>
+                <Select value={l.unit_id} onChange={(e) => setLineAt(l.key, { unit_id: e.target.value })} className="text-base md:text-sm">
+                  <option value="">— None —</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.code} — {u.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            );
+            const flagsCell = (l: LineRow) => (
+              <div className="flex flex-wrap gap-3">
+                {(
+                  [
+                    ["value_in_steps", "Value In Steps"],
+                    ["mandatory", "Mandatory"],
+                    ["inactive", "Blocked"],
+                  ] as const
+                ).map(([field, label]) => (
+                  <label key={field} className="flex cursor-pointer items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={l[field]}
+                      onChange={(e) => setLineAt(l.key, { [field]: e.target.checked })}
+                    />
+                    <span className="text-sm text-foreground">{label}</span>
+                  </label>
+                ))}
+              </div>
+            );
+            return (
+              <ChildGrid<LineRow>
+                label="Attributes"
+                rows={lines}
+                onAdd={addLine}
+                onRemove={(l) => removeLine(l.key)}
+                addLabel="+ Add attribute"
+                columns={[
+                  { header: "Attribute", cell: attrCell },
+                  { header: "Range / Step", cell: rangeCell },
+                  { header: "Unit", cell: unitCell },
+                  { header: "Flags", cell: flagsCell },
+                ]}
+                renderMobileRow={(l) => (
+                  <>
+                    {attrCell(l)}
+                    {rangeCell(l)}
+                    {unitCell(l)}
+                    {flagsCell(l)}
+                  </>
+                )}
+              />
+            );
+          })()}
         </div>
       </Sheet>
     </div>

@@ -23,7 +23,7 @@ const blankForm = () => ({
   sequence: "0",
   calc_type: "" as "" | CalcType,
   base_head: false,
-  blocked: false,
+  inactive: false,
 });
 
 /**
@@ -65,7 +65,7 @@ export function DeductionMasterScreen({ rows, perms }: { rows: Deduction[]; perm
       sequence: String(r.sequence),
       calc_type: r.calc_type ?? "",
       base_head: r.base_head,
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -77,7 +77,7 @@ export function DeductionMasterScreen({ rows, perms }: { rows: Deduction[]; perm
         sequence: Number(form.sequence) || 0,
         calc_type: form.calc_type || null,
         base_head: form.base_head,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateDeduction(editId, payload) : await createDeduction(payload);
       if (res.ok) {
@@ -114,7 +114,7 @@ export function DeductionMasterScreen({ rows, perms }: { rows: Deduction[]; perm
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -188,8 +188,8 @@ export function DeductionMasterScreen({ rows, perms }: { rows: Deduction[]; perm
                     {r.base_head ? " · Base Head" : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -223,10 +223,10 @@ export function DeductionMasterScreen({ rows, perms }: { rows: Deduction[]; perm
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
 

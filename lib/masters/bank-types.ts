@@ -1,8 +1,15 @@
 import { z } from "zod";
+import {
+  nullableFormat,
+  IFSC_RE,
+  BANK_ACCT_RE,
+  PINCODE_IN_RE,
+  EMAIL_RE,
+} from "@/lib/validation/formats";
 
 // ============================================================================
 // Banks — master-detail (0235). Legacy EDP2 "Bank" form: header (Code ·
-// Foreign/Local · Name · Blocked) + a "Bank Detail" branch grid. The single
+// Foreign/Local · Name · Inactive) + a "Bank Detail" branch grid. The single
 // code column is labelled "Swift Code" (Foreign) / "RTGS/NIFT Code" (Local).
 // ============================================================================
 export const BANK_TYPES = ["Foreign", "Local"] as const;
@@ -29,7 +36,7 @@ export interface Bank {
   code: string | null;
   bank_type: BankType | null;
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
   branches: BankBranch[];
@@ -41,20 +48,22 @@ export const bankBranchInput = z.object({
   country_id: z.string().uuid().nullable().default(null),
   state: nullableText,
   city: nullableText,
-  pin: nullableText,
+  pin: nullableFormat(PINCODE_IN_RE, "Enter a 6-digit PIN code"),
   street: nullableText,
   land_line: nullableText,
   fax: nullableText,
-  email: nullableText,
+  email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
+  // swift_rtgs_code dual-holds SWIFT (Foreign) / RTGS (Local); left unformatted
+  // so a Local bank's RTGS code isn't rejected by a SWIFT-only pattern.
   swift_rtgs_code: nullableText,
-  current_acc_no: nullableText,
-  ifs_code: nullableText,
+  current_acc_no: nullableFormat(BANK_ACCT_RE, "Account number must be 9–18 digits"),
+  ifs_code: nullableFormat(IFSC_RE, "Invalid IFSC (e.g. HDFC0001234)"),
 });
 export const bankInput = z.object({
   code: nullableText,
   bank_type: z.enum(BANK_TYPES).nullable().default(null),
   name: z.string().min(1, "Name is required"),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   branches: z.array(bankBranchInput).default([]),
 });
 export type BankInput = z.infer<typeof bankInput>;

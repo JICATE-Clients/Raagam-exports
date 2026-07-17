@@ -23,6 +23,8 @@ import {
 } from "@/lib/masters/commodity-actions";
 import type { Commodity, CommodityInput } from "@/lib/masters/commodity-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { DetailSection } from "@/components/masters/detail-section";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -142,17 +144,7 @@ export function CommodityMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -284,37 +276,39 @@ export function CommodityMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="cmd-short">Short Name</Label>
-            <Input
-              id="cmd-short"
-              value={form.short_name}
-              onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="cmd-name">Name</Label>
-            <Input
-              id="cmd-name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="cmd-short">Short Name</Label>
+              <Input
+                id="cmd-short"
+                value={form.short_name}
+                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cmd-name">Name</Label>
+              <Input
+                id="cmd-name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
 
-          <LookupDialogPicker
-            kind="item_class"
-            label="Item Class"
-            required
-            options={itemClasses}
-            value={form.item_class_id}
-            onChange={(v) => setForm({ ...form, item_class_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-            isSuperAdmin={perms.isSuperAdmin}
-          />
+            <LookupDialogPicker
+              kind="item_class"
+              label="Item Class"
+              required
+              options={itemClasses}
+              value={form.item_class_id}
+              onChange={(v) => setForm({ ...form, item_class_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isSuperAdmin={perms.isSuperAdmin}
+            />
+          </DetailSection>
 
           <label className="flex cursor-pointer items-center gap-2">
             <input

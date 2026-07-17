@@ -17,6 +17,8 @@ import { LookupDialogPicker, LevyPicker } from "@/components/masters/lookup-pick
 import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DetailSection } from "@/components/masters/detail-section";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import {
   MADE_TYPES,
@@ -262,17 +264,7 @@ export function CategoryMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -443,111 +435,116 @@ export function CategoryMasterScreen({
         }
       >
         <div className="space-y-4">
-          <LookupDialogPicker
-            kind="item_class"
-            label="Item Class"
-            required
-            options={itemClasses}
-            value={form.item_class_id}
-            onChange={(v) => setForm({ ...form, item_class_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-            isSuperAdmin={perms.isSuperAdmin}
-          />
-
-          {showUserDefined && (
-            <div>
-              <Label htmlFor="cat-user-defined">User Defined</Label>
-              <Select
-                id="cat-user-defined"
-                value={form.user_defined ? "yes" : "no"}
-                onChange={(e) => setForm({ ...form, user_defined: e.target.value === "yes" })}
-                className="text-base md:text-sm"
-              >
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
-              </Select>
-            </div>
-          )}
-
-          <div>
-            <Label htmlFor="cat-short-name">Short Name</Label>
-            <Input
-              id="cat-short-name"
-              value={form.short_name}
-              onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="cat-name">Name</Label>
-            <Input
-              id="cat-name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          {/* Short Spec removed for new entries (functional spec, 0280) — descriptive
-              data now comes from structured attributes instead. Still shown when
-              editing an existing category so historical data isn't hidden/lost. */}
-          {editId && (
-            <div>
-              <Label htmlFor="cat-spec">Short Spec</Label>
-              <Input
-                id="cat-spec"
-                value={form.short_spec}
-                onChange={(e) => setForm({ ...form, short_spec: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          )}
-          <div>
-            <Label htmlFor="cat-made">Made</Label>
-            <Select
-              id="cat-made"
-              value={form.made}
-              onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— Select —</option>
-              {MADE_TYPES.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </Select>
-          </div>
-          {showFabricStructure && (
+          <DetailSection label="Classification">
             <LookupDialogPicker
-              kind="fabric_structure"
-              label="Fabric Structure"
-              options={fabricStructures}
-              value={form.fabric_structure_id}
-              onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
+              kind="item_class"
+              label="Item Class"
+              required
+              options={itemClasses}
+              value={form.item_class_id}
+              onChange={(v) => setForm({ ...form, item_class_id: v })}
               canCreate={perms.canCreate}
               canEdit={perms.canEdit}
               canDelete={perms.canDelete}
               isSuperAdmin={perms.isSuperAdmin}
-              adminOnly
             />
-          )}
-          <LevyPicker
-            label="Levy Description"
-            levies={levies}
-            value={form.levy_id}
-            onChange={(v) => setForm({ ...form, levy_id: v })}
-          />
-          <CommodityPicker
-            commodities={commodities}
-            itemClasses={itemClasses}
-            value={form.commodity_id}
-            onChange={(v) => setForm({ ...form, commodity_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-          />
+
+            {showUserDefined && (
+              <div>
+                <Label htmlFor="cat-user-defined">User Defined</Label>
+                <Select
+                  id="cat-user-defined"
+                  value={form.user_defined ? "yes" : "no"}
+                  onChange={(e) => setForm({ ...form, user_defined: e.target.value === "yes" })}
+                  className="text-base md:text-sm"
+                >
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </Select>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="cat-made">Made</Label>
+              <Select
+                id="cat-made"
+                value={form.made}
+                onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— Select —</option>
+                {MADE_TYPES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {showFabricStructure && (
+              <LookupDialogPicker
+                kind="fabric_structure"
+                label="Fabric Structure"
+                options={fabricStructures}
+                value={form.fabric_structure_id}
+                onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+                isSuperAdmin={perms.isSuperAdmin}
+                adminOnly
+              />
+            )}
+          </DetailSection>
+
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="cat-short-name">Short Name</Label>
+              <Input
+                id="cat-short-name"
+                value={form.short_name}
+                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cat-name">Name</Label>
+              <Input
+                id="cat-name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            {/* Short Spec removed for new entries (functional spec, 0280) — descriptive
+                data now comes from structured attributes instead. Still shown when
+                editing an existing category so historical data isn't hidden/lost. */}
+            {editId && (
+              <div>
+                <Label htmlFor="cat-spec">Short Spec</Label>
+                <Input
+                  id="cat-spec"
+                  value={form.short_spec}
+                  onChange={(e) => setForm({ ...form, short_spec: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            )}
+            <LevyPicker
+              label="Levy Description"
+              levies={levies}
+              value={form.levy_id}
+              onChange={(v) => setForm({ ...form, levy_id: v })}
+            />
+            <CommodityPicker
+              commodities={commodities}
+              itemClasses={itemClasses}
+              value={form.commodity_id}
+              onChange={(v) => setForm({ ...form, commodity_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+            />
+          </DetailSection>
 
           <label className="flex cursor-pointer items-center gap-2">
             <input

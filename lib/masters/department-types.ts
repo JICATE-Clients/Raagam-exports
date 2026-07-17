@@ -4,7 +4,7 @@ import { z } from "zod";
 // Department — HR master (0259). Legacy EDP2 "Department" form: a rich master,
 // distinct from the `department` config_lookups kind used by the Employee /
 // Consignee / Courier pickers. Header (Short Name · Name · Doc Prefix ·
-// Warehouse · Blocked · Item-Class checklist) + a Location grid (Location +
+// Warehouse · Inactive · Item-Class checklist) + a Location grid (Location +
 // All Divisions).
 // ============================================================================
 
@@ -32,7 +32,7 @@ export interface Department {
   name: string | null;
   doc_prefix: string | null;
   warehouse: boolean;
-  blocked: boolean;
+  inactive: boolean;
   item_classes: string[];
   locations: DepartmentLocation[];
   created_at: string;
@@ -50,7 +50,7 @@ export const departmentInput = z.object({
   name: z.string().optional().nullable(),
   doc_prefix: z.string().optional().nullable(),
   warehouse: z.boolean().default(false),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
   item_classes: z.array(z.enum(DEPARTMENT_ITEM_CLASSES)).default([]),
   locations: z.array(departmentLocationInput).default([]),
 });

@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { nullableFormat, HSN_RE } from "@/lib/validation/formats";
 
 // ============================================================================
 // HSN detail — GST master (0263). Legacy EDP2 "HSN detail" form: Item Class
 // (→ config_lookups 'item_class') · For (Materials/Process) · Description ·
-// HSN Code · Blocked + is_draft. Distinct from the `hsn_code` config_lookups
+// HSN Code · Inactive + is_draft. Distinct from the `hsn_code` config_lookups
 // kind (0231) used by the Material/Process/Commodity HSN pickers.
 // ============================================================================
 
@@ -23,7 +24,7 @@ export interface HsnDetail {
   for_type: HsnDetailFor;
   description: string | null;
   hsn_code: string | null;
-  blocked: boolean;
+  inactive: boolean;
   is_draft: boolean;
   created_at: string;
   updated_at: string;
@@ -35,8 +36,8 @@ export const hsnDetailInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
   for_type: z.enum(["materials", "process"]).default("materials"),
   description: nullableText,
-  hsn_code: nullableText,
-  blocked: z.boolean().default(false),
+  hsn_code: nullableFormat(HSN_RE, "HSN/SAC must be 4, 6 or 8 digits"),
+  inactive: z.boolean().default(false),
   is_draft: z.boolean().default(false),
 });
 export type HsnDetailInput = z.infer<typeof hsnDetailInput>;

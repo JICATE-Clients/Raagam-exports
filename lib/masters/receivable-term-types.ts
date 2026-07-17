@@ -3,7 +3,7 @@ import { z } from "zod";
 // ============================================================================
 // Receivable Terms — Associates master (0237). Legacy EDP2 "Receivable term"
 // form: auto Entry No · Date · Pay Mode · an "AT" phrase (basis · when · event)
-// · With Interest · Credit Days · Description · Blocked.
+// · With Interest · Credit Days · Description · Inactive.
 // ============================================================================
 export const PAY_MODES = ["CHEQUE", "DA", "DD", "DP", "LC", "OTH", "PDC", "TT"] as const;
 export const AT_BASIS = ["SIGHT", "OPEN", "DAYS"] as const;
@@ -32,7 +32,7 @@ export interface ReceivableTerm {
   with_interest: boolean;
   credit_days: number;
   description: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -46,6 +46,6 @@ export const receivableTermInput = z.object({
   with_interest: z.boolean().default(false),
   credit_days: z.coerce.number().int().min(0).default(0),
   description: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type ReceivableTermInput = z.infer<typeof receivableTermInput>;

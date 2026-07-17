@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
@@ -113,17 +114,7 @@ export function GaugeMasterScreen({ rows, perms }: { rows: ConfigLookup[]; perms
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },

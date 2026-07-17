@@ -27,6 +27,9 @@ import {
   type OutDocumentTermInput,
 } from "@/lib/masters/out-document-term-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin?: boolean; canExport?: boolean };
 type ProcessOption = { id: string; name: string };
@@ -201,17 +204,7 @@ export function OutDocumentTermMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -354,106 +347,89 @@ export function OutDocumentTermMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="odt-entry">Entry No</Label>
-              <Input
-                id="odt-entry"
-                value={editEntryNo ?? "(auto)"}
-                disabled
-                className="text-base md:text-sm"
-              />
+          <DetailSection label="Header">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="odt-entry">Entry No</Label>
+                <Input
+                  id="odt-entry"
+                  value={editEntryNo ?? "(auto)"}
+                  disabled
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="odt-date">Date</Label>
+                <Input
+                  id="odt-date"
+                  type="date"
+                  value={form.entry_date}
+                  onChange={(e) => set({ entry_date: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
             </div>
             <div>
-              <Label htmlFor="odt-date">Date</Label>
-              <Input
-                id="odt-date"
-                type="date"
-                value={form.entry_date}
-                onChange={(e) => set({ entry_date: e.target.value })}
+              <Label htmlFor="odt-type">Type</Label>
+              <Select
+                id="odt-type"
+                value={form.type}
+                onChange={(e) => set({ type: e.target.value as "" | OutDocTermType })}
                 className="text-base md:text-sm"
-              />
+              >
+                <option value="">— Select —</option>
+                {OUT_DOC_TERM_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
             </div>
-          </div>
-          <div>
-            <Label htmlFor="odt-type">Type</Label>
-            <Select
-              id="odt-type"
-              value={form.type}
-              onChange={(e) => set({ type: e.target.value as "" | OutDocTermType })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— Select —</option>
-              {OUT_DOC_TERM_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="odt-process">Process</Label>
-            <Select
-              id="odt-process"
-              value={form.process_id}
-              onChange={(e) => set({ process_id: e.target.value })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— None —</option>
-              {processes.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <LookupDialogPicker
-            kind="item_class"
-            label="Item Class"
-            options={itemClasses}
-            value={form.item_class_id}
-            onChange={(v) => set({ item_class_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-            isSuperAdmin={perms.isSuperAdmin}
-          />
+            <div>
+              <Label htmlFor="odt-process">Process</Label>
+              <Select
+                id="odt-process"
+                value={form.process_id}
+                onChange={(e) => set({ process_id: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— None —</option>
+                {processes.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <LookupDialogPicker
+              kind="item_class"
+              label="Item Class"
+              options={itemClasses}
+              value={form.item_class_id}
+              onChange={(v) => set({ item_class_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isSuperAdmin={perms.isSuperAdmin}
+            />
+          </DetailSection>
 
           {/* Description grid */}
-          <div className="rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-              Description
-            </div>
-            <div className="space-y-2 p-3">
-              {lines.length === 0 && <p className="text-xs text-muted-foreground">No lines yet.</p>}
-              {lines.map((l, i) => (
-                <div key={l.key} className="flex items-center gap-2">
-                  <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {i + 1}
-                  </span>
-                  <Input
-                    value={l.description}
-                    onChange={(e) => setLineAt(l.key, e.target.value)}
-                    placeholder="Description"
-                    className="flex-1 text-base md:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => removeLine(l.key)}
-                    aria-label="Remove line"
-                  >
-                    ✕
-                  </Button>
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>
-                + Add line
-              </Button>
-            </div>
-          </div>
+          <ChildGrid<LineRow>
+            label="Description"
+            rows={lines}
+            onAdd={addLine}
+            onRemove={(l) => removeLine(l.key)}
+            addLabel="+ Add line"
+            columns={[
+              {
+                header: "Description",
+                cell: (l) => (
+                  <Input value={l.description} onChange={(e) => setLineAt(l.key, e.target.value)} placeholder="Description" className="text-base md:text-sm" />
+                ),
+              },
+            ]}
+          />
         </div>
       </Sheet>
     </div>

@@ -34,7 +34,7 @@ const blankForm = () => ({
   nature_of_group: "" as "" | NatureOfGroup,
   debit_schedule_id: null as string | null,
   credit_schedule_id: null as string | null,
-  blocked: false,
+  inactive: false,
 });
 
 export function AccountGroupMasterScreen({
@@ -88,7 +88,7 @@ export function AccountGroupMasterScreen({
       nature_of_group: r.nature_of_group ?? "",
       debit_schedule_id: r.debit_schedule_id,
       credit_schedule_id: r.credit_schedule_id,
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -102,7 +102,7 @@ export function AccountGroupMasterScreen({
         nature_of_group: form.nature_of_group ? form.nature_of_group : null,
         debit_schedule_id: form.debit_schedule_id,
         credit_schedule_id: form.credit_schedule_id,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateAccountGroup(editId, payload) : await createAccountGroup(payload);
       if (res.ok) {
@@ -142,7 +142,7 @@ export function AccountGroupMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill>
+        <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
     {
@@ -216,8 +216,8 @@ export function AccountGroupMasterScreen({
                     {r.parent_id ? ` · under ${nameById.get(r.parent_id) ?? "—"}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -256,10 +256,10 @@ export function AccountGroupMasterScreen({
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.blocked}
-                onChange={(e) => set({ blocked: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Blocked</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
           </div>
 

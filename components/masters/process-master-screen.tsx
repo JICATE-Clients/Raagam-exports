@@ -20,6 +20,9 @@ import { BILLING_ON, type BillingOn, type Process, type ProcessInput } from "@/l
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { CommodityPicker } from "@/components/masters/commodity-picker";
+import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type SubRow = { key: string; sub_category: string; short_description: string; hsn_code: string };
@@ -279,17 +282,7 @@ export function ProcessMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -442,79 +435,77 @@ export function ProcessMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="pr-name">
-              Process <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="pr-name"
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="pr-desc">Short Description</Label>
-            <Input
-              id="pr-desc"
-              value={form.short_description}
-              onChange={(e) => set({ short_description: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <CommodityPicker
-            commodities={commodities}
-            itemClasses={itemClasses}
-            value={form.commodity_id}
-            onChange={(v) => set({ commodity_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-          />
-          <div className="grid grid-cols-3 gap-3">
+          <DetailSection label="Details">
             <div>
-              <Label htmlFor="pr-billing">Billing On</Label>
-              <Select
-                id="pr-billing"
-                value={form.billing_on}
-                onChange={(e) => set({ billing_on: e.target.value as "" | BillingOn })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {BILLING_ON.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="pr-hsn">HSN Code</Label>
+              <Label htmlFor="pr-name">
+                Process <span className="text-danger">*</span>
+              </Label>
               <Input
-                id="pr-hsn"
-                value={form.hsn_code}
-                onChange={(e) => set({ hsn_code: e.target.value })}
+                id="pr-name"
+                value={form.name}
+                onChange={(e) => set({ name: e.target.value })}
+                required
                 className="text-base md:text-sm"
               />
             </div>
             <div>
-              <Label htmlFor="pr-slno">Sl No</Label>
+              <Label htmlFor="pr-desc">Short Description</Label>
               <Input
-                id="pr-slno"
-                type="number"
-                value={form.sl_no}
-                onChange={(e) => set({ sl_no: Number(e.target.value) || 0 })}
+                id="pr-desc"
+                value={form.short_description}
+                onChange={(e) => set({ short_description: e.target.value })}
                 className="text-base md:text-sm"
               />
             </div>
-          </div>
+            <CommodityPicker
+              commodities={commodities}
+              itemClasses={itemClasses}
+              value={form.commodity_id}
+              onChange={(v) => set({ commodity_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+            />
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="pr-billing">Billing On</Label>
+                <Select
+                  id="pr-billing"
+                  value={form.billing_on}
+                  onChange={(e) => set({ billing_on: e.target.value as "" | BillingOn })}
+                  className="text-base md:text-sm"
+                >
+                  <option value="">— Select —</option>
+                  {BILLING_ON.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="pr-hsn">HSN Code</Label>
+                <Input
+                  id="pr-hsn"
+                  value={form.hsn_code}
+                  onChange={(e) => set({ hsn_code: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="pr-slno">Sl No</Label>
+                <Input
+                  id="pr-slno"
+                  type="number"
+                  value={form.sl_no}
+                  onChange={(e) => set({ sl_no: Number(e.target.value) || 0 })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
+          </DetailSection>
 
-          {/* For */}
-          <div className="rounded-lg border border-border p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              For
-            </div>
+          <DetailSection label="For">
             <div className="grid grid-cols-2 gap-2">
               {FOR_FLAGS.map((f) => (
                 <label key={f.key} className="flex cursor-pointer items-center gap-2">
@@ -528,10 +519,9 @@ export function ProcessMasterScreen({
                 </label>
               ))}
             </div>
-          </div>
+          </DetailSection>
 
-          {/* Planning flags */}
-          <div className="space-y-2">
+          <DetailSection label="Planning">
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
@@ -559,63 +549,47 @@ export function ProcessMasterScreen({
               />
               <span className="text-sm text-foreground">Is Conversion Process</span>
             </label>
-          </div>
+          </DetailSection>
 
           {/* Sub Categories */}
-          <div className="rounded-lg border border-border">
-            <label className="flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2.5">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.has_sub_categories}
-                onChange={(e) => toggleHasSubs(e.target.checked)}
-              />
-              <span className="text-sm font-medium text-foreground">Has Sub Categories</span>
-            </label>
-            {form.has_sub_categories && (
-              <div className="space-y-3 p-3">
-                {subs.length === 0 && <p className="text-xs text-muted-foreground">No sub categories yet.</p>}
-                {subs.map((s, i) => (
-                  <div key={s.key} className="space-y-2 rounded-md border border-border p-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-danger"
-                        onClick={() => removeSub(s.key)}
-                        aria-label="Remove sub category"
-                      >
-                        ✕
-                      </Button>
-                    </div>
-                    <Input
-                      value={s.sub_category}
-                      onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })}
-                      placeholder="Sub Category"
-                      className="text-base md:text-sm"
-                    />
-                    <Input
-                      value={s.short_description}
-                      onChange={(e) => setSubAt(s.key, { short_description: e.target.value })}
-                      placeholder="Short Description"
-                      className="text-base md:text-sm"
-                    />
-                    <Input
-                      value={s.hsn_code}
-                      onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })}
-                      placeholder="HSN Code"
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" onClick={addSub}>
-                  + Add sub category
-                </Button>
-              </div>
-            )}
-          </div>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={form.has_sub_categories}
+              onChange={(e) => toggleHasSubs(e.target.checked)}
+            />
+            <span className="text-sm font-medium text-foreground">Has Sub Categories</span>
+          </label>
+          {form.has_sub_categories && (
+            <ChildGrid<SubRow>
+              label="Sub Categories"
+              rows={subs}
+              onAdd={addSub}
+              onRemove={(s) => removeSub(s.key)}
+              addLabel="+ Add sub category"
+              columns={[
+                {
+                  header: "Sub Category",
+                  cell: (s) => (
+                    <Input value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} placeholder="Sub Category" className="text-base md:text-sm" />
+                  ),
+                },
+                {
+                  header: "Short Description",
+                  cell: (s) => (
+                    <Input value={s.short_description} onChange={(e) => setSubAt(s.key, { short_description: e.target.value })} placeholder="Short Description" className="text-base md:text-sm" />
+                  ),
+                },
+                {
+                  header: "HSN Code",
+                  cell: (s) => (
+                    <Input value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
+                  ),
+                },
+              ]}
+            />
+          )}
 
           <label className="flex cursor-pointer items-center gap-2">
             <input

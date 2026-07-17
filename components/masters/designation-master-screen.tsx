@@ -28,12 +28,12 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 const BLANK = {
   name: "",
   for_type: "staff" as DesignationFor,
-  blocked: false,
+  inactive: false,
 };
 
 /**
  * Legacy HR "Designation" master. Flat form: Designation (name) · For
- * (Staff / Worker / Staff-Worker) · Blocked, with Save / Save-As-Drafts
+ * (Staff / Worker / Staff-Worker) · Inactive, with Save / Save-As-Drafts
  * (draft persists with `is_draft = true`).
  */
 export function DesignationMasterScreen({ rows, perms }: { rows: Designation[]; perms: Perms }) {
@@ -62,7 +62,7 @@ export function DesignationMasterScreen({ rows, perms }: { rows: Designation[]; 
   }
   function openEdit(r: Designation) {
     setEditId(r.id);
-    setForm({ name: r.name, for_type: r.for_type, blocked: r.blocked });
+    setForm({ name: r.name, for_type: r.for_type, inactive: r.inactive });
     setOpen(true);
   }
 
@@ -71,7 +71,7 @@ export function DesignationMasterScreen({ rows, perms }: { rows: Designation[]; 
       const payload: DesignationInput = {
         name: form.name.trim(),
         for_type: form.for_type,
-        blocked: form.blocked,
+        inactive: form.inactive,
         is_draft: asDraft,
       };
       const res = editId ? await updateDesignation(editId, payload) : await createDesignation(payload);
@@ -99,7 +99,7 @@ export function DesignationMasterScreen({ rows, perms }: { rows: Designation[]; 
 
   function statusPill(r: Designation) {
     if (r.is_draft) return <StatusPill tone="warning">Draft</StatusPill>;
-    if (r.blocked) return <StatusPill tone="danger">Blocked</StatusPill>;
+    if (r.inactive) return <StatusPill tone="danger">Inactive</StatusPill>;
     return <StatusPill tone="success">Active</StatusPill>;
   }
 
@@ -243,10 +243,10 @@ export function DesignationMasterScreen({ rows, perms }: { rows: Designation[]; 
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
-            <span className="text-sm text-foreground">Blocked</span>
+            <span className="text-sm text-foreground">Inactive</span>
           </label>
         </div>
       </Sheet>

@@ -407,12 +407,13 @@ export type BomAmendmentInput = z.infer<typeof bomAmendmentInput>;
 // ============================================================================
 // SQ Notes & Allocation (0025)
 // ============================================================================
-export const SQ_STATUSES = ["draft", "allocated", "cancelled"] as const;
+export const SQ_STATUSES = ["draft", "allocated", "cancelled", "closed"] as const;
 export type SqStatus = (typeof SQ_STATUSES)[number];
 export const SQ_STATUS_LABELS: Record<SqStatus, string> = {
   draft: "Draft",
   allocated: "Allocated",
   cancelled: "Cancelled",
+  closed: "Closed",
 };
 export interface SqNote {
   id: string;
@@ -422,6 +423,9 @@ export interface SqNote {
   description: string;
   status: SqStatus;
   notes: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
+  closure_reason: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -708,4 +712,73 @@ export type PdProductInput = z.input<typeof pdProductInput>;
 export function nextPdStage(stage: PdStage): PdStage | null {
   const i = PD_STAGES.indexOf(stage);
   return i >= 0 && i < PD_STAGES.length - 1 ? PD_STAGES[i + 1] : null;
+}
+
+// ============================================================================
+// Garmenting PPM Cancellation (0275) — approval doc over an issued PPM.
+// draft → approved (sets ppm_issues → cancelled) / rejected.
+// ============================================================================
+export const PPM_CANCELLATION_STATUSES = ["draft", "approved", "rejected"] as const;
+export type PpmCancellationStatus = (typeof PPM_CANCELLATION_STATUSES)[number];
+export const PPM_CANCELLATION_STATUS_LABELS: Record<PpmCancellationStatus, string> = {
+  draft: "Draft",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+export interface PpmCancellation {
+  id: string;
+  code: string | null;
+  ppm_issue_id: string;
+  reason: string;
+  status: PpmCancellationStatus;
+  requested_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  decided_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export const ppmCancellationInput = z.object({
+  ppm_issue_id: z.string().uuid("Select a PPM"),
+  reason: z.string().min(1, "Reason is required"),
+});
+export type PpmCancellationInput = z.infer<typeof ppmCancellationInput>;
+
+// ============================================================================
+// Garmenting PPM Receipt Completion (0276) — closes an issued PPM's receipts
+// (records who/when/note) and flips ppm_issues 'issued' → 'received'.
+// ============================================================================
+export interface PpmReceiptCompletion {
+  id: string;
+  code: string | null;
+  ppm_issue_id: string;
+  completed_at: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export const ppmReceiptCompletionInput = z.object({
+  ppm_issue_id: z.string().uuid("Select a PPM"),
+  note: z.string().optional().nullable(),
+});
+export type PpmReceiptCompletionInput = z.infer<typeof ppmReceiptCompletionInput>;
+
+// ============================================================================
+// Rate Detail for Amended Items (read-only report; no table) — a normalized
+// union of PO rate amendments (0037) and Process rate amendments (0112).
+// ============================================================================
+export const RATE_AMEND_SOURCES = ["PO", "Process"] as const;
+export type RateAmendSource = (typeof RATE_AMEND_SOURCES)[number];
+export interface RateAmendedItemRow {
+  id: string;
+  source: RateAmendSource;
+  doc_code: string | null;
+  item_label: string;
+  previous_rate: number;
+  revised_rate: number;
+  reason: string | null;
+  status: string;
+  decided_at: string | null;
 }

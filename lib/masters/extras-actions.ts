@@ -100,6 +100,12 @@ export async function createAttribute(data: AttributeInput): Promise<Result> {
   void _drop;
   const dup = await checkDuplicateName(s, "config_lookups", header.name, { scope: { kind: "item_class" } });
   if (!dup.ok) return fail(dup.error);
+  const dupCode = await checkDuplicateName(s, "config_lookups", header.code, {
+    nameColumn: "code",
+    label: "code",
+    scope: { kind: "item_class" },
+  });
+  if (!dupCode.ok) return fail(dupCode.error);
   const { data: created, error } = await s
     .from("config_lookups")
     .insert({ ...header, kind: "item_class" })
@@ -129,6 +135,13 @@ export async function updateAttribute(id: string, data: AttributeInput): Promise
     scope: { kind: "item_class" },
   });
   if (!dup.ok) return fail(dup.error);
+  const dupCode = await checkDuplicateName(s, "config_lookups", header.code, {
+    nameColumn: "code",
+    label: "code",
+    excludeId: id,
+    scope: { kind: "item_class" },
+  });
+  if (!dupCode.ok) return fail(dupCode.error);
   const { error } = await s.from("config_lookups").update(header).eq("id", id);
   if (error) return fail(error.message);
   // Replace the child grid wholesale (small, fully-loaded set).

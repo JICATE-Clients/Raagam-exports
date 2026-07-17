@@ -17,7 +17,7 @@ export interface CustomerGstRow {
   id: string;
   code: string | null; // "Short Name" → legacy "Party"
   name: string; // legacy "Party Name"
-  blocked: boolean;
+  inactive: boolean;
   is_draft: boolean;
   city_id: string | null; // legacy center "City" grid (config_lookups 'city')
   gst_no: string | null;
@@ -27,7 +27,7 @@ export async function listCustomerGst(): Promise<CustomerGstRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("customers")
-    .select("id, code, name, blocked, is_draft, city_id, gst_no")
+    .select("id, code, name, inactive, is_draft, city_id, gst_no")
     .order("name");
   return (data ?? []) as CustomerGstRow[];
 }

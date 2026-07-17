@@ -17,7 +17,7 @@ export interface MaterialHsnRow {
   id: string;
   code: string | null; // "Short Name"
   name: string; // legacy "Item"
-  is_active: boolean; // Blocked = !is_active
+  is_active: boolean; // Inactive = !is_active
   item_class_id: string | null; // config_lookups 'item_class'
   category_id: string | null; // public.categories
   hsn_id: string | null; // config_lookups 'hsn_code'
