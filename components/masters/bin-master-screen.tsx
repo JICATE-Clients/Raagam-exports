@@ -15,6 +15,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import { createBin, updateBin, deleteBin } from "@/lib/masters/bin-actions";
 import type { Bin, BinInput } from "@/lib/masters/bin-types";
 
@@ -25,7 +27,7 @@ const BLANK = {
   bin_code: "",
   location_id: "",
   description: "",
-  blocked: false,
+  inactive: false,
 };
 
 /**
@@ -65,7 +67,7 @@ export function BinMasterScreen({
         .toLowerCase()
         .includes(q),
     filters: {
-      status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
     },
     initialFilters: { status: "" },
   });
@@ -83,7 +85,7 @@ export function BinMasterScreen({
       bin_code: r.bin_code ?? "",
       location_id: r.location_id ?? "",
       description: r.description ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -94,7 +96,7 @@ export function BinMasterScreen({
         bin_code: form.bin_code.trim(),
         location_id: form.location_id || null,
         description: form.description.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateBin(editId, payload) : await createBin(payload);
       if (res.ok) {
@@ -130,8 +132,8 @@ export function BinMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -145,17 +147,7 @@ export function BinMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -234,8 +226,8 @@ export function BinMasterScreen({
                     {r.description ? ` · ${r.description}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -269,48 +261,51 @@ export function BinMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="bin-code">
-              Bin Code <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="bin-code"
-              value={form.bin_code}
-              onChange={(e) => set({ bin_code: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="bin-location">Location</Label>
-            <Select
-              id="bin-location"
-              value={form.location_id}
-              onChange={(e) => set({ location_id: e.target.value })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— None —</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.code ? `${l.code} — ${l.name ?? ""}` : l.name ?? "—"}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="bin-desc">Description</Label>
-            <Input
-              id="bin-desc"
-              value={form.description}
-              onChange={(e) => set({ description: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="bin-code">
+                Bin Code <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="bin-code"
+                value={form.bin_code}
+                onChange={(e) => set({ bin_code: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="bin-location">Location</Label>
+              <Select
+                id="bin-location"
+                value={form.location_id}
+                onChange={(e) => set({ location_id: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— None —</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.code ? `${l.code} — ${l.name ?? ""}` : l.name ?? "—"}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="bin-desc">Description</Label>
+              <Input
+                id="bin-desc"
+                value={form.description}
+                onChange={(e) => set({ description: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
+
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
             <span className="text-sm text-foreground">Inactive</span>
           </label>

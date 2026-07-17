@@ -14,7 +14,7 @@ export interface OurBank {
   swift_code: string | null;
   ifsc_code: string | null;
   address: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +27,6 @@ export const ourBankInput = z.object({
   swift_code: z.string().optional().nullable(),
   ifsc_code: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type OurBankInput = z.infer<typeof ourBankInput>;

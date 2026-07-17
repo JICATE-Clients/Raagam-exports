@@ -16,7 +16,7 @@ export interface Certification {
   id: string;
   certification_name: string;
   description: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
   validities?: ValidityRow[];
@@ -25,6 +25,6 @@ export interface Certification {
 export const certificationInput = z.object({
   certification_name: z.string().min(1, "Certification name is required"),
   description: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type CertificationInput = z.infer<typeof certificationInput>;

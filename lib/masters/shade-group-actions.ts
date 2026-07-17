@@ -73,7 +73,7 @@ export async function updateShadeGroup(
 export async function deactivateShadeGroup(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("shade_groups").update({ blocked: true }).eq("id", id);
+  const { error } = await s.from("shade_groups").update({ inactive: true }).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

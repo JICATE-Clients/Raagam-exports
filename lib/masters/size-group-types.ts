@@ -16,7 +16,7 @@ export interface SizeGroup {
   id: string;
   size_group_no: string | null;
   size_group_name: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
   sizes?: SizeRow[];
@@ -25,6 +25,6 @@ export interface SizeGroup {
 export const sizeGroupInput = z.object({
   size_group_no: z.string().optional().nullable(),
   size_group_name: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type SizeGroupInput = z.infer<typeof sizeGroupInput>;

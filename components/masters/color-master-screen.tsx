@@ -15,6 +15,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createColor,
   updateColor,
@@ -24,7 +26,7 @@ import type { Color, ColorInput } from "@/lib/masters/color-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
-const BLANK = { color_name: "", blocked: false };
+const BLANK = { color_name: "", inactive: false };
 
 export function ColorMasterScreen({
   rows,
@@ -44,7 +46,7 @@ export function ColorMasterScreen({
     search: (r, q) =>
       [r.color_name].filter(Boolean).join(" ").toLowerCase().includes(q),
     filters: {
-      status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
     },
     initialFilters: { status: "" },
   });
@@ -60,7 +62,7 @@ export function ColorMasterScreen({
     setEditId(r.id);
     setForm({
       color_name: r.color_name ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -69,7 +71,7 @@ export function ColorMasterScreen({
     startTransition(async () => {
       const payload: ColorInput = {
         color_name: form.color_name.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateColor(editId, payload) : await createColor(payload);
       if (res.ok) {
@@ -99,8 +101,8 @@ export function ColorMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -114,17 +116,7 @@ export function ColorMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -199,8 +191,8 @@ export function ColorMasterScreen({
                     {r.color_name ?? "—"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -234,21 +226,24 @@ export function ColorMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="clr-color-name">Color Name</Label>
-            <Input
-              id="clr-color-name"
-              value={form.color_name}
-              onChange={(e) => setForm({ ...form, color_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="clr-color-name">Color Name</Label>
+              <Input
+                id="clr-color-name"
+                value={form.color_name}
+                onChange={(e) => setForm({ ...form, color_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
+
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
             <span className="text-sm text-foreground">Inactive</span>
           </label>

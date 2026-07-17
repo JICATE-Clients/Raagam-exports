@@ -15,7 +15,7 @@ export interface Zone {
   id: string;
   zone_short_name: string | null;
   zone_name: string;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
   areas?: ZoneAreaRow[];
@@ -24,6 +24,6 @@ export interface Zone {
 export const zoneInput = z.object({
   zone_short_name: z.string().optional().nullable(),
   zone_name: z.string().min(1, "Zone name is required"),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type ZoneInput = z.infer<typeof zoneInput>;

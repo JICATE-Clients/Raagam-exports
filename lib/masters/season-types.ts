@@ -9,7 +9,7 @@ export interface Season {
   season: string | null;
   season_yr: string | null;
   season_name: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +18,6 @@ export const seasonInput = z.object({
   season: z.string().optional().nullable(),
   season_yr: z.string().optional().nullable(),
   season_name: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type SeasonInput = z.infer<typeof seasonInput>;

@@ -15,6 +15,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createShadeGroup,
   updateShadeGroup,
@@ -59,7 +60,7 @@ export function ShadeGroupMasterScreen({
           .toLowerCase()
           .includes(q),
       filters: {
-        status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+        status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },
       initialFilters: { status: "" },
     },
@@ -79,7 +80,7 @@ export function ShadeGroupMasterScreen({
       short_name: r.short_name ?? "",
       name: r.name,
       hours_reqd: r.hours_reqd != null ? String(r.hours_reqd) : "",
-      inactive: r.blocked,
+      inactive: r.inactive,
     });
     setChildRows(
       (r.shades ?? []).map((s) => ({
@@ -110,7 +111,7 @@ export function ShadeGroupMasterScreen({
         short_name: form.short_name.trim() || null,
         name: form.name.trim(),
         hours_reqd: form.hours_reqd ? Number(form.hours_reqd) : null,
-        blocked: form.inactive,
+        inactive: form.inactive,
       };
       const children = childRows
         .filter((c) => c.shade_id.trim() || c.short_name.trim() || c.shade_name.trim())
@@ -168,8 +169,8 @@ export function ShadeGroupMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -183,7 +184,7 @@ export function ShadeGroupMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && !r.blocked && (
+          {perms.canDelete && !r.inactive && (
             <Button
               variant="ghost"
               size="sm"
@@ -276,8 +277,8 @@ export function ShadeGroupMasterScreen({
                     <div className="mt-0.5 text-xs text-muted-foreground">{r.short_name}</div>
                   )}
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
               {(r.shades?.length ?? 0) > 0 && (
@@ -320,52 +321,44 @@ export function ShadeGroupMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <DetailSection label="Details">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="shg-short">Short Name</Label>
+                <Input
+                  id="shg-short"
+                  value={form.short_name}
+                  onChange={(e) => setForm({ ...form, short_name: e.target.value })}
+                  placeholder="Unique short name"
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="shg-hours">Hours Reqd</Label>
+                <Input
+                  id="shg-hours"
+                  type="number"
+                  step="any"
+                  value={form.hours_reqd}
+                  onChange={(e) => setForm({ ...form, hours_reqd: e.target.value })}
+                  placeholder="Processing hours"
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
             <div>
-              <Label htmlFor="shg-short">Short Name</Label>
+              <Label htmlFor="shg-name">
+                Name <span className="text-danger">*</span>
+              </Label>
               <Input
-                id="shg-short"
-                value={form.short_name}
-                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-                placeholder="Unique short name"
+                id="shg-name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
                 className="text-base md:text-sm"
               />
             </div>
-            <div>
-              <Label htmlFor="shg-hours">Hours Reqd</Label>
-              <Input
-                id="shg-hours"
-                type="number"
-                step="any"
-                value={form.hours_reqd}
-                onChange={(e) => setForm({ ...form, hours_reqd: e.target.value })}
-                placeholder="Processing hours"
-                className="text-base md:text-sm"
-              />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="shg-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="shg-name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          </DetailSection>
 
           {/* child grid: shades */}
           <div className="rounded-lg border border-border">
@@ -416,6 +409,16 @@ export function ShadeGroupMasterScreen({
               ))}
             </div>
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+            />
+            <span className="text-sm text-foreground">Inactive</span>
+          </label>
         </div>
       </Sheet>
     </div>

@@ -15,6 +15,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createSeason,
   updateSeason,
@@ -24,7 +26,7 @@ import type { Season, SeasonInput } from "@/lib/masters/season-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
-const BLANK = { season: "", season_yr: "", season_name: "", blocked: false };
+const BLANK = { season: "", season_yr: "", season_name: "", inactive: false };
 
 export function SeasonMasterScreen({
   rows,
@@ -44,7 +46,7 @@ export function SeasonMasterScreen({
     search: (r, q) =>
       [r.season, r.season_yr, r.season_name].filter(Boolean).join(" ").toLowerCase().includes(q),
     filters: {
-      status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
     },
     initialFilters: { status: "" },
   });
@@ -62,7 +64,7 @@ export function SeasonMasterScreen({
       season: r.season ?? "",
       season_yr: r.season_yr ?? "",
       season_name: r.season_name ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -73,7 +75,7 @@ export function SeasonMasterScreen({
         season: form.season.trim() || null,
         season_yr: form.season_yr.trim() || null,
         season_name: form.season_name.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateSeason(editId, payload) : await createSeason(payload);
       if (res.ok) {
@@ -105,8 +107,8 @@ export function SeasonMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -120,17 +122,7 @@ export function SeasonMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -208,8 +200,8 @@ export function SeasonMasterScreen({
                     {r.season_yr ?? "—"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -243,39 +235,42 @@ export function SeasonMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="ssn-season">Season</Label>
-            <Input
-              id="ssn-season"
-              value={form.season}
-              onChange={(e) => setForm({ ...form, season: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ssn-season-yr">Season Year</Label>
-            <Input
-              id="ssn-season-yr"
-              value={form.season_yr}
-              onChange={(e) => setForm({ ...form, season_yr: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ssn-season-name">Season Name</Label>
-            <Input
-              id="ssn-season-name"
-              value={form.season_name}
-              onChange={(e) => setForm({ ...form, season_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="ssn-season">Season</Label>
+              <Input
+                id="ssn-season"
+                value={form.season}
+                onChange={(e) => setForm({ ...form, season: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ssn-season-yr">Season Year</Label>
+              <Input
+                id="ssn-season-yr"
+                value={form.season_yr}
+                onChange={(e) => setForm({ ...form, season_yr: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ssn-season-name">Season Name</Label>
+              <Input
+                id="ssn-season-name"
+                value={form.season_name}
+                onChange={(e) => setForm({ ...form, season_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
+
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
             <span className="text-sm text-foreground">Inactive</span>
           </label>

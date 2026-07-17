@@ -15,6 +15,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createSizeGroup,
   updateSizeGroup,
@@ -58,7 +59,7 @@ export function SizeGroupMasterScreen({
           .toLowerCase()
           .includes(q),
       filters: {
-        status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+        status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },
       initialFilters: { status: "" },
     },
@@ -77,7 +78,7 @@ export function SizeGroupMasterScreen({
     setForm({
       size_group_no: r.size_group_no ?? "",
       size_group_name: r.size_group_name ?? "",
-      inactive: r.blocked,
+      inactive: r.inactive,
     });
     setChildRows(
       (r.sizes ?? []).map((s) => ({
@@ -110,7 +111,7 @@ export function SizeGroupMasterScreen({
       const payload: SizeGroupInput = {
         size_group_no: form.size_group_no.trim() || null,
         size_group_name: form.size_group_name.trim() || null,
-        blocked: form.inactive,
+        inactive: form.inactive,
       };
       const children = childRows
         .filter((c) => c.size_name.trim())
@@ -157,8 +158,8 @@ export function SizeGroupMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -172,7 +173,7 @@ export function SizeGroupMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && !r.blocked && (
+          {perms.canDelete && !r.inactive && (
             <Button
               variant="ghost"
               size="sm"
@@ -265,8 +266,8 @@ export function SizeGroupMasterScreen({
                     <div className="mt-0.5 text-xs text-muted-foreground">{r.size_group_no}</div>
                   )}
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
               {(r.sizes?.length ?? 0) > 0 && (
@@ -309,38 +310,30 @@ export function SizeGroupMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="sg-no">Group No</Label>
-              <Input
-                id="sg-no"
-                value={form.size_group_no}
-                onChange={(e) => setForm({ ...form, size_group_no: e.target.value })}
-                placeholder="Unique number"
-                className="text-base md:text-sm"
-              />
+          <DetailSection label="Details">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="sg-no">Group No</Label>
+                <Input
+                  id="sg-no"
+                  value={form.size_group_no}
+                  onChange={(e) => setForm({ ...form, size_group_no: e.target.value })}
+                  placeholder="Unique number"
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="sg-name">Group Name</Label>
+                <Input
+                  id="sg-name"
+                  value={form.size_group_name}
+                  onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
+                  placeholder="Size group name"
+                  className="text-base md:text-sm"
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="sg-name">Group Name</Label>
-              <Input
-                id="sg-name"
-                value={form.size_group_name}
-                onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
-                placeholder="Size group name"
-                className="text-base md:text-sm"
-              />
-            </div>
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          </DetailSection>
 
           {/* child grid: sizes */}
           <div className="rounded-lg border border-border">
@@ -386,6 +379,16 @@ export function SizeGroupMasterScreen({
               ))}
             </div>
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+            />
+            <span className="text-sm text-foreground">Inactive</span>
+          </label>
         </div>
       </Sheet>
     </div>

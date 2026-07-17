@@ -16,6 +16,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createCertification,
   updateCertification,
@@ -59,7 +60,7 @@ export function CertificationMasterScreen({
           .toLowerCase()
           .includes(q),
       filters: {
-        status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+        status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },
       initialFilters: { status: "" },
     },
@@ -78,7 +79,7 @@ export function CertificationMasterScreen({
     setForm({
       certification_name: r.certification_name,
       description: r.description ?? "",
-      inactive: r.blocked,
+      inactive: r.inactive,
     });
     setChildRows(
       (r.validities ?? []).map((v) => ({
@@ -107,7 +108,7 @@ export function CertificationMasterScreen({
       const payload: CertificationInput = {
         certification_name: form.certification_name.trim(),
         description: form.description.trim() || null,
-        blocked: form.inactive,
+        inactive: form.inactive,
       };
       const children = childRows
         .filter((c) => c.valid_from.trim() || c.valid_to.trim())
@@ -160,8 +161,8 @@ export function CertificationMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -175,7 +176,7 @@ export function CertificationMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && !r.blocked && (
+          {perms.canDelete && !r.inactive && (
             <Button
               variant="ghost"
               size="sm"
@@ -270,8 +271,8 @@ export function CertificationMasterScreen({
                     </div>
                   )}
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
               {(r.validities?.length ?? 0) > 0 && (
@@ -314,38 +315,30 @@ export function CertificationMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="cert-name">
-              Certification Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="cert-name"
-              value={form.certification_name}
-              onChange={(e) => setForm({ ...form, certification_name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="cert-desc">Description</Label>
-            <Textarea
-              id="cert-desc"
-              rows={3}
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="cert-name">
+                Certification Name <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="cert-name"
+                value={form.certification_name}
+                onChange={(e) => setForm({ ...form, certification_name: e.target.value })}
+                required
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cert-desc">Description</Label>
+              <Textarea
+                id="cert-desc"
+                rows={3}
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
 
           {/* child grid: validity periods */}
           <div className="rounded-lg border border-border">
@@ -391,6 +384,16 @@ export function CertificationMasterScreen({
               ))}
             </div>
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+            />
+            <span className="text-sm text-foreground">Inactive</span>
+          </label>
         </div>
       </Sheet>
     </div>

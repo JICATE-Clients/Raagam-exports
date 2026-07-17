@@ -16,6 +16,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import { createBrand, updateBrand, deleteBrand } from "@/lib/masters/brand-actions";
 import type { Brand, BrandInput } from "@/lib/masters/brand-types";
 import type { Country } from "@/lib/masters/country-types";
@@ -29,7 +31,7 @@ const BLANK = {
   website: "",
   phone: "",
   fax: "",
-  blocked: false,
+  inactive: false,
 };
 
 /**
@@ -69,7 +71,7 @@ export function BrandMasterScreen({
         .toLowerCase()
         .includes(q),
     filters: {
-      status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       country: (r, v) => r.country_id === v,
     },
     initialFilters: { status: "", country: "" },
@@ -91,7 +93,7 @@ export function BrandMasterScreen({
       website: r.website ?? "",
       phone: r.phone ?? "",
       fax: r.fax ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -105,7 +107,7 @@ export function BrandMasterScreen({
         website: form.website.trim() || null,
         phone: form.phone.trim() || null,
         fax: form.fax.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateBrand(editId, payload) : await createBrand(payload);
       if (res.ok) {
@@ -141,8 +143,8 @@ export function BrandMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -156,17 +158,7 @@ export function BrandMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -263,8 +255,8 @@ export function BrandMasterScreen({
                     {countryName(r)}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -298,68 +290,71 @@ export function BrandMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="brd-short">Short Name</Label>
-            <Input
-              id="brd-short"
-              value={form.brand_short_name}
-              onChange={(e) => set({ brand_short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="brd-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="brd-name"
-              value={form.brand_name}
-              onChange={(e) => set({ brand_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <CountryPicker
-            countries={countries}
-            value={form.country_id || null}
-            onChange={(id) => set({ country_id: id })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-          />
-          <div>
-            <Label htmlFor="brd-website">Website</Label>
-            <Input
-              id="brd-website"
-              value={form.website}
-              onChange={(e) => set({ website: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          <DetailSection label="Details">
             <div>
-              <Label htmlFor="brd-phone">Phone</Label>
+              <Label htmlFor="brd-short">Short Name</Label>
               <Input
-                id="brd-phone"
-                value={form.phone}
-                onChange={(e) => set({ phone: e.target.value })}
+                id="brd-short"
+                value={form.brand_short_name}
+                onChange={(e) => set({ brand_short_name: e.target.value })}
                 className="text-base md:text-sm"
               />
             </div>
             <div>
-              <Label htmlFor="brd-fax">Fax</Label>
+              <Label htmlFor="brd-name">
+                Name <span className="text-danger">*</span>
+              </Label>
               <Input
-                id="brd-fax"
-                value={form.fax}
-                onChange={(e) => set({ fax: e.target.value })}
+                id="brd-name"
+                value={form.brand_name}
+                onChange={(e) => set({ brand_name: e.target.value })}
                 className="text-base md:text-sm"
               />
             </div>
-          </div>
+            <CountryPicker
+              countries={countries}
+              value={form.country_id || null}
+              onChange={(id) => set({ country_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+            />
+            <div>
+              <Label htmlFor="brd-website">Website</Label>
+              <Input
+                id="brd-website"
+                value={form.website}
+                onChange={(e) => set({ website: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="brd-phone">Phone</Label>
+                <Input
+                  id="brd-phone"
+                  value={form.phone}
+                  onChange={(e) => set({ phone: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="brd-fax">Fax</Label>
+                <Input
+                  id="brd-fax"
+                  value={form.fax}
+                  onChange={(e) => set({ fax: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+            </div>
+          </DetailSection>
+
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => set({ inactive: e.target.checked })}
             />
             <span className="text-sm text-foreground">Inactive</span>
           </label>

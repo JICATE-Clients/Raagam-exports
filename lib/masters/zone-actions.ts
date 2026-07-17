@@ -78,7 +78,7 @@ export async function updateZone(
 export async function deactivateZone(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("zones").update({ blocked: true }).eq("id", id);
+  const { error } = await s.from("zones").update({ inactive: true }).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

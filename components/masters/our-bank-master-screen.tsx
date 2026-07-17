@@ -15,6 +15,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createOurBank,
   updateOurBank,
@@ -24,7 +26,7 @@ import type { OurBank, OurBankInput } from "@/lib/masters/our-bank-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
-const BLANK = { account_no: "", account_name: "", bank_name: "", branch_name: "", swift_code: "", ifsc_code: "", address: "", blocked: false };
+const BLANK = { account_no: "", account_name: "", bank_name: "", branch_name: "", swift_code: "", ifsc_code: "", address: "", inactive: false };
 
 export function OurBankMasterScreen({
   rows,
@@ -44,7 +46,7 @@ export function OurBankMasterScreen({
     search: (r, q) =>
       [r.account_name, r.bank_name, r.branch_name, r.account_no].filter(Boolean).join(" ").toLowerCase().includes(q),
     filters: {
-      status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
     },
     initialFilters: { status: "" },
   });
@@ -66,7 +68,7 @@ export function OurBankMasterScreen({
       swift_code: r.swift_code ?? "",
       ifsc_code: r.ifsc_code ?? "",
       address: r.address ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -81,7 +83,7 @@ export function OurBankMasterScreen({
         swift_code: form.swift_code.trim() || null,
         ifsc_code: form.ifsc_code.trim() || null,
         address: form.address.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateOurBank(editId, payload) : await createOurBank(payload);
       if (res.ok) {
@@ -114,8 +116,8 @@ export function OurBankMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -129,17 +131,7 @@ export function OurBankMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -217,8 +209,8 @@ export function OurBankMasterScreen({
                     {r.bank_name ?? "—"} — {r.branch_name ?? "—"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -252,75 +244,78 @@ export function OurBankMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="ob-account-no">Account No</Label>
-            <Input
-              id="ob-account-no"
-              value={form.account_no}
-              onChange={(e) => setForm({ ...form, account_no: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ob-account-name">Account Name</Label>
-            <Input
-              id="ob-account-name"
-              value={form.account_name}
-              onChange={(e) => setForm({ ...form, account_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ob-bank-name">Bank Name</Label>
-            <Input
-              id="ob-bank-name"
-              value={form.bank_name}
-              onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ob-branch-name">Branch Name</Label>
-            <Input
-              id="ob-branch-name"
-              value={form.branch_name}
-              onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ob-swift">Swift Code</Label>
-            <Input
-              id="ob-swift"
-              value={form.swift_code}
-              onChange={(e) => setForm({ ...form, swift_code: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ob-ifsc">IFSC Code</Label>
-            <Input
-              id="ob-ifsc"
-              value={form.ifsc_code}
-              onChange={(e) => setForm({ ...form, ifsc_code: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="ob-address">Address</Label>
-            <Input
-              id="ob-address"
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="ob-account-no">Account No</Label>
+              <Input
+                id="ob-account-no"
+                value={form.account_no}
+                onChange={(e) => setForm({ ...form, account_no: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ob-account-name">Account Name</Label>
+              <Input
+                id="ob-account-name"
+                value={form.account_name}
+                onChange={(e) => setForm({ ...form, account_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ob-bank-name">Bank Name</Label>
+              <Input
+                id="ob-bank-name"
+                value={form.bank_name}
+                onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ob-branch-name">Branch Name</Label>
+              <Input
+                id="ob-branch-name"
+                value={form.branch_name}
+                onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ob-swift">Swift Code</Label>
+              <Input
+                id="ob-swift"
+                value={form.swift_code}
+                onChange={(e) => setForm({ ...form, swift_code: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ob-ifsc">IFSC Code</Label>
+              <Input
+                id="ob-ifsc"
+                value={form.ifsc_code}
+                onChange={(e) => setForm({ ...form, ifsc_code: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ob-address">Address</Label>
+              <Input
+                id="ob-address"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
+
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
             <span className="text-sm text-foreground">Inactive</span>
           </label>

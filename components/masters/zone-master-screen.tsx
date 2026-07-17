@@ -15,6 +15,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createZone,
   updateZone,
@@ -58,7 +59,7 @@ export function ZoneMasterScreen({
           .toLowerCase()
           .includes(q),
       filters: {
-        status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+        status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },
       initialFilters: { status: "" },
     },
@@ -77,7 +78,7 @@ export function ZoneMasterScreen({
     setForm({
       zone_short_name: r.zone_short_name ?? "",
       zone_name: r.zone_name,
-      inactive: r.blocked,
+      inactive: r.inactive,
     });
     setChildRows(
       (r.areas ?? []).map((a) => ({
@@ -105,7 +106,7 @@ export function ZoneMasterScreen({
       const payload: ZoneInput = {
         zone_short_name: form.zone_short_name.trim() || null,
         zone_name: form.zone_name.trim(),
-        blocked: form.inactive,
+        inactive: form.inactive,
       };
       const children = childRows
         .filter((c) => c.area_name.trim())
@@ -150,8 +151,8 @@ export function ZoneMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -165,7 +166,7 @@ export function ZoneMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && !r.blocked && (
+          {perms.canDelete && !r.inactive && (
             <Button
               variant="ghost"
               size="sm"
@@ -258,8 +259,8 @@ export function ZoneMasterScreen({
                     <div className="mt-0.5 text-xs text-muted-foreground">{r.zone_short_name}</div>
                   )}
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
               {(r.areas?.length ?? 0) > 0 && (
@@ -302,40 +303,32 @@ export function ZoneMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="zn-short">Short Name</Label>
-              <Input
-                id="zn-short"
-                value={form.zone_short_name}
-                onChange={(e) => setForm({ ...form, zone_short_name: e.target.value })}
-                placeholder="Unique short name"
-                className="text-base md:text-sm"
-              />
+          <DetailSection label="Details">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="zn-short">Short Name</Label>
+                <Input
+                  id="zn-short"
+                  value={form.zone_short_name}
+                  onChange={(e) => setForm({ ...form, zone_short_name: e.target.value })}
+                  placeholder="Unique short name"
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="zn-name">
+                  Zone Name <span className="text-danger">*</span>
+                </Label>
+                <Input
+                  id="zn-name"
+                  value={form.zone_name}
+                  onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
+                  required
+                  className="text-base md:text-sm"
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="zn-name">
-                Zone Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="zn-name"
-                value={form.zone_name}
-                onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
-                required
-                className="text-base md:text-sm"
-              />
-            </div>
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          </DetailSection>
 
           {/* child grid: areas */}
           <div className="rounded-lg border border-border">
@@ -374,6 +367,16 @@ export function ZoneMasterScreen({
               ))}
             </div>
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+            />
+            <span className="text-sm text-foreground">Inactive</span>
+          </label>
         </div>
       </Sheet>
     </div>

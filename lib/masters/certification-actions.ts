@@ -78,7 +78,7 @@ export async function updateCertification(
 export async function deactivateCertification(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("certifications").update({ blocked: true }).eq("id", id);
+  const { error } = await s.from("certifications").update({ inactive: true }).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

@@ -13,7 +13,7 @@ export interface Brand {
   website: string | null;
   phone: string | null;
   fax: string | null;
-  blocked: boolean;
+  inactive: boolean;
   created_at: string;
   updated_at: string;
   // embedded for display (brand-service selects countries(id,code,name))
@@ -27,6 +27,6 @@ export const brandInput = z.object({
   website: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
   fax: z.string().optional().nullable(),
-  blocked: z.boolean().default(false),
+  inactive: z.boolean().default(false),
 });
 export type BrandInput = z.infer<typeof brandInput>;

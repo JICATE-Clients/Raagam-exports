@@ -15,6 +15,8 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createDivision,
   updateDivision,
@@ -24,7 +26,7 @@ import type { Division, DivisionInput } from "@/lib/masters/division-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
-const BLANK = { division_id: "", division_name: "", document_prefix_id: "", blocked: false };
+const BLANK = { division_id: "", division_name: "", document_prefix_id: "", inactive: false };
 
 export function DivisionMasterScreen({
   rows,
@@ -44,7 +46,7 @@ export function DivisionMasterScreen({
     search: (r, q) =>
       [r.division_id, r.division_name].filter(Boolean).join(" ").toLowerCase().includes(q),
     filters: {
-      status: (r, v) => (v === "active" ? !r.blocked : v === "inactive" ? !!r.blocked : true),
+      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
     },
     initialFilters: { status: "" },
   });
@@ -62,7 +64,7 @@ export function DivisionMasterScreen({
       division_id: r.division_id ?? "",
       division_name: r.division_name ?? "",
       document_prefix_id: r.document_prefix_id ?? "",
-      blocked: r.blocked,
+      inactive: r.inactive,
     });
     setOpen(true);
   }
@@ -73,7 +75,7 @@ export function DivisionMasterScreen({
         division_id: form.division_id.trim() || null,
         division_name: form.division_name.trim() || null,
         document_prefix_id: form.document_prefix_id.trim() || null,
-        blocked: form.blocked,
+        inactive: form.inactive,
       };
       const res = editId ? await updateDivision(editId, payload) : await createDivision(payload);
       if (res.ok) {
@@ -105,8 +107,8 @@ export function DivisionMasterScreen({
     {
       header: "Status",
       cell: (r) => (
-        <StatusPill tone={r.blocked ? "danger" : "success"}>
-          {r.blocked ? "Inactive" : "Active"}
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
         </StatusPill>
       ),
     },
@@ -120,17 +122,7 @@ export function DivisionMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -208,8 +200,8 @@ export function DivisionMasterScreen({
                     {r.division_id ?? "—"}
                   </div>
                 </div>
-                <StatusPill tone={r.blocked ? "danger" : "success"}>
-                  {r.blocked ? "Inactive" : "Active"}
+                <StatusPill tone={r.inactive ? "danger" : "success"}>
+                  {r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -243,39 +235,42 @@ export function DivisionMasterScreen({
         }
       >
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="div-division-id">Division ID</Label>
-            <Input
-              id="div-division-id"
-              value={form.division_id}
-              onChange={(e) => setForm({ ...form, division_id: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="div-division-name">Division Name</Label>
-            <Input
-              id="div-division-name"
-              value={form.division_name}
-              onChange={(e) => setForm({ ...form, division_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="div-doc-prefix">Document Prefix ID</Label>
-            <Input
-              id="div-doc-prefix"
-              value={form.document_prefix_id}
-              onChange={(e) => setForm({ ...form, document_prefix_id: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+          <DetailSection label="Details">
+            <div>
+              <Label htmlFor="div-division-id">Division ID</Label>
+              <Input
+                id="div-division-id"
+                value={form.division_id}
+                onChange={(e) => setForm({ ...form, division_id: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="div-division-name">Division Name</Label>
+              <Input
+                id="div-division-name"
+                value={form.division_name}
+                onChange={(e) => setForm({ ...form, division_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="div-doc-prefix">Document Prefix ID</Label>
+              <Input
+                id="div-doc-prefix"
+                value={form.document_prefix_id}
+                onChange={(e) => setForm({ ...form, document_prefix_id: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
+
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.blocked}
-              onChange={(e) => setForm({ ...form, blocked: e.target.checked })}
+              checked={form.inactive}
+              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
             />
             <span className="text-sm text-foreground">Inactive</span>
           </label>
