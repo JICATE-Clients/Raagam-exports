@@ -10,12 +10,12 @@ import {
   Package,
   Truck,
   SlidersHorizontal,
-  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,6 +27,7 @@ import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { ApplicantPicker } from "@/components/masters/applicant-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
+import { ChildGrid } from "@/components/masters/child-grid";
 import { createCustomer, updateCustomer, deleteCustomer } from "@/lib/masters/customer-actions";
 import {
   type Customer,
@@ -46,15 +47,15 @@ const SECTIONS: { key: SectionKey; label: string; icon: LucideIcon }[] = [
   { key: "identity", label: "Identity", icon: User },
   { key: "address", label: "Address", icon: MapPin },
   { key: "agents", label: "Agents", icon: Users },
-  { key: "supplied", label: "Customer Supplied Items", icon: Package },
-  { key: "vendors", label: "Customer Nominated Vendors", icon: Truck },
-  { key: "general", label: "CustomerGeneral", icon: SlidersHorizontal },
+  { key: "supplied", label: "Supplied Items", icon: Package },
+  { key: "vendors", label: "Nominated Vendors", icon: Truck },
+  { key: "general", label: "General", icon: SlidersHorizontal },
 ];
 
 type HeaderForm = {
   code: string;
   name: string;
-  blocked: boolean;
+  inactive: boolean;
   doc_prefix: string;
   doc_id: string;
   also_consignee: boolean;
@@ -90,7 +91,7 @@ type HeaderForm = {
 const BLANK: HeaderForm = {
   code: "",
   name: "",
-  blocked: false,
+  inactive: false,
   doc_prefix: "",
   doc_id: "",
   also_consignee: false,
@@ -284,7 +285,7 @@ export function CustomerMasterScreen({
     setForm({
       code: r.code ?? "",
       name: r.name,
-      blocked: r.blocked,
+      inactive: r.inactive,
       doc_prefix: r.doc_prefix ?? "",
       doc_id: r.doc_id ?? "",
       also_consignee: r.also_consignee,
@@ -389,7 +390,7 @@ export function CustomerMasterScreen({
       const payload: CustomerInput = {
         code: form.code.trim() || null,
         name: form.name.trim(),
-        blocked: form.blocked,
+        inactive: form.inactive,
         doc_prefix: form.doc_prefix.trim() || null,
         doc_id: form.doc_id.trim() || null,
         also_consignee: form.also_consignee,
@@ -533,8 +534,8 @@ export function CustomerMasterScreen({
     {
       header: "Status",
       cell: (r) => {
-        const tone = r.is_draft ? "warning" : r.blocked ? "danger" : "success";
-        const text = r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active";
+        const tone = r.is_draft ? "warning" : r.inactive ? "danger" : "success";
+        const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
     },
@@ -609,8 +610,8 @@ export function CustomerMasterScreen({
                     {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
                   </div>
                 </div>
-                <StatusPill tone={r.is_draft ? "warning" : r.blocked ? "danger" : "success"}>
-                  {r.is_draft ? "Draft" : r.blocked ? "Blocked" : "Active"}
+                <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
+                  {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
                 </StatusPill>
               </div>
             </button>
@@ -648,7 +649,7 @@ export function CustomerMasterScreen({
                   <span className="truncate text-[15px] font-bold tracking-tight text-foreground">
                     {form.name.trim() || "Untitled customer"}
                   </span>
-                  {form.blocked && <StatusPill tone="danger">Blocked</StatusPill>}
+                  {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
                   {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
@@ -752,8 +753,8 @@ export function CustomerMasterScreen({
                         <Input id="cu-code" value={form.code} onChange={(e) => set({ code: e.target.value })} className="text-base md:text-sm" />
                       </div>
                       <label className="flex cursor-pointer items-center gap-2 sm:pt-6">
-                        <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.blocked} onChange={(e) => set({ blocked: e.target.checked })} />
-                        <span className="text-sm text-foreground">Blocked</span>
+                        <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
+                        <span className="text-sm text-foreground">Inactive</span>
                       </label>
                       <div className="sm:col-span-2">
                         <Label htmlFor="cu-name">Name <span className="text-danger">*</span></Label>
@@ -775,7 +776,6 @@ export function CustomerMasterScreen({
                         </Select>
                       </div>
                       <div>
-                        <Label>Country</Label>
                         <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
                       </div>
                     </div>
@@ -797,7 +797,6 @@ export function CustomerMasterScreen({
                         <Input id="cu-pin" value={form.pin} onChange={(e) => set({ pin: e.target.value })} className="text-base md:text-sm" />
                       </div>
                       <div>
-                        <Label>Country</Label>
                         <CountryPicker countries={countries} value={form.address_country_id || null} onChange={(id) => set({ address_country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
                       </div>
                       <div>
@@ -810,106 +809,88 @@ export function CustomerMasterScreen({
                       </div>
                       <div>
                         <Label htmlFor="cu-email">E-Mail</Label>
-                        <Input id="cu-email" type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} className="text-base md:text-sm" />
+                        <ValidatedInput format="email" id="cu-email" value={form.email} onChange={(e) => set({ email: e.target.value })} className="text-base md:text-sm" />
                       </div>
                       <div>
                         <Label htmlFor="cu-web">Web site</Label>
-                        <Input id="cu-web" value={form.web_site} onChange={(e) => set({ web_site: e.target.value })} className="text-base md:text-sm" />
+                        <ValidatedInput format="website" id="cu-web" value={form.web_site} onChange={(e) => set({ web_site: e.target.value })} className="text-base md:text-sm" />
                       </div>
                     </div>
 
                     {/* contacts */}
-                    <div className="mt-6 overflow-hidden rounded-lg border border-border">
-                      <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3.5 py-2.5">
-                        <h3 className="text-[13px] font-bold text-foreground">Contacts</h3>
-                        <Button type="button" variant="outline" size="sm" onClick={addContact}>+ Add contact</Button>
-                      </div>
-                      {contacts.length === 0 ? (
-                        <p className="px-4 py-8 text-center text-xs text-muted-foreground">No contacts yet.</p>
-                      ) : (
-                        <>
-                          <div className="hidden overflow-x-auto md:block">
-                            <table className="w-full min-w-[840px] border-collapse text-[12.5px]">
-                              <thead>
-                                <tr className="bg-surface-muted text-[11px] uppercase tracking-wide text-muted-foreground">
-                                  <th className="w-8 px-2 py-2 text-center font-semibold">#</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Department</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Contact Name</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Designation</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Land Line</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Mobile</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Email ID</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Internal Dept.</th>
-                                  <th className="w-9 px-2 py-2" />
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {contacts.map((c, i) => (
-                                  <tr key={c.key} className="border-t border-border align-middle">
-                                    <td className="px-2 py-1.5 text-center font-mono text-muted-foreground">{i + 1}</td>
-                                    <td className="px-1.5 py-1.5">
-                                      <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="h-8 text-sm" />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input value={c.land_line} onChange={(e) => setContactAt(c.key, { land_line: e.target.value })} className="h-8 text-sm" />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input value={c.mobile} onChange={(e) => setContactAt(c.key, { mobile: e.target.value })} className="h-8 text-sm" />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input value={c.email_id} onChange={(e) => setContactAt(c.key, { email_id: e.target.value })} className="h-8 text-sm" />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <LookupDialogPicker kind="internal_department" label="Internal Department" options={internalDepartments} value={c.internal_department_id || null} onChange={(id) => setContactAt(c.key, { internal_department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                                    </td>
-                                    <td className="px-1.5 py-1.5 text-center">
-                                      <button type="button" onClick={() => removeContact(c.key)} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-danger-soft hover:text-danger" aria-label="Remove contact">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                          <div className="space-y-3 p-3 md:hidden">
-                            {contacts.map((c, i) => (
-                              <div key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-medium text-muted-foreground">Contact #{i + 1}</span>
-                                  <button type="button" onClick={() => removeContact(c.key)} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:text-danger" aria-label="Remove contact">
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
-                                <div>
-                                  <Label>Department</Label>
-                                  <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                                </div>
-                                <Input placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
-                                <div>
-                                  <Label>Designation</Label>
-                                  <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <Input placeholder="Land Line" value={c.land_line} onChange={(e) => setContactAt(c.key, { land_line: e.target.value })} className="text-base md:text-sm" />
-                                  <Input placeholder="Mobile" value={c.mobile} onChange={(e) => setContactAt(c.key, { mobile: e.target.value })} className="text-base md:text-sm" />
-                                </div>
-                                <Input placeholder="Email ID" value={c.email_id} onChange={(e) => setContactAt(c.key, { email_id: e.target.value })} className="text-base md:text-sm" />
-                                <div>
-                                  <Label>Internal Department</Label>
-                                  <LookupDialogPicker kind="internal_department" label="Internal Department" options={internalDepartments} value={c.internal_department_id || null} onChange={(id) => setContactAt(c.key, { internal_department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
+                    <div className="mt-6">
+                      <ChildGrid<ContactRow>
+                        label="Contacts"
+                        rows={contacts}
+                        onAdd={addContact}
+                        onRemove={(c) => removeContact(c.key)}
+                        addLabel="+ Add contact"
+                        columns={[
+                          {
+                            header: "Department",
+                            className: "min-w-[160px]",
+                            cell: (c) => (
+                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                            ),
+                          },
+                          {
+                            header: "Contact Name",
+                            className: "min-w-[130px]",
+                            cell: (c) => <Input value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="h-8 text-sm" />,
+                          },
+                          {
+                            header: "Designation",
+                            className: "min-w-[160px]",
+                            cell: (c) => (
+                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                            ),
+                          },
+                          {
+                            header: "Land Line",
+                            className: "min-w-[110px]",
+                            cell: (c) => <Input value={c.land_line} onChange={(e) => setContactAt(c.key, { land_line: e.target.value })} className="h-8 text-sm" />,
+                          },
+                          {
+                            header: "Mobile",
+                            className: "min-w-[110px]",
+                            cell: (c) => <Input value={c.mobile} onChange={(e) => setContactAt(c.key, { mobile: e.target.value })} className="h-8 text-sm" />,
+                          },
+                          {
+                            header: "Email ID",
+                            className: "min-w-[170px]",
+                            cell: (c) => <ValidatedInput format="email" value={c.email_id} onChange={(e) => setContactAt(c.key, { email_id: e.target.value })} className="h-8 text-sm" />,
+                          },
+                          {
+                            header: "Internal Dept.",
+                            className: "min-w-[170px]",
+                            cell: (c) => (
+                              <LookupDialogPicker kind="internal_department" label="Internal Department" options={internalDepartments} value={c.internal_department_id || null} onChange={(id) => setContactAt(c.key, { internal_department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                            ),
+                          },
+                        ]}
+                        renderMobileRow={(c) => (
+                          <>
+                            <div>
+                              <Label>Department</Label>
+                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                            </div>
+                            <Input placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
+                            <div>
+                              <Label>Designation</Label>
+                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input placeholder="Land Line" value={c.land_line} onChange={(e) => setContactAt(c.key, { land_line: e.target.value })} className="text-base md:text-sm" />
+                              <Input placeholder="Mobile" value={c.mobile} onChange={(e) => setContactAt(c.key, { mobile: e.target.value })} className="text-base md:text-sm" />
+                            </div>
+                            <ValidatedInput format="email" placeholder="Email ID" value={c.email_id} onChange={(e) => setContactAt(c.key, { email_id: e.target.value })} className="text-base md:text-sm" />
+                            <div>
+                              <Label>Internal Department</Label>
+                              <LookupDialogPicker kind="internal_department" label="Internal Department" options={internalDepartments} value={c.internal_department_id || null} onChange={(id) => setContactAt(c.key, { internal_department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                            </div>
+                          </>
+                        )}
+                      />
                     </div>
                   </SectionBody>
                 )}
@@ -917,33 +898,39 @@ export function CustomerMasterScreen({
                 {/* ---------------- Agents ---------------- */}
                 {section === "agents" && (
                   <SectionBody title="Agents" hint="Brokers / agents who represent this customer.">
-                    <GridCard
-                      title="Customer Agents"
-                      empty="No agents yet."
-                      count={agents.length}
-                      addLabel="+ Add agent"
+                    <ChildGrid<AgentRow>
+                      label="Customer Agents"
+                      rows={agents}
                       onAdd={() => {
                         setAgents((xs) => [...xs, { key: newKey(), agent_type_id: "", agent_id: "" }]);
                         setDirty(true);
                       }}
-                    >
-                      {agents.map((a, i) => (
-                        <div key={a.key} className="flex items-start gap-2">
-                          <span className="w-5 shrink-0 pt-2 text-right text-xs text-muted-foreground">{i + 1}</span>
-                          <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
+                      onRemove={(a) => {
+                        setAgents((xs) => xs.filter((r) => r.key !== a.key));
+                        setDirty(true);
+                      }}
+                      addLabel="+ Add agent"
+                      columns={[
+                        {
+                          header: "Agent Type",
+                          cell: (a) => (
                             <LookupDialogPicker kind="agent_type" label="Agent Type" options={agentTypes} value={a.agent_type_id || null} onChange={(id) => { setAgents((xs) => xs.map((r) => (r.key === a.key ? { ...r, agent_type_id: id } : r))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                          ),
+                        },
+                        {
+                          header: "Agent",
+                          cell: (a) => (
                             <LookupDialogPicker kind="agent" label="Agent" options={agentOptions} value={a.agent_id || null} onChange={(id) => { setAgents((xs) => xs.map((r) => (r.key === a.key ? { ...r, agent_id: id } : r))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                          </div>
-                          <RowRemove onClick={() => { setAgents((xs) => xs.filter((r) => r.key !== a.key)); setDirty(true); }} />
-                        </div>
-                      ))}
-                    </GridCard>
+                          ),
+                        },
+                      ]}
+                    />
                   </SectionBody>
                 )}
 
-                {/* ---------------- Customer Supplied Items ---------------- */}
+                {/* ---------------- Supplied Items ---------------- */}
                 {section === "supplied" && (
-                  <SectionBody title="Customer Supplied Items" hint="Categories the customer supplies (free-issue), by accessory group.">
+                  <SectionBody title="Supplied Items" hint="Categories the customer supplies (free-issue), by accessory group.">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
                       <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
@@ -951,9 +938,9 @@ export function CustomerMasterScreen({
                   </SectionBody>
                 )}
 
-                {/* ---------------- Customer Nominated Vendors ---------------- */}
+                {/* ---------------- Nominated Vendors ---------------- */}
                 {section === "vendors" && (
-                  <SectionBody title="Customer Nominated Vendors" hint="Vendors this customer nominates or recommends for sourcing.">
+                  <SectionBody title="Nominated Vendors" hint="Vendors this customer nominates or recommends for sourcing.">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <VendorGrid title="Nominated Vendor" rows={nominated} setRows={setNominated} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                       <VendorGrid title="Recommended Vendor" rows={recommended} setRows={setRecommended} vendors={vendors} newKey={newKey} setDirty={setDirty} />
@@ -961,9 +948,9 @@ export function CustomerMasterScreen({
                   </SectionBody>
                 )}
 
-                {/* ---------------- CustomerGeneral ---------------- */}
+                {/* ---------------- General ---------------- */}
                 {section === "general" && (
-                  <SectionBody title="CustomerGeneral" hint="Trade defaults, shipping, formats and export marking for this customer.">
+                  <SectionBody title="General" hint="Trade defaults, shipping, formats and export marking for this customer.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
                         <Label>Currency 1</Label>
@@ -1051,21 +1038,21 @@ export function CustomerMasterScreen({
 
                     {/* Marking grid */}
                     <div className="mt-6">
-                      <GridCard
-                        title="Marking"
-                        empty="No markings yet."
-                        count={markings.length}
-                        addLabel="+ Add marking"
+                      <ChildGrid<MarkRow>
+                        label="Marking"
+                        rows={markings}
                         onAdd={() => { setMarkings((xs) => [...xs, { key: newKey(), marking: "" }]); setDirty(true); }}
-                      >
-                        {markings.map((m, i) => (
-                          <div key={m.key} className="flex items-center gap-2">
-                            <span className="w-5 shrink-0 text-right text-xs text-muted-foreground">{i + 1}</span>
-                            <Input value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="h-9 flex-1 text-base md:text-sm" placeholder="Marking text" />
-                            <RowRemove onClick={() => { setMarkings((xs) => xs.filter((r) => r.key !== m.key)); setDirty(true); }} />
-                          </div>
-                        ))}
-                      </GridCard>
+                        onRemove={(m) => { setMarkings((xs) => xs.filter((r) => r.key !== m.key)); setDirty(true); }}
+                        addLabel="+ Add marking"
+                        columns={[
+                          {
+                            header: "Marking",
+                            cell: (m) => (
+                              <Input value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" placeholder="Marking text" />
+                            ),
+                          },
+                        ]}
+                      />
                     </div>
                   </SectionBody>
                 )}
@@ -1105,48 +1092,6 @@ function SectionBody({ title, hint, children }: { title: string; hint: string; c
 }
 
 /** Bordered card shell for an editable child grid. */
-function GridCard({
-  title,
-  count,
-  empty,
-  addLabel,
-  onAdd,
-  children,
-}: {
-  title: string;
-  count: number;
-  empty: string;
-  addLabel: string;
-  onAdd: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3.5 py-2.5">
-        <h3 className="text-[13px] font-bold text-foreground">{title}</h3>
-        <Button type="button" variant="outline" size="sm" onClick={onAdd}>{addLabel}</Button>
-      </div>
-      <div className="space-y-2 p-3">
-        {count === 0 && <p className="text-xs text-muted-foreground">{empty}</p>}
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function RowRemove({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-danger-soft hover:text-danger"
-      aria-label="Remove row"
-    >
-      <Trash2 className="h-4 w-4" />
-    </button>
-  );
-}
-
 type CatRowT = { key: string; category_id: string };
 /** A single-column "Category ⓘ" grid (Sewing / Packaging Accessories). */
 function CategoryGrid({
@@ -1167,23 +1112,21 @@ function CategoryGrid({
   setDirty: (v: boolean) => void;
 }) {
   return (
-    <GridCard
-      title={title}
-      empty="No categories yet."
-      count={rows.length}
-      addLabel="+ Add category"
+    <ChildGrid<CatRowT>
+      label={title}
+      rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), category_id: "" }]); setDirty(true); }}
-    >
-      {rows.map((r, i) => (
-        <div key={r.key} className="flex items-center gap-2">
-          <span className="w-5 shrink-0 text-right text-xs text-muted-foreground">{i + 1}</span>
-          <div className="flex-1">
+      onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
+      addLabel="+ Add category"
+      columns={[
+        {
+          header: "Category",
+          cell: (r) => (
             <LookupDialogPicker kind="material_category" label="Category" options={categories} value={r.category_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, category_id: id } : x))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-          </div>
-          <RowRemove onClick={() => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }} />
-        </div>
-      ))}
-    </GridCard>
+          ),
+        },
+      ]}
+    />
   );
 }
 
@@ -1205,22 +1148,20 @@ function VendorGrid({
   setDirty: (v: boolean) => void;
 }) {
   return (
-    <GridCard
-      title={title}
-      empty="No vendors yet."
-      count={rows.length}
-      addLabel="+ Add vendor"
+    <ChildGrid<VendorRowT>
+      label={title}
+      rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), vendor_id: "" }]); setDirty(true); }}
-    >
-      {rows.map((r, i) => (
-        <div key={r.key} className="flex items-center gap-2">
-          <span className="w-5 shrink-0 text-right text-xs text-muted-foreground">{i + 1}</span>
-          <div className="flex-1">
+      onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
+      addLabel="+ Add vendor"
+      columns={[
+        {
+          header: "Vendor",
+          cell: (r) => (
             <RecordPicker label="Vendor" items={vendors} value={r.vendor_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, vendor_id: id ?? "" } : x))); setDirty(true); }} compact />
-          </div>
-          <RowRemove onClick={() => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }} />
-        </div>
-      ))}
-    </GridCard>
+          ),
+        },
+      ]}
+    />
   );
 }

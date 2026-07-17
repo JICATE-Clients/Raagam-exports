@@ -129,6 +129,19 @@ body {
 }
 
 /*
+ * Desktop counterpart to the rule above: every full-screen master editor
+ * (e.g. Customer) and every Sheet drawer's sticky footer places its primary
+ * Save button in the same bottom-right corner as the SDK's un-overridden
+ * desktop default (bottom:1.5rem), so the floating trigger sits on top of
+ * it. Lift it clear the same way.
+ */
+@media (min-width: 768px) {
+  html .bug-reporter-sdk.bug-reporter-floating-btn {
+    bottom: 4.5rem !important;
+  }
+}
+
+/*
  * Report printing — isolate the report so Print (window.print) shows only the
  * table/chart, not the app shell (sidebar / topbar / mobile nav / bug reporter).
  * Classic visibility-flip technique: hide everything, then re-reveal the report
