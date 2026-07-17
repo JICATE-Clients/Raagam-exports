@@ -1,5 +1,5 @@
 -- ============================================================================
--- Raagam ERP — 0290 Categories: full data import (legacy "Category List - U2")
+-- Raagam ERP — 0310 Categories: full data import (legacy "Category List - U2")
 -- Source: category data.xlsx, exported 15/07/2026, 1650 rows across
 -- all item classes. Type -> made (YARN) or fabric_structure_id (FABRIC);
 -- Levy Description -> levy_id (matched by description, trailing "." ignored).
@@ -7,7 +7,19 @@
 -- rather than fabricated. Idempotent (same not-exists dedupe as 0288) so
 -- re-running this file on a fresh DB is safe even though it was originally
 -- applied directly via a one-off import script against the live project.
+--
+-- The EMB (embroidery) and 1000 (button) item_class config_lookups rows were
+-- never actually created live, so seed them here defensively before the rows
+-- below reference EMB by lookup rather than a hardcoded id.
 -- ============================================================================
+
+insert into public.config_lookups (kind, code, name)
+select 'item_class', 'EMB', 'EMBROIDERY ITEMS'
+where not exists (select 1 from public.config_lookups where kind = 'item_class' and code = 'EMB');
+
+insert into public.config_lookups (kind, code, name)
+select 'item_class', '1000', 'BUTTON'
+where not exists (select 1 from public.config_lookups where kind = 'item_class' and code = '1000');
 
 insert into public.categories (item_class_id, short_name, name, made, fabric_structure_id, levy_id, created_by)
 select v.item_class_id, v.short_name, v.name, v.made, v.fabric_structure_id, v.levy_id, v.created_by
@@ -71,13 +83,13 @@ from (values
   ('a903d2e7-757a-4e11-8814-74573f4e3e9f'::uuid, 'WEIGHING MACHINES', 'WEIGHING MACHINES', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
   ('a903d2e7-757a-4e11-8814-74573f4e3e9f'::uuid, 'WHITE GOODS', 'WHITE GOODS', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
   ('a903d2e7-757a-4e11-8814-74573f4e3e9f'::uuid, 'ZIPPER', 'ZIPPER', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
-  ('72aab52f-4bb4-469b-a53d-3bd67880938e'::uuid, 'EMB NEEDLE', 'EMB NEEDLE', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
-  ('72aab52f-4bb4-469b-a53d-3bd67880938e'::uuid, 'FELT', 'FELT', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
-  ('72aab52f-4bb4-469b-a53d-3bd67880938e'::uuid, 'FLET', 'FLET', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
-  ('72aab52f-4bb4-469b-a53d-3bd67880938e'::uuid, 'FOAM', 'FOAM', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
-  ('72aab52f-4bb4-469b-a53d-3bd67880938e'::uuid, 'GENERAL ITEMS', 'GENERAL ITEMS', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
-  ('72aab52f-4bb4-469b-a53d-3bd67880938e'::uuid, 'SEQUENCE', 'SEQUENCE', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
-  ('72aab52f-4bb4-469b-a53d-3bd67880938e'::uuid, 'SEWING THREAD', 'SEWING THREAD', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
+  ((select id from public.config_lookups where kind = 'item_class' and code = 'EMB'), 'EMB NEEDLE', 'EMB NEEDLE', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
+  ((select id from public.config_lookups where kind = 'item_class' and code = 'EMB'), 'FELT', 'FELT', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
+  ((select id from public.config_lookups where kind = 'item_class' and code = 'EMB'), 'FLET', 'FLET', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
+  ((select id from public.config_lookups where kind = 'item_class' and code = 'EMB'), 'FOAM', 'FOAM', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
+  ((select id from public.config_lookups where kind = 'item_class' and code = 'EMB'), 'GENERAL ITEMS', 'GENERAL ITEMS', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
+  ((select id from public.config_lookups where kind = 'item_class' and code = 'EMB'), 'SEQUENCE', 'SEQUENCE', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
+  ((select id from public.config_lookups where kind = 'item_class' and code = 'EMB'), 'SEWING THREAD', 'SEWING THREAD', null, null, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
   ('8c008fe7-22d6-4508-bfc2-ac7907ed48c2'::uuid, '(97% COTTON, 3% ELASTANE)', '(97% COTTON, 3% ELASTANE)', null, '20ad56f4-2126-4ec8-9f70-07286f5af66d'::uuid, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
   ('8c008fe7-22d6-4508-bfc2-ac7907ed48c2'::uuid, '1 X 1 RIB', '1 X 1 RIB', null, '20ad56f4-2126-4ec8-9f70-07286f5af66d'::uuid, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),
   ('8c008fe7-22d6-4508-bfc2-ac7907ed48c2'::uuid, '100% ORGANIC COTTON', '100% ORGANIC COTTON', null, '20ad56f4-2126-4ec8-9f70-07286f5af66d'::uuid, null, '36c5b0b7-a6de-4100-abe8-38f1b067b22a'::uuid),

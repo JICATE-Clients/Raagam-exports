@@ -231,6 +231,7 @@ end $$;
 
 -- ==========================================================================
 -- 10. Triggers for new child tables
+-- (exchange_rate_details excluded: already covered by trigger trg_erd_updated)
 -- ==========================================================================
 
 do $$
@@ -238,7 +239,7 @@ declare t text;
 begin
   foreach t in array array[
     'customer_agents','customer_markings','customer_nominated_vendors',
-    'consignee_markings','consignee_notifies','exchange_rate_details'
+    'consignee_markings','consignee_notifies'
   ] loop
     if not exists (
       select 1 from pg_trigger where tgname = 'trg_' || t || '_updated'
