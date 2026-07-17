@@ -22,7 +22,7 @@ import {
 } from "@/lib/masters/zone-actions";
 import type { Zone, ZoneInput } from "@/lib/masters/zone-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; area_name: string };
 
 const BLANK = {

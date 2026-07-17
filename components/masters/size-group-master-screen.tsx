@@ -22,7 +22,7 @@ import {
 } from "@/lib/masters/size-group-actions";
 import type { SizeGroup, SizeGroupInput } from "@/lib/masters/size-group-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; size_name: string; sort_order: number | null };
 
 const BLANK = {

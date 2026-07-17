@@ -91,7 +91,7 @@ export function BinMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: BinInput = {
-        bin_code: form.bin_code.trim() || null,
+        bin_code: form.bin_code.trim(),
         location_id: form.location_id || null,
         description: form.description.trim() || null,
         blocked: form.blocked,

@@ -23,7 +23,7 @@ import {
 } from "@/lib/masters/certification-actions";
 import type { Certification, CertificationInput } from "@/lib/masters/certification-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; valid_from: string; valid_to: string };
 
 const BLANK = {

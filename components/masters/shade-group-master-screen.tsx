@@ -22,7 +22,7 @@ import {
 } from "@/lib/masters/shade-group-actions";
 import type { ShadeGroup, ShadeGroupInput } from "@/lib/masters/shade-group-types";
 
-type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; shade_id: string; short_name: string; shade_name: string };
 
 const BLANK = {

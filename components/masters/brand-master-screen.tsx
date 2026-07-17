@@ -100,7 +100,7 @@ export function BrandMasterScreen({
     startTransition(async () => {
       const payload: BrandInput = {
         brand_short_name: form.brand_short_name.trim() || null,
-        brand_name: form.brand_name.trim() || null,
+        brand_name: form.brand_name.trim(),
         country_id: form.country_id || null,
         website: form.website.trim() || null,
         phone: form.phone.trim() || null,
