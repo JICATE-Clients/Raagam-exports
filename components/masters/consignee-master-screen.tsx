@@ -613,8 +613,6 @@ export function ConsigneeMasterScreen({
                 options={states}
                 value={form.state_id || null}
                 onChange={(id) => set({ state_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
               />
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -711,8 +709,6 @@ export function ConsigneeMasterScreen({
                           options={departments}
                           value={c.department_id || null}
                           onChange={(id) => setContactAt(c.key, { department_id: id })}
-                          canCreate={perms.canCreate}
-                          canEdit={perms.canEdit}
                           compact
                         />
                       </div>
@@ -730,8 +726,6 @@ export function ConsigneeMasterScreen({
                           options={designations}
                           value={c.designation_id || null}
                           onChange={(id) => setContactAt(c.key, { designation_id: id })}
-                          canCreate={perms.canCreate}
-                          canEdit={perms.canEdit}
                           compact
                         />
                       </div>
@@ -864,8 +858,6 @@ export function ConsigneeMasterScreen({
                 options={paymentTerms}
                 value={form.payment_term_id || null}
                 onChange={(id) => set({ payment_term_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
               />
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

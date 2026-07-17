@@ -845,8 +845,6 @@ export function VendorMasterScreen({
                                         options={states}
                                         value={a.state_id || null}
                                         onChange={(id) => setAddressAt(a.key, { state_id: id })}
-                                        canCreate={perms.canCreate}
-                                        canEdit={perms.canEdit}
                                         compact
                                       />
                                     </td>
@@ -955,8 +953,6 @@ export function VendorMasterScreen({
                                     options={states}
                                     value={a.state_id || null}
                                     onChange={(id) => setAddressAt(a.key, { state_id: id })}
-                                    canCreate={perms.canCreate}
-                                    canEdit={perms.canEdit}
                                     compact
                                   />
                                 </div>

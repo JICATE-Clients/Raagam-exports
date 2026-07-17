@@ -36,8 +36,8 @@ export function LookupDialogPicker({
   options: ConfigLookup[];
   value: string | null;
   onChange: (id: string) => void;
-  canCreate: boolean;
-  canEdit: boolean;
+  canCreate?: boolean;
+  canEdit?: boolean;
   /** Show a required asterisk on the label. */
   required?: boolean;
   /** Trigger-only (no label) for dense grid rows. */

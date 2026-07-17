@@ -97,6 +97,14 @@ import { listDivisions } from "@/lib/masters/division-service";
 import { DivisionMasterScreen } from "@/components/masters/division-master-screen";
 import { getDefaultAccountHead } from "@/lib/masters/default-account-head-service";
 import { DefaultAccountHeadScreen } from "@/components/masters/default-account-head-screen";
+import {
+  departmentsAsLookups,
+  designationsAsLookups,
+  employeeCategoriesAsLookups,
+  paymentTermsAsLookups,
+  statesAsLookups,
+  hsnDetailsAsLookups,
+} from "@/lib/masters/lookup-compat";
 
 export default async function SubEntityPage({
   params,
@@ -198,44 +206,51 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "courier_delivery_address") {
-      const [couriers, countries, all] = await Promise.all([
+      const [couriers, countries, all, deptRows, desigRows, stateRows] = await Promise.all([
         listCourierDeliveryAddresses(),
         listCountries(),
         listConfigLookups(),
+        listDepartments(),
+        listDesignations(),
+        listStates(),
       ]);
       screen = (
         <CourierDeliveryAddressMasterScreen
           rows={couriers}
           countries={countries}
           cities={all.filter((l) => l.kind === "city")}
-          states={all.filter((l) => l.kind === "state")}
-          departments={all.filter((l) => l.kind === "department")}
-          designations={all.filter((l) => l.kind === "designation")}
+          states={statesAsLookups(stateRows)}
+          departments={departmentsAsLookups(deptRows)}
+          designations={designationsAsLookups(desigRows)}
           internalDepartments={all.filter((l) => l.kind === "internal_department")}
           perms={perms}
         />
       );
     } else if (child.custom === "applicant") {
-      const [applicants, countries, all, currencies, banks] = await Promise.all([
+      const [applicants, countries, all, currencies, banks, deptRows, desigRows, stateRows, ptRows] = await Promise.all([
         listApplicants(),
         listCountries(),
         listConfigLookups(),
         listCurrencies(),
         listBanks(),
+        listDepartments(),
+        listDesignations(),
+        listStates(),
+        listPaymentTerms(),
       ]);
       screen = (
         <ApplicantMasterScreen
           rows={applicants}
           countries={countries}
           cities={all.filter((l) => l.kind === "city")}
-          states={all.filter((l) => l.kind === "state")}
-          departments={all.filter((l) => l.kind === "department")}
-          designations={all.filter((l) => l.kind === "designation")}
+          states={statesAsLookups(stateRows)}
+          departments={departmentsAsLookups(deptRows)}
+          designations={designationsAsLookups(desigRows)}
           internalDepartments={all.filter((l) => l.kind === "internal_department")}
           currencies={currencies}
           banks={banks}
           shipTypes={all.filter((l) => l.kind === "ship_type")}
-          paymentTerms={all.filter((l) => l.kind === "payment_term")}
+          paymentTerms={paymentTermsAsLookups(ptRows)}
           perms={perms}
         />
       );
@@ -251,6 +266,9 @@ export default async function SubEntityPage({
         terms,
         portRows,
         destRows,
+        deptRows,
+        desigRows,
+        stateRows,
       ] = await Promise.all([
         listCustomers(),
         listApplicants(),
@@ -262,6 +280,9 @@ export default async function SubEntityPage({
         listReceivableTerms(),
         listPorts(),
         listDestinations(),
+        listDepartments(),
+        listDesignations(),
+        listStates(),
       ]);
       screen = (
         <CustomerMasterScreen
@@ -269,9 +290,9 @@ export default async function SubEntityPage({
           applicants={applicants}
           countries={countries}
           cities={all.filter((l) => l.kind === "city")}
-          states={all.filter((l) => l.kind === "state")}
-          departments={all.filter((l) => l.kind === "department")}
-          designations={all.filter((l) => l.kind === "designation")}
+          states={statesAsLookups(stateRows)}
+          departments={departmentsAsLookups(deptRows)}
+          designations={designationsAsLookups(desigRows)}
           internalDepartments={all.filter((l) => l.kind === "internal_department")}
           currencies={currencies}
           shipTypes={all.filter((l) => l.kind === "ship_type")}
@@ -301,17 +322,20 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "employee") {
-      const [employees, all, locations] = await Promise.all([
+      const [employees, all, locations, deptRows, desigRows, ecRows] = await Promise.all([
         listEmployees(),
         listConfigLookups(),
         listEmployeeLocations(),
+        listDepartments(),
+        listDesignations(),
+        listEmployeeCategories(),
       ]);
       screen = (
         <EmployeeMasterScreen
           rows={employees}
-          categories={all.filter((l) => l.kind === "employee_category")}
-          departments={all.filter((l) => l.kind === "department")}
-          designations={all.filter((l) => l.kind === "designation")}
+          categories={employeeCategoriesAsLookups(ecRows)}
+          departments={departmentsAsLookups(deptRows)}
+          designations={designationsAsLookups(desigRows)}
           teams={all.filter((l) => l.kind === "team")}
           locations={locations}
           perms={perms}
@@ -368,25 +392,28 @@ export default async function SubEntityPage({
       const employeeCategories = await listEmployeeCategories();
       screen = <EmployeeCategoryMasterScreen rows={employeeCategories} perms={perms} />;
     } else if (child.custom === "notify") {
-      const [notifies, countries, all] = await Promise.all([
+      const [notifies, countries, all, deptRows, desigRows, stateRows] = await Promise.all([
         listNotifies(),
         listCountries(),
         listConfigLookups(),
+        listDepartments(),
+        listDesignations(),
+        listStates(),
       ]);
       screen = (
         <NotifyMasterScreen
           rows={notifies}
           countries={countries}
           cities={all.filter((l) => l.kind === "city")}
-          states={all.filter((l) => l.kind === "state")}
-          departments={all.filter((l) => l.kind === "department")}
-          designations={all.filter((l) => l.kind === "designation")}
+          states={statesAsLookups(stateRows)}
+          departments={departmentsAsLookups(deptRows)}
+          designations={designationsAsLookups(desigRows)}
           internalDepartments={all.filter((l) => l.kind === "internal_department")}
           perms={perms}
         />
       );
     } else if (child.custom === "consignee") {
-      const [consignees, countries, all, customers, currencies, banks, notifies] = await Promise.all([
+      const [consignees, countries, all, customers, currencies, banks, notifies, deptRows, desigRows, stateRows, ptRows] = await Promise.all([
         listConsignees(),
         listCountries(),
         listConfigLookups(),
@@ -394,38 +421,43 @@ export default async function SubEntityPage({
         listCurrencies(),
         listBanks(),
         listNotifies(),
+        listDepartments(),
+        listDesignations(),
+        listStates(),
+        listPaymentTerms(),
       ]);
       screen = (
         <ConsigneeMasterScreen
           rows={consignees}
           countries={countries}
           cities={all.filter((l) => l.kind === "city")}
-          states={all.filter((l) => l.kind === "state")}
-          departments={all.filter((l) => l.kind === "department")}
-          designations={all.filter((l) => l.kind === "designation")}
+          states={statesAsLookups(stateRows)}
+          departments={departmentsAsLookups(deptRows)}
+          designations={designationsAsLookups(desigRows)}
           internalDepartments={all.filter((l) => l.kind === "internal_department")}
           customers={customers}
           currencies={currencies}
           banks={banks}
           shipTypes={all.filter((l) => l.kind === "ship_type")}
-          paymentTerms={all.filter((l) => l.kind === "payment_term")}
+          paymentTerms={paymentTermsAsLookups(ptRows)}
           notifies={notifies}
           perms={perms}
         />
       );
     } else if (child.custom === "vendor") {
-      const [vendors, countries, all, accountGroups] = await Promise.all([
+      const [vendors, countries, all, accountGroups, stateRows] = await Promise.all([
         listVendors(),
         listCountries(),
         listConfigLookups(),
         listAccountGroups(),
+        listStates(),
       ]);
       screen = (
         <VendorMasterScreen
           rows={vendors}
           countries={countries}
           cities={all.filter((l) => l.kind === "city")}
-          states={all.filter((l) => l.kind === "state")}
+          states={statesAsLookups(stateRows)}
           groups={all.filter((l) => l.kind === "vendor_group")}
           accountGroups={accountGroups}
           perms={perms}
@@ -462,30 +494,31 @@ export default async function SubEntityPage({
       const states = await listStates();
       screen = <StateMasterScreen rows={states} perms={perms} />;
     } else if (child.custom === "hsn_assign_material") {
-      const [rows, all, cats] = await Promise.all([
+      const [rows, all, cats, hsnRows] = await Promise.all([
         listMaterialHsn(),
         listConfigLookups(),
         listCategories(),
+        listHsnDetails(),
       ]);
       screen = (
         <MaterialHsnAssignScreen
           rows={rows}
-          hsnOptions={all.filter((l) => l.kind === "hsn_code")}
+          hsnOptions={hsnDetailsAsLookups(hsnRows)}
           itemClasses={all.filter((l) => l.kind === "item_class")}
           categories={cats}
           perms={perms}
         />
       );
     } else if (child.custom === "hsn_assign_process") {
-      const [rows, all, commodities] = await Promise.all([
+      const [rows, commodities, hsnRows] = await Promise.all([
         listProcessHsn(),
-        listConfigLookups(),
         listCommodities(),
+        listHsnDetails(),
       ]);
       screen = (
         <ProcessHsnAssignScreen
           rows={rows}
-          hsnOptions={all.filter((l) => l.kind === "hsn_code")}
+          hsnOptions={hsnDetailsAsLookups(hsnRows)}
           // Commodity is a dedicated table now, not a config_lookups kind —
           // adapt to the same {id, code, name} display shape HSN options use.
           commodities={commodities.map((c) => ({ id: c.id, code: c.short_name, name: c.name }))}

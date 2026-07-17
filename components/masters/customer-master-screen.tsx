@@ -820,7 +820,7 @@ export function CustomerMasterScreen({
                         <Textarea id="cu-street" rows={3} value={form.street} onChange={(e) => set({ street: e.target.value })} className="text-base md:text-sm" />
                       </div>
                       <LookupDialogPicker kind="city" label="City" options={cities} value={form.city_id || null} onChange={(id) => set({ city_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
-                      <LookupDialogPicker kind="state" label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
+                      <LookupDialogPicker kind="state" label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} />
                       <div>
                         <Label htmlFor="cu-pin">Pin</Label>
                         <Input id="cu-pin" value={form.pin} onChange={(e) => set({ pin: e.target.value })} className="text-base md:text-sm" />
@@ -859,7 +859,7 @@ export function CustomerMasterScreen({
                             header: "Department",
                             className: "min-w-[160px]",
                             cell: (c) => (
-                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} compact />
                             ),
                           },
                           {
@@ -871,7 +871,7 @@ export function CustomerMasterScreen({
                             header: "Designation",
                             className: "min-w-[160px]",
                             cell: (c) => (
-                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} compact />
                             ),
                           },
                           {
@@ -901,12 +901,12 @@ export function CustomerMasterScreen({
                           <>
                             <div>
                               <Label>Department</Label>
-                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} compact />
                             </div>
                             <Input placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
                             <div>
                               <Label>Designation</Label>
-                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} compact />
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <Input placeholder="Land Line" value={c.land_line} onChange={(e) => setContactAt(c.key, { land_line: e.target.value })} className="text-base md:text-sm" />

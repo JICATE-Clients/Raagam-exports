@@ -418,8 +418,6 @@ export function NotifyMasterScreen({
                 options={states}
                 value={form.state_id || null}
                 onChange={(id) => set({ state_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
               />
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -512,8 +510,6 @@ export function NotifyMasterScreen({
                       options={departments}
                       value={c.department_id || null}
                       onChange={(id) => setContactAt(c.key, { department_id: id })}
-                      canCreate={perms.canCreate}
-                      canEdit={perms.canEdit}
                       compact
                     />
                   </div>
@@ -531,8 +527,6 @@ export function NotifyMasterScreen({
                       options={designations}
                       value={c.designation_id || null}
                       onChange={(id) => setContactAt(c.key, { designation_id: id })}
-                      canCreate={perms.canCreate}
-                      canEdit={perms.canEdit}
                       compact
                     />
                   </div>

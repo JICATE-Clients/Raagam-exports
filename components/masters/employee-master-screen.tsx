@@ -512,8 +512,6 @@ export function EmployeeMasterScreen({
                 options={categories}
                 value={form.category_id || null}
                 onChange={(id) => set({ category_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
                 compact
               />
             </div>
@@ -569,8 +567,6 @@ export function EmployeeMasterScreen({
                 options={departments}
                 value={form.department_id || null}
                 onChange={(id) => set({ department_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
                 compact
               />
             </div>
@@ -582,8 +578,6 @@ export function EmployeeMasterScreen({
                 options={designations}
                 value={form.designation_id || null}
                 onChange={(id) => set({ designation_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
                 compact
               />
             </div>

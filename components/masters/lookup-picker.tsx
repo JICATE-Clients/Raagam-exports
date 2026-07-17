@@ -366,7 +366,7 @@ export function LookupDialogPicker({
   options: ConfigLookup[];
   value: string;
   onChange: (v: string) => void;
-  canCreate: boolean;
+  canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
   isSuperAdmin?: boolean;
@@ -406,9 +406,9 @@ export function LookupDialogPicker({
   const manage: ManageConfig | undefined =
     canAdd || canEdit || canDelete
       ? {
-          canCreate: canAdd,
-          canEdit,
-          canDelete,
+          canCreate: !!canAdd,
+          canEdit: !!canEdit,
+          canDelete: !!canDelete,
           showTypeField,
           onCreate: (d) => createLookupValue(kind, d.name, d.code || null, d.typeCode || null),
           onUpdate: (id, d) => {

@@ -58,6 +58,8 @@ import { listStockUnits } from "@/lib/masters/stock-unit-service";
 import { StockUnitMasterScreen } from "@/components/masters/stock-unit-master-screen";
 import { listMaterials } from "@/lib/masters/material-service";
 import { MaterialMasterScreen } from "@/components/masters/material-master-screen";
+import { listHsnDetails } from "@/lib/masters/hsn-detail-service";
+import { hsnDetailsAsLookups } from "@/lib/masters/lookup-compat";
 
 export default async function MaterialEntityPage({
   params,
@@ -160,11 +162,12 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "materials") {
-      const [materials, all, categories, units] = await Promise.all([
+      const [materials, all, categories, units, hsnRows] = await Promise.all([
         listMaterials(),
         listConfigLookups(),
         listCategories(),
         listUoms(),
+        listHsnDetails(),
       ]);
       screen = (
         <MaterialMasterScreen
@@ -173,7 +176,7 @@ export default async function MaterialEntityPage({
           categories={categories}
           counts={all.filter((l) => l.kind === "yarn_count")}
           purities={all.filter((l) => l.kind === "yarn_purity")}
-          hsnCodes={all.filter((l) => l.kind === "hsn_code")}
+          hsnCodes={hsnDetailsAsLookups(hsnRows)}
           fabricTypes={all.filter((l) => l.kind === "fabric_type")}
           yarnTypes={all.filter((l) => l.kind === "yarn_type")}
           fabricStructures={all.filter((l) => l.kind === "fabric_structure")}

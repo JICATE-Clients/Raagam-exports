@@ -1033,8 +1033,6 @@ export function MaterialMasterScreen({
             options={hsnCodes}
             value={form.hsn_id}
             onChange={(v) => set({ hsn_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
           />
 
           {/* section toggle */}
