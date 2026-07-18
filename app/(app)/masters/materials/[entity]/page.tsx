@@ -52,6 +52,8 @@ import { PackingInstructionMasterScreen } from "@/components/masters/packing-ins
 import { listPackingInstructions } from "@/lib/masters/packing-instruction-service";
 import { PackingMethodMasterScreen } from "@/components/masters/packing-method-master-screen";
 import { listPackingMethods } from "@/lib/masters/packing-method-service";
+import { GarmentRejectionRuleMasterScreen } from "@/components/masters/garment-rejection-rule-master-screen";
+import { listGarmentRejectionRules } from "@/lib/masters/garment-rejection-rule-service";
 import { CountMasterScreen } from "@/components/masters/count-master-screen";
 import { YarnPurityMasterScreen } from "@/components/masters/yarn-purity-master-screen";
 import { listStockUnits } from "@/lib/masters/stock-unit-service";
@@ -262,6 +264,9 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "packing_methods") {
       const rows = await listPackingMethods();
       screen = <PackingMethodMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "garment_rejection_rules") {
+      const rows = await listGarmentRejectionRules();
+      screen = <GarmentRejectionRuleMasterScreen rows={rows} perms={perms} />;
     } else {
       const attributes = await listAttributes();
       screen = <AttributeMasterScreen rows={attributes} perms={perms} />;

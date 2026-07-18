@@ -224,7 +224,6 @@ export const NAV: NavItem[] = [
       { href: "/masters/hr", label: "HR" },
       { href: "/masters/currencies", label: "Currencies" },
       { href: "/masters/gst", label: "GST" },
-      { href: "/masters/system", label: "System" },
     ],
   },
   {
@@ -233,9 +232,12 @@ export const NAV: NavItem[] = [
     module: "system_admin",
     icon: Shield,
     children: [
+      { href: "/admin/company", label: "Company Profile" },
       { href: "/admin/users", label: "Users" },
       { href: "/admin/roles", label: "Roles & Permissions" },
       { href: "/admin/audit", label: "Audit Log" },
+      { href: "/admin/divisions", label: "Divisions" },
+      { href: "/admin/document-no-formats", label: "Document No Format" },
       { href: "/admin/assets", label: "Assets" },
       { href: "/admin/couriers", label: "Courier" },
     ],

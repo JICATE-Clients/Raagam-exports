@@ -37,8 +37,6 @@ import { listDesignations } from "@/lib/masters/designation-service";
 import { DesignationMasterScreen } from "@/components/masters/designation-master-screen";
 import { listHsnDetails } from "@/lib/masters/hsn-detail-service";
 import { HsnDetailMasterScreen } from "@/components/masters/hsn-detail-master-screen";
-import { listDocumentNoFormats } from "@/lib/masters/document-no-format-service";
-import { DocumentNoFormatMasterScreen } from "@/components/masters/document-no-format-master-screen";
 import { listEmployeeCategories } from "@/lib/masters/employee-category-service";
 import { EmployeeCategoryMasterScreen } from "@/components/masters/employee-category-master-screen";
 import { listAccountGroups } from "@/lib/masters/account-group-service";
@@ -77,8 +75,6 @@ import { listLeaveTypes } from "@/lib/masters/leave-type-service";
 import { LeaveTypeMasterScreen } from "@/components/masters/leave-type-master-screen";
 import { listStates } from "@/lib/masters/state-service";
 import { StateMasterScreen } from "@/components/masters/state-master-screen";
-import { listGarmentRejectionRules } from "@/lib/masters/garment-rejection-rule-service";
-import { GarmentRejectionRuleMasterScreen } from "@/components/masters/garment-rejection-rule-master-screen";
 import { listHostelCategories } from "@/lib/masters/hostel-category-service";
 import { HostelCategoryMasterScreen } from "@/components/masters/hostel-category-master-screen";
 import { listAdvanceLoanTypes } from "@/lib/masters/advance-loan-type-service";
@@ -93,8 +89,6 @@ import { listZones } from "@/lib/masters/zone-service";
 import { ZoneMasterScreen } from "@/components/masters/zone-master-screen";
 import { listCertifications } from "@/lib/masters/certification-service";
 import { CertificationMasterScreen } from "@/components/masters/certification-master-screen";
-import { listDivisions } from "@/lib/masters/division-service";
-import { DivisionMasterScreen } from "@/components/masters/division-master-screen";
 import { getDefaultAccountHead } from "@/lib/masters/default-account-head-service";
 import { DefaultAccountHeadScreen } from "@/components/masters/default-account-head-screen";
 import {
@@ -376,18 +370,6 @@ export default async function SubEntityPage({
           perms={perms}
         />
       );
-    } else if (child.custom === "document_no_format") {
-      const [formats, all] = await Promise.all([listDocumentNoFormats(), listConfigLookups()]);
-      screen = (
-        <DocumentNoFormatMasterScreen
-          rows={formats}
-          trackOptions={all.filter((l) => l.kind === "doc_track")}
-          menuOptions={all.filter((l) => l.kind === "doc_menu")}
-          valueTypeOptions={all.filter((l) => l.kind === "doc_value_type")}
-          valueFromOptions={all.filter((l) => l.kind === "doc_value_from")}
-          perms={perms}
-        />
-      );
     } else if (child.custom === "employee_category") {
       const employeeCategories = await listEmployeeCategories();
       screen = <EmployeeCategoryMasterScreen rows={employeeCategories} perms={perms} />;
@@ -525,9 +507,6 @@ export default async function SubEntityPage({
           perms={perms}
         />
       );
-    } else if (child.custom === "garment_rejection_rule") {
-      const grrRules = await listGarmentRejectionRules();
-      screen = <GarmentRejectionRuleMasterScreen rows={grrRules} perms={perms} />;
     } else if (child.custom === "hostel_category") {
       const rows = await listHostelCategories();
       screen = <HostelCategoryMasterScreen rows={rows} perms={perms} />;
@@ -543,9 +522,6 @@ export default async function SubEntityPage({
     } else if (child.custom === "certification") {
       const rows = await listCertifications();
       screen = <CertificationMasterScreen rows={rows} perms={perms} />;
-    } else if (child.custom === "division") {
-      const rows = await listDivisions();
-      screen = <DivisionMasterScreen rows={rows} perms={perms} />;
     } else if (child.custom === "default_account_head") {
       const [dahRow, accountHeads] = await Promise.all([
         getDefaultAccountHead(),

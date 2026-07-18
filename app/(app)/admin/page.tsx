@@ -10,9 +10,20 @@ export default async function AdminPage() {
     <div className="space-y-4">
       <PageHeader
         title="System Administration"
-        description="Manage users, roles, and permission assignments."
+        description="Manage users, roles, system configuration and maintenance utilities."
       />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 max-w-2xl">
+        <Link href="/admin/company">
+          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
+            <CardBody>
+              <div className="font-semibold text-foreground">Company Profile</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Legal entity details, registration numbers and export
+                certifications.
+              </p>
+            </CardBody>
+          </Card>
+        </Link>
         <Link href="/admin/users">
           <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
             <CardBody>
@@ -44,6 +55,27 @@ export default async function AdminPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Full change history — who created or edited each record, when,
                 and the previous &rarr; new values.
+              </p>
+            </CardBody>
+          </Card>
+        </Link>
+        <Link href="/admin/divisions">
+          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
+            <CardBody>
+              <div className="font-semibold text-foreground">Divisions</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Business units / divisions with document prefix configuration.
+              </p>
+            </CardBody>
+          </Card>
+        </Link>
+        <Link href="/admin/document-no-formats">
+          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
+            <CardBody>
+              <div className="font-semibold text-foreground">Document No Format</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Configure document numbering patterns for orders, invoices and
+                other transactions.
               </p>
             </CardBody>
           </Card>

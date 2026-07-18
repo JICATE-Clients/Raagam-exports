@@ -34,7 +34,7 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "seasons" | "colors" | "brands" | "bins" | "size_groups" | "shade_groups" | "style_names" | "style_levels" | "packing_instructions" | "packing_methods";
+  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "seasons" | "colors" | "brands" | "bins" | "size_groups" | "shade_groups" | "style_names" | "style_levels" | "packing_instructions" | "packing_methods" | "garment_rejection_rules";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
@@ -64,6 +64,7 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "style-levels", label: "Style Levels", singular: "Style Level", description: "Style level classification (1/2/3)", custom: "style_levels" },
   { slug: "packing-instructions", label: "Packing Instructions", singular: "Packing Instruction", description: "Packing instruction specifications", custom: "packing_instructions" },
   { slug: "packing-methods", label: "Packing Methods", singular: "Packing Method", description: "Packing method definitions with categories", custom: "packing_methods" },
+  { slug: "garment-rejection-rules", label: "Garment Rejection Rules", singular: "Garment Rejection Rule", description: "QC rejection acceptance rules", custom: "garment_rejection_rules" },
 ];
 
 export function findMaterialChild(slug: string): MaterialChild | undefined {

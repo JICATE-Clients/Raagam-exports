@@ -14,9 +14,8 @@ function fail(msg: string): Result {
   return { ok: false, error: msg };
 }
 function rev(): void {
-  revalidatePath("/masters");
-  revalidatePath("/masters/system");
-  revalidatePath("/masters/system/document-no-format");
+  revalidatePath("/admin");
+  revalidatePath("/admin/document-no-formats");
 }
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);

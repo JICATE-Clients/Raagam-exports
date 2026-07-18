@@ -15,8 +15,8 @@ function fail(msg: string): Result {
 }
 function rev(): void {
   revalidatePath("/masters");
-  revalidatePath("/masters/system");
-  revalidatePath("/masters/system/garment-rejection-rule");
+  revalidatePath("/masters/materials");
+  revalidatePath("/masters/materials/garment-rejection-rules");
 }
 
 type LineRow = Omit<GarmentRejectionRuleInput["lines"][number], "sno"> & { sno: number };

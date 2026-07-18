@@ -16,9 +16,8 @@ function fail(msg: string): Failure {
   return { ok: false, error: msg };
 }
 function rev(): void {
-  revalidatePath("/masters");
-  revalidatePath("/masters/system");
-  revalidatePath("/masters/system/divisions");
+  revalidatePath("/admin");
+  revalidatePath("/admin/divisions");
 }
 
 export async function createDivision(data: DivisionInput): Promise<CreateResult> {
