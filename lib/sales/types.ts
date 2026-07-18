@@ -388,3 +388,202 @@ export function computeFob(
 ): number {
   return items.reduce((sum, i) => sum + i.quantity * i.unit_cost, 0);
 }
+
+// =========================================================================
+// IOC Costing Engine types (migration 0320)
+// =========================================================================
+
+export const COSTING_TYPES = ["simple", "ioc"] as const;
+export const COSTING_FOR = ["sample", "production"] as const;
+export const SAMPLE_FOR = ["fabric", "garment"] as const;
+export const IOC_SAMPLE_TYPES = ["normal", "assorted"] as const;
+export const CONSUMPTION_FOR = ["F", "T", "G", "M", "R"] as const;
+export type ConsumptionFor = (typeof CONSUMPTION_FOR)[number];
+
+export const CONSUMPTION_LABELS: Record<ConsumptionFor, string> = {
+  F: "Fabric",
+  T: "Trims",
+  G: "Garment Process",
+  M: "CMT",
+  R: "Rejection",
+};
+
+export interface IocStyleCost {
+  id: string;
+  cost_sheet_id: string;
+  sno: number;
+  style_id: string | null;
+  style_ref_no: string | null;
+  style_no: string | null;
+  article_no: string | null;
+  uom_id: string | null;
+  order_qty: number | null;
+  wt_per_garment: number | null;
+  fabric_cost: number;
+  trims_cost: number;
+  cmt_cost: number;
+  garment_process_cost: number;
+  pack_cost: number;
+  rejection_cost: number;
+  expenses_production: number;
+  expenses_others: number;
+  expenses_total: number;
+  expenses_revenue: number;
+  profit_loss_garment: number;
+  profit_loss_pct: number;
+}
+
+export interface IocConsDetail {
+  id: string;
+  style_cost_id: string;
+  consumption_for: ConsumptionFor;
+  sno: number;
+  category_name: string | null;
+  item_description: string | null;
+  process_name: string | null;
+  coordinate: string | null;
+  uom_id: string | null;
+  gsm: number | null;
+  fab_width: number | null;
+  no_of_items_for_pcs: number | null;
+  no_of_pcs_for_items: number | null;
+  rate_type: string | null;
+  cons_qty: number;
+  cons_wt: number;
+  rate: number;
+  cost: number;
+  calculated_cost: number;
+  additional_cost: number;
+  is_direct_rate: boolean;
+  is_assort_colorwise: boolean;
+  details: string | null;
+}
+
+export interface IocCmtOperation {
+  id: string;
+  cons_detail_id: string;
+  sno: number;
+  operation_name: string;
+  is_sizewise: boolean;
+  rate: number;
+  cost: number;
+  sizes: IocCmtSize[];
+}
+
+export interface IocCmtSize {
+  id: string;
+  cmt_operation_id: string;
+  item_size: string;
+  qty: number;
+  rate: number;
+  cost: number;
+}
+
+export interface IocFabricRate {
+  id: string;
+  cost_sheet_id: string;
+  sno: number;
+  fabric_description: string | null;
+  structure_name: string | null;
+  composition_name: string | null;
+  struct_type: string | null;
+  fabric_type: string | null;
+  fabric_sub_type: string | null;
+  gsm: number | null;
+  is_direct_rate: boolean;
+  style_ref_no: string | null;
+  style_no: string | null;
+  fabric_rate_without_loss: number;
+  process_loss_pct: number;
+  process_loss_rate: number;
+  fabric_rate: number;
+  margin_pct: number;
+  margin_cost: number;
+  fob_inr: number;
+  other_expenses_cost: number;
+  gross_cost: number;
+  is_assort_colorwise: boolean;
+  process_rates: IocFabricProcessRate[];
+  colors: IocFabricRateColor[];
+}
+
+export interface IocFabricProcessRate {
+  id: string;
+  fabric_rate_id: string;
+  sno: number;
+  process_name: string | null;
+  process_rate: number;
+  uom_id: string | null;
+  is_direct_rate: boolean;
+  details: IocFabricProcessDetail[];
+}
+
+export interface IocFabricProcessDetail {
+  id: string;
+  process_rate_id: string;
+  sno: number;
+  color_group: string | null;
+  mixing_item_details: string | null;
+  uom_id: string | null;
+  rate: number;
+  mixing_pct: number;
+  qty: number;
+  cost: number;
+}
+
+export interface IocFabricRateColor {
+  id: string;
+  fabric_rate_id: string;
+  sno: number;
+  color_name: string | null;
+  percentage: number;
+}
+
+export interface IocOtherExpense {
+  id: string;
+  cost_sheet_id: string;
+  sno: number;
+  cost_short_name: string | null;
+  cost_description: string | null;
+  item_description: string | null;
+  type_for: string | null;
+  rate_type: string | null;
+  cons_qty: number;
+  uom_id: string | null;
+  rate: number;
+  cost: number;
+  style_details: IocExpenseStyle[];
+}
+
+export interface IocExpenseStyle {
+  id: string;
+  expense_id: string;
+  sno: number;
+  style_ref_no: string | null;
+  style_no: string | null;
+  article_no: string | null;
+  uom_id: string | null;
+  order_qty: number | null;
+  qty: number | null;
+  rate: number;
+  cost: number;
+}
+
+export interface IocBudget {
+  id: string;
+  cost_sheet_id: string;
+  sno: number;
+  cost_short_name: string | null;
+  cost_description: string | null;
+  cost: number;
+  by_us_cost: number;
+  by_vendor_cost: number;
+}
+
+/** Full IOC costing data — loaded when viewing/editing an IOC cost sheet. */
+export interface IocCostingData {
+  style_costs: IocStyleCost[];
+  fabric_rates: IocFabricRate[];
+  other_expenses: IocOtherExpense[];
+  budgets: IocBudget[];
+}

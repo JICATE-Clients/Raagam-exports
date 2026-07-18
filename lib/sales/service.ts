@@ -9,6 +9,12 @@ import type {
   CostSheetItem,
   Quote,
   Sample,
+  IocStyleCost,
+  IocConsDetail,
+  IocFabricRate,
+  IocOtherExpense,
+  IocBudget,
+  IocCostingData,
 } from "@/lib/sales/types";
 import type { Buyer, Uom } from "@/lib/masters/types";
 
@@ -430,4 +436,81 @@ export async function getStyleSizes(styleId: string): Promise<StyleSize[]> {
     .eq("style_id", styleId)
     .order("sno");
   return (data ?? []) as StyleSize[];
+}
+
+// ---------------------------------------------------------------------------
+// IOC Costing Data (full cost sheet detail)
+// ---------------------------------------------------------------------------
+
+export async function getIocCostingData(costSheetId: string): Promise<IocCostingData> {
+  const supabase = await createClient();
+
+  const [styleCostsRes, fabricRatesRes, expensesRes, budgetsRes] = await Promise.all([
+    supabase
+      .from("ioc_style_costs")
+      .select("*")
+      .eq("cost_sheet_id", costSheetId)
+      .order("sno"),
+    supabase
+      .from("ioc_fabric_rates")
+      .select("*, ioc_fabric_process_rates(*, ioc_fabric_process_details(*)), ioc_fabric_rate_colors(*)")
+      .eq("cost_sheet_id", costSheetId)
+      .order("sno"),
+    supabase
+      .from("ioc_other_expenses")
+      .select("*, ioc_expense_styles(*)")
+      .eq("cost_sheet_id", costSheetId)
+      .order("sno"),
+    supabase
+      .from("ioc_budgets")
+      .select("*")
+      .eq("cost_sheet_id", costSheetId)
+      .order("sno"),
+  ]);
+
+  // Map fabric rates with nested process rates/details/colors
+  const fabric_rates = ((fabricRatesRes.data ?? []) as unknown[]).map((fr: unknown) => {
+    const r = fr as Record<string, unknown>;
+    const processRates = ((r.ioc_fabric_process_rates ?? []) as Record<string, unknown>[]).map((pr) => ({
+      ...pr,
+      details: [...((pr.ioc_fabric_process_details ?? []) as unknown[])].sort(
+        (a: unknown, b: unknown) => ((a as { sno: number }).sno - (b as { sno: number }).sno)
+      ),
+    })).sort((a, b) => ((a as unknown as { sno: number }).sno ?? 0) - ((b as unknown as { sno: number }).sno ?? 0));
+
+    const colors = [...((r.ioc_fabric_rate_colors ?? []) as unknown[])].sort(
+      (a: unknown, b: unknown) => ((a as { sno: number }).sno - (b as { sno: number }).sno)
+    );
+
+    return { ...r, process_rates: processRates, colors } as unknown as IocFabricRate;
+  });
+
+  // Map expenses with nested style details
+  const other_expenses = ((expensesRes.data ?? []) as unknown[]).map((ex: unknown) => {
+    const e = ex as Record<string, unknown>;
+    return {
+      ...e,
+      style_details: [...((e.ioc_expense_styles ?? []) as unknown[])].sort(
+        (a: unknown, b: unknown) => ((a as { sno: number }).sno - (b as { sno: number }).sno)
+      ),
+    } as unknown as IocOtherExpense;
+  });
+
+  return {
+    style_costs: (styleCostsRes.data ?? []) as IocStyleCost[],
+    fabric_rates,
+    other_expenses,
+    budgets: (budgetsRes.data ?? []) as IocBudget[],
+  };
+}
+
+export async function getIocConsDetails(styleCostId: string): Promise<IocConsDetail[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("ioc_cons_details")
+    .select("*")
+    .eq("style_cost_id", styleCostId)
+    .order("consumption_for")
+    .order("sno");
+  return (data ?? []) as IocConsDetail[];
 }
