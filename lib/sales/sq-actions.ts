@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { sqDetailInput, sqGroupInput, sqNoteInput, sqCancellationInput } from "./sq-types";
-import type { SqDetailInput, SqGroupInput, SqNoteInput, SqCancellationInput } from "./sq-types";
+import { sqDetailInput, sqGroupInput, sqDetailNoteInput, sqCancellationInput } from "./sq-types";
+import type { SqDetailInput, SqGroupInput, SqDetailNoteInput, SqCancellationInput } from "./sq-types";
 
 type Result = { ok: true } | { ok: false; error: string };
 type CreateResult = { ok: true; id: string } | { ok: false; error: string };
@@ -89,21 +89,21 @@ export async function deleteSqGroup(id: string): Promise<Result> {
 // SQ Notes
 // ---------------------------------------------------------------------------
 
-export async function createSqNote(data: SqNoteInput): Promise<CreateResult> {
+export async function createSqDetailNote(data: SqDetailNoteInput): Promise<CreateResult> {
   if (!(await can("sales", "create"))) return fail("Forbidden");
-  const p = sqNoteInput.safeParse(data);
+  const p = sqDetailNoteInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { data: row, error } = await s.from("sq_notes").insert(p.data).select("id").single();
+  const { data: row, error } = await s.from("sq_detail_notes").insert(p.data).select("id").single();
   if (error) return fail(error.message);
   rev();
   return { ok: true, id: row.id };
 }
 
-export async function deleteSqNote(id: string): Promise<Result> {
+export async function deleteSqDetailNote(id: string): Promise<Result> {
   if (!(await can("sales", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("sq_notes").delete().eq("id", id);
+  const { error } = await s.from("sq_detail_notes").delete().eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

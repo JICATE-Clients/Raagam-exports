@@ -173,8 +173,8 @@ create index if not exists idx_sq_grp_members_grp on public.sq_group_members(sq_
 -- ==========================================================================
 -- 8. SQ Notes — free-text notes per SQ
 -- ==========================================================================
-create sequence if not exists public.seq_sq_note;
-create table if not exists public.sq_notes (
+create sequence if not exists public.seq_sq_detail_note;
+create table if not exists public.sq_detail_notes (
   id                    uuid primary key default gen_random_uuid(),
   code                  text unique,
   sq_detail_id          uuid not null references public.sq_details(id) on delete cascade,
@@ -184,11 +184,11 @@ create table if not exists public.sq_notes (
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
 );
-create trigger trg_sq_note_code before insert on public.sq_notes
-  for each row execute function public.assign_code('SQN','public.seq_sq_note');
-create trigger trg_sq_note_updated before update on public.sq_notes
+create trigger trg_sq_detail_note_code before insert on public.sq_detail_notes
+  for each row execute function public.assign_code('SQN','public.seq_sq_detail_note');
+create trigger trg_sq_detail_note_updated before update on public.sq_detail_notes
   for each row execute function public.set_updated_at();
-create index if not exists idx_sq_notes_sq on public.sq_notes(sq_detail_id);
+create index if not exists idx_sq_detail_notes_sq on public.sq_detail_notes(sq_detail_id);
 
 -- ==========================================================================
 -- 9. SQ Cancellations — cancellation with reason
@@ -220,7 +220,7 @@ declare t text;
 begin
   foreach t in array array[
     'sq_details','sq_packs','sq_quantities','sq_qty_combos','sq_qty_sizes',
-    'sq_groups','sq_group_members','sq_notes','sq_cancellations'
+    'sq_groups','sq_group_members','sq_detail_notes','sq_cancellations'
   ] loop
     execute format('alter table public.%I enable row level security;', t);
     execute format($f$

@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { SqDetail, SqGroup, SqNote, SqCancellation, SqPack, SqQuantity } from "./sq-types";
+import type { SqDetail, SqGroup, SqDetailNote, SqCancellation, SqPack, SqQuantity } from "./sq-types";
 
 export type SqDetailRow = SqDetail & {
   buyer_name: string | null;
@@ -47,10 +47,10 @@ export async function listSqGroups(): Promise<SqGroup[]> {
   return (data ?? []) as SqGroup[];
 }
 
-export async function listSqNotes(sqDetailId: string): Promise<SqNote[]> {
+export async function listSqDetailNotes(sqDetailId: string): Promise<SqDetailNote[]> {
   const s = await createClient();
-  const { data } = await s.from("sq_notes").select("*").eq("sq_detail_id", sqDetailId).order("entry_date", { ascending: false });
-  return (data ?? []) as SqNote[];
+  const { data } = await s.from("sq_detail_notes").select("*").eq("sq_detail_id", sqDetailId).order("entry_date", { ascending: false });
+  return (data ?? []) as SqDetailNote[];
 }
 
 export async function listSqCancellations(): Promise<SqCancellation[]> {

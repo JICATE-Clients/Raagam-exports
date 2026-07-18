@@ -116,7 +116,7 @@ export interface SqGroup {
 // SQ Notes
 // ---------------------------------------------------------------------------
 
-export interface SqNote {
+export interface SqDetailNote {
   id: string;
   code: string | null;
   sq_detail_id: string;
@@ -179,12 +179,12 @@ export const sqGroupInput = z.object({
 });
 export type SqGroupInput = z.infer<typeof sqGroupInput>;
 
-export const sqNoteInput = z.object({
+export const sqDetailNoteInput = z.object({
   sq_detail_id: z.string().uuid(),
   entry_date: z.string(),
   notes: z.string().optional().nullable(),
 });
-export type SqNoteInput = z.infer<typeof sqNoteInput>;
+export type SqDetailNoteInput = z.infer<typeof sqDetailNoteInput>;
 
 export const sqCancellationInput = z.object({
   sq_detail_id: z.string().uuid(),
