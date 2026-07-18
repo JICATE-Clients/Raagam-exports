@@ -86,6 +86,33 @@ export async function deleteSqGroup(id: string): Promise<Result> {
 }
 
 // ---------------------------------------------------------------------------
+// SQ Packs (child of SQ Detail)
+// ---------------------------------------------------------------------------
+
+export async function addSqPack(
+  sqDetailId: string,
+  data: { country_code?: string | null; consignee_name?: string | null; assortment_type?: string | null; no_of_cartons?: number | null; sq_qty?: number; delivery_date?: string | null },
+): Promise<CreateResult> {
+  if (!(await can("sales", "create"))) return fail("Forbidden");
+  const s = await createClient();
+  const { data: existing } = await s.from("sq_packs").select("sno").eq("sq_detail_id", sqDetailId).order("sno", { ascending: false }).limit(1);
+  const nextSno = ((existing?.[0] as { sno: number } | undefined)?.sno ?? 0) + 1;
+  const { data: row, error } = await s.from("sq_packs").insert({ sq_detail_id: sqDetailId, sno: nextSno, ...data }).select("id").single();
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true, id: row.id };
+}
+
+export async function deleteSqPack(id: string): Promise<Result> {
+  if (!(await can("sales", "delete"))) return fail("Forbidden");
+  const s = await createClient();
+  const { error } = await s.from("sq_packs").delete().eq("id", id);
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // SQ Notes
 // ---------------------------------------------------------------------------
 

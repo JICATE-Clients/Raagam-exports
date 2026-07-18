@@ -12,7 +12,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { fmtDate } from "@/lib/format";
-import { createSqDetail, confirmSqDetail, deleteSqDetail } from "@/lib/sales/sq-actions";
+import { createSqDetail, confirmSqDetail, deleteSqDetail, addSqPack, deleteSqPack } from "@/lib/sales/sq-actions";
 import { SQ_SUB_TYPES, SOURCING_TYPES } from "@/lib/sales/sq-types";
 import type { SqDetailRow } from "@/lib/sales/sq-service";
 import type { StatusTone } from "@/components/ui/status-pill";
@@ -28,6 +28,9 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [packForm, setPackForm] = useState({ country_code: "", consignee_name: "", assortment_type: "", no_of_cartons: "", sq_qty: "", delivery_date: "" });
+  const [addingPack, setAddingPack] = useState(false);
   const [form, setForm] = useState({
     opportunity_id: "",
     sq_date: new Date().toISOString().slice(0, 10),
@@ -63,6 +66,22 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
     });
   }
 
+  function submitPack() {
+    if (!selectedId) return;
+    startTransition(async () => {
+      const res = await addSqPack(selectedId, {
+        country_code: packForm.country_code || null,
+        consignee_name: packForm.consignee_name || null,
+        assortment_type: packForm.assortment_type || null,
+        no_of_cartons: packForm.no_of_cartons ? Number(packForm.no_of_cartons) : null,
+        sq_qty: packForm.sq_qty ? Number(packForm.sq_qty) : 0,
+        delivery_date: packForm.delivery_date || null,
+      });
+      if (res.ok) { success("Pack added."); setAddingPack(false); setPackForm({ country_code: "", consignee_name: "", assortment_type: "", no_of_cartons: "", sq_qty: "", delivery_date: "" }); router.refresh(); }
+      else error(res.error);
+    });
+  }
+
   function confirm(id: string) {
     startTransition(async () => {
       const res = await confirmSqDetail(id);
@@ -80,7 +99,7 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
   }
 
   const columns: Column<SqDetailRow>[] = [
-    { header: "SQ No", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
+    { header: "SQ No", cell: (r) => <button type="button" className="font-mono text-xs text-primary hover:underline" onClick={() => setSelectedId(selectedId === r.id ? null : r.id)}>{r.code ?? "—"}</button> },
     { header: "Date", cell: (r) => <span className="text-xs tabular-nums">{fmtDate(r.sq_date)}</span> },
     { header: "Opportunity", cell: (r) => <span className="text-xs">{r.opportunity_code ?? "—"}</span> },
     { header: "Customer", cell: (r) => r.buyer_name ?? "—" },
@@ -116,6 +135,31 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
       </div>
 
       <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No SQ Details yet." />
+
+      {/* Pack editor for selected SQ */}
+      {selectedId && (
+        <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Packs for SQ: {rows.find(r => r.id === selectedId)?.code ?? "—"}</h3>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setAddingPack(!addingPack)}>{addingPack ? "Cancel" : "+ Add Pack"}</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedId(null)}>Close</Button>
+            </div>
+          </div>
+          {addingPack && (
+            <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
+              <div><Label>Country</Label><Input className="w-20" value={packForm.country_code} onChange={(e) => setPackForm({ ...packForm, country_code: e.target.value })} /></div>
+              <div><Label>Consignee</Label><Input className="w-32" value={packForm.consignee_name} onChange={(e) => setPackForm({ ...packForm, consignee_name: e.target.value })} /></div>
+              <div><Label>Assortment</Label><Select className="w-24" value={packForm.assortment_type} onChange={(e) => setPackForm({ ...packForm, assortment_type: e.target.value })}><option value="">—</option><option value="solid">Solid</option><option value="assorted">Assorted</option></Select></div>
+              <div><Label>Cartons</Label><Input className="w-20" type="number" value={packForm.no_of_cartons} onChange={(e) => setPackForm({ ...packForm, no_of_cartons: e.target.value })} /></div>
+              <div><Label>SQ Qty</Label><Input className="w-24" type="number" value={packForm.sq_qty} onChange={(e) => setPackForm({ ...packForm, sq_qty: e.target.value })} /></div>
+              <div><Label>Delivery</Label><Input className="w-32" type="date" value={packForm.delivery_date} onChange={(e) => setPackForm({ ...packForm, delivery_date: e.target.value })} /></div>
+              <Button size="sm" disabled={isPending} onClick={submitPack}>{isPending ? "Adding…" : "Add"}</Button>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">Packs are loaded when the SQ detail page is viewed. Click + Add Pack to add new packs.</p>
+        </div>
+      )}
 
       <Sheet
         open={open}
