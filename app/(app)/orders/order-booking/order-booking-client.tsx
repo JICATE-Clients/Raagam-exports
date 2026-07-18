@@ -15,7 +15,7 @@ import { createOrderBooking, deleteOrderBooking } from "@/lib/orders/booking-act
 import { RECEIPT_MODES, SHIP_MODES } from "@/lib/orders/booking-types";
 import type { OrderBookingRow } from "@/lib/orders/booking-service";
 
-export function OrderBookingClient({ rows }: { rows: OrderBookingRow[] }) {
+export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBookingRow[]; certOptions?: { id: string; certification_name: string }[] }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -33,12 +33,21 @@ export function OrderBookingClient({ rows }: { rows: OrderBookingRow[] }) {
     pay_mode: "",
     material_composition: "",
     notes: "",
-    certifications: "" as string,
+    selectedCerts: [] as string[],
   });
+
+  function toggleCert(certName: string) {
+    setForm((f) => ({
+      ...f,
+      selectedCerts: f.selectedCerts.includes(certName)
+        ? f.selectedCerts.filter((c) => c !== certName)
+        : [...f.selectedCerts, certName],
+    }));
+  }
 
   function submit() {
     startTransition(async () => {
-      const certs = form.certifications.split("\n").map((c) => c.trim()).filter(Boolean).map((c) => ({ certification: c }));
+      const certs = form.selectedCerts.map((c) => ({ certification: c }));
       const res = await createOrderBooking({
         sales_order_id: form.sales_order_id,
         booking_date: form.booking_date,
@@ -92,8 +101,19 @@ export function OrderBookingClient({ rows }: { rows: OrderBookingRow[] }) {
             <div><Label>Pay Mode</Label><Input value={form.pay_mode} onChange={(e) => setForm({ ...form, pay_mode: e.target.value })} /></div>
             <div><Label>Material Composition</Label><Input value={form.material_composition} onChange={(e) => setForm({ ...form, material_composition: e.target.value })} /></div>
           </DetailSection>
-          <DetailSection label="Certifications (one per line)">
-            <div><textarea className="w-full rounded border border-border bg-surface px-3 py-2 text-sm" rows={4} value={form.certifications} onChange={(e) => setForm({ ...form, certifications: e.target.value })} placeholder="GOTS&#10;BCI&#10;OEKO-TEX" /></div>
+          <DetailSection label="Certifications">
+            {certOptions.length > 0 ? (
+              <div className="flex flex-wrap gap-3">
+                {certOptions.map((c) => (
+                  <label key={c.id} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                    <input type="checkbox" className="h-4 w-4 accent-primary" checked={form.selectedCerts.includes(c.certification_name)} onChange={() => toggleCert(c.certification_name)} />
+                    {c.certification_name}
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No certifications in master. Add them in Master Data → Certifications.</p>
+            )}
           </DetailSection>
         </div>
       </Sheet>
