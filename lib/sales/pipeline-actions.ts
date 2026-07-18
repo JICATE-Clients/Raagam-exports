@@ -57,6 +57,60 @@ export async function createSeasonalOrder(data: SeasonalOrderInput): Promise<Cre
   return { ok: true, id: row.id };
 }
 
+// ---------------------------------------------------------------------------
+// Pipeline Order Styles (child)
+// ---------------------------------------------------------------------------
+
+export async function addPipelineStyle(
+  pipelineOrderId: string,
+  data: { style_ref_no?: string | null; style_no?: string | null; style_description?: string | null; uom_id?: string | null; order_qty?: number },
+): Promise<CreateResult> {
+  if (!(await can("sales", "create"))) return fail("Forbidden");
+  const s = await createClient();
+  const { data: existing } = await s.from("pipeline_order_styles").select("sno").eq("pipeline_order_id", pipelineOrderId).order("sno", { ascending: false }).limit(1);
+  const nextSno = ((existing?.[0] as { sno: number } | undefined)?.sno ?? 0) + 1;
+  const { data: row, error } = await s.from("pipeline_order_styles").insert({ pipeline_order_id: pipelineOrderId, sno: nextSno, ...data }).select("id").single();
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true, id: row.id };
+}
+
+export async function deletePipelineStyle(id: string): Promise<Result> {
+  if (!(await can("sales", "delete"))) return fail("Forbidden");
+  const s = await createClient();
+  const { error } = await s.from("pipeline_order_styles").delete().eq("id", id);
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline Dyeing Colors (child)
+// ---------------------------------------------------------------------------
+
+export async function addPipelineDyeColor(
+  pipelineOrderId: string,
+  data: { color_type: string; description?: string | null; process_loss_pct?: number; dye_type?: string | null },
+): Promise<CreateResult> {
+  if (!(await can("sales", "create"))) return fail("Forbidden");
+  const s = await createClient();
+  const { data: existing } = await s.from("pipeline_dyeing_colors").select("sno").eq("pipeline_order_id", pipelineOrderId).order("sno", { ascending: false }).limit(1);
+  const nextSno = ((existing?.[0] as { sno: number } | undefined)?.sno ?? 0) + 1;
+  const { data: row, error } = await s.from("pipeline_dyeing_colors").insert({ pipeline_order_id: pipelineOrderId, sno: nextSno, ...data }).select("id").single();
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true, id: row.id };
+}
+
+export async function deletePipelineDyeColor(id: string): Promise<Result> {
+  if (!(await can("sales", "delete"))) return fail("Forbidden");
+  const s = await createClient();
+  const { error } = await s.from("pipeline_dyeing_colors").delete().eq("id", id);
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true };
+}
+
 export async function deleteSeasonalOrder(id: string): Promise<Result> {
   if (!(await can("sales", "delete"))) return fail("Forbidden");
   const s = await createClient();

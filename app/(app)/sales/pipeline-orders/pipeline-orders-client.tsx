@@ -12,7 +12,8 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { fmtDate } from "@/lib/format";
-import { createPipelineOrder, confirmPipelineOrder, deletePipelineOrder, createSeasonalOrder, deleteSeasonalOrder } from "@/lib/sales/pipeline-actions";
+import { Select } from "@/components/ui/select";
+import { createPipelineOrder, confirmPipelineOrder, deletePipelineOrder, createSeasonalOrder, deleteSeasonalOrder, addPipelineStyle, deletePipelineStyle, addPipelineDyeColor, deletePipelineDyeColor } from "@/lib/sales/pipeline-actions";
 import type { PipelineOrderRow } from "@/lib/sales/pipeline-service";
 import type { SeasonalOrder } from "@/lib/sales/pipeline-types";
 import type { StatusTone } from "@/components/ui/status-pill";
@@ -51,8 +52,42 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
     });
   }
 
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [addingStyle, setAddingStyle] = useState(false);
+  const [addingDye, setAddingDye] = useState(false);
+  const [styleForm, setStyleForm] = useState({ style_no: "", style_description: "", uom_id: "", order_qty: "" });
+  const [dyeForm, setDyeForm] = useState({ color_type: "yarn", description: "", process_loss_pct: "", dye_type: "" });
+
+  function submitStyle() {
+    if (!selectedId) return;
+    startTransition(async () => {
+      const res = await addPipelineStyle(selectedId, {
+        style_no: styleForm.style_no || null,
+        style_description: styleForm.style_description || null,
+        uom_id: styleForm.uom_id || null,
+        order_qty: styleForm.order_qty ? Number(styleForm.order_qty) : 0,
+      });
+      if (res.ok) { success("Style added."); setAddingStyle(false); setStyleForm({ style_no: "", style_description: "", uom_id: "", order_qty: "" }); router.refresh(); }
+      else error(res.error);
+    });
+  }
+
+  function submitDye() {
+    if (!selectedId) return;
+    startTransition(async () => {
+      const res = await addPipelineDyeColor(selectedId, {
+        color_type: dyeForm.color_type,
+        description: dyeForm.description || null,
+        process_loss_pct: dyeForm.process_loss_pct ? Number(dyeForm.process_loss_pct) : 0,
+        dye_type: dyeForm.dye_type || null,
+      });
+      if (res.ok) { success("Dyeing color added."); setAddingDye(false); setDyeForm({ color_type: "yarn", description: "", process_loss_pct: "", dye_type: "" }); router.refresh(); }
+      else error(res.error);
+    });
+  }
+
   const columns: Column<PipelineOrderRow>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
+    { header: "Code", cell: (r) => <button type="button" className="font-mono text-xs text-primary hover:underline" onClick={() => setSelectedId(selectedId === r.id ? null : r.id)}>{r.code ?? "—"}</button> },
     { header: "Date", cell: (r) => <span className="text-xs tabular-nums">{fmtDate(r.oc_date)}</span> },
     { header: "Customer", cell: (r) => r.buyer_name ?? "—" },
     { header: "Order No", cell: (r) => r.order_no ?? "—" },
@@ -73,6 +108,51 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Pipeline Order</Button></div>
       <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No pipeline orders yet." />
+
+      {/* Styles + Dyeing editor for selected pipeline order */}
+      {selectedId && (
+        <div className="rounded-lg border border-border bg-surface p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Details for: {rows.find(r => r.id === selectedId)?.code ?? "—"}</h3>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedId(null)}>Close</Button>
+          </div>
+
+          {/* Styles */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Styles</span>
+              <Button variant="outline" size="sm" onClick={() => setAddingStyle(!addingStyle)}>{addingStyle ? "Cancel" : "+ Add Style"}</Button>
+            </div>
+            {addingStyle && (
+              <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
+                <div><Label>Style No</Label><Input className="w-24" value={styleForm.style_no} onChange={(e) => setStyleForm({ ...styleForm, style_no: e.target.value })} /></div>
+                <div><Label>Description</Label><Input className="w-40" value={styleForm.style_description} onChange={(e) => setStyleForm({ ...styleForm, style_description: e.target.value })} /></div>
+                <div><Label>UOM</Label><Input className="w-16" value={styleForm.uom_id} onChange={(e) => setStyleForm({ ...styleForm, uom_id: e.target.value })} /></div>
+                <div><Label>Order Qty</Label><Input className="w-24" type="number" value={styleForm.order_qty} onChange={(e) => setStyleForm({ ...styleForm, order_qty: e.target.value })} /></div>
+                <Button size="sm" disabled={isPending} onClick={submitStyle}>{isPending ? "Adding…" : "Add"}</Button>
+              </div>
+            )}
+          </div>
+
+          {/* Dyeing Colors */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Dyeing Colors</span>
+              <Button variant="outline" size="sm" onClick={() => setAddingDye(!addingDye)}>{addingDye ? "Cancel" : "+ Add Color"}</Button>
+            </div>
+            {addingDye && (
+              <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
+                <div><Label>Type</Label><Select className="w-24" value={dyeForm.color_type} onChange={(e) => setDyeForm({ ...dyeForm, color_type: e.target.value })}><option value="yarn">Yarn</option><option value="fabric">Fabric</option></Select></div>
+                <div><Label>Description</Label><Input className="w-32" value={dyeForm.description} onChange={(e) => setDyeForm({ ...dyeForm, description: e.target.value })} /></div>
+                <div><Label>Loss %</Label><Input className="w-16" type="number" value={dyeForm.process_loss_pct} onChange={(e) => setDyeForm({ ...dyeForm, process_loss_pct: e.target.value })} /></div>
+                <div><Label>Dye Type</Label><Input className="w-24" value={dyeForm.dye_type} onChange={(e) => setDyeForm({ ...dyeForm, dye_type: e.target.value })} /></div>
+                <Button size="sm" disabled={isPending} onClick={submitDye}>{isPending ? "Adding…" : "Add"}</Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <Sheet open={open} onClose={() => setOpen(false)} title="New Pipeline Order" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Header">
