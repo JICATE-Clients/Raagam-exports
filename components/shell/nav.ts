@@ -49,6 +49,7 @@ export const NAV: NavItem[] = [
     children: [
       { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
       { href: "/sales/sq-details", label: "SQ Details" },
+      { href: "/sales/pipeline-orders", label: "Pipeline & Seasonal" },
       { href: "/sales/samples-development", label: "Samples & Development" },
     ],
   },
