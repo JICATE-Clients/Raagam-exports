@@ -78,6 +78,9 @@ export const NAV: NavItem[] = [
     children: [
       { href: "/planning/garment-orders", label: "Materials – Garment Orders" },
       { href: "/planning/product-dev", label: "Product Development" },
+      { href: "/planning/color-print-details", label: "Color/Print Details" },
+      { href: "/planning/material-rates", label: "Material Rates" },
+      { href: "/planning/general-stocks", label: "General Stocks" },
     ],
   },
   {
