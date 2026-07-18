@@ -20,6 +20,7 @@ export interface DomesticProductionPlan {
   plan_date: string;
   customer_id: string | null;
   status: string;
+  location_id: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -43,6 +44,7 @@ export const domesticProdPlanInput = z.object({
   sales_order_id: z.string().uuid().optional().nullable(),
   plan_date: z.string(),
   customer_id: z.string().uuid().optional().nullable(),
+  location_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional().nullable(),
   styles: z.array(z.object({
     style_ref_no: z.string().optional().nullable(),
