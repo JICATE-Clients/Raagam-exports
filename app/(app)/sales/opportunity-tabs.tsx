@@ -19,6 +19,8 @@ import {
   FABRIC_TYPES,
   FABRIC_SUBTYPES,
   COST_CATEGORIES,
+  SHIP_MODES,
+  SAMPLE_TYPES,
 } from "@/lib/sales/types";
 import {
   createStyle,
@@ -37,7 +39,7 @@ import type {
   Sample,
   QuoteStatus,
 } from "@/lib/sales/types";
-import type { OpportunityRow, CostSheetWithItems } from "@/lib/sales/service";
+import type { OpportunityRow, CostSheetWithItems, BrandOption, SeasonOption } from "@/lib/sales/service";
 import type { Buyer, Uom } from "@/lib/masters/types";
 import type { StatusTone } from "@/components/ui/status-pill";
 
@@ -60,6 +62,8 @@ interface Props {
   samples: Sample[];
   buyers: Buyer[];
   uoms: Uom[];
+  brands?: BrandOption[];
+  seasons?: SeasonOption[];
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +114,14 @@ function StylesTab({
   const [fabricType, setFabricType] = useState<(typeof FABRIC_TYPES)[number] | "">("");
   const [fabricSubtype, setFabricSubtype] = useState<(typeof FABRIC_SUBTYPES)[number] | "">("");
   const [description, setDescription] = useState("");
+  const [composition, setComposition] = useState("");
+  const [sampleType, setSampleType] = useState("");
+  const [expectedOrderQty, setExpectedOrderQty] = useState("");
+  const [orderQty, setOrderQty] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [shipMode, setShipMode] = useState("");
+  const [theme, setTheme] = useState("");
+  const [isCostingOption, setIsCostingOption] = useState(false);
 
   function resetForm() {
     setName("");
@@ -117,6 +129,14 @@ function StylesTab({
     setFabricType("");
     setFabricSubtype("");
     setDescription("");
+    setComposition("");
+    setSampleType("");
+    setExpectedOrderQty("");
+    setOrderQty("");
+    setDeliveryDate("");
+    setShipMode("");
+    setTheme("");
+    setIsCostingOption(false);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -129,6 +149,14 @@ function StylesTab({
         fabric_type: fabricType || null,
         fabric_subtype: fabricSubtype || null,
         description: description || null,
+        composition: composition || null,
+        sample_type: (sampleType as (typeof SAMPLE_TYPES)[number]) || null,
+        expected_order_qty: expectedOrderQty ? Number(expectedOrderQty) : null,
+        order_qty: orderQty ? Number(orderQty) : null,
+        delivery_date: deliveryDate || null,
+        ship_mode: (shipMode as (typeof SHIP_MODES)[number]) || null,
+        theme: theme || null,
+        is_costing_option: isCostingOption,
       });
       if (result.ok) {
         toast.success("Style added");
@@ -150,18 +178,38 @@ function StylesTab({
     },
     { header: "Name", cell: (row) => row.name },
     {
-      header: "Fabric Type",
-      cell: (row) => row.fabric_type ?? <span className="text-muted-foreground">—</span>,
-    },
-    {
-      header: "Subtype",
-      cell: (row) => row.fabric_subtype ?? <span className="text-muted-foreground">—</span>,
-    },
-    {
-      header: "Description",
+      header: "Fabric",
       cell: (row) => (
-        <span className="text-muted-foreground line-clamp-1">
-          {row.description ?? "—"}
+        <span className="text-xs">
+          {[row.fabric_type?.replace("_", " "), row.fabric_subtype?.replace("_", " ")].filter(Boolean).join(" / ") || "—"}
+        </span>
+      ),
+    },
+    {
+      header: "Composition",
+      cell: (row) => (
+        <span className="text-xs text-muted-foreground">{row.composition ?? "—"}</span>
+      ),
+    },
+    {
+      header: "Exp Qty",
+      align: "right",
+      cell: (row) => (
+        <span className="tabular-nums text-xs">{row.expected_order_qty ?? "—"}</span>
+      ),
+    },
+    {
+      header: "Order Qty",
+      align: "right",
+      cell: (row) => (
+        <span className="tabular-nums text-xs">{row.order_qty ?? "—"}</span>
+      ),
+    },
+    {
+      header: "Delivery",
+      cell: (row) => (
+        <span className="tabular-nums text-muted-foreground text-xs">
+          {row.delivery_date ? fmtDate(row.delivery_date) : "—"}
         </span>
       ),
     },
@@ -261,6 +309,86 @@ function StylesTab({
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Brief style description"
                 />
+              </div>
+              <div>
+                <Label htmlFor="st-comp">Composition</Label>
+                <Input
+                  id="st-comp"
+                  value={composition}
+                  onChange={(e) => setComposition(e.target.value)}
+                  placeholder="e.g. 100% Cotton"
+                />
+              </div>
+              <div>
+                <Label htmlFor="st-sample-type">Sample Type</Label>
+                <Select
+                  id="st-sample-type"
+                  value={sampleType}
+                  onChange={(e) => setSampleType(e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  {SAMPLE_TYPES.map((t) => (
+                    <option key={t} value={t}>{t.toUpperCase()}</option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="st-theme">Theme</Label>
+                <Input
+                  id="st-theme"
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="st-exp-qty">Expected Order Qty</Label>
+                <Input
+                  id="st-exp-qty"
+                  type="number"
+                  value={expectedOrderQty}
+                  onChange={(e) => setExpectedOrderQty(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="st-ord-qty">Order Qty</Label>
+                <Input
+                  id="st-ord-qty"
+                  type="number"
+                  value={orderQty}
+                  onChange={(e) => setOrderQty(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="st-del-dt">Delivery Date</Label>
+                <Input
+                  id="st-del-dt"
+                  type="date"
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="st-ship">Ship Mode</Label>
+                <Select
+                  id="st-ship"
+                  value={shipMode}
+                  onChange={(e) => setShipMode(e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  {SHIP_MODES.map((m) => (
+                    <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="flex items-center gap-2 pt-5">
+                <input
+                  id="st-costing"
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary"
+                  checked={isCostingOption}
+                  onChange={(e) => setIsCostingOption(e.target.checked)}
+                />
+                <Label htmlFor="st-costing">Costing Option</Label>
               </div>
               <div className="flex items-end">
                 <Button
@@ -1048,7 +1176,6 @@ function QuotesTab({
 // Samples Tab
 // ---------------------------------------------------------------------------
 
-const SAMPLE_TYPES = ["proto", "fit", "sms", "pp", "top"] as const;
 const SAMPLE_STATUSES = [
   "requested",
   "in_progress",
@@ -1282,6 +1409,8 @@ export function OpportunityTabs({
   quotes,
   samples,
   uoms,
+  brands: _brands,
+  seasons: _seasons,
 }: Props) {
   const items = [
     {

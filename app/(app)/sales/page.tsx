@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
-import { getOpportunities, getBuyers } from "@/lib/sales/service";
+import { getOpportunities, getBuyers, getBrands, getSeasons } from "@/lib/sales/service";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -24,9 +24,11 @@ const STAGE_TONE: Record<OpportunityStage, StatusTone> = {
 export default async function SalesPipelinePage() {
   await requirePermission("sales", "view");
 
-  const [opportunities, buyers] = await Promise.all([
+  const [opportunities, buyers, brands, seasons] = await Promise.all([
     getOpportunities(),
     getBuyers(),
+    getBrands(),
+    getSeasons(),
   ]);
 
   const columns: Column<OpportunityRow>[] = [
@@ -124,7 +126,7 @@ export default async function SalesPipelinePage() {
         ))}
       </div>
 
-      <NewOpportunityForm buyers={buyers} />
+      <NewOpportunityForm buyers={buyers} brands={brands} seasons={seasons} />
 
       <DataTable
         columns={columns}

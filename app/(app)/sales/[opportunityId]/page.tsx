@@ -9,6 +9,8 @@ import {
   getQuotes,
   getSamples,
   getUoms,
+  getBrands,
+  getSeasons,
 } from "@/lib/sales/service";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
@@ -34,7 +36,7 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
 
   const { opportunityId } = await params;
 
-  const [opportunity, styles, costSheets, quotes, samples, uoms, canCreate] =
+  const [opportunity, styles, costSheets, quotes, samples, uoms, brands, seasons, canCreate] =
     await Promise.all([
       getOpportunity(opportunityId),
       getStyles(opportunityId),
@@ -42,6 +44,8 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
       getQuotes(opportunityId),
       getSamples(opportunityId),
       getUoms(),
+      getBrands(),
+      getSeasons(),
       can("sales", "create"),
     ]);
 
@@ -70,7 +74,7 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
       />
 
       {/* Opportunity summary strip */}
-      <div className="mb-6 flex flex-wrap gap-4 rounded-lg border border-border bg-surface px-4 py-3 text-sm">
+      <div className="mb-6 flex flex-wrap gap-x-5 gap-y-2 rounded-lg border border-border bg-surface px-4 py-3 text-sm">
         <div className="flex items-center gap-1.5">
           <span className="text-muted-foreground">Buyer:</span>
           <span className="font-medium">{opportunity.buyer_name ?? "—"}</span>
@@ -94,6 +98,36 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
             {fmtMoney(opportunity.target_fob, opportunity.currency_code)}
           </span>
         </div>
+        {opportunity.enquiry_against && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Enquiry:</span>
+            <span className="font-medium capitalize">{opportunity.enquiry_against}</span>
+          </div>
+        )}
+        {opportunity.order_type && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Order Type:</span>
+            <span className="font-medium capitalize">{opportunity.order_type}</span>
+          </div>
+        )}
+        {opportunity.agent_name && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Agent:</span>
+            <span className="font-medium">{opportunity.agent_name}</span>
+          </div>
+        )}
+        {opportunity.customer_reference && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Customer Ref:</span>
+            <span className="font-medium">{opportunity.customer_reference}</span>
+          </div>
+        )}
+        {opportunity.delivery_mode && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Delivery:</span>
+            <span className="font-medium capitalize">{opportunity.delivery_mode}</span>
+          </div>
+        )}
         {opportunity.notes && (
           <div className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Notes:</span>
@@ -112,6 +146,8 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
         samples={samples}
         buyers={[]}
         uoms={uoms}
+        brands={brands}
+        seasons={seasons}
       />
     </div>
   );
