@@ -66,6 +66,7 @@ export const NAV: NavItem[] = [
       { href: "/orders/contract-review", label: "Contract Review" },
       { href: "/orders/pack-ratios", label: "Pack Ratios" },
       { href: "/orders/excess-orders", label: "Excess Orders" },
+      { href: "/orders/price-confirmation", label: "Price Confirmation" },
       { href: "/orders/ta", label: "Time & Action (TA)" },
     ],
   },
