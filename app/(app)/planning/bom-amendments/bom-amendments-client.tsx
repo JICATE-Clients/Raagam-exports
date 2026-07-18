@@ -19,6 +19,7 @@ import {
   submitBomAmendment,
   approveBomAmendment,
   rejectBomAmendment,
+  addBomAmendmentLine,
 } from "@/lib/planning/amendment-actions";
 import {
   AMENDMENT_STATUS_LABELS,
@@ -61,6 +62,9 @@ export function BomAmendmentsClient({
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [addingLine, setAddingLine] = useState(false);
+  const [lineForm, setLineForm] = useState({ item_description: "", uom_id: "", original_qty: "", transfer_qty: "", transfer_wt: "", notes: "" });
   const [open, setOpen] = useState(false);
   useCreateIntent(() => setOpen(true));
 
@@ -113,7 +117,7 @@ export function BomAmendmentsClient({
   const columns: Column<BomAmendmentWithRefs>[] = [
     {
       header: "Amendment #",
-      cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span>,
+      cell: (r) => <button type="button" className="font-mono text-xs font-medium text-primary hover:underline" onClick={() => setSelectedId(selectedId === r.id ? null : r.id)}>{r.code ?? "—"}</button>,
     },
     {
       header: "BOM",
@@ -259,6 +263,41 @@ export function BomAmendmentsClient({
         ]}
         defaultKey="toapprove"
       />
+
+      {/* Amendment lines detail panel */}
+      {selectedId && (
+        <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Transfer Lines for: {amendments.find(a => a.id === selectedId)?.code ?? "—"}</h3>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setAddingLine(!addingLine)}>{addingLine ? "Cancel" : "+ Add Line"}</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedId(null)}>Close</Button>
+            </div>
+          </div>
+          {addingLine && (
+            <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
+              <div><Label>Item</Label><Input className="w-32" value={lineForm.item_description} onChange={(e) => setLineForm({ ...lineForm, item_description: e.target.value })} /></div>
+              <div><Label>UOM</Label><Input className="w-14" value={lineForm.uom_id} onChange={(e) => setLineForm({ ...lineForm, uom_id: e.target.value })} /></div>
+              <div><Label>Orig Qty</Label><Input className="w-16" type="number" value={lineForm.original_qty} onChange={(e) => setLineForm({ ...lineForm, original_qty: e.target.value })} /></div>
+              <div><Label>Xfr Qty</Label><Input className="w-16" type="number" value={lineForm.transfer_qty} onChange={(e) => setLineForm({ ...lineForm, transfer_qty: e.target.value })} /></div>
+              <div><Label>Xfr Wt</Label><Input className="w-16" type="number" value={lineForm.transfer_wt} onChange={(e) => setLineForm({ ...lineForm, transfer_wt: e.target.value })} /></div>
+              <div><Label>Notes</Label><Input className="w-24" value={lineForm.notes} onChange={(e) => setLineForm({ ...lineForm, notes: e.target.value })} /></div>
+              <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => {
+                const res = await addBomAmendmentLine(selectedId, {
+                  item_description: lineForm.item_description || null,
+                  uom_id: lineForm.uom_id || null,
+                  original_qty: Number(lineForm.original_qty) || 0,
+                  transfer_qty: Number(lineForm.transfer_qty) || 0,
+                  transfer_wt: Number(lineForm.transfer_wt) || 0,
+                  notes: lineForm.notes || null,
+                });
+                if (res.ok) { success("Line added."); setAddingLine(false); setLineForm({ item_description: "", uom_id: "", original_qty: "", transfer_qty: "", transfer_wt: "", notes: "" }); router.refresh(); }
+                else toastError(res.error);
+              })}>{isPending ? "Adding…" : "Add"}</Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -243,6 +243,33 @@ export async function approveBomAmendment(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// BOM Amendment Lines (per-line transfer qty/wt editing)
+// ---------------------------------------------------------------------------
+
+export async function addBomAmendmentLine(
+  amendmentId: string,
+  data: { item_description?: string | null; uom_id?: string | null; original_qty?: number; original_wt?: number; transfer_qty?: number; transfer_wt?: number; transfer_qty_with_loss?: number; transfer_wt_with_loss?: number; notes?: string | null },
+): Promise<ActionResult> {
+  if (!(await can("planning", "create"))) throw new Error("Forbidden");
+  const supabase = await createClient();
+  const { data: existing } = await supabase.from("bom_amendment_lines").select("sno").eq("amendment_id", amendmentId).order("sno", { ascending: false }).limit(1);
+  const sno = ((existing?.[0] as { sno: number } | undefined)?.sno ?? 0) + 1;
+  const { error } = await supabase.from("bom_amendment_lines").insert({ amendment_id: amendmentId, sno, ...data });
+  if (error) return { ok: false, error: error.message };
+  revalidateBomAmendments();
+  return { ok: true };
+}
+
+export async function deleteBomAmendmentLine(id: string): Promise<ActionResult> {
+  if (!(await can("planning", "delete"))) throw new Error("Forbidden");
+  const supabase = await createClient();
+  const { error } = await supabase.from("bom_amendment_lines").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidateBomAmendments();
+  return { ok: true };
+}
+
 export async function rejectBomAmendment(id: string): Promise<ActionResult> {
   if (!(await can("planning", "approve"))) throw new Error("Forbidden");
   const supabase = await createClient();

@@ -404,6 +404,21 @@ export const bomAmendmentInput = z.object({
 });
 export type BomAmendmentInput = z.infer<typeof bomAmendmentInput>;
 
+export interface BomAmendmentLine {
+  id: string;
+  amendment_id: string;
+  sno: number;
+  item_description: string | null;
+  uom_id: string | null;
+  original_qty: number;
+  original_wt: number;
+  transfer_qty: number;
+  transfer_wt: number;
+  transfer_qty_with_loss: number;
+  transfer_wt_with_loss: number;
+  notes: string | null;
+}
+
 // ============================================================================
 // SQ Notes & Allocation (0025)
 // ============================================================================
