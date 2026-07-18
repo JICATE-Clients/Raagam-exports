@@ -122,6 +122,24 @@ function StylesTab({
   const [shipMode, setShipMode] = useState("");
   const [theme, setTheme] = useState("");
   const [isCostingOption, setIsCostingOption] = useState(false);
+  const [combos, setCombos] = useState<{ combo: string; order_qty: string; expected_order_qty: string; sizes: { garment_size: string; order_qty: string; expected_order_qty: string }[] }[]>([]);
+
+  function addCombo() {
+    setCombos([...combos, { combo: "", order_qty: "", expected_order_qty: "", sizes: [] }]);
+  }
+  function removeCombo(i: number) { setCombos(combos.filter((_, idx) => idx !== i)); }
+  function updateCombo(i: number, field: string, val: string) {
+    setCombos(combos.map((c, idx) => idx === i ? { ...c, [field]: val } : c));
+  }
+  function addComboSize(ci: number) {
+    setCombos(combos.map((c, idx) => idx === ci ? { ...c, sizes: [...c.sizes, { garment_size: "", order_qty: "", expected_order_qty: "" }] } : c));
+  }
+  function removeComboSize(ci: number, si: number) {
+    setCombos(combos.map((c, idx) => idx === ci ? { ...c, sizes: c.sizes.filter((_, sidx) => sidx !== si) } : c));
+  }
+  function updateComboSize(ci: number, si: number, field: string, val: string) {
+    setCombos(combos.map((c, idx) => idx === ci ? { ...c, sizes: c.sizes.map((s, sidx) => sidx === si ? { ...s, [field]: val } : s) } : c));
+  }
 
   function resetForm() {
     setName("");
@@ -137,6 +155,7 @@ function StylesTab({
     setShipMode("");
     setTheme("");
     setIsCostingOption(false);
+    setCombos([]);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -157,6 +176,16 @@ function StylesTab({
         ship_mode: (shipMode as (typeof SHIP_MODES)[number]) || null,
         theme: theme || null,
         is_costing_option: isCostingOption,
+        combos: combos.filter(c => c.combo.trim()).map(c => ({
+          combo: c.combo.trim(),
+          order_qty: c.order_qty ? Number(c.order_qty) : null,
+          expected_order_qty: c.expected_order_qty ? Number(c.expected_order_qty) : null,
+          sizes: c.sizes.filter(s => s.garment_size.trim()).map(s => ({
+            garment_size: s.garment_size.trim(),
+            order_qty: s.order_qty ? Number(s.order_qty) : null,
+            expected_order_qty: s.expected_order_qty ? Number(s.expected_order_qty) : null,
+          })),
+        })),
       });
       if (result.ok) {
         toast.success("Style added");
@@ -389,6 +418,38 @@ function StylesTab({
                   onChange={(e) => setIsCostingOption(e.target.checked)}
                 />
                 <Label htmlFor="st-costing">Costing Option</Label>
+              </div>
+              {/* Combos & Sizes */}
+              <div className="sm:col-span-2 lg:col-span-3 border-t border-border pt-4 mt-2">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold">Combos (Color/Print)</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={addCombo}>+ Add Combo</Button>
+                </div>
+                {combos.map((c, ci) => (
+                  <div key={ci} className="mb-3 rounded border border-border p-3 space-y-2">
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1"><Label>Combo</Label><Input value={c.combo} onChange={(e) => updateCombo(ci, "combo", e.target.value)} placeholder="e.g. Red/Blue" /></div>
+                      <div className="w-28"><Label>Order Qty</Label><Input type="number" value={c.order_qty} onChange={(e) => updateCombo(ci, "order_qty", e.target.value)} /></div>
+                      <div className="w-28"><Label>Exp Qty</Label><Input type="number" value={c.expected_order_qty} onChange={(e) => updateCombo(ci, "expected_order_qty", e.target.value)} /></div>
+                      <Button type="button" variant="ghost" size="sm" className="text-red-600" onClick={() => removeCombo(ci)}>Remove</Button>
+                    </div>
+                    <div className="ml-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-muted-foreground">Sizes</span>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => addComboSize(ci)}>+ Size</Button>
+                      </div>
+                      {c.sizes.map((s, si) => (
+                        <div key={si} className="flex gap-2 items-center mb-1">
+                          <Input className="w-24 text-xs" value={s.garment_size} onChange={(e) => updateComboSize(ci, si, "garment_size", e.target.value)} placeholder="Size" />
+                          <Input className="w-20 text-xs" type="number" value={s.order_qty} onChange={(e) => updateComboSize(ci, si, "order_qty", e.target.value)} placeholder="Qty" />
+                          <Input className="w-20 text-xs" type="number" value={s.expected_order_qty} onChange={(e) => updateComboSize(ci, si, "expected_order_qty", e.target.value)} placeholder="Exp" />
+                          <Button type="button" variant="ghost" size="sm" className="text-red-600 text-xs" onClick={() => removeComboSize(ci, si)}>x</Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {combos.length === 0 && <p className="text-xs text-muted-foreground">No combos added. Add combos for color/print quantity breakdown.</p>}
               </div>
               <div className="flex items-end">
                 <Button

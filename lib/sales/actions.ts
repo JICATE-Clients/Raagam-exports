@@ -122,8 +122,34 @@ export async function createStyle(raw: unknown): Promise<ActionResult> {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("styles").insert(parsed.data);
+  const { combos, sizes, ...header } = parsed.data;
+  const { data: row, error } = await supabase.from("styles").insert(header).select("id").single();
   if (error) return { ok: false, error: error.message };
+
+  // Save combos with nested sizes
+  if (combos && combos.length > 0) {
+    for (let ci = 0; ci < combos.length; ci++) {
+      const { sizes: comboSizes, ...comboHeader } = combos[ci];
+      const { data: comboRow, error: comboErr } = await supabase
+        .from("style_combos")
+        .insert({ style_id: row.id, sno: ci + 1, ...comboHeader })
+        .select("id")
+        .single();
+      if (comboErr) continue;
+      if (comboSizes && comboSizes.length > 0) {
+        await supabase.from("style_combo_sizes").insert(
+          comboSizes.map((s, si) => ({ style_combo_id: comboRow.id, sno: si + 1, ...s })),
+        );
+      }
+    }
+  }
+
+  // Save direct sizes (when no combos)
+  if (sizes && sizes.length > 0) {
+    await supabase.from("style_sizes").insert(
+      sizes.map((s, si) => ({ style_id: row.id, sno: si + 1, ...s })),
+    );
+  }
 
   revalidateSales(parsed.data.opportunity_id);
   revalidatePath("/sales/styles");
