@@ -36,6 +36,18 @@ import {
 import type { AmendmentStatus } from "@/lib/orders/types";
 import type { OrderWithBuyer, OrderRevision } from "@/lib/orders/service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import {
+  addCoordinateColor,
+  addOrderDescription,
+  addOrderTrim,
+  addOrderFabric,
+  addApprovalParam,
+} from "@/lib/orders/order-detail-actions";
+import {
+  DESCRIPTION_TYPES,
+  SUPPLY_TYPES,
+  APPROVAL_PARAM_STATUSES,
+} from "@/lib/orders/order-detail-types";
 
 // ---------- helpers ----------
 
@@ -702,6 +714,147 @@ interface Props {
   canApprove: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Coordinate Colors Tab
+// ---------------------------------------------------------------------------
+function CoordColorsTab({ orderId }: { orderId: string }) {
+  const router = useRouter();
+  const { success, error } = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState({ coordinate: "", color: "" });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium">Coordinate Colors</h4>
+        <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Color"}</Button>
+      </div>
+      {adding && (
+        <div className="flex gap-2 items-end rounded border border-border p-3">
+          <div><Label>Coordinate *</Label><Input className="w-28" value={f.coordinate} onChange={(e) => setF({ ...f, coordinate: e.target.value })} placeholder="e.g. Sleeve" /></div>
+          <div><Label>Color</Label><Input className="w-28" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} /></div>
+          <Button size="sm" disabled={isPending || !f.coordinate} onClick={() => startTransition(async () => { const res = await addCoordinateColor({ sales_order_id: orderId, coordinate: f.coordinate, color: f.color || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ coordinate: "", color: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">Color assignments per garment coordinate position.</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Descriptions Tab
+// ---------------------------------------------------------------------------
+function DescriptionsTab({ orderId }: { orderId: string }) {
+  const router = useRouter();
+  const { success, error } = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState({ description_type: "", description: "" });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium">Process Descriptions</h4>
+        <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add"}</Button>
+      </div>
+      {adding && (
+        <div className="flex gap-2 items-end rounded border border-border p-3">
+          <div><Label>Type</Label><Select className="w-28" value={f.description_type} onChange={(e) => setF({ ...f, description_type: e.target.value })}><option value="">Select…</option>{DESCRIPTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</Select></div>
+          <div className="flex-1"><Label>Description</Label><Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+          <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderDescription({ sales_order_id: orderId, description_type: f.description_type || null, description: f.description || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ description_type: "", description: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trims Tab
+// ---------------------------------------------------------------------------
+function TrimsTab({ orderId }: { orderId: string }) {
+  const router = useRouter();
+  const { success, error } = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState({ category: "", trims_specifications: "", supply_type: "", vendor_name: "" });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium">Trims & Accessories</h4>
+        <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Trim"}</Button>
+      </div>
+      {adding && (
+        <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
+          <div><Label>Category</Label><Input className="w-28" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /></div>
+          <div className="flex-1"><Label>Specifications</Label><Input value={f.trims_specifications} onChange={(e) => setF({ ...f, trims_specifications: e.target.value })} /></div>
+          <div><Label>Supply Type</Label><Select className="w-28" value={f.supply_type} onChange={(e) => setF({ ...f, supply_type: e.target.value })}><option value="">Select…</option>{SUPPLY_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}</Select></div>
+          <div><Label>Vendor</Label><Input className="w-28" value={f.vendor_name} onChange={(e) => setF({ ...f, vendor_name: e.target.value })} /></div>
+          <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderTrim({ sales_order_id: orderId, category: f.category || null, trims_specifications: f.trims_specifications || null, supply_type: f.supply_type || null, vendor_name: f.vendor_name || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ category: "", trims_specifications: "", supply_type: "", vendor_name: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fabric Tab
+// ---------------------------------------------------------------------------
+function FabricTab({ orderId }: { orderId: string }) {
+  const router = useRouter();
+  const { success, error } = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState({ structure_name: "", composition: "", gsm: "", fabric_type: "" });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium">Fabric Specifications</h4>
+        <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Fabric"}</Button>
+      </div>
+      {adding && (
+        <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
+          <div><Label>Structure</Label><Input className="w-28" value={f.structure_name} onChange={(e) => setF({ ...f, structure_name: e.target.value })} /></div>
+          <div><Label>Composition</Label><Input className="w-28" value={f.composition} onChange={(e) => setF({ ...f, composition: e.target.value })} /></div>
+          <div><Label>GSM</Label><Input className="w-16" type="number" value={f.gsm} onChange={(e) => setF({ ...f, gsm: e.target.value })} /></div>
+          <div><Label>Type</Label><Select className="w-28" value={f.fabric_type} onChange={(e) => setF({ ...f, fabric_type: e.target.value })}><option value="">Select…</option><option value="main">Main</option><option value="trims_fabric">Trims Fabric</option></Select></div>
+          <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderFabric({ sales_order_id: orderId, structure_name: f.structure_name || null, composition: f.composition || null, gsm: f.gsm ? Number(f.gsm) : null, fabric_type: (f.fabric_type as "main" | "trims_fabric") || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ structure_name: "", composition: "", gsm: "", fabric_type: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Approval Parameters Tab
+// ---------------------------------------------------------------------------
+function ApprovalParamsTab({ orderId }: { orderId: string }) {
+  const router = useRouter();
+  const { success, error } = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState({ parameter_name: "", status: "", comment: "" });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium">Approval Parameters</h4>
+        <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Parameter"}</Button>
+      </div>
+      {adding && (
+        <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
+          <div className="flex-1"><Label>Parameter *</Label><Input value={f.parameter_name} onChange={(e) => setF({ ...f, parameter_name: e.target.value })} /></div>
+          <div><Label>Status</Label><Select className="w-24" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">—</option>{APPROVAL_PARAM_STATUSES.map(s => <option key={s} value={s}>{s === "ok" ? "OK" : "NOT OK"}</option>)}</Select></div>
+          <div><Label>Comment</Label><Input className="w-40" value={f.comment} onChange={(e) => setF({ ...f, comment: e.target.value })} /></div>
+          <Button size="sm" disabled={isPending || !f.parameter_name} onClick={() => startTransition(async () => { const res = await addApprovalParam({ sales_order_id: orderId, parameter_name: f.parameter_name, status: (f.status as "ok" | "not_ok") || null, comment: f.comment || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ parameter_name: "", status: "", comment: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function OrderTabs({
   order,
   lines,
@@ -746,6 +899,31 @@ export function OrderTabs({
       key: "revisions",
       label: `Revisions (${revisions.length})`,
       content: <RevisionsTab revisions={revisions} />,
+    },
+    {
+      key: "colors",
+      label: "Colors",
+      content: <CoordColorsTab orderId={order.id} />,
+    },
+    {
+      key: "descriptions",
+      label: "Descriptions",
+      content: <DescriptionsTab orderId={order.id} />,
+    },
+    {
+      key: "trims",
+      label: "Trims",
+      content: <TrimsTab orderId={order.id} />,
+    },
+    {
+      key: "fabric",
+      label: "Fabric",
+      content: <FabricTab orderId={order.id} />,
+    },
+    {
+      key: "approval",
+      label: "Approval",
+      content: <ApprovalParamsTab orderId={order.id} />,
     },
   ];
 
