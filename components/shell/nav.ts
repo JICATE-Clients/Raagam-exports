@@ -48,6 +48,7 @@ export const NAV: NavItem[] = [
     icon: ShoppingBag,
     children: [
       { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
+      { href: "/sales/sq-details", label: "SQ Details" },
       { href: "/sales/samples-development", label: "Samples & Development" },
     ],
   },
