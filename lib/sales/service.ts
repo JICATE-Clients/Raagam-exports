@@ -3,6 +3,8 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 import type {
   Opportunity,
   Style,
+  StyleCombo,
+  StyleSize,
   CostSheet,
   CostSheetItem,
   Quote,
@@ -372,4 +374,60 @@ export async function getUoms(): Promise<Uom[]> {
     .eq("is_active", true)
     .order("code");
   return (data ?? []) as Uom[];
+}
+
+// ---------------------------------------------------------------------------
+// Brands & Seasons (for Market Enquiry pickers)
+// ---------------------------------------------------------------------------
+
+export type BrandOption = { id: string; brand_name: string; brand_short_name: string | null };
+export type SeasonOption = { id: string; season: string; season_yr: string | null; season_name: string | null };
+
+export async function getBrands(): Promise<BrandOption[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("brands")
+    .select("id, brand_name, brand_short_name")
+    .eq("blocked", false)
+    .order("brand_name");
+  return (data ?? []) as BrandOption[];
+}
+
+export async function getSeasons(): Promise<SeasonOption[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("seasons")
+    .select("id, season, season_yr, season_name")
+    .eq("blocked", false)
+    .order("season_name");
+  return (data ?? []) as SeasonOption[];
+}
+
+// ---------------------------------------------------------------------------
+// Style Combos & Sizes (child grids)
+// ---------------------------------------------------------------------------
+
+export async function getStyleCombos(styleId: string): Promise<StyleCombo[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("style_combos")
+    .select("*, style_combo_sizes(*)")
+    .eq("style_id", styleId)
+    .order("sno");
+  return ((data ?? []) as (StyleCombo & { style_combo_sizes: StyleCombo["sizes"] })[]).map(
+    ({ style_combo_sizes, ...combo }) => ({
+      ...combo,
+      sizes: [...(style_combo_sizes ?? [])].sort((a, b) => a.sno - b.sno),
+    }),
+  );
+}
+
+export async function getStyleSizes(styleId: string): Promise<StyleSize[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("style_sizes")
+    .select("*")
+    .eq("style_id", styleId)
+    .order("sno");
+  return (data ?? []) as StyleSize[];
 }

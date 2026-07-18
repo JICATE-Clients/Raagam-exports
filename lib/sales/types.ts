@@ -13,6 +13,12 @@ export type OpportunityStage = (typeof OPPORTUNITY_STAGES)[number];
 export const FABRIC_TYPES = ["woven", "circular", "flat_knit"] as const;
 export const FABRIC_SUBTYPES = ["solid", "yarn_dyed", "melange"] as const;
 
+export const ENQUIRY_AGAINST = ["new", "repeat", "development"] as const;
+export const ORDER_TYPES = ["new", "repeat"] as const;
+export const DELIVERY_MODES = ["air", "sea", "courier", "road"] as const;
+export const RECEIPT_MODES = ["email", "phone", "fax", "courier", "direct"] as const;
+export const SHIP_MODES = ["air", "sea", "road"] as const;
+
 /** Sample types (shared by samples + the Define Styles "Sample Type" column). */
 export const SAMPLE_TYPES = ["proto", "fit", "sms", "pp", "top"] as const;
 export type SampleType = (typeof SAMPLE_TYPES)[number];
@@ -76,6 +82,20 @@ export interface Opportunity {
   currency_code: string | null;
   owner_id: string | null;
   notes: string | null;
+  // Market Enquiry fields (0319)
+  brand_id: string | null;
+  agent_name: string | null;
+  merchandiser_id: string | null;
+  season_id: string | null;
+  customer_department: string | null;
+  customer_reference: string | null;
+  enquiry_against: (typeof ENQUIRY_AGAINST)[number] | null;
+  order_type: (typeof ORDER_TYPES)[number] | null;
+  sample_for: string | null;
+  delivery_mode: (typeof DELIVERY_MODES)[number] | null;
+  delivery_to: string | null;
+  receipt_mode: (typeof RECEIPT_MODES)[number] | null;
+  received_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -96,8 +116,49 @@ export interface Style {
   sample_qty: number | null;
   unit_id: string | null;
   specs: Record<string, unknown>;
+  // Market Enquiry style fields (0319)
+  fabric_structure: string | null;
+  ship_type_id: string | null;
+  ship_mode: (typeof SHIP_MODES)[number] | null;
+  theme: string | null;
+  expected_order_qty: number | null;
+  order_qty: number | null;
+  delivery_date: string | null;
+  is_costing_option: boolean;
+  price_type: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface StyleCombo {
+  id: string;
+  style_id: string;
+  sno: number;
+  combo: string;
+  combo_description: string | null;
+  order_qty: number | null;
+  expected_order_qty: number | null;
+  sizes: StyleComboSize[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StyleComboSize {
+  id: string;
+  style_combo_id: string;
+  sno: number;
+  garment_size: string;
+  order_qty: number | null;
+  expected_order_qty: number | null;
+}
+
+export interface StyleSize {
+  id: string;
+  style_id: string;
+  sno: number;
+  garment_size: string;
+  order_qty: number | null;
+  expected_order_qty: number | null;
 }
 
 export interface CostSheet {
@@ -194,6 +255,20 @@ export const opportunityInput = z.object({
   target_fob: z.coerce.number().nonnegative().optional().nullable(),
   currency_code: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  // Market Enquiry fields
+  brand_id: z.string().uuid().optional().nullable(),
+  agent_name: z.string().optional().nullable(),
+  merchandiser_id: z.string().uuid().optional().nullable(),
+  season_id: z.string().uuid().optional().nullable(),
+  customer_department: z.string().optional().nullable(),
+  customer_reference: z.string().optional().nullable(),
+  enquiry_against: z.enum(ENQUIRY_AGAINST).optional().nullable(),
+  order_type: z.enum(ORDER_TYPES).optional().nullable(),
+  sample_for: z.string().optional().nullable(),
+  delivery_mode: z.enum(DELIVERY_MODES).optional().nullable(),
+  delivery_to: z.string().optional().nullable(),
+  receipt_mode: z.enum(RECEIPT_MODES).optional().nullable(),
+  received_date: z.string().optional().nullable(),
 });
 export type OpportunityInput = z.infer<typeof opportunityInput>;
 
@@ -207,6 +282,26 @@ export const bulkOpportunityInput = z.object({
   season: z.string().optional().nullable(),
 });
 export type BulkOpportunityInput = z.infer<typeof bulkOpportunityInput>;
+
+export const styleComboSizeInput = z.object({
+  garment_size: z.string().min(1),
+  order_qty: z.coerce.number().optional().nullable(),
+  expected_order_qty: z.coerce.number().optional().nullable(),
+});
+
+export const styleComboInput = z.object({
+  combo: z.string().min(1),
+  combo_description: z.string().optional().nullable(),
+  order_qty: z.coerce.number().optional().nullable(),
+  expected_order_qty: z.coerce.number().optional().nullable(),
+  sizes: z.array(styleComboSizeInput).default([]),
+});
+
+export const styleSizeInput = z.object({
+  garment_size: z.string().min(1),
+  order_qty: z.coerce.number().optional().nullable(),
+  expected_order_qty: z.coerce.number().optional().nullable(),
+});
 
 export const styleInput = z.object({
   opportunity_id: z.string().uuid(),
@@ -222,6 +317,19 @@ export const styleInput = z.object({
   composition: z.string().optional().nullable(),
   sample_qty: z.coerce.number().nonnegative().optional().nullable(),
   unit_id: z.string().uuid().optional().nullable(),
+  // Market Enquiry style fields
+  fabric_structure: z.string().optional().nullable(),
+  ship_type_id: z.string().uuid().optional().nullable(),
+  ship_mode: z.enum(SHIP_MODES).optional().nullable(),
+  theme: z.string().optional().nullable(),
+  expected_order_qty: z.coerce.number().optional().nullable(),
+  order_qty: z.coerce.number().optional().nullable(),
+  delivery_date: z.string().optional().nullable(),
+  is_costing_option: z.boolean().default(false),
+  price_type: z.string().optional().nullable(),
+  // Child grids
+  combos: z.array(styleComboInput).default([]),
+  sizes: z.array(styleSizeInput).default([]),
 });
 export type StyleInput = z.infer<typeof styleInput>;
 
