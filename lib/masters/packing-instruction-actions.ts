@@ -5,9 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { packingInstructionInput, type PackingInstructionInput } from "./packing-instruction-types";
 import { checkDuplicateName } from "./dup-guard";
+import { deleteOrDeactivate } from "./delete-guard";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
+type DeleteResult = { ok: true; inactive: boolean } | Failure;
 type CreateResult = { ok: true; id: string } | Failure;
 
 function fail(msg: string): Failure {
@@ -50,11 +52,11 @@ export async function updatePackingInstruction(id: string, data: PackingInstruct
   return { ok: true };
 }
 
-export async function deletePackingInstruction(id: string): Promise<Result> {
+export async function deletePackingInstruction(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("packing_instructions").delete().eq("id", id);
-  if (error) return fail(error.message);
+  const res = await deleteOrDeactivate(s, "packing_instructions", id, "inactive");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive };
 }

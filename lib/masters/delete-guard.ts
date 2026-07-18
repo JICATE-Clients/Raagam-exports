@@ -17,12 +17,17 @@ export async function deleteOrDeactivate(
   s: SupabaseClient,
   table: string,
   id: string,
-  activeColumn: "is_active" | "inactive" = "is_active",
+  activeColumn: "is_active" | "inactive" | "blocked" = "is_active",
 ): Promise<DeleteGuardResult> {
   const { error } = await s.from(table).delete().eq("id", id);
   if (!error) return { ok: true, inactive: false };
   if (error.code !== "23503") return { ok: false, error: error.message };
-  const patch = activeColumn === "is_active" ? { is_active: false } : { inactive: true };
+  const patch =
+    activeColumn === "is_active"
+      ? { is_active: false }
+      : activeColumn === "blocked"
+        ? { blocked: true }
+        : { inactive: true };
   const { error: patchErr } = await s.from(table).update(patch).eq("id", id);
   if (patchErr) return { ok: false, error: patchErr.message };
   return { ok: true, inactive: true };

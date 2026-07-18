@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { styleLevelInput, type StyleLevelInput } from "./style-level-types";
+import { deleteOrDeactivate } from "./delete-guard";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
+type DeleteResult = { ok: true; inactive: boolean } | Failure;
 type CreateResult = { ok: true; id: string } | Failure;
 
 function fail(msg: string): Failure {
@@ -40,11 +42,11 @@ export async function updateStyleLevel(id: string, data: StyleLevelInput): Promi
   return { ok: true };
 }
 
-export async function deleteStyleLevel(id: string): Promise<Result> {
+export async function deleteStyleLevel(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("style_levels").delete().eq("id", id);
-  if (error) return fail(error.message);
+  const res = await deleteOrDeactivate(s, "style_levels", id, "inactive");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive };
 }

@@ -5,9 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { commodityInput, type CommodityInput } from "./commodity-types";
 import { checkDuplicateName } from "./dup-guard";
+import { deleteOrDeactivate } from "./delete-guard";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
+type DeleteResult = { ok: true; inactive: boolean } | Failure;
 type CreateResult = { ok: true; id: string } | Failure;
 
 function fail(msg: string): Failure {
@@ -45,11 +47,11 @@ export async function updateCommodity(id: string, data: CommodityInput): Promise
   return { ok: true };
 }
 
-export async function deleteCommodity(id: string): Promise<Result> {
+export async function deleteCommodity(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("commodities").delete().eq("id", id);
-  if (error) return fail(error.message);
+  const res = await deleteOrDeactivate(s, "commodities", id, "blocked");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive };
 }

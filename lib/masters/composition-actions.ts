@@ -5,10 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { compositionInput, type CompositionInput } from "./composition-types";
 import { checkDuplicateName } from "./dup-guard";
+import { deleteOrDeactivate } from "./delete-guard";
 
-type Result = { ok: true } | { ok: false; error: string };
+type Failure = { ok: false; error: string };
+type Result = { ok: true } | Failure;
+type DeleteResult = { ok: true; inactive: boolean } | Failure;
 
-function fail(msg: string): Result {
+function fail(msg: string): Failure {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -76,11 +79,11 @@ export async function updateComposition(id: string, data: CompositionInput): Pro
   return { ok: true };
 }
 
-export async function deleteComposition(id: string): Promise<Result> {
+export async function deleteComposition(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("compositions").delete().eq("id", id); // lines cascade
-  if (error) return fail(error.message);
+  const res = await deleteOrDeactivate(s, "compositions", id, "blocked"); // lines cascade
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive };
 }
