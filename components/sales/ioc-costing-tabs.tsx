@@ -10,8 +10,6 @@ import type {
   IocFabricRate,
   IocOtherExpense,
   IocBudget,
-  ConsumptionFor,
-  CONSUMPTION_LABELS,
 } from "@/lib/sales/types";
 
 interface Props {

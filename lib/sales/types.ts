@@ -457,6 +457,11 @@ export interface IocConsDetail {
   is_direct_rate: boolean;
   is_assort_colorwise: boolean;
   details: string | null;
+  category_id: string | null;
+  item_id: string | null;
+  process_id: string | null;
+  cost_head_id: string | null;
+  ref_sno: number | null;
 }
 
 export interface IocCmtOperation {
@@ -515,6 +520,8 @@ export interface IocFabricProcessRate {
   process_rate: number;
   uom_id: string | null;
   is_direct_rate: boolean;
+  item_class_type: string | null;
+  purchase_process_type: string | null;
   details: IocFabricProcessDetail[];
 }
 
