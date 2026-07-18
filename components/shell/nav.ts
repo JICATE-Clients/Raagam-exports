@@ -64,6 +64,8 @@ export const NAV: NavItem[] = [
       { href: "/orders/order-booking", label: "Order Booking" },
       { href: "/orders/due-date-confirmations", label: "Due Date Confirmations" },
       { href: "/orders/contract-review", label: "Contract Review" },
+      { href: "/orders/pack-ratios", label: "Pack Ratios" },
+      { href: "/orders/excess-orders", label: "Excess Orders" },
       { href: "/orders/ta", label: "Time & Action (TA)" },
     ],
   },
