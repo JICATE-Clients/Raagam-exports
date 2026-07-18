@@ -87,6 +87,8 @@ export const NAV: NavItem[] = [
       { href: "/planning/fabric-consumption", label: "Fabric Consumption" },
       { href: "/planning/fabric-orders", label: "Fabric Orders" },
       { href: "/planning/domestic-production", label: "Domestic Production" },
+      { href: "/planning/capacity-planning", label: "Capacity Planning" },
+      { href: "/planning/production-planning", label: "Production Planning" },
     ],
   },
   {
