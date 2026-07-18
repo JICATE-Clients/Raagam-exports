@@ -50,6 +50,7 @@ export const NAV: NavItem[] = [
       { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
       { href: "/sales/sq-details", label: "SQ Details" },
       { href: "/sales/pipeline-orders", label: "Pipeline & Seasonal" },
+      { href: "/sales/catalogues", label: "Catalogues & Pricing" },
       { href: "/sales/samples-development", label: "Samples & Development" },
     ],
   },
