@@ -61,6 +61,9 @@ export const NAV: NavItem[] = [
     icon: ClipboardList,
     children: [
       { href: "/orders/garment-orders", label: "Garment Orders" },
+      { href: "/orders/order-booking", label: "Order Booking" },
+      { href: "/orders/due-date-confirmations", label: "Due Date Confirmations" },
+      { href: "/orders/contract-review", label: "Contract Review" },
       { href: "/orders/ta", label: "Time & Action (TA)" },
     ],
   },
