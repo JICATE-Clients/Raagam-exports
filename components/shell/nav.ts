@@ -83,6 +83,8 @@ export const NAV: NavItem[] = [
       { href: "/planning/general-stocks", label: "General Stocks" },
       { href: "/planning/indent-approval", label: "Indent Approval" },
       { href: "/planning/indent-to-purchase", label: "Indent to Purchase" },
+      { href: "/planning/material-excess-plan", label: "Material Excess Plan" },
+      { href: "/planning/fabric-consumption", label: "Fabric Consumption" },
     ],
   },
   {
