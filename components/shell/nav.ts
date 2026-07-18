@@ -81,6 +81,8 @@ export const NAV: NavItem[] = [
       { href: "/planning/color-print-details", label: "Color/Print Details" },
       { href: "/planning/material-rates", label: "Material Rates" },
       { href: "/planning/general-stocks", label: "General Stocks" },
+      { href: "/planning/indent-approval", label: "Indent Approval" },
+      { href: "/planning/indent-to-purchase", label: "Indent to Purchase" },
     ],
   },
   {
