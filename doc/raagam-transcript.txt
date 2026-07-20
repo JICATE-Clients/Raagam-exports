@@ -1,0 +1,1208 @@
+# raagam.mpeg  task=translate  duration=3348s
+
+[00:00:01 - 00:00:03] I have put this record
+[00:00:03 - 00:00:07] I will ask you if we miss anything
+[00:00:07 - 00:00:09] No doubt
+[00:00:09 - 00:00:12] Ok sir, you start
+[00:00:12 - 00:00:17] What should I do?
+[00:00:17 - 00:00:20] Sir, you can do it if you want
+[00:00:20 - 00:00:22] No sir, you can do it in config
+[00:00:22 - 00:00:26] You can also do it in the main
+[00:00:26 - 00:00:29] What are the materials?
+[00:00:29 - 00:00:32] Ok, what is the first step?
+[00:00:32 - 00:00:34] Ok sir
+[00:00:34 - 00:00:38] If you don't want to do it, you can do it in the main
+[00:00:38 - 00:00:41] Ok, I will ask you about logic
+[00:00:41 - 00:00:47] I will ask you about config and materials
+[00:00:47 - 00:00:49] Ok sir
+[00:00:49 - 00:00:52] I have mentioned the material master
+[00:00:52 - 00:00:54] Items class
+[00:00:54 - 00:00:56] I have mentioned 7 items class
+[00:00:56 - 00:00:57] You can give it to me
+[00:00:57 - 00:00:59] You can put this button, you can take it
+[00:00:59 - 00:01:01] You can not do it
+[00:01:01 - 00:01:03] What is the button sir?
+[00:01:03 - 00:01:05] You can put it in the main
+[00:01:05 - 00:01:07] It will be 1000 button
+[00:01:07 - 00:01:10] You can take it
+[00:01:10 - 00:01:12] Ok sir
+[00:01:12 - 00:01:14] You can put it in the main
+[00:01:14 - 00:01:16] Ok sir, you can not do it
+[00:01:16 - 00:01:18] No, you can not do it
+[00:01:18 - 00:01:21] If you take it, you can put it in the main
+[00:01:21 - 00:01:23] You can put it in the main
+[00:01:23 - 00:01:25] You can give it in the main
+[00:01:25 - 00:01:43] Yes sir
+[00:01:43 - 00:01:45] You can put it in the master
+[00:01:45 - 00:01:48] It is in the master
+[00:01:48 - 00:01:52] It is in the master data
+[00:01:52 - 00:01:54] It is in the master data
+[00:01:54 - 00:01:56] I will click the menu
+[00:01:56 - 00:01:59] It is not in the arrow
+[00:01:59 - 00:02:01] You should click the arrow
+[00:02:01 - 00:02:03] Yes, you should click the arrow
+[00:02:03 - 00:02:06] It is in the master data
+[00:02:06 - 00:02:08] It is in the materials
+[00:02:08 - 00:02:13] You are putting the materials in the materials
+[00:02:13 - 00:02:18] Yes sir
+[00:02:18 - 00:02:20] Generally, what is the purpose of this?
+[00:02:20 - 00:02:22] It is like this
+[00:02:22 - 00:02:24] You can set the keys
+[00:02:24 - 00:02:26] You can set the keys
+[00:02:26 - 00:02:28] You can say that you know
+[00:02:28 - 00:02:30] All that you will ask
+[00:02:30 - 00:02:32] You can ask the question
+[00:02:32 - 00:02:34] I will tell you like the question
+[00:02:34 - 00:02:36] I will tell you like I understood
+[00:02:36 - 00:02:38] You have explained your explanation
+[00:02:38 - 00:02:40] I will tell you later
+[00:02:40 - 00:02:42] Yes
+[00:02:42 - 00:02:44] You can ask questions directly
+[00:02:44 - 00:02:46] I will tell you the question
+[00:02:46 - 00:02:48] I didn't know
+[00:02:48 - 00:02:50] Atleast tell me everything you know
+[00:02:50 - 00:02:52] Tell you everything you know about the materials
+[00:02:52 - 00:02:54] Tell me everything you know
+[00:02:54 - 00:02:59] I will tell you what I am going to do. I will ask you that question.
+[00:02:59 - 00:03:04] I am going to tell you about this material creation.
+[00:03:04 - 00:03:07] So, I have got an item class.
+[00:03:07 - 00:03:11] I will take it and create a fabric.
+[00:03:11 - 00:03:14] I will tell you the fabric.
+[00:03:14 - 00:03:16] Okay, so fabric.
+[00:03:16 - 00:03:19] I don't need any information.
+[00:03:19 - 00:03:21] This is optional.
+[00:03:21 - 00:03:23] The fabric has 3 types.
+[00:03:23 - 00:03:26] Circular knit, flat knit and over knit.
+[00:03:26 - 00:03:30] Okay, so the fabric has 3 types.
+[00:03:30 - 00:03:34] Circular knit, you can knit the fabric.
+[00:03:34 - 00:03:36] The knitting machine will be circular.
+[00:03:36 - 00:03:39] Circular knit and the fabric will be circular.
+[00:03:39 - 00:03:42] The unit of the measure will be 1 kg.
+[00:03:42 - 00:03:43] Okay.
+[00:03:43 - 00:03:44] The logic of this.
+[00:03:44 - 00:03:49] If we select the circular knit, the fabric of the circular knit will be 1 kg.
+[00:03:49 - 00:03:51] Okay, sir.
+[00:03:51 - 00:03:54] The plot knit.
+[00:03:54 - 00:03:58] The fabric will be flat.
+[00:03:58 - 00:04:01] The color of the fabric will be 1 kg.
+[00:04:01 - 00:04:05] The unit of the measure is the number plus weight.
+[00:04:05 - 00:04:07] The number and weight will be the same.
+[00:04:07 - 00:04:08] Okay, sir.
+[00:04:08 - 00:04:11] The color of the fabric is 1 kg.
+[00:04:11 - 00:04:13] The color of the fabric is 1 kg.
+[00:04:13 - 00:04:14] Okay, sir.
+[00:04:14 - 00:04:15] What do we need?
+[00:04:15 - 00:04:17] When we select the circular knit, the color will be 1 kg.
+[00:04:18 - 00:04:20] How many kilograms do we have to select?
+[00:04:20 - 00:04:21] 4 kilograms.
+[00:04:21 - 00:04:22] We have to select the 1 kg sir and start already.
+[00:04:22 - 00:04:24] How many kilograms are there in this case?
+[00:04:24 - 00:04:25] They will be 500 kilograms.
+[00:04:25 - 00:04:38] How many kilograms?
+[00:04:38 - 00:04:41] We are sorry, I cannot tell you anything.
+[00:04:41 - 00:04:42] Time is nothing is all you need.
+[00:04:42 - 00:04:44] We need all of the sizes in one ear.
+[00:04:44 - 00:04:46] If you are confused, you can change it.
+[00:04:46 - 00:04:50] If we use circular net, we can use 90% circular net.
+[00:04:50 - 00:04:51] Okay sir.
+[00:04:51 - 00:04:54] So, it is one for that.
+[00:04:54 - 00:04:55] Two percent.
+[00:04:55 - 00:04:56] How much?
+[00:04:56 - 00:04:58] It is one kilo for circular net.
+[00:04:58 - 00:04:59] Yes, it is one kilo for circular net.
+[00:04:59 - 00:05:01] We can use 90% circular net.
+[00:05:01 - 00:05:02] Okay.
+[00:05:02 - 00:05:04] We can use 80-90% of the plant net.
+[00:05:04 - 00:05:05] Okay.
+[00:05:05 - 00:05:07] We can use half of the case.
+[00:05:07 - 00:05:08] Okay sir.
+[00:05:08 - 00:05:10] So, we can use circular net.
+[00:05:10 - 00:05:12] If we use circular net here.
+[00:05:12 - 00:05:14] If you understand these three things,
+[00:05:14 - 00:05:16] you can think that you have given it.
+[00:05:16 - 00:05:17] Okay sir.
+[00:05:17 - 00:05:19] The next one is structure.
+[00:05:19 - 00:05:21] There is a category of fabric.
+[00:05:21 - 00:05:24] If this list comes from somewhere,
+[00:05:24 - 00:05:27] we have already asked for a category master.
+[00:05:27 - 00:05:30] Yes sir.
+[00:05:30 - 00:05:32] I am explaining about the material.
+[00:05:32 - 00:05:34] If it comes from a material structure,
+[00:05:34 - 00:05:35] Okay sir.
+[00:05:35 - 00:05:37] We have asked for a category master.
+[00:05:37 - 00:05:38] Yes sir.
+[00:05:38 - 00:05:43] We have created a category for fabric.
+[00:05:43 - 00:05:45] What I am doing is,
+[00:05:45 - 00:05:47] we have created a single-jerk.
+[00:05:47 - 00:05:49] Okay sir.
+[00:05:49 - 00:05:51] We have created a single-jerk.
+[00:05:51 - 00:05:53] If you understand these three things,
+[00:05:53 - 00:05:55] you can think that you have given it.
+[00:05:55 - 00:05:56] Okay sir.
+[00:05:56 - 00:05:58] If the name comes from somewhere,
+[00:05:58 - 00:06:00] this category master comes.
+[00:06:00 - 00:06:01] Okay sir.
+[00:06:01 - 00:06:06] What category is the name from here?
+[00:06:06 - 00:06:08] It comes from category master.
+[00:06:08 - 00:06:10] It is a name of structure.
+[00:06:10 - 00:06:11] That is it.
+[00:06:11 - 00:06:15] The name of the category in the category is one of the
+[00:06:15 - 00:06:17] items that we have created.
+[00:06:17 - 00:06:18] Okay sir.
+[00:06:18 - 00:06:21] How we have created that is a pattern.
+[00:06:21 - 00:06:24] Okay sir.
+[00:06:24 - 00:06:26] We have taken the single-jerk.
+[00:06:26 - 00:06:28] When we create this in the category,
+[00:06:28 - 00:06:29] items are fabric,
+[00:06:29 - 00:06:30] short name single-jerk,
+[00:06:30 - 00:06:32] medium-single-jerk, short-skext single-jerk.
+[00:06:32 - 00:06:34] If these items are needed for the right size,
+[00:06:34 - 00:06:35] then they are not needed.
+[00:06:35 - 00:06:37] They would have given it for a reason.
+[00:06:37 - 00:06:39] Because in some places,
+[00:06:39 - 00:06:41] DC is not able to hit it very hard.
+[00:06:41 - 00:06:44] That is why they would have given it for the short-skext.
+[00:06:44 - 00:06:46] They would have given it for a reason.
+[00:06:46 - 00:06:48] When you give it in a single-jerk,
+[00:06:48 - 00:06:49] it is not needed.
+[00:06:49 - 00:06:50] Okay.
+[00:06:50 - 00:06:51] What is the name?
+[00:06:51 - 00:06:54] The structure for this single-jerk is
+[00:06:54 - 00:06:55] circular knit,
+[00:06:55 - 00:06:56] flattened, overknotted.
+[00:06:56 - 00:06:57] It will be here.
+[00:06:57 - 00:06:58] Okay sir.
+[00:06:58 - 00:07:01] If we have to use the structure in this material,
+[00:07:01 - 00:07:03] then we have to use the structure in this category,
+[00:07:03 - 00:07:05] and then we have to use the entry.
+[00:07:05 - 00:07:07] That is what we have to come here.
+[00:07:07 - 00:07:09] Okay sir.
+[00:07:09 - 00:07:10] Do you understand?
+[00:07:10 - 00:07:11] I understand.
+[00:07:11 - 00:07:12] Okay sir.
+[00:07:12 - 00:07:15] I have created a category for this single-jerk.
+[00:07:15 - 00:07:17] When you create this single-jerk fabric,
+[00:07:17 - 00:07:19] you do not know what is the structure of the fabric.
+[00:07:19 - 00:07:20] Yes sir.
+[00:07:20 - 00:07:21] You do not know the structure.
+[00:07:21 - 00:07:22] Yes sir.
+[00:07:22 - 00:07:23] Do they put it in the fabric?
+[00:07:23 - 00:07:24] Yes sir.
+[00:07:24 - 00:07:25] Do they put it in the pattern?
+[00:07:25 - 00:07:27] If it is over, then they will tell you.
+[00:07:27 - 00:07:28] You will tell me.
+[00:07:28 - 00:07:30] The leavey description and the commodity
+[00:07:30 - 00:07:31] are not needed.
+[00:07:31 - 00:07:32] Okay.
+[00:07:32 - 00:07:33] If it is not needed,
+[00:07:33 - 00:07:35] we can change the material if needed.
+[00:07:35 - 00:07:36] We need it now.
+[00:07:36 - 00:07:37] Okay.
+[00:07:37 - 00:07:38] Okay sir.
+[00:07:38 - 00:07:40] Okay sir.
+[00:07:40 - 00:07:41] Okay sir.
+[00:07:41 - 00:07:43] So the structure is here.
+[00:07:43 - 00:07:44] Single-jerk is done.
+[00:07:44 - 00:07:45] Okay sir.
+[00:07:45 - 00:07:46] It is fabric type.
+[00:07:46 - 00:07:47] Okay sir.
+[00:07:47 - 00:07:49] It is fabric type.
+[00:07:49 - 00:07:51] Milanji, Saanid and Yandex.
+[00:07:51 - 00:07:52] Okay sir.
+[00:07:52 - 00:07:54] We have talked about this.
+[00:07:54 - 00:07:55] If it is Saanid,
+[00:07:55 - 00:07:57] if it is Saanid, then it is Yandex.
+[00:07:57 - 00:07:58] It is the same colour.
+[00:07:58 - 00:08:00] We have already dyed it in the same colour.
+[00:08:00 - 00:08:01] It is Saanid fabric.
+[00:08:01 - 00:08:02] Yes sir.
+[00:08:02 - 00:08:03] Yes sir.
+[00:08:03 - 00:08:04] We will dye it in Saanid.
+[00:08:04 - 00:08:05] Yes.
+[00:08:05 - 00:08:06] First we will dye it in Yandex.
+[00:08:06 - 00:08:07] Then we will change the fabric.
+[00:08:07 - 00:08:08] Then we will dye it.
+[00:08:08 - 00:08:09] Correct.
+[00:08:09 - 00:08:10] Next is Milanji.
+[00:08:10 - 00:08:14] What isIf they Pierced it.
+[00:08:14 - 00:08:15] So it will be Milanji.
+[00:08:15 - 00:08:16] Okay sir.
+[00:08:16 - 00:08:17] Alright sir.
+[00:08:17 - 00:08:18] It will be in the teams.
+[00:08:18 - 00:08:19] That is correct.
+[00:08:19 - 00:08:20] Okay sir.
+[00:08:20 - 00:08:21] So what is the fabric we create?
+[00:08:21 - 00:08:26] What will it say from here.
+[00:08:26 - 00:08:27] Okay sir.
+[00:08:27 - 00:08:28] It will tell us.
+[00:08:28 - 00:08:29] Next is Direct hurt dances.
+[00:08:29 - 00:08:30] If we click What?
+[00:08:30 - 00:08:32] So it does not come here.
+[00:08:32 - 00:08:33] Correct.
+[00:08:33 - 00:08:36] So we bought everything from rams.
+[00:08:36 - 00:08:37] So we have to generate fabric,
+[00:08:37 - 00:08:38] we will copy and post.
+[00:08:38 - 00:08:39] Okay sir.
+[00:08:39 - 00:08:44] So we have to choose the option but they have to know it.
+[00:08:44 - 00:08:45] Okay, okay.
+[00:08:45 - 00:08:47] But if you have one option, you will not ask for a single jet.
+[00:08:47 - 00:08:49] No, we will not ask for a single jet.
+[00:08:49 - 00:08:50] We will come here.
+[00:08:50 - 00:08:52] Next thing, let us see if we can use single jet.
+[00:08:52 - 00:08:53] Yes, sir.
+[00:08:53 - 00:08:55] What is used is, this single jet is a factory.
+[00:08:55 - 00:08:57] The name of the factory is single jet.
+[00:08:57 - 00:09:01] If we give a single jet, we will give a hundred.
+[00:09:01 - 00:09:02] Yes, sir.
+[00:09:02 - 00:09:03] Okay, that is it.
+[00:09:03 - 00:09:07] If we need to lead with a single jet, we will lead with multiple nodes.
+[00:09:07 - 00:09:10] If we give a single jet, we will have only one node.
+[00:09:10 - 00:09:11] Okay, sir.
+[00:09:11 - 00:09:16] If we give a single jet, we will lead with two nodes, three nodes, four nodes.
+[00:09:16 - 00:09:17] Okay.
+[00:09:17 - 00:09:19] Okay, so if we give a single jet,
+[00:09:19 - 00:09:23] if we ask for a single jet, we will cover the item.
+[00:09:23 - 00:09:26] So we will lead with whatever we have.
+[00:09:26 - 00:09:27] Yes, sir.
+[00:09:27 - 00:09:30] What we are doing here is,
+[00:09:30 - 00:09:35] we will give a 30-sum cotton which is the percentage of the cotton.
+[00:09:35 - 00:09:37] I will give you a couple of them.
+[00:09:37 - 00:09:39] Here, we have a name, say, a factory.
+[00:09:39 - 00:09:40] Okay.
+[00:09:40 - 00:09:41] We will give it.
+[00:09:41 - 00:09:42] This is the name of the factory.
+[00:09:42 - 00:09:43] Oh.
+[00:09:43 - 00:09:46] So if we select it, the name of the auto vehicle will be created.
+[00:09:46 - 00:09:47] Yes, it will be created.
+[00:09:47 - 00:09:49] If we select one, this is the name of the factory.
+[00:09:49 - 00:09:50] Okay.
+[00:09:50 - 00:09:53] If we select a single jet,
+[00:09:53 - 00:09:55] if we select a single jet,
+[00:09:55 - 00:09:56] what does this mean?
+[00:09:56 - 00:09:59] This 10-sum cotton is 100% of this cotton.
+[00:09:59 - 00:10:01] We will leave it for this factory with 100.
+[00:10:01 - 00:10:02] We will do it.
+[00:10:02 - 00:10:04] Yes, we will do it for this R.
+[00:10:04 - 00:10:05] We will do it.
+[00:10:05 - 00:10:08] When we select one, we will get the product.
+[00:10:08 - 00:10:09] Okay, sir.
+[00:10:09 - 00:10:11] Okay, look here.
+[00:10:11 - 00:10:12] Now I am here.
+[00:10:12 - 00:10:14] We will give a multi-billion,
+[00:10:14 - 00:10:16] we will give a 200-sum cotton.
+[00:10:16 - 00:10:18] So, we will give a multi-billion, right?
+[00:10:18 - 00:10:19] Yes, sir.
+[00:10:19 - 00:10:21] We will give a 20-sum cotton.
+[00:10:21 - 00:10:22] How much do we need?
+[00:10:22 - 00:10:24] We will give a 50-sum cotton.
+[00:10:24 - 00:10:25] 60.
+[00:10:25 - 00:10:27] We will give another 100.
+[00:10:27 - 00:10:32] So, we will give a 40-sum cotton.
+[00:10:32 - 00:10:34] When we do it like this,
+[00:10:35 - 00:10:37] we will get the fabric.
+[00:10:37 - 00:10:39] We will create a 40-sum cotton.
+[00:10:39 - 00:10:41] We will get the 10-sum cotton.
+[00:10:41 - 00:10:43] We will get the 40-sum cotton.
+[00:10:43 - 00:10:45] So, what we have to do with this percentage is,
+[00:10:45 - 00:10:47] we will give a concept.
+[00:10:47 - 00:10:49] How much do we need?
+[00:10:49 - 00:10:50] Yes, sir.
+[00:10:50 - 00:10:52] How much do we need if we want to take a piece?
+[00:10:52 - 00:10:54] How many kilograms do we need?
+[00:10:54 - 00:10:56] How many kilograms do we need?
+[00:10:56 - 00:10:58] For example, we will take 1 kilo.
+[00:10:58 - 00:10:59] Okay, sir.
+[00:10:59 - 00:11:00] We will give a piece.
+[00:11:00 - 00:11:01] When we give a piece,
+[00:11:01 - 00:11:03] we will give a concept of 1 kilo.
+[00:11:03 - 00:11:06] In that 1 kilo, we will get...
+[00:11:06 - 00:11:08] 100 grams of a 10-sum cotton.
+[00:11:08 - 00:11:09] 400 grams.
+[00:11:09 - 00:11:10] 400 grams of a 10-sum cotton.
+[00:11:10 - 00:11:11] 40 grams of a 10-sum cotton.
+[00:11:11 - 00:11:13] So, we will get the petro-weed.
+[00:11:13 - 00:11:15] We will take the master-based cotton.
+[00:11:15 - 00:11:17] We will take this segment and get the cardinal cotton.
+[00:11:17 - 00:11:18] Okay.
+[00:11:18 - 00:11:19] This is the concept of the product.
+[00:11:19 - 00:11:20] Okay?
+[00:11:20 - 00:11:21] Yes, sir.
+[00:11:21 - 00:11:22] Look at the cardinal here.
+[00:11:22 - 00:11:24] Now, when we get 100,
+[00:11:24 - 00:11:37] I will give a small one.
+[00:11:37 - 00:11:40] If we get 100 cardinal cotton,
+[00:11:40 - 00:11:46] you will get a different option.
+[00:11:46 - 00:11:48] Yes, sir.
+[00:12:23 - 00:12:25] We can do that if we do not want to.
+[00:12:25 - 00:12:29] If we do not want to account, we can integrate this.
+[00:12:29 - 00:12:33] If we do that, we can do it if we do not want to.
+[00:12:33 - 00:12:35] Or you can use it, it is also possible.
+[00:12:35 - 00:12:37] No, it is not. You can do it, it is not needed.
+[00:12:37 - 00:12:39] What do you want, sir?
+[00:12:39 - 00:12:41] This budget.
+[00:12:41 - 00:12:42] You don't want the budget, sir?
+[00:12:42 - 00:12:43] Yes, I don't want the budget.
+[00:12:43 - 00:12:45] Okay.
+[00:12:45 - 00:12:46] Okay, sir.
+[00:12:46 - 00:12:48] So, this is the fabric must fit here.
+[00:12:48 - 00:12:49] This is the fabric must fit here.
+[00:12:49 - 00:12:51] The whole terminal here is here.
+[00:12:51 - 00:12:54] Ok sir
+[00:12:54 - 00:12:56] You like this one right?
+[00:12:56 - 00:12:57] Yes sir
+[00:12:57 - 00:12:58] Is this all yours?
+[00:12:58 - 00:12:59] Yes sir
+[00:12:59 - 00:13:02] If this is from where the name of this yarn comes from
+[00:13:02 - 00:13:09] This is all material
+[00:13:09 - 00:13:13] If you create fabric, you can give it to ICM plus fabric
+[00:13:13 - 00:13:14] Yes sir
+[00:13:14 - 00:13:17] Instead of that, I give the yarn
+[00:13:17 - 00:13:19] So when you give the yarn, this is the yarn
+[00:13:19 - 00:13:21] There are three types of yarn in the yarn
+[00:13:21 - 00:13:25] Grain, milan yarn, crystal yarn, doubling yarn
+[00:13:25 - 00:13:27] Ok sir, if you take the yarn from the yarn
+[00:13:27 - 00:13:29] Then the count
+[00:13:29 - 00:13:32] So where is the count
+[00:13:32 - 00:13:34] We take the count master
+[00:13:34 - 00:13:36] Count master
+[00:13:36 - 00:13:38] Count master comes from here
+[00:13:38 - 00:13:39] Ok
+[00:13:39 - 00:13:41] That is the category
+[00:13:41 - 00:13:43] Where is the category
+[00:13:43 - 00:13:46] From this category
+[00:13:46 - 00:13:47] Ok
+[00:13:47 - 00:13:51] If we give the fabric, then the category is the yarn
+[00:13:51 - 00:13:54] If we give the yarn, then the category is the yarn
+[00:13:54 - 00:13:55] Ok sir
+[00:13:55 - 00:13:56] Ok
+[00:13:56 - 00:13:58] In this, three types of yarn
+[00:13:58 - 00:14:01] Natural yarn, manmade, mixture and milan yarn
+[00:14:01 - 00:14:02] Ok sir
+[00:14:02 - 00:14:03] Naturally, manmade, mixture
+[00:14:03 - 00:14:05] What do you mean by mixture?
+[00:14:05 - 00:14:08] You describe the nature of manmade
+[00:14:08 - 00:14:11] Natural yarn is the cotton and linen
+[00:14:11 - 00:14:13] Manmade is the polystyrene
+[00:14:13 - 00:14:15] Polystyrene is the ryan
+[00:14:15 - 00:14:17] It comes from the manmade
+[00:14:17 - 00:14:19] If you mix it, then we will mix it
+[00:14:19 - 00:14:22] We will mix the cotton and ryan
+[00:14:22 - 00:14:25] So, they mix milk and cotton.
+[00:14:25 - 00:14:27] Milk and cotton.
+[00:14:27 - 00:14:28] Superb.
+[00:14:28 - 00:14:31] So, you take this category here.
+[00:14:31 - 00:14:32] Count it.
+[00:14:32 - 00:14:34] When I ask, it is category.
+[00:14:34 - 00:14:36] For example, cotton.
+[00:14:36 - 00:14:40] This is category.
+[00:14:40 - 00:14:42] We have taken the wrong category.
+[00:14:42 - 00:14:43] This is cotton.
+[00:14:43 - 00:14:45] Now, here is purity.
+[00:14:45 - 00:14:47] If you take the coffee truck, it is natural.
+[00:14:47 - 00:14:51] Because when we ask, it is given.
+[00:14:51 - 00:14:53] It is purified.
+[00:14:53 - 00:14:55] It is a foam.
+[00:14:55 - 00:14:57] It is not shared.
+[00:14:57 - 00:14:59] If you select milan, it will be shared.
+[00:14:59 - 00:15:01] They will give you the same number.
+[00:15:01 - 00:15:05] So, purity is not shared.
+[00:15:05 - 00:15:07] So, we have taken the right category.
+[00:15:07 - 00:15:09] This is foam.
+[00:15:09 - 00:15:11] You can see this.
+[00:15:11 - 00:15:13] The name is foam.
+[00:15:13 - 00:15:15] I have already found it.
+[00:15:15 - 00:15:17] When I create, I have already created.
+[00:15:17 - 00:15:19] I have created.
+[00:15:19 - 00:15:23] If you have an idea, you can ask someone else.
+[00:15:23 - 00:15:26] He will create a space in between.
+[00:15:26 - 00:15:27] He will put the spelling wrong.
+[00:15:27 - 00:15:29] He will put the spelling wrong.
+[00:15:29 - 00:15:33] He will say, cotton.
+[00:15:33 - 00:15:37] If you ask, how much is there in the cotton?
+[00:15:37 - 00:15:39] It will be possible.
+[00:15:39 - 00:15:44] Another person will give 30 s without giving.
+[00:15:44 - 00:15:46] He will give 30 s.
+[00:15:46 - 00:15:49] He will put CCN.
+[00:15:49 - 00:15:51] He will put Sartcom.
+[00:15:51 - 00:15:54] If you create for a specific reason, we cannot do anything.
+[00:15:54 - 00:15:56] We cannot take stock.
+[00:15:56 - 00:15:58] That is why this idea.
+[00:15:58 - 00:16:01] If they give the cotton, they can think.
+[00:16:01 - 00:16:04] We can select and give.
+[00:16:04 - 00:16:06] They do not have to enter.
+[00:16:06 - 00:16:10] If they give the same amount without counting,
+[00:16:10 - 00:16:12] they select the amount they give.
+[00:16:12 - 00:16:15] If they give 30 s, we will have the same amount.
+[00:16:15 - 00:16:19] If they give 30 s, they will give 30 space.
+[00:16:19 - 00:16:21] I will tell you the logic.
+[00:16:21 - 00:16:23] You can think about it.
+[00:16:23 - 00:16:25] I will tell you the logic.
+[00:16:25 - 00:16:27] Ok sir.
+[00:16:27 - 00:16:29] Ok sir.
+[00:16:29 - 00:16:31] Now we have created a node.
+[00:16:31 - 00:16:33] We have created a node.
+[00:16:33 - 00:16:36] We will give the material when we create.
+[00:16:36 - 00:16:39] Now, in a category.
+[00:16:39 - 00:16:46] Material.
+[00:16:46 - 00:16:49] Yarn.
+[00:16:49 - 00:16:52] Yarn.
+[00:16:52 - 00:16:54] We have created a category.
+[00:16:54 - 00:16:56] You have talked about the mix.
+[00:16:56 - 00:17:08] If you add a category cotton mixture,
+[00:17:08 - 00:17:10] what will you do?
+[00:17:10 - 00:17:12] If you add a category mix,
+[00:17:12 - 00:17:14] it will ask for mixing.
+[00:17:14 - 00:17:16] If you see the natural in this,
+[00:17:16 - 00:17:23] you will see the two videos.
+[00:17:23 - 00:17:25] If you add cotton mixture,
+[00:17:25 - 00:17:27] it will not ask for anything.
+[00:17:27 - 00:17:29] This is natural.
+[00:17:29 - 00:17:33] We have created a node based on the purity.
+[00:17:33 - 00:17:35] We can do it with this node.
+[00:17:35 - 00:17:37] We can do it with single-density or with rubikom.
+[00:17:37 - 00:17:39] Yes sir.
+[00:17:39 - 00:17:45] Ok.
+[00:17:45 - 00:17:47] How much is the purity?
+[00:17:47 - 00:17:49] You have tied it in cotton.
+[00:17:49 - 00:17:51] Will you use all this?
+[00:17:51 - 00:17:53] Purity?
+[00:17:53 - 00:17:56] No.
+[00:17:56 - 00:17:58] You have only this in the gas.
+[00:17:58 - 00:18:00] No.
+[00:18:00 - 00:18:02] All the purity will come.
+[00:18:02 - 00:18:04] You will use all the purity.
+[00:18:04 - 00:18:06] We will use it.
+[00:18:06 - 00:18:08] We will use it to create.
+[00:18:08 - 00:18:10] We will use it to create purity.
+[00:18:10 - 00:18:12] Yes sir.
+[00:18:12 - 00:18:14] You should not use this type of purity.
+[00:18:14 - 00:18:16] You should not use this type of purity.
+[00:18:16 - 00:18:18] I will create what I want.
+[00:18:18 - 00:18:20] Ok sir.
+[00:18:20 - 00:18:22] You should not use this type of purity.
+[00:18:22 - 00:18:25] I will create purity.
+[00:18:25 - 00:18:27] Ok sir.
+[00:18:27 - 00:18:29] This is natural.
+[00:18:29 - 00:18:31] This is natural.
+[00:18:31 - 00:18:37] No need.
+[00:18:37 - 00:18:44] I will tell you.
+[00:18:44 - 00:18:46] We will mix it with the cotton mixture.
+[00:18:46 - 00:18:48] We can take milk cotton.
+[00:18:48 - 00:18:50] Ok sir.
+[00:18:54 - 00:18:56] We should do validation with the data.
+[00:18:56 - 00:18:58] We should give this and this and this and this and this.
+[00:18:58 - 00:19:00] We should give this and this and this and this and this and this.
+[00:19:00 - 00:19:02] What will you do with the milk cotton?
+[00:19:02 - 00:19:04] Will you give the mixture when you create the category?
+[00:19:04 - 00:19:06] Yes sir.
+[00:19:06 - 00:19:09] When the mixture comes,
+[00:19:09 - 00:19:11] I will mix it with the 2 nab nodes.
+[00:19:11 - 00:19:13] I will ask you.
+[00:19:13 - 00:19:15] You will mix it with the 200 nab nodes.
+[00:19:15 - 00:19:17] Yes sir.
+[00:19:17 - 00:19:19] I will tell you the quantity.
+[00:19:19 - 00:19:21] Ok sir.
+[00:19:21 - 00:19:25] So, here like this
+[00:19:25 - 00:19:33] cotton
+[00:19:33 - 00:19:36] 60 percent
+[00:19:36 - 00:19:41] polished
+[00:19:41 - 00:19:43] 40 percent
+[00:19:43 - 00:19:45] This is what I asked.
+[00:19:45 - 00:19:47] This is the cotton, polished and polished 40 percent.
+[00:19:47 - 00:19:50] Ok sir.
+[00:19:50 - 00:19:52] Do you understand? Yes sir.
+[00:19:52 - 00:19:54] So, this is the unit of measure.
+[00:19:54 - 00:20:00] So, what is the value of this?
+[00:20:00 - 00:20:02] Ok sir.
+[00:20:02 - 00:20:04] I have a doubt sir.
+[00:20:04 - 00:20:15] Ok sir.
+[00:20:15 - 00:20:17] Ask me.
+[00:20:17 - 00:20:24] Ask me in the morning.
+[00:20:24 - 00:20:28] We will ask you later.
+[00:20:28 - 00:20:33] Ok.
+[00:20:33 - 00:20:35] I am not clear.
+[00:20:35 - 00:20:39] Ok sir.
+[00:20:39 - 00:20:43] Ok.
+[00:20:43 - 00:20:45] Ok.
+[00:20:45 - 00:20:47] When I create,
+[00:20:47 - 00:20:49] I don't have any name.
+[00:20:49 - 00:20:51] If it is default,
+[00:20:51 - 00:20:53] I will have to come here.
+[00:20:53 - 00:20:55] Sir, we can quote something.
+[00:20:55 - 00:20:57] Sir.
+[00:20:57 - 00:21:01] Do you have any idea?
+[00:21:01 - 00:21:03] Ok.
+[00:21:03 - 00:21:07] I will create a yarn in the meter.
+[00:21:07 - 00:21:11] I will use yarn.
+[00:21:11 - 00:21:13] What type of yarn do you use?
+[00:21:13 - 00:21:15] I use poly cotton.
+[00:21:15 - 00:21:18] Poly cotton?
+[00:21:18 - 00:21:20] If we create poly cotton, we use poly sir.
+[00:21:20 - 00:21:22] We use poly cotton.
+[00:21:22 - 00:21:24] The short name is left name.
+[00:21:24 - 00:21:26] The left name is left name.
+[00:21:26 - 00:21:28] The default name
+[00:21:28 - 00:21:30] I will give it to you.
+[00:21:30 - 00:21:44] Ok.
+[00:21:44 - 00:21:46] Now, we have a name of poly cotton.
+[00:21:46 - 00:21:48] For yarn.
+[00:21:48 - 00:21:50] If it is default,
+[00:21:50 - 00:21:52] we will have to come here.
+[00:21:52 - 00:21:56] Or we can enter something.
+[00:21:56 - 00:21:58] You can say anything.
+[00:21:58 - 00:22:00] I will go in detail.
+[00:22:00 - 00:22:02] In poly cotton, we have to come here.
+[00:22:02 - 00:22:04] Ok sir.
+[00:22:04 - 00:22:06] Because this name is
+[00:22:06 - 00:22:08] when we buy this yarn,
+[00:22:08 - 00:22:10] we buy this yarn in order.
+[00:22:10 - 00:22:12] Then we can say it.
+[00:22:12 - 00:22:14] That is the reason why I am asking.
+[00:22:14 - 00:22:16] I have a different name.
+[00:22:16 - 00:22:18] I have a different detail.
+[00:22:18 - 00:22:20] If you have a different name, you can say it.
+[00:22:20 - 00:22:22] I will tell you the idea.
+[00:22:22 - 00:22:24] Now, we are creating a yarn.
+[00:22:24 - 00:22:26] Now, we can come to poly cotton
+[00:22:26 - 00:22:28] for 30 spoon.
+[00:22:28 - 00:22:30] If we want to take this yarn in form,
+[00:22:30 - 00:22:32] we can count
+[00:22:32 - 00:22:34] the name of the mixing.
+[00:22:34 - 00:22:36] Count the category.
+[00:22:36 - 00:22:38] Ok.
+[00:22:38 - 00:22:40] We will take it now.
+[00:22:40 - 00:22:42] That is the factor for milk.
+[00:22:42 - 00:22:45] Ok sir.
+[00:22:45 - 00:22:47] Thank you sir.
+[00:22:47 - 00:22:49] I know the detail.
+[00:22:49 - 00:22:51] Sir, please do it.
+[00:22:51 - 00:22:53] Ok.
+[00:22:53 - 00:22:55] I can identify the name.
+[00:22:55 - 00:22:57] That is why I am asking.
+[00:22:57 - 00:23:01] I know the percentage.
+[00:23:01 - 00:23:03] If we use poly cotton in fabric,
+[00:23:03 - 00:23:05] we have 60 percent.
+[00:23:05 - 00:23:07] We can identify the name.
+[00:23:07 - 00:23:09] We can identify the name.
+[00:23:09 - 00:23:11] We can identify the name.
+[00:23:11 - 00:23:13] The brand that is inside the yarn.
+[00:23:13 - 00:23:15] The brand that is inside the yarn.
+[00:23:15 - 00:23:17] This is one.
+[00:23:17 - 00:23:19] The brand that is inside the yarn.
+[00:23:19 - 00:23:22] The percentage of the blend.
+[00:23:22 - 00:23:24] What is the percentage?
+[00:23:24 - 00:23:26] What is the percentage?
+[00:23:26 - 00:23:29] Here.
+[00:23:29 - 00:23:31] So, this is the material master.
+[00:23:31 - 00:23:33] If you have any other option,
+[00:23:33 - 00:23:35] I will fabricate this.
+[00:23:35 - 00:23:37] Fabric, knife,
+[00:23:37 - 00:23:39] texture.
+[00:23:39 - 00:23:42] I will not go there.
+[00:23:42 - 00:23:44] The texture comes from here.
+[00:23:44 - 00:23:46] If you add it,
+[00:23:46 - 00:23:48] we can add it here.
+[00:23:48 - 00:23:50] New texture.
+[00:23:50 - 00:23:52] That is the add.
+[00:23:52 - 00:23:54] If you want to create a pattern,
+[00:23:54 - 00:23:56] you can do it.
+[00:23:56 - 00:23:58] So,
+[00:23:58 - 00:24:00] the texture comes from here.
+[00:24:00 - 00:24:02] It comes from this category.
+[00:24:02 - 00:24:04] If you create it, it should come here.
+[00:24:04 - 00:24:06] Ok sir.
+[00:24:06 - 00:24:08] But we don't want it.
+[00:24:08 - 00:24:10] If you want a new texture,
+[00:24:10 - 00:24:12] you can add it.
+[00:24:12 - 00:24:14] That is the add.
+[00:24:14 - 00:24:16] If you add it in the beginning,
+[00:24:16 - 00:24:18] you can add it.
+[00:24:18 - 00:24:20] You can understand it.
+[00:24:20 - 00:24:22] If you want a new texture,
+[00:24:22 - 00:24:24] it should not come in the list.
+[00:24:24 - 00:24:26] We will add it here and there.
+[00:24:26 - 00:24:28] We don't need to add it there.
+[00:24:28 - 00:24:30] It will be easier to add it here.
+[00:24:30 - 00:24:33] Correct.
+[00:24:33 - 00:24:38] So, the texture.
+[00:24:38 - 00:24:41] Fabric type.
+[00:24:41 - 00:24:44] I will tell you.
+[00:24:44 - 00:24:46] What should be the Yarn master here?
+[00:24:46 - 00:24:48] First, we should create Yarn in the same material.
+[00:24:48 - 00:24:50] Yes sir.
+[00:24:50 - 00:24:52] When we need a Yarn,
+[00:24:52 - 00:24:54] we will add it here.
+[00:24:54 - 00:24:56] And the screen will open.
+[00:24:56 - 00:24:59] So, I will say Yarn here.
+[00:24:59 - 00:25:02] Greyam.
+[00:25:02 - 00:25:11] At least.
+[00:25:11 - 00:25:13] This is the code.
+[00:25:13 - 00:25:15] If it is in the list,
+[00:25:15 - 00:25:17] we will do it here.
+[00:25:17 - 00:25:20] It will be in the list.
+[00:25:20 - 00:25:22] Select it.
+[00:25:22 - 00:25:26] Okay.
+[00:25:26 - 00:25:28] We should create a mixery right?
+[00:25:28 - 00:25:36] Yes sir.
+[00:25:36 - 00:25:38] It will come here.
+[00:25:38 - 00:25:40] It will come here.
+[00:25:40 - 00:25:42] Okay sir.
+[00:25:42 - 00:25:56] It will be single Yarn.
+[00:25:56 - 00:25:58] It will be in the fabric.
+[00:25:58 - 00:26:00] It will be single Yarn.
+[00:26:00 - 00:26:02] But it will be inside.
+[00:26:02 - 00:26:04] You can understand it in Yarn.
+[00:26:04 - 00:26:06] You can understand it.
+[00:26:06 - 00:26:08] It will be in Yarn.
+[00:26:08 - 00:26:10] It will be in Yarn.
+[00:26:10 - 00:26:12] But the number is 1.
+[00:26:12 - 00:26:14] 100% is 1 null.
+[00:26:14 - 00:26:16] Okay.
+[00:26:16 - 00:26:18] You can understand it.
+[00:26:18 - 00:26:22] The number of 60 parts is blend.
+[00:26:22 - 00:26:24] Blend.
+[00:26:24 - 00:26:26] It is 1 null.
+[00:26:26 - 00:26:28] It is 1 null.
+[00:26:28 - 00:26:30] When we make null 2,
+[00:26:30 - 00:26:33] we can give multiple null Yarn.
+[00:26:33 - 00:26:35] This is a null.
+[00:26:35 - 00:26:37] When we make null,
+[00:26:37 - 00:26:39] it becomes null 2.
+[00:26:39 - 00:26:47] It becomes null 1.
+[00:26:47 - 00:26:49] It will be like this.
+[00:26:49 - 00:26:51] It will be in Yarn.
+[00:26:51 - 00:26:53] I will tell you what I can understand.
+[00:26:53 - 00:26:55] There are 2 in single Yarn.
+[00:26:55 - 00:26:57] There are 2 in poly and 2 in cotton.
+[00:26:57 - 00:26:59] It is the same as the count.
+[00:26:59 - 00:27:01] When the count becomes 2 null,
+[00:27:01 - 00:27:04] it becomes multiple Yarn.
+[00:27:04 - 00:27:06] I can understand it.
+[00:27:06 - 00:27:08] Now multiple Yarn is...
+[00:27:08 - 00:27:10] No.
+[00:27:10 - 00:27:12] We will make a correction for the core.
+[00:27:12 - 00:27:14] We will make a correction for the core.
+[00:27:14 - 00:27:18] Will null be in cotton and fabricated?
+[00:27:18 - 00:27:21] Yes sir.
+[00:27:21 - 00:27:23] One null is used.
+[00:27:23 - 00:27:25] But the null is in different nulls.
+[00:27:25 - 00:27:27] But the null is 100% cotton.
+[00:27:27 - 00:27:29] Okay.
+[00:27:29 - 00:27:31] This is clear.
+[00:27:31 - 00:27:33] Additionally, there is another null.
+[00:27:33 - 00:27:34] The one null
+[00:27:34 - 00:27:36] is 100% cotton.
+[00:27:36 - 00:27:38] This is single Yarn.
+[00:27:38 - 00:27:40] Okay.
+[00:27:40 - 00:27:44] Another non null is
+[00:27:44 - 00:27:50] The mixture of the powder and the water will be mixed in the mixture.
+[00:27:50 - 00:27:53] That is the mixity of the powder and the water.
+[00:27:53 - 00:27:58] The mixture of the powder and the water will be mixed in the mixture.
+[00:27:58 - 00:28:00] This is the second type.
+[00:28:00 - 00:28:04] The third type is the water.
+[00:28:04 - 00:28:09] For example, the colour of the rib is not coming.
+[00:28:09 - 00:28:17] If you have rib and necrib, the necrib will come with the red color and the brown color.
+[00:28:17 - 00:28:19] They will keep it with the red color.
+[00:28:19 - 00:28:23] It is different in color. That is what the English says.
+[00:28:23 - 00:28:25] Okay.
+[00:28:25 - 00:28:28] That is what Malikya says.
+[00:28:28 - 00:28:31] If you can understand a little, you can check it out.
+[00:28:31 - 00:28:32] I will tell you.
+[00:28:32 - 00:28:34] Okay, sir.
+[00:28:34 - 00:28:39] So, I doubt that Jan master and Fabric master have any doubts.
+[00:28:39 - 00:28:41] I don't have any doubts.
+[00:28:41 - 00:28:43] How much is the importance of Jan and Fabric master?
+[00:28:43 - 00:28:44] Okay sir.
+[00:28:44 - 00:28:47] Okay, right?
+[00:28:47 - 00:28:48] Okay.
+[00:28:48 - 00:28:50] Shall we move on?
+[00:28:50 - 00:28:53] So, all these are the confusion, Jan purity, count, etc.
+[00:28:53 - 00:28:56] All these are covered in this.
+[00:28:56 - 00:28:57] Okay sir.
+[00:28:57 - 00:28:59] These are the categories.
+[00:28:59 - 00:29:02] This category, start unit, count, count purity.
+[00:29:02 - 00:29:04] These are the materials that you will come to the place.
+[00:29:04 - 00:29:07] We will put them in this place only to date.
+[00:29:07 - 00:29:08] Okay sir.
+[00:29:08 - 00:29:10] Okay.
+[00:29:10 - 00:29:15] So, next is, these are the materials.
+[00:29:15 - 00:29:17] We will see Jan and Fabric master, correct?
+[00:29:17 - 00:29:18] Yes sir.
+[00:29:18 - 00:29:20] Let us see the swing and stress.
+[00:29:20 - 00:29:23] When we go to swing and stress,
+[00:29:23 - 00:29:25] we will take the category,
+[00:29:25 - 00:29:30] the same category,
+[00:29:30 - 00:29:32] we can take the label in the same category.
+[00:29:32 - 00:29:34] Label,
+[00:29:34 - 00:29:38] this type is purchase and converted production.
+[00:29:38 - 00:29:41] We can take the purchase.
+[00:29:42 - 00:29:45] We will put this item in a travel.
+[00:29:45 - 00:29:48] Next is, this label,
+[00:29:48 - 00:29:49] if we select a purchase,
+[00:29:49 - 00:29:52] we can add any attribute to it.
+[00:29:52 - 00:29:53] Okay.
+[00:29:53 - 00:29:56] So, we will listen to the label.
+[00:29:56 - 00:29:57] Okay.
+[00:29:57 - 00:29:59] So, this is the category.
+[00:29:59 - 00:30:00] We will defend this.
+[00:30:00 - 00:30:02] What category are the labels?
+[00:30:02 - 00:30:03] Main label.
+[00:30:03 - 00:30:05] Type is,
+[00:30:05 - 00:30:06] laminate,
+[00:30:06 - 00:30:10] arcival, laminate,
+[00:30:10 - 00:30:11] arcival, arcival,
+[00:30:11 - 00:30:12] arcival, arcival,
+[00:30:12 - 00:30:14] Next is material.
+[00:30:14 - 00:30:16] The label is written on it.
+[00:30:16 - 00:30:18] It is written on it.
+[00:30:18 - 00:30:20] Canvass or satin or satin.
+[00:30:20 - 00:30:22] Finishing.
+[00:30:22 - 00:30:24] Will the label be in roll form?
+[00:30:24 - 00:30:26] Will they cut and seal it?
+[00:30:26 - 00:30:28] Will they make a roll form?
+[00:30:28 - 00:30:30] Will they make a center?
+[00:30:30 - 00:30:32] Then they will make a roll form.
+[00:30:32 - 00:30:34] They will waste and the item will be created.
+[00:30:34 - 00:30:36] The label is printed on it.
+[00:30:36 - 00:30:38] Satin is roll form.
+[00:30:38 - 00:30:40] So what is the unit of measure?
+[00:30:40 - 00:30:44] The numbers.
+[00:30:44 - 00:30:46] I will tell you the alternative base.
+[00:30:46 - 00:30:50] We will buy the stock, building and planning.
+[00:30:50 - 00:30:52] Will you budget this too?
+[00:30:52 - 00:30:55] I will budget it.
+[00:30:55 - 00:30:57] I will not budget it.
+[00:30:57 - 00:31:01] Now we will create this category.
+[00:31:01 - 00:31:05] When we give the category to the factory, we give the category to the factory.
+[00:31:05 - 00:31:07] We give the category to the factory.
+[00:31:07 - 00:31:09] We will create this category in this category.
+[00:31:09 - 00:31:11] We will create this category in this category.
+[00:31:11 - 00:31:18] We will create this category in this category.
+[00:31:18 - 00:31:48] When we create this category, we will create the label.
+[00:31:48 - 00:31:50] This label is the category.
+[00:31:50 - 00:31:52] This is the category.
+[00:31:52 - 00:31:54] This is the category.
+[00:31:54 - 00:32:08] Okay.
+[00:32:08 - 00:32:10] The category.
+[00:32:10 - 00:32:12] What is the category?
+[00:32:12 - 00:32:14] The type.
+[00:32:14 - 00:32:16] The materials.
+[00:32:16 - 00:32:18] We will use each item.
+[00:32:18 - 00:32:20] This category is compulsory.
+[00:32:20 - 00:32:22] We will not ask the mandatory.
+[00:32:22 - 00:32:24] We will not ask the mandatory.
+[00:32:24 - 00:32:26] We will not ask the mandatory.
+[00:32:26 - 00:32:28] We will not ask the mandatory.
+[00:32:28 - 00:32:30] We will not ask the mandatory.
+[00:32:30 - 00:32:32] We will not.
+[00:32:32 - 00:32:35] For example, let this be three.
+[00:32:35 - 00:32:37] If you understand the issue.
+[00:32:37 - 00:32:40] The material.
+[00:32:40 - 00:32:42] If you understand the above,
+[00:32:42 - 00:32:44] The label is in the category.
+[00:32:44 - 00:32:46] As you know, you will get the label.
+[00:32:46 - 00:32:48] The category must be there.
+[00:32:48 - 00:32:51] But, if you cannot ask these extra questions,
+[00:32:51 - 00:32:53] then you have to ask this question.
+[00:32:53 - 00:32:55] If we select the label, we need to ask the question.
+[00:32:55 - 00:32:59] If we select another item, we need to ask the question.
+[00:32:59 - 00:33:05] We need to select the label.
+[00:33:05 - 00:33:07] So, if we ask the question, we need to change it.
+[00:33:07 - 00:33:09] We can see the validation.
+[00:33:09 - 00:33:11] We can say where it comes from.
+[00:33:11 - 00:33:13] From the material attributes.
+[00:33:13 - 00:33:15] We need to ask the question in this category.
+[00:33:15 - 00:33:17] So, material attributes are coming from this category.
+[00:33:17 - 00:33:19] This attribute is here.
+[00:33:19 - 00:33:21] This attribute is here.
+[00:33:21 - 00:33:23] We will give the answer to this.
+[00:33:23 - 00:33:25] We will give the answer to this.
+[00:33:25 - 00:33:27] We will give the answer to the question.
+[00:33:27 - 00:33:31] When we create this material, we will select it.
+[00:33:31 - 00:33:36] In this swing thread, we have all the materials.
+[00:33:36 - 00:33:40] For example, polyneon, elastic, etc.
+[00:33:40 - 00:33:46] We have two play thread, three play thread, two play.
+[00:33:46 - 00:33:48] We will give the name to the player.
+[00:33:48 - 00:33:50] In swing thread, we have two play thread.
+[00:33:50 - 00:33:54] When we set the CEO, the board, the consent, we need to name the players.
+[00:33:54 - 00:33:58] For the phone number number, I will give it.
+[00:33:58 - 00:34:28] In this, we have the base Vm, we have the base Vm meter.
+[00:34:28 - 00:34:35] From the altimeter, one phone equals to 5000 meters.
+[00:34:35 - 00:34:40] So, we will get 2 units of measure.
+[00:34:40 - 00:34:42] So, we are going to give the info in this ring.
+[00:34:42 - 00:34:46] We can't say what we are saying.
+[00:34:46 - 00:34:51] We can say that the cone is equal to 2000 meters.
+[00:34:51 - 00:34:58] What we do is, we maintain the cone.
+[00:34:58 - 00:35:01] We maintain the building and the cone.
+[00:35:01 - 00:35:05] We purchase the cone for the planning meter.
+[00:35:05 - 00:35:09] When we say that a piece is 200 meters and 300 meters,
+[00:35:09 - 00:35:14] we can say that the total order quantity is 3 meters divided by 5000 meters.
+[00:35:14 - 00:35:16] How many cones are there?
+[00:35:16 - 00:35:18] We can convert them.
+[00:35:18 - 00:35:20] Okay sir.
+[00:35:20 - 00:35:21] Clear?
+[00:35:21 - 00:35:22] Okay sir.
+[00:35:22 - 00:35:38] Same as that, we can say that the same concept is right.
+[00:35:38 - 00:35:42] We can say that the same concept is right.
+[00:35:42 - 00:35:45] We can say that the same concept is right.
+[00:35:46 - 00:35:49] Okay sir.
+[00:35:49 - 00:35:52] Okay Sir.
+[00:35:55 - 00:35:59] Okay sir.
+[00:35:59 - 00:36:07] We will give you one or two.
+[00:36:07 - 00:36:13] We will give you one or two.
+[00:36:13 - 00:36:14] Okay sir.
+[00:36:14 - 00:36:17] Okay sir.
+[00:36:17 - 00:36:18] Okay sir.
+[00:36:18 - 00:36:22] If you are not able to listen to the compulsory questions, you can do it.
+[00:36:22 - 00:36:27] I am not able to make the compulsory questions.
+[00:36:27 - 00:36:37] Correct.
+[00:36:37 - 00:36:40] If you are not able to do the job, you can do it.
+[00:36:40 - 00:36:44] No, sir. If you are not able to do the job, you can do it.
+[00:36:44 - 00:36:49] If everyone does the job, the data analytics can be done.
+[00:36:49 - 00:36:52] You can do it for the most of the time.
+[00:36:52 - 00:36:54] Yes, you can do it.
+[00:36:54 - 00:36:57] You can do it.
+[00:36:57 - 00:36:59] You can do it from the start.
+[00:36:59 - 00:37:01] Yes, that is the point.
+[00:37:01 - 00:37:04] We have already done this in this area.
+[00:37:04 - 00:37:06] We have already done this in the media and adric group.
+[00:37:06 - 00:37:09] I have heard that you have taken it from here.
+[00:37:09 - 00:37:10] You can do it.
+[00:37:10 - 00:37:11] You can do it.
+[00:37:11 - 00:37:12] You can do it.
+[00:37:12 - 00:37:13] Okay, sir.
+[00:37:13 - 00:37:14] Okay.
+[00:37:14 - 00:37:24] I have taken the material.
+[00:37:24 - 00:37:27] I have taken the material from the capital goods.
+[00:37:27 - 00:37:30] There is one from the garments.
+[00:37:30 - 00:37:34] The top bottom one from the garments.
+[00:37:34 - 00:37:41] I have taken the material from the garment.
+[00:37:41 - 00:37:43] If you are done with the material, that is enough.
+[00:37:43 - 00:37:46] We will do the material and then we will go to the association.
+[00:37:46 - 00:37:48] Okay.
+[00:37:48 - 00:37:51] We will not just look at the materials.
+[00:37:51 - 00:37:56] We will look at the materials in the config and then we will go to the association.
+[00:37:56 - 00:37:59] We will go if there is a doubt or an imprimpment.
+[00:37:59 - 00:38:00] Okay.
+[00:38:00 - 00:38:01] Yes, sir.
+[00:38:01 - 00:38:13] Please do it.
+[00:38:13 - 00:38:15] There is nothing like that in the garments club.
+[00:38:15 - 00:38:18] There is a big service in the top bottom pieces.
+[00:38:18 - 00:38:19] There is a big service in the top bottom pieces.
+[00:38:19 - 00:38:21] That is why we can do it.
+[00:38:21 - 00:38:24] I have a doubt about the materials.
+[00:38:24 - 00:38:25] Okay.
+[00:38:25 - 00:38:27] There is a levy.
+[00:38:27 - 00:38:30] Why do you use it?
+[00:38:30 - 00:38:31] Levy is...
+[00:38:31 - 00:38:33] There is no levy here.
+[00:38:33 - 00:38:35] There is GST percentage.
+[00:38:35 - 00:38:36] What is GST percentage?
+[00:38:36 - 00:38:37] Oh, GST.
+[00:38:37 - 00:38:38] There is a pattern here.
+[00:38:38 - 00:38:39] There is GST.
+[00:38:39 - 00:38:41] Now, we will use GST master.
+[00:38:41 - 00:38:43] Here.
+[00:38:43 - 00:38:44] They have given the levy.
+[00:38:44 - 00:38:46] But they have kept it here.
+[00:38:46 - 00:38:48] The type is GST interest rate.
+[00:38:48 - 00:38:53] If so, we will create the name of the person who is GST.
+[00:38:53 - 00:38:55] When we select GST here,
+[00:38:55 - 00:38:58] the value of the P is CGST.
+[00:38:58 - 00:39:00] The price of the SST is 1.
+[00:39:00 - 00:39:02] That is the price of the P.
+[00:39:02 - 00:39:03] Okay, sir.
+[00:39:03 - 00:39:04] But that is...
+[00:39:04 - 00:39:05] They have kept it there.
+[00:39:05 - 00:39:06] Okay, sir.
+[00:39:06 - 00:39:07] What is that?
+[00:39:07 - 00:39:08] You can leave the levy.
+[00:39:08 - 00:39:10] All the levy is not available in the CST.
+[00:39:10 - 00:39:11] No, it is not available.
+[00:39:11 - 00:39:13] If you select GST alone,
+[00:39:13 - 00:39:15] it will be available.
+[00:39:15 - 00:39:16] GST interest rate.
+[00:39:16 - 00:39:18] Yes, sir.
+[00:39:18 - 00:39:20] We have to select GST master.
+[00:39:20 - 00:39:22] When we select interest rate,
+[00:39:22 - 00:39:25] the intrac is the only interest rate.
+[00:39:25 - 00:39:26] Yes, sir.
+[00:39:26 - 00:39:28] So, the interest rate is 2.5 for CGST.
+[00:39:28 - 00:39:30] The next one is 5% and 2.5 for 2.5.
+[00:39:30 - 00:39:31] Yes, sir.
+[00:39:31 - 00:39:33] The 18% is the 19%.
+[00:39:33 - 00:39:35] The 24% is the 18%.
+[00:39:35 - 00:39:36] So, we have given the levy.
+[00:39:36 - 00:39:38] If we select the P when we select the P,
+[00:39:38 - 00:39:40] we will select the 5%.
+[00:39:40 - 00:39:41] Yes, sir.
+[00:39:41 - 00:39:44] If we select the P,
+[00:39:44 - 00:39:46] we will calculate the amount.
+[00:39:46 - 00:39:48] If it is a different state, we have to call it.
+[00:39:48 - 00:39:50] If it is within a state, we have to call it.
+[00:39:50 - 00:39:51] No, sir.
+[00:39:51 - 00:39:53] For interest rate,
+[00:39:53 - 00:39:57] we give our interest rate.
+[00:39:57 - 00:40:00] We decide that the interest rate is only IGSG.
+[00:40:00 - 00:40:02] Actually, it is become IGSG.
+[00:40:02 - 00:40:05] If we click on the drawing in the middle,
+[00:40:05 - 00:40:07] the interest rate is only IGSG.
+[00:40:07 - 00:40:08] So, we call it.
+[00:40:08 - 00:40:09] No, sir.
+[00:40:09 - 00:40:11] If it is within a state, we have to call it.
+[00:40:11 - 00:40:12] It is become IGSG.
+[00:40:12 - 00:40:14] In the other state, we will dwell for a bit.
+[00:40:14 - 00:40:15] Ultimately, we do the IGSG.
+[00:40:15 - 00:40:16] Yes, sir.
+[00:40:16 - 00:40:17] We require bonds like this.
+[00:40:17 - 00:40:18] Do so.
+[00:40:18 - 00:40:19] You both need only bonds.
+[00:40:19 - 00:40:21] After that,
+[00:40:55 - 00:40:59] We can do this by using this as a doubt.
+[00:40:59 - 00:41:03] If we do this in the material, it will be easier for us.
+[00:41:03 - 00:41:07] I am asking you to ask me something else.
+[00:41:07 - 00:41:12] We will get it if you ask me.
+[00:41:12 - 00:41:16] We can take the data from it.
+[00:41:16 - 00:41:21] I will give it to you.
+[00:41:21 - 00:41:25] If you create it, I will give it.
+[00:41:25 - 00:41:29] If you create it automatically, I can check it.
+[00:41:29 - 00:41:33] I will give it.
+[00:41:33 - 00:41:37] You can give the data here.
+[00:41:37 - 00:41:41] If I go live, I can import it.
+[00:41:41 - 00:41:45] If I do testing, I will give the data.
+[00:41:45 - 00:41:49] Process, components, gadgets.
+[00:41:49 - 00:41:55] We will talk about it.
+[00:41:55 - 00:42:09] We will talk about it.
+[00:42:09 - 00:42:13] I was doubtful when I saw the materials.
+[00:42:13 - 00:42:17] Look at this.
+[00:42:17 - 00:42:21] There are no general items.
+[00:42:21 - 00:42:25] There are many general items.
+[00:42:25 - 00:42:29] There are many electronic items.
+[00:42:29 - 00:42:33] We will type the name of the mission.
+[00:42:33 - 00:42:37] What is the purpose of this?
+[00:42:37 - 00:42:43] I will ask you.
+[00:42:43 - 00:42:48] There is no general item.
+[00:42:48 - 00:43:00] If you like it, I will go to you.
+[00:43:00 - 00:43:05] For example, there is a printing.
+[00:43:05 - 00:43:09] Printing process.
+[00:43:09 - 00:43:13] The process is the same.
+[00:43:13 - 00:43:17] It is a very lengthy process.
+[00:43:17 - 00:43:21] It is a process name.
+[00:43:21 - 00:43:25] When you select a printout, it is a process name.
+[00:43:25 - 00:43:29] When you select a printout, it is a process name.
+[00:43:29 - 00:43:34] So, they have written the name for the program.
+[00:43:34 - 00:43:38] We need the software to make it easier to use.
+[00:43:38 - 00:43:42] We need the software to make it easier to use.
+[00:43:42 - 00:43:46] We don't need the software to print.
+[00:43:46 - 00:43:50] Printing is required.
+[00:43:50 - 00:43:54] We don't need the software to use.
+[00:43:54 - 00:43:58] We don't need the software to print.
+[00:43:58 - 00:44:02] We need printing.
+[00:44:02 - 00:44:06] We need a short.
+[00:44:06 - 00:44:10] Printing is not needed.
+[00:44:10 - 00:44:15] Short is not needed.
+[00:44:15 - 00:44:19] It is not needed.
+[00:44:19 - 00:44:23] If the short is too lengthy, we can do it next time.
+[00:44:23 - 00:44:27] They have done it in the crystal report.
+[00:44:27 - 00:44:31] They have designed it.
+[00:44:31 - 00:44:35] We can use it for the full name.
+[00:44:35 - 00:44:39] We can try a small one.
+[00:44:39 - 00:44:41] So, we will be sharing that.
+[00:44:41 - 00:44:44] So, this process is short time.
+[00:44:44 - 00:44:47] This process is a process.
+[00:44:47 - 00:44:50] We receive what we need in our garden.
+[00:44:50 - 00:44:52] We process and what we need to get.
+[00:44:52 - 00:44:53] That is the bill.
+[00:44:53 - 00:44:54] Okay.
+[00:44:54 - 00:44:56] We pay what we need in a certain bill.
+[00:44:56 - 00:44:57] A certain process.
+[00:44:57 - 00:44:58] Okay.
+[00:44:58 - 00:45:01] For example, we have a netting.
+[00:45:01 - 00:45:04] The netting is up to 500kms.
+[00:45:04 - 00:45:06] We send the dyeing to that factory.
+[00:45:06 - 00:45:07] Okay.
+[00:45:07 - 00:45:09] We send the dyeing to 500kms.
+[00:45:09 - 00:45:10] Okay.
+[00:45:10 - 00:45:13] When we get the dyeing, we get the 400kms.
+[00:45:13 - 00:45:15] Okay, sir.
+[00:45:15 - 00:45:17] Okay.
+[00:45:17 - 00:45:19] When we get the 400kms,
+[00:45:19 - 00:45:22] how much do we have to pay?
+[00:45:22 - 00:45:25] We have to pay only 500kms.
+[00:45:25 - 00:45:27] Correct.
+[00:45:27 - 00:45:28] Okay.
+[00:45:28 - 00:45:30] Now, we are going to print.
+[00:45:30 - 00:45:31] Printing.
+[00:45:31 - 00:45:33] We send the bit to 500kms.
+[00:45:33 - 00:45:34] We send the piece to 500kms.
+[00:45:34 - 00:45:37] When we print, we send the piece to 500kms.
+[00:45:37 - 00:45:39] When we print, we send the piece to 500kms.
+[00:45:39 - 00:45:40] We send the piece to 500kms.
+[00:45:40 - 00:45:41] We send the piece to 500kms.
+[00:45:41 - 00:45:42] We send the piece to 500kms.
+[00:45:42 - 00:45:43] We send the piece to 500kms.
+[00:45:43 - 00:45:44] Correct.
+[00:45:44 - 00:45:46] So, that is the base done process.
+[00:45:46 - 00:45:48] Invert quantity and outward quantity.
+[00:45:48 - 00:45:49] Okay, sir.
+[00:45:49 - 00:45:52] When we base it, we have to allow the bill.
+[00:45:52 - 00:45:55] We have to go to the DC quantity and DC quantity and GRM.
+[00:45:55 - 00:45:56] We have to go to the system.
+[00:45:56 - 00:45:57] Okay.
+[00:45:57 - 00:46:00] That concept is the invert-outfitter.
+[00:46:00 - 00:46:01] Okay.
+[00:46:01 - 00:46:03] We have to go to the HSM.
+[00:46:03 - 00:46:06] This process comes in yarn, fabric, crimson,
+[00:46:06 - 00:46:08] crimson, cotton, component.
+[00:46:08 - 00:46:09] Okay.
+[00:46:09 - 00:46:12] So, we print it and it comes in components.
+[00:46:12 - 00:46:13] Okay.
+[00:46:13 - 00:46:14] That is it.
+[00:46:14 - 00:46:15] As subcategories.
+[00:46:15 - 00:46:16] This is what I am saying.
+[00:46:16 - 00:46:18] This process does intermediate planning for the system.
+[00:46:18 - 00:46:19] There is a process.
+[00:46:19 - 00:46:21] There is a program in the program.
+[00:46:21 - 00:46:23] So, that is the option.
+[00:46:23 - 00:46:25] We have to process everything.
+[00:46:25 - 00:46:29] We have to budget the program.
+[00:46:29 - 00:46:31] We have to do the program entry,
+[00:46:31 - 00:46:32] the DYN, etc.
+[00:46:32 - 00:46:34] We have to do the program entry,
+[00:46:34 - 00:46:35] the DYN, etc.
+[00:46:35 - 00:46:37] We have to do the program entry,
+[00:46:37 - 00:46:39] if we have to process everything.
+[00:46:39 - 00:46:41] We cannot know about the process.
+[00:46:41 - 00:46:43] We have to know for sure that there is a order.
+[00:46:43 - 00:46:45] We have to do something.
+[00:46:45 - 00:46:47] We have to wash it.
+[00:46:47 - 00:46:49] We have to do the process.
+[00:46:49 - 00:46:51] If we have to tick,
+[00:46:51 - 00:46:53] we have to process without the plan.
+[00:46:53 - 00:46:54] That is the period.
+[00:46:54 - 00:46:55] So,
+[00:46:55 - 00:46:57] Similarly, this process,
+[00:46:57 - 00:46:58] DYN, etc.
+[00:46:58 - 00:47:00] We do not need to use it.
+[00:47:00 - 00:47:01] Okay, sir.
+[00:47:01 - 00:47:02] This is the conversion process.
+[00:47:02 - 00:47:03] This is the conversion process.
+[00:47:03 - 00:47:06] We have to do it and I am telling you that this is the conversion process.
+[00:47:06 - 00:47:35] If you say subcategories, there is a lot of dyeing in it.
+[00:47:35 - 00:47:43] With each sitting and 5 hours, there is a lot of dyeing.
+[00:47:43 - 00:47:45] This is the process.
+[00:47:45 - 00:47:47] Did you take any washing?
+[00:47:47 - 00:47:58] There are many types of dyeing, there are many types of washing.
+[00:48:00 - 00:48:04] Do you put all the dyeing in it?
+[00:48:04 - 00:48:06] I put it in it.
+[00:48:06 - 00:48:08] I don't need it.
+[00:48:08 - 00:48:12] I create it when I need it.
+[00:48:12 - 00:48:16] I don't have any problem with putting it in the washing.
+[00:48:16 - 00:48:18] I can do it only then.
+[00:48:18 - 00:48:20] I can see what you did when you put it in the live.
+[00:48:20 - 00:48:24] I can feel it when you put it in the live.
+[00:48:24 - 00:48:26] We can think what you did.
+[00:48:26 - 00:48:28] I can also put it in the live.
+[00:48:28 - 00:48:32] I can feel it when I put it in the live.
+[00:48:32 - 00:48:34] I can upload it when I want to.
+[00:48:34 - 00:48:36] You can also do it in the live.
+[00:48:36 - 00:48:38] I don't need it.
+[00:48:38 - 00:48:43] I can create it when I need it.
+[00:48:43 - 00:48:47] I can do it in the live when I need it.
+[00:48:47 - 00:48:49] I can also do it in the live.
+[00:48:49 - 00:48:53] I can also create it in the live.
+[00:48:53 - 00:48:55] I can do it in 5-6 hours.
+[00:48:55 - 00:48:59] I create all for tests.
+[00:48:59 - 00:49:01] I finish it and upload it.
+[00:49:01 - 00:49:03] I want some data for tests.
+[00:49:03 - 00:49:07] I want it just for 5-6 hours.
+[00:49:07 - 00:49:09] There are many types of category for subcategories.
+[00:49:09 - 00:49:16] I can do it and upload it.
+[00:49:16 - 00:49:18] I have created all the process master.
+[00:49:18 - 00:49:20] I have created all the components.
+[00:49:20 - 00:49:25] I have created all the components.
+[00:49:25 - 00:49:31] So just, here we have front body,
+[00:49:31 - 00:49:39] we can see the front part of the car.
+[00:49:39 - 00:49:43] All coordinates, if you look at the coordinates,
+[00:49:43 - 00:49:47] the front part of the car should be in all coordinates.
+[00:49:47 - 00:49:55] Automatically, all coordinates are stick.
+[00:49:55 - 00:50:01] If you take the stick, you can hear it.
+[00:50:01 - 00:50:05] This camera will come only on top.
+[00:50:05 - 00:50:09] We will check the coordinates.
+[00:50:09 - 00:50:18] This is the component master.
+[00:50:18 - 00:50:22] If you have any problem, you can check it.
+[00:50:22 - 00:50:27] If you have any problem, you can check it.
+[00:50:27 - 00:50:31] We will check it from here.
+[00:50:31 - 00:50:37] The same goes for the knitting.
+[00:50:37 - 00:50:41] In your UA, there is a block.
+[00:50:41 - 00:50:45] If you want to block this, you can do it.
+[00:50:45 - 00:50:49] If you want to block something, you can do it.
+[00:50:49 - 00:50:53] The option is, this metal is in master.
+[00:50:53 - 00:50:57] This is the 38 day.
+[00:50:57 - 00:51:02] If you delete this 38 day, you can do it.
+[00:51:02 - 00:51:08] It will go.
+[00:51:08 - 00:51:36] If you don't use this metal, you can delete it.
+[00:51:36 - 00:51:40] If you block it, you can do it.
+[00:51:40 - 00:51:54] If you block it, you can't use it.
+[00:51:54 - 00:51:58] If you don't delete it, you can block it.
+[00:51:58 - 00:52:02] This is the material.
+[00:52:02 - 00:52:06] We have used this material in other places.
+[00:52:06 - 00:52:10] If we delete it after using it,
+[00:52:10 - 00:52:14] then it will be wrong.
+[00:52:14 - 00:52:18] But we don't need this material.
+[00:52:18 - 00:52:22] This name shouldn't be used.
+[00:52:22 - 00:52:26] If you block it, you can create it anywhere.
+[00:52:26 - 00:52:30] If you want this block, you can do it.
+[00:52:30 - 00:52:34] If you want to delete another metal,
+[00:52:34 - 00:52:38] you can delete it after using it.
+[00:52:38 - 00:52:42] If you don't want it, you can do it.
+[00:52:42 - 00:52:49] If we create it, it will not delete it.
+[00:52:49 - 00:52:52] We block it for not using the future.
+[00:52:52 - 00:52:56] Wait, once created, we can delete it if it is wrong.
+[00:52:56 - 00:52:58] Yes, we can delete it if it is wrong.
+[00:52:58 - 00:53:01] That item went somewhere.
+[00:53:01 - 00:53:04] It went to a BYU and linked it.
+[00:53:04 - 00:53:06] We used it without an order.
+[00:53:06 - 00:53:09] If we delete the master in the media, what will be the order?
+[00:53:09 - 00:53:12] The order is gone.
+[00:53:12 - 00:53:16] We can delete the media in the order.
+[00:53:16 - 00:53:18] What will be the name of the order?
+[00:53:18 - 00:53:21] We should not delete it.
+[00:53:21 - 00:53:29] We can delete the master in the media.
+[00:53:29 - 00:53:32] We can delete the media in the media.
+[00:53:32 - 00:53:35] We can delete the media in the media.
+[00:53:35 - 00:53:37] I do not know the order.
+[00:53:37 - 00:53:40] We can check the tab if we need it.
+[00:53:40 - 00:53:42] I don't know the order.
+[00:53:42 - 00:53:45] We can delete the terms and things.
+[00:53:45 - 00:53:47] We can delete the terms and things.
+[00:53:47 - 00:53:49] There is nothing inside.
+[00:53:49 - 00:53:53] We can delete it.
+[00:53:53 - 00:53:56] If it is wrong, we can delete it.
+[00:53:56 - 00:53:58] If it is wrong, we can delete it.
+[00:53:58 - 00:54:11] We can eliminate our terms and conditions in DC.
+[00:54:11 - 00:54:13] That is right.
+[00:54:13 - 00:54:15] He creates it.
+[00:54:15 - 00:54:20] He gives the terms and things in DC.
+[00:54:51 - 00:54:53] We will call you when we get the doubt
+[00:54:53 - 00:54:56] But after this, we will do the associated
+[00:54:56 - 00:55:00] I will check it and then we can go
+[00:55:00 - 00:55:02] Okay
+[00:55:02 - 00:55:04] Okay sir, you need to do the test later
+[00:55:04 - 00:55:08] I will check it, you can do the training and I will do the entry
+[00:55:08 - 00:55:09] Okay
+[00:55:09 - 00:55:11] When you are done, you can do the entry
+[00:55:11 - 00:55:13] Okay sir
+[00:55:13 - 00:55:16] You can do the order entry, I will do the order entry
+[00:55:16 - 00:55:18] Okay sir
+[00:55:18 - 00:55:21] If you don't have it, you can do the training and I will do the entry
+[00:55:21 - 00:55:23] Okay sir
+[00:55:23 - 00:55:27] You can do the test and then we will clear everything
+[00:55:27 - 00:55:31] We can do the test and then we can clear it in the future
+[00:55:31 - 00:55:33] Yes, we will do that
+[00:55:33 - 00:55:35] Before we do the live, we will clear it completely
+[00:55:35 - 00:55:38] We will do the training
+[00:55:38 - 00:55:40] Okay sir
+[00:55:40 - 00:55:43] Okay sir
+[00:55:43 - 00:55:45] Okay sir, bye
+[00:55:45 - 00:55:47] Okay
