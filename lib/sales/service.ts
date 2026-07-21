@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import type {
   Opportunity,
   Style,
@@ -294,68 +294,6 @@ export async function listAllSamplesForRegister(): Promise<SampleRegisterRow[]> 
       unit_code: uoms?.code ?? null,
     }),
   );
-}
-
-// ---------------------------------------------------------------------------
-// Product Development requests (Sales view of Planning's pd_requests)
-// ---------------------------------------------------------------------------
-
-/** A PD request as seen from Sales, enriched with enquiry/customer/style/unit.
- *  Read via the admin client so sales-only users (no `planning:view`) can see
- *  the requests they raise. */
-export interface SalesPdRequestRow {
-  id: string;
-  code: string | null;
-  opportunity_id: string | null;
-  title: string;
-  description: string | null;
-  stage: string;
-  status: string;
-  created_at: string;
-  sample_type: string | null;
-  sample_qty: number | null;
-  delivery_date: string | null;
-  customer_reference: string | null;
-  enquiry_code: string | null;
-  buyer_name: string | null;
-  style_name: string | null;
-  style_code: string | null;
-  unit_code: string | null;
-}
-
-function nested(row: Record<string, unknown>, rel: string, field: string): string | null {
-  const o = row[rel] as Record<string, unknown> | null;
-  return (o?.[field] as string | null) ?? null;
-}
-
-export async function listSalesPdRequests(): Promise<SalesPdRequestRow[]> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("pd_requests")
-    .select(
-      "*, opportunities(code), buyers(name), styles(name, style_code), uoms(code)",
-    )
-    .order("created_at", { ascending: false });
-
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
-    id: r.id as string,
-    code: (r.code as string | null) ?? null,
-    opportunity_id: (r.opportunity_id as string | null) ?? null,
-    title: (r.title as string) ?? "",
-    description: (r.description as string | null) ?? null,
-    stage: (r.stage as string) ?? "",
-    status: (r.status as string) ?? "",
-    created_at: r.created_at as string,
-    sample_type: (r.sample_type as string | null) ?? null,
-    sample_qty: (r.sample_qty as number | null) ?? null,
-    delivery_date: (r.delivery_date as string | null) ?? null,
-    customer_reference: (r.customer_reference as string | null) ?? null,
-    enquiry_code: nested(r, "opportunities", "code"),
-    buyer_name: nested(r, "buyers", "name"),
-    style_name: nested(r, "styles", "name"),
-    style_code: nested(r, "styles", "style_code"),
-    unit_code: nested(r, "uoms", "code"),
-  }));
 }
 
 // ---------------------------------------------------------------------------

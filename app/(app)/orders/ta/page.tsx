@@ -10,7 +10,6 @@ const CARDS: { label: string; href: string; hint: string }[] = [
   { label: "TA User Rights", href: "/orders/ta-user-rights", hint: "Per-user activity permission matrix." },
   { label: "TA Style", href: "/orders/ta-style", hint: "Style-level T&A configuration." },
   { label: "TA Plan", href: "/orders/ta-plan", hint: "Build a Time & Action plan for an order." },
-  { label: "TA Followups", href: "/orders/ta-followups", hint: "Track T&A milestone follow-ups." },
   { label: "TA Completion", href: "/orders/ta-completion", hint: "Record T&A completion." },
 ];
 

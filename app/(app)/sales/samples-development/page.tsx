@@ -6,7 +6,6 @@ import { HubCard } from "@/components/masters/hub-card";
 // Sales ▸ Marketing (legacy) — "Samples & Development" sub-module hub.
 const CARDS: { label: string; href: string; hint: string }[] = [
   { label: "Samples", href: "/sales/samples", hint: "Proto/fit/SMS/PP/TOP sample tracking." },
-  { label: "PD Requests", href: "/sales/pd-requests", hint: "Product-development requests handed to Planning." },
 ];
 
 export default async function SamplesDevelopmentHubPage() {

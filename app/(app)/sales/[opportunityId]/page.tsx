@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
-import { PdRequestButton } from "./pd-request-button";
+// PdRequestButton removed — Planning module pending rebuild
 import {
   getOpportunity,
   getStyles,
@@ -62,7 +62,6 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
         }
         actions={
           <div className="flex items-center gap-3">
-            {canCreate && <PdRequestButton opportunityId={opportunityId} />}
             <Link
               href="/sales"
               className="text-sm text-muted-foreground hover:text-foreground"

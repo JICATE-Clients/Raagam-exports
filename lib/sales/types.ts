@@ -333,21 +333,6 @@ export const styleInput = z.object({
 });
 export type StyleInput = z.infer<typeof styleInput>;
 
-/** Sales-side "Product Development Request — By Sample No." form. Writes into
- *  Planning's `pd_requests` (via admin client); extra fields added in 0270. */
-export const pdRequestFormInput = z.object({
-  opportunity_id: z.string().uuid(),
-  title: z.string().min(1),
-  description: z.string().optional().nullable(),
-  style_id: z.string().uuid().optional().nullable(),
-  sample_type: z.enum(SAMPLE_TYPES).optional().nullable(),
-  sample_qty: z.coerce.number().nonnegative().optional().nullable(),
-  unit_id: z.string().uuid().optional().nullable(),
-  delivery_date: z.string().optional().nullable(),
-  customer_reference: z.string().optional().nullable(),
-});
-export type PdRequestFormInput = z.infer<typeof pdRequestFormInput>;
-
 export const costSheetItemInput = z.object({
   category: z.enum(COST_CATEGORIES).default("material"),
   description: z.string().min(1),

@@ -31,13 +31,6 @@ interface DbPendingPO {
   total_amount: number | null;
   created_at: string;
 }
-interface DbBudget {
-  id: string;
-  code: string | null;
-  name: string | null;
-  total_amount: number | null;
-  created_at: string;
-}
 interface DbPayrollRun {
   id: string;
   code: string | null;
@@ -111,7 +104,6 @@ export async function getPendingApprovals(): Promise<ApprovalItem[]> {
     { data: amendments },
     { data: costSheets },
     { data: pos },
-    { data: budgets },
     { data: payrolls },
   ] = await Promise.all([
     supabase
@@ -128,11 +120,6 @@ export async function getPendingApprovals(): Promise<ApprovalItem[]> {
       .from("purchase_orders")
       .select("id, code, total_amount, created_at")
       .eq("status", "pending_approval")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("budgets")
-      .select("id, code, name, total_amount, created_at")
-      .eq("status", "submitted")
       .order("created_at", { ascending: false }),
     supabase
       .from("payroll_runs")
@@ -174,17 +161,6 @@ export async function getPendingApprovals(): Promise<ApprovalItem[]> {
     })
   );
 
-  const budgetItems = ((budgets ?? []) as DbBudget[]).map(
-    (b): ApprovalItem => ({
-      module: "planning",
-      label: "Budget",
-      reference: b.code ?? b.name ?? b.id,
-      href: `/planning/budgets/${b.id}`,
-      amount: b.total_amount ?? null,
-      created_at: b.created_at,
-    })
-  );
-
   const payrollItems = ((payrolls ?? []) as DbPayrollRun[]).map(
     (r): ApprovalItem => ({
       module: "hr_payroll",
@@ -200,7 +176,6 @@ export async function getPendingApprovals(): Promise<ApprovalItem[]> {
     ...amendmentItems,
     ...costSheetItems,
     ...poItems,
-    ...budgetItems,
     ...payrollItems,
   ];
 }

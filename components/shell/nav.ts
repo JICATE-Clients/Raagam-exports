@@ -2,11 +2,9 @@ import {
   LayoutDashboard,
   ShoppingBag,
   ClipboardList,
-  Layers,
   Package,
   Warehouse,
   Factory,
-  Workflow,
   Users,
   Ship,
   Landmark,
@@ -70,27 +68,7 @@ export const NAV: NavItem[] = [
       { href: "/orders/ta", label: "Time & Action (TA)" },
     ],
   },
-  {
-    href: "/planning",
-    label: "Planning",
-    module: "planning",
-    icon: Layers,
-    children: [
-      { href: "/planning/garment-orders", label: "Materials – Garment Orders" },
-      { href: "/planning/product-dev", label: "Product Development" },
-      { href: "/planning/color-print-details", label: "Color/Print Details" },
-      { href: "/planning/material-rates", label: "Material Rates" },
-      { href: "/planning/general-stocks", label: "General Stocks" },
-      { href: "/planning/indent-approval", label: "Indent Approval" },
-      { href: "/planning/indent-to-purchase", label: "Indent to Purchase" },
-      { href: "/planning/material-excess-plan", label: "Material Excess Plan" },
-      { href: "/planning/fabric-consumption", label: "Fabric Consumption" },
-      { href: "/planning/fabric-orders", label: "Fabric Orders" },
-      { href: "/planning/domestic-production", label: "Domestic Production" },
-      { href: "/planning/capacity-planning", label: "Capacity Planning" },
-      { href: "/planning/production-planning", label: "Production Planning" },
-    ],
-  },
+  // Planning module removed — pending rebuild from VB.NET source of truth
   {
     href: "/purchase",
     label: "Purchase",
@@ -136,18 +114,7 @@ export const NAV: NavItem[] = [
       { href: "/production/despatch", label: "Despatch" },
     ],
   },
-  {
-    href: "/process",
-    label: "Process Planning",
-    module: "process_planning",
-    icon: Workflow,
-    children: [
-      { href: "/process", label: "Process Jobs" },
-      { href: "/process/knitting", label: "Knitting Programs" },
-      { href: "/process/rfq", label: "Process RFQ" },
-      { href: "/process/rate-amendments", label: "Rate Amendments" },
-    ],
-  },
+  // Process Planning module removed — depends on Planning tables, pending rebuild
   {
     href: "/hr",
     label: "HR & Payroll",
@@ -294,11 +261,6 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/orders/ta-style": ["New TA Style"],
   "/orders/ta-plan": ["New TA Plan"],
   "/orders/ta-completion": ["New TA Completion"],
-
-  "/planning/boms": ["New BOM", "Import BOM"],
-  "/planning/budgets": ["New Budget"],
-  "/planning/shortages": ["Recalculate", "Export"],
-  "/planning/shipment-plans": ["New Shipment Plan"],
 
   "/purchase/orders": ["New PO", "Import"],
   "/purchase/rfq": ["New RFQ"],

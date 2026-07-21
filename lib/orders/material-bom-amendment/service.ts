@@ -2,13 +2,47 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { listCustomers } from "@/lib/masters/customer-service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
-import {
-  getAcceptedOrdersForBom,
-  type AcceptedOrderRow,
-} from "@/lib/orders/material-bom-service";
 import type { Customer } from "@/lib/masters/customer-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { MaterialBomAmendment } from "./types";
+
+/** Accepted order for the BOM amendment picker. */
+export type AcceptedOrderRow = {
+  id: string;
+  order_number: string | null;
+  created_at: string;
+  ship_date: string | null;
+  order_qty: number;
+  status: string;
+  buyer_name: string | null;
+};
+
+async function getAcceptedOrdersForBom(): Promise<AcceptedOrderRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("sales_orders")
+    .select("id, order_number, created_at, ship_date, order_qty, status, buyers(name)")
+    .not("status", "in", "(cancelled,closed)")
+    .order("created_at", { ascending: false });
+
+  return ((data ?? []) as unknown as {
+    id: string;
+    order_number: string | null;
+    created_at: string;
+    ship_date: string | null;
+    order_qty: number;
+    status: string;
+    buyers: { name: string } | null;
+  }[]).map((o) => ({
+    id: o.id,
+    order_number: o.order_number,
+    created_at: o.created_at,
+    ship_date: o.ship_date,
+    order_qty: o.order_qty,
+    status: o.status,
+    buyer_name: o.buyers?.name ?? null,
+  }));
+}
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
 export type PickerRow = { id: string; code: string | null; name: string };
