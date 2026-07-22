@@ -927,22 +927,20 @@ export function ConsigneeMasterScreen({
                   Registration
                 </div>
                 <div className="space-y-3 p-3">
-                  <div>
-                    <Label>TIN No.</Label>
-                    <div className="grid grid-cols-[1fr_5rem_1fr] gap-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>TIN No.</Label>
                       <Input
                         value={form.tin_no}
                         onChange={(e) => set({ tin_no: e.target.value })}
                         className="text-base md:text-sm"
                       />
+                    </div>
+                    <div>
+                      <Label>CST No.</Label>
                       <Input
                         value={form.tin_no_2}
                         onChange={(e) => set({ tin_no_2: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                      <Input
-                        value={form.tin_no_3}
-                        onChange={(e) => set({ tin_no_3: e.target.value })}
                         className="text-base md:text-sm"
                       />
                     </div>

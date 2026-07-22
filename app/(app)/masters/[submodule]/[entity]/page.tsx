@@ -80,6 +80,7 @@ import { HostelCategoryMasterScreen } from "@/components/masters/hostel-category
 import { listAdvanceLoanTypes } from "@/lib/masters/advance-loan-type-service";
 import { AdvanceLoanTypeMasterScreen } from "@/components/masters/advance-loan-type-master-screen";
 import { listDepartments } from "@/lib/masters/department-service";
+import { listDivisions } from "@/lib/masters/division-service";
 import { DepartmentMasterScreen } from "@/components/masters/department-master-screen";
 import { listPfEsiControls } from "@/lib/masters/pf-esi-control-service";
 import { PfEsiControlMasterScreen } from "@/components/masters/pf-esi-control-master-screen";
@@ -152,12 +153,18 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "department") {
-      const [departments, departmentLocations] = await Promise.all([
+      const [departments, departmentLocations, divisionRows] = await Promise.all([
         listDepartments(),
         listEmployeeLocations(),
+        listDivisions(),
       ]);
       screen = (
-        <DepartmentMasterScreen rows={departments} locations={departmentLocations} perms={perms} />
+        <DepartmentMasterScreen
+          rows={departments}
+          locations={departmentLocations}
+          divisions={divisionRows.map((d) => ({ id: d.id, division_id: d.division_id ?? "", division_name: d.division_name }))}
+          perms={perms}
+        />
       );
     } else if (child.custom === "pf_esi_control") {
       const controls = await listPfEsiControls();

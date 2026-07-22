@@ -25,7 +25,8 @@ import {
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
-type LocRow = { key: string; location_id: string | null; all_divisions: boolean };
+type DivisionOption = { id: string; division_id: string; division_name: string };
+type LocRow = { key: string; location_id: string | null; all_divisions: boolean; division_ids: string[] };
 
 const blankHeader = () => ({
   short_name: "",
@@ -53,10 +54,12 @@ const blankHeader = () => ({
 export function DepartmentMasterScreen({
   rows,
   locations,
+  divisions,
   perms,
 }: {
   rows: Department[];
   locations: EmployeeLocation[];
+  divisions: DivisionOption[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -92,7 +95,7 @@ export function DepartmentMasterScreen({
     setEditId(null);
     setForm(blankHeader());
     setItemClasses([]);
-    setLocs([{ key: newKey(), location_id: null, all_divisions: false }]);
+    setLocs([{ key: newKey(), location_id: null, all_divisions: false, division_ids: [] }]);
     setOpen(true);
   }
   function openEdit(r: Department) {
@@ -124,8 +127,9 @@ export function DepartmentMasterScreen({
             key: newKey(),
             location_id: l.location_id,
             all_divisions: l.all_divisions,
+            division_ids: (l.divisions ?? []).map((d) => d.division_id),
           }))
-        : [{ key: newKey(), location_id: null, all_divisions: false }],
+        : [{ key: newKey(), location_id: null, all_divisions: false, division_ids: [] }],
     );
     setOpen(true);
   }
@@ -134,13 +138,20 @@ export function DepartmentMasterScreen({
     setItemClasses((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
   }
   function addLoc() {
-    setLocs((ls) => [...ls, { key: newKey(), location_id: null, all_divisions: false }]);
+    setLocs((ls) => [...ls, { key: newKey(), location_id: null, all_divisions: false, division_ids: [] }]);
   }
   function setLocPicker(key: string, location_id: string | null) {
     setLocs((ls) => ls.map((l) => (l.key === key ? { ...l, location_id } : l)));
   }
   function toggleLocAllDivisions(key: string, all_divisions: boolean) {
-    setLocs((ls) => ls.map((l) => (l.key === key ? { ...l, all_divisions } : l)));
+    setLocs((ls) => ls.map((l) => (l.key === key ? { ...l, all_divisions, division_ids: all_divisions ? [] : l.division_ids } : l)));
+  }
+  function toggleLocDivision(key: string, divId: string) {
+    setLocs((ls) => ls.map((l) => {
+      if (l.key !== key) return l;
+      const has = l.division_ids.includes(divId);
+      return { ...l, division_ids: has ? l.division_ids.filter((d) => d !== divId) : [...l.division_ids, divId] };
+    }));
   }
   function removeLoc(key: string) {
     setLocs((ls) => ls.filter((l) => l.key !== key));
@@ -166,7 +177,12 @@ export function DepartmentMasterScreen({
         item_classes: itemClasses,
         locations: locs
           .filter((l) => l.location_id)
-          .map((l, i) => ({ sno: i + 1, location_id: l.location_id, all_divisions: l.all_divisions })),
+          .map((l, i) => ({
+            sno: i + 1,
+            location_id: l.location_id,
+            all_divisions: l.all_divisions,
+            divisions: l.all_divisions ? [] : l.division_ids.map((did, di) => ({ division_id: did, sno: di + 1 })),
+          })),
       };
       const res = editId ? await updateDepartment(editId, payload) : await createDepartment(payload);
       if (res.ok) {
@@ -458,6 +474,21 @@ export function DepartmentMasterScreen({
                     />
                     <span className="text-sm text-foreground">All Divisions</span>
                   </label>
+                  {!l.all_divisions && divisions.length > 0 && (
+                    <div className="ml-6 flex flex-wrap gap-2">
+                      {divisions.map((d) => (
+                        <label key={d.id} className="flex cursor-pointer items-center gap-1.5 rounded border border-border px-2 py-1">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                            checked={l.division_ids.includes(d.id)}
+                            onChange={() => toggleLocDivision(l.key, d.id)}
+                          />
+                          <span className="text-xs text-foreground">{d.division_name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               <Button type="button" variant="outline" size="sm" onClick={addLoc}>

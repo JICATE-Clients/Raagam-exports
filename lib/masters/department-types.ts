@@ -19,11 +19,18 @@ export const DEPARTMENT_ITEM_CLASSES = [
 ] as const;
 export type DepartmentItemClass = (typeof DEPARTMENT_ITEM_CLASSES)[number];
 
+export interface DepartmentLocationDivision {
+  id: string;
+  division_id: string;
+  sno: number;
+}
+
 export interface DepartmentLocation {
   id: string;
   sno: number;
   location_id: string | null;
   all_divisions: boolean;
+  divisions: DepartmentLocationDivision[];
 }
 
 export interface Department {
@@ -48,10 +55,16 @@ export interface Department {
   updated_at: string;
 }
 
+export const departmentLocationDivisionInput = z.object({
+  division_id: z.string().uuid(),
+  sno: z.coerce.number().int().default(0),
+});
+
 export const departmentLocationInput = z.object({
   sno: z.coerce.number().int().default(0),
   location_id: z.string().uuid().nullable().default(null),
   all_divisions: z.boolean().default(false),
+  divisions: z.array(departmentLocationDivisionInput).default([]),
 });
 
 export const departmentInput = z.object({

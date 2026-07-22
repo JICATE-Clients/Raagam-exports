@@ -19,8 +19,8 @@ function rev(): void {
 /** Drop rows with no location picked and renumber sno from 1. */
 function normalizeLocations(data: DepartmentInput) {
   return data.locations
-    .filter((l): l is { sno: number; location_id: string; all_divisions: boolean } => !!l.location_id)
-    .map((l, i) => ({ sno: i + 1, location_id: l.location_id, all_divisions: l.all_divisions }));
+    .filter((l) => !!l.location_id)
+    .map((l, i) => ({ sno: i + 1, location_id: l.location_id!, all_divisions: l.all_divisions, divisions: l.divisions ?? [] }));
 }
 
 async function writeLocations(
@@ -30,10 +30,27 @@ async function writeLocations(
 ): Promise<string | null> {
   const rows = normalizeLocations(data);
   if (!rows.length) return null;
-  const { error } = await s
+  // Insert location rows
+  const { data: inserted, error } = await s
     .from("department_locations")
-    .insert(rows.map((r) => ({ ...r, department_id: departmentId })));
-  return error ? error.message : null;
+    .insert(rows.map((r) => ({ sno: r.sno, location_id: r.location_id, all_divisions: r.all_divisions, department_id: departmentId })))
+    .select("id");
+  if (error) return error.message;
+  // Insert division rows for locations where all_divisions is false
+  const divRows: { department_location_id: string; division_id: string; sno: number }[] = [];
+  (inserted ?? []).forEach((loc, idx) => {
+    const src = rows[idx];
+    if (!src.all_divisions && src.divisions.length > 0) {
+      src.divisions.forEach((d, di) => {
+        divRows.push({ department_location_id: loc.id, division_id: d.division_id, sno: di + 1 });
+      });
+    }
+  });
+  if (divRows.length > 0) {
+    const { error: divErr } = await s.from("department_location_divisions").insert(divRows);
+    if (divErr) return divErr.message;
+  }
+  return null;
 }
 
 export async function createDepartment(data: DepartmentInput): Promise<Result> {
