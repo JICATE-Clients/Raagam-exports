@@ -91,6 +91,7 @@ import { listCertifications } from "@/lib/masters/certification-service";
 import { CertificationMasterScreen } from "@/components/masters/certification-master-screen";
 import { getDefaultAccountHead } from "@/lib/masters/default-account-head-service";
 import { DefaultAccountHeadScreen } from "@/components/masters/default-account-head-screen";
+import { listPackingFormatColumns } from "@/lib/masters/packing-format-columns-service";
 import {
   departmentsAsLookups,
   designationsAsLookups,
@@ -278,6 +279,9 @@ export default async function SubEntityPage({
         listDesignations(),
         listStates(),
       ]);
+      // Fetch packing column configs for all formats in use
+      const formatIds = [...new Set(customers.map((c) => c.packing_list_format_id).filter(Boolean))] as string[];
+      const packingColumns = (await Promise.all(formatIds.map((fid) => listPackingFormatColumns(fid)))).flat();
       screen = (
         <CustomerMasterScreen
           rows={customers}
@@ -312,6 +316,7 @@ export default async function SubEntityPage({
             name: d.name ?? d.short_name ?? "—",
           }))}
           couriers={couriers.map((c) => ({ id: c.id, code: c.code, name: c.name }))}
+          packingColumns={packingColumns}
           perms={perms}
         />
       );

@@ -29,6 +29,7 @@ import {
   type EmployeeRef,
 } from "@/lib/masters/employee-types";
 import { DetailSection } from "@/components/masters/detail-section";
+import { PhotoUpload } from "@/components/ui/photo-upload";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -61,6 +62,7 @@ type Form = {
   corr_pin: string;
   corr_phone: string;
   corr_mobile: string;
+  photo_url: string | null;
   // personal
   email: string;
   qualification: string;
@@ -103,6 +105,7 @@ const BLANK: Form = {
   manager_id: "",
   dob: "",
   inactive: false,
+  photo_url: null,
   perm_addr1: "",
   perm_addr2: "",
   perm_addr3: "",
@@ -235,6 +238,7 @@ export function EmployeeMasterScreen({
       manager_id: r.manager_id ?? "",
       dob: r.dob ?? "",
       inactive: r.inactive,
+      photo_url: r.photo_url ?? null,
       perm_addr1: r.perm_addr1 ?? "",
       perm_addr2: r.perm_addr2 ?? "",
       perm_addr3: r.perm_addr3 ?? "",
@@ -293,7 +297,7 @@ export function EmployeeMasterScreen({
         manager_id: form.manager_id || null,
         dob: form.dob || null,
         inactive: form.inactive,
-        photo_url: null,
+        photo_url: form.photo_url,
         perm_addr1: form.perm_addr1.trim() || null,
         perm_addr2: form.perm_addr2.trim() || null,
         perm_addr3: form.perm_addr3.trim() || null,
@@ -847,10 +851,14 @@ export function EmployeeMasterScreen({
             </div>
           </DetailSection>
 
-          {/* Photo — upload deferred; field reserved. */}
-          <div className="rounded-lg border border-dashed border-border bg-surface-muted/40 px-4 py-4 text-center text-xs text-muted-foreground">
-            Photo upload — coming soon.
-          </div>
+          {/* Photo */}
+          <DetailSection label="Photo">
+            <PhotoUpload
+              value={form.photo_url}
+              onChange={(url) => set({ photo_url: url })}
+              disabled={!perms.canEdit}
+            />
+          </DetailSection>
 
           {/* ---- General ---- */}
           <DetailSection label="General">

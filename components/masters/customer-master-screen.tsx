@@ -28,6 +28,8 @@ import { ApplicantPicker } from "@/components/masters/applicant-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { ChildGrid } from "@/components/masters/child-grid";
+import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-columns-dialog";
+import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-service";
 import { createCustomer, updateCustomer, deleteCustomer } from "@/lib/masters/customer-actions";
 import {
   type Customer,
@@ -195,6 +197,7 @@ export function CustomerMasterScreen({
   ports,
   destinations,
   couriers,
+  packingColumns,
   perms,
 }: {
   rows: Customer[];
@@ -217,6 +220,7 @@ export function CustomerMasterScreen({
   ports: PickerItem[];
   destinations: PickerItem[];
   couriers: PickerItem[];
+  packingColumns: PackingFormatColumn[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -224,6 +228,7 @@ export function CustomerMasterScreen({
   const [isPending, startTransition] = useTransition();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [colsOpen, setColsOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [section, setSection] = useState<SectionKey>("identity");
   const [dirty, setDirty] = useState(false);
@@ -1039,7 +1044,7 @@ export function CustomerMasterScreen({
                           <Label>Packing List Format</Label>
                           <LookupDialogPicker kind="packing_list_format" label="Packing List Format" options={packingFormats} value={form.packing_list_format_id || null} onChange={(id) => set({ packing_list_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                         </div>
-                        <Button type="button" variant="outline" size="md" disabled title="Column configuration — coming soon">Columns</Button>
+                        <Button type="button" variant="outline" size="md" disabled={!form.packing_list_format_id} onClick={() => setColsOpen(true)}>Columns</Button>
                       </div>
                       <div>
                         <Label>Commercial Invoice Format</Label>
@@ -1105,6 +1110,13 @@ export function CustomerMasterScreen({
           </div>
         </div>
       )}
+      <PackingFormatColumnsDialog
+        formatId={form.packing_list_format_id || null}
+        savedColumns={packingColumns}
+        open={colsOpen}
+        onClose={() => setColsOpen(false)}
+        canEdit={perms.canEdit}
+      />
     </div>
   );
 }
