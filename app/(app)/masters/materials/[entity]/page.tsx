@@ -62,6 +62,65 @@ import { listMaterials } from "@/lib/masters/material-service";
 import { MaterialMasterScreen } from "@/components/masters/material-master-screen";
 import { listHsnDetails } from "@/lib/masters/hsn-detail-service";
 import { hsnDetailsAsLookups } from "@/lib/masters/lookup-compat";
+// --- Phase 1: Simple masters ---
+import {
+  listYarnCompositions,
+  listDefectGroupsSimple,
+  listStyleStockCategories,
+  listSpecialInstructions,
+  listBeamTypesSimple,
+  listDesigns,
+  listDomesticProductDesigns,
+  listLabTestStandards,
+  listProductTypes,
+} from "@/lib/masters/simple-master-service";
+import { YarnCompositionMasterScreen } from "@/components/masters/yarn-composition-master-screen";
+import { DefectGroupMasterScreen } from "@/components/masters/defect-group-master-screen";
+import { StyleStockCategoryMasterScreen } from "@/components/masters/style-stock-category-master-screen";
+import { SpecialInstructionMasterScreen } from "@/components/masters/special-instruction-master-screen";
+import { BeamTypeMasterScreen } from "@/components/masters/beam-type-master-screen";
+import { DesignMasterScreen } from "@/components/masters/design-master-screen";
+import { DomesticProductDesignMasterScreen } from "@/components/masters/domestic-product-design-master-screen";
+import { LabTestStandardMasterScreen } from "@/components/masters/lab-test-standard-master-screen";
+import { ProductTypeMasterScreen } from "@/components/masters/product-type-master-screen";
+// --- Phase 1: Dedicated masters ---
+import { listDefectDetails, listDefectGroups } from "@/lib/masters/defect-detail-service";
+import { DefectDetailMasterScreen } from "@/components/masters/defect-detail-master-screen";
+import { listProductSizes } from "@/lib/masters/product-size-service";
+import { ProductSizeMasterScreen } from "@/components/masters/product-size-master-screen";
+import { listProductionSections } from "@/lib/masters/production-section-service";
+import { ProductionSectionMasterScreen } from "@/components/masters/production-section-master-screen";
+import { listBeams, listBeamVendors } from "@/lib/masters/beam-service";
+import { BeamMasterScreen } from "@/components/masters/beam-master-screen";
+import { listTyres } from "@/lib/masters/tyre-service";
+import { TyreMasterScreen } from "@/components/masters/tyre-master-screen";
+import { listPrintTypes } from "@/lib/masters/print-type-service";
+import { PrintTypeMasterScreen } from "@/components/masters/print-type-master-screen";
+import { listPrintItems } from "@/lib/masters/print-item-service";
+import { PrintItemMasterScreen } from "@/components/masters/print-item-master-screen";
+import { listPrintProcesses } from "@/lib/masters/print-process-service";
+import { PrintProcessMasterScreen } from "@/components/masters/print-process-master-screen";
+import { listGarmentAcceptedQtyLevels } from "@/lib/masters/garment-accepted-qty-level-service";
+import { GarmentAcceptedQtyLevelMasterScreen } from "@/components/masters/garment-accepted-qty-level-master-screen";
+// --- Phase 2: Grid masters ---
+import {
+  listCountGroups,
+  listConstructions,
+  listYarnPurchaseRates,
+  listYarnDebitRates,
+  listSizingRates,
+  listWarpLengthAllowances,
+  listProcessSequences,
+  listProcessSequenceGroups,
+} from "@/lib/masters/grid-master-service";
+import { CountGroupMasterScreen } from "@/components/masters/count-group-master-screen";
+import { ConstructionMasterScreen } from "@/components/masters/construction-master-screen";
+import { YarnPurchaseRateMasterScreen } from "@/components/masters/yarn-purchase-rate-master-screen";
+import { YarnDebitRateMasterScreen } from "@/components/masters/yarn-debit-rate-master-screen";
+import { SizingRateMasterScreen } from "@/components/masters/sizing-rate-master-screen";
+import { WarpLengthAllowanceMasterScreen } from "@/components/masters/warp-length-allowance-master-screen";
+import { ProcessSequenceMasterScreen } from "@/components/masters/process-sequence-master-screen";
+import { ProcessSequenceGroupMasterScreen } from "@/components/masters/process-sequence-group-master-screen";
 
 export default async function MaterialEntityPage({
   params,
@@ -267,6 +326,98 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "garment_rejection_rules") {
       const rows = await listGarmentRejectionRules();
       screen = <GarmentRejectionRuleMasterScreen rows={rows} perms={perms} />;
+    // --- Phase 1: Simple masters (rows + perms only) ---
+    } else if (child.custom === "yarn_compositions") {
+      const rows = await listYarnCompositions();
+      screen = <YarnCompositionMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "defect_groups") {
+      const rows = await listDefectGroupsSimple();
+      screen = <DefectGroupMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "style_stock_categories") {
+      const rows = await listStyleStockCategories();
+      screen = <StyleStockCategoryMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "special_instructions") {
+      const rows = await listSpecialInstructions();
+      screen = <SpecialInstructionMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "beam_types") {
+      const rows = await listBeamTypesSimple();
+      screen = <BeamTypeMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "designs") {
+      const rows = await listDesigns();
+      screen = <DesignMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "domestic_product_designs") {
+      const rows = await listDomesticProductDesigns();
+      screen = <DomesticProductDesignMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "lab_test_standards") {
+      const rows = await listLabTestStandards();
+      screen = <LabTestStandardMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "product_types") {
+      const rows = await listProductTypes();
+      screen = <ProductTypeMasterScreen rows={rows} perms={perms} />;
+    // --- Phase 1: Dedicated masters ---
+    } else if (child.custom === "defect_details") {
+      const [rows, defectGroups] = await Promise.all([listDefectDetails(), listDefectGroups()]);
+      screen = <DefectDetailMasterScreen rows={rows} defectGroups={defectGroups} perms={perms} />;
+    } else if (child.custom === "product_sizes") {
+      const rows = await listProductSizes();
+      screen = <ProductSizeMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "production_sections") {
+      const rows = await listProductionSections();
+      screen = <ProductionSectionMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "beams") {
+      const [rows, vendors] = await Promise.all([listBeams(), listBeamVendors()]);
+      screen = <BeamMasterScreen rows={rows} vendors={vendors} perms={perms} />;
+    } else if (child.custom === "tyres") {
+      const rows = await listTyres();
+      screen = <TyreMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "print_types") {
+      const rows = await listPrintTypes();
+      screen = <PrintTypeMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "print_items") {
+      const rows = await listPrintItems();
+      screen = <PrintItemMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "print_processes") {
+      const rows = await listPrintProcesses();
+      screen = <PrintProcessMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "garment_accepted_qty_levels") {
+      const rows = await listGarmentAcceptedQtyLevels();
+      screen = <GarmentAcceptedQtyLevelMasterScreen rows={rows} perms={perms} />;
+    // --- Phase 2: Grid masters ---
+    } else if (child.custom === "count_groups") {
+      const [rows, lookups] = await Promise.all([listCountGroups(), listConfigLookups()]);
+      const counts = lookups.filter((l) => l.kind === "yarn_count").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
+      screen = <CountGroupMasterScreen rows={rows} counts={counts} perms={perms} />;
+    } else if (child.custom === "constructions") {
+      const [rows, lookups, materials] = await Promise.all([listConstructions(), listConfigLookups(), listMaterials()]);
+      const counts = lookups.filter((l) => l.kind === "yarn_count").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
+      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      screen = <ConstructionMasterScreen rows={rows} counts={counts} items={items} perms={perms} />;
+    } else if (child.custom === "yarn_purchase_rates") {
+      const [rows, lookups, categories, materials] = await Promise.all([
+        listYarnPurchaseRates(), listConfigLookups(), listCategories(), listMaterials(),
+      ]);
+      const cats = categories.map((c) => ({ id: c.id, code: c.short_name, name: c.name }));
+      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      const purities = lookups.filter((l) => l.kind === "yarn_purity").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
+      screen = <YarnPurchaseRateMasterScreen rows={rows} categories={cats} items={items} purities={purities} perms={perms} />;
+    } else if (child.custom === "yarn_debit_rates") {
+      const [rows, materials] = await Promise.all([listYarnDebitRates(), listMaterials()]);
+      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      screen = <YarnDebitRateMasterScreen rows={rows} items={items} perms={perms} />;
+    } else if (child.custom === "sizing_rates") {
+      const [rows, categories, materials] = await Promise.all([listSizingRates(), listCategories(), listMaterials()]);
+      const cats = categories.map((c) => ({ id: c.id, code: c.short_name, name: c.name }));
+      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      screen = <SizingRateMasterScreen rows={rows} categories={cats} items={items} perms={perms} />;
+    } else if (child.custom === "warp_length_allowances") {
+      const rows = await listWarpLengthAllowances();
+      screen = <WarpLengthAllowanceMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "process_sequences") {
+      const rows = await listProcessSequences();
+      screen = <ProcessSequenceMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "process_sequence_groups") {
+      const [rows, sequences] = await Promise.all([listProcessSequenceGroups(), listProcessSequences()]);
+      screen = <ProcessSequenceGroupMasterScreen rows={rows} sequences={sequences} perms={perms} />;
     } else {
       const attributes = await listAttributes();
       screen = <AttributeMasterScreen rows={attributes} perms={perms} />;
