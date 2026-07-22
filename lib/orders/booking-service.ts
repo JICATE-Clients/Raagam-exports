@@ -8,14 +8,14 @@ export async function listOrderBookings(): Promise<OrderBookingRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("order_bookings")
-    .select("*, buyers:customer_id(name), sales_orders(code)")
+    .select("*, buyers:customer_id(name), sales_orders(order_number)")
     .order("created_at", { ascending: false });
   return ((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       buyer_name: (row.buyers as { name: string } | null)?.name ?? null,
-      order_code: (row.sales_orders as { code: string } | null)?.code ?? null,
+      order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null,
     } as unknown as OrderBookingRow;
   });
 }
@@ -41,13 +41,13 @@ export async function listDueDateConfirmations(): Promise<DueDateConfirmationRow
   const s = await createClient();
   const { data } = await s
     .from("due_date_confirmations")
-    .select("*, sales_orders(code)")
+    .select("*, sales_orders(order_number)")
     .order("created_at", { ascending: false });
   return ((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
-      order_code: (row.sales_orders as { code: string } | null)?.code ?? null,
+      order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null,
     } as unknown as DueDateConfirmationRow;
   });
 }
@@ -58,14 +58,14 @@ export async function listContractReviews(): Promise<ContractReviewRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("contract_reviews")
-    .select("*, buyers:customer_id(name), sales_orders(code)")
+    .select("*, buyers:customer_id(name), sales_orders(order_number)")
     .order("created_at", { ascending: false });
   return ((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       buyer_name: (row.buyers as { name: string } | null)?.name ?? null,
-      order_code: (row.sales_orders as { code: string } | null)?.code ?? null,
+      order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null,
     } as unknown as ContractReviewRow;
   });
 }

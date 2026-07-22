@@ -12,10 +12,10 @@ export type PriceConfirmationRow = PriceConfirmation & { order_code: string | nu
 
 export async function listPriceConfirmations(): Promise<PriceConfirmationRow[]> {
   const s = await createClient();
-  const { data } = await s.from("price_confirmations").select("*, sales_orders(code)").order("created_at", { ascending: false });
+  const { data } = await s.from("price_confirmations").select("*, sales_orders(order_number)").order("created_at", { ascending: false });
   return ((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
-    return { ...row, order_code: (row.sales_orders as { code: string } | null)?.code ?? null } as unknown as PriceConfirmationRow;
+    return { ...row, order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null } as unknown as PriceConfirmationRow;
   });
 }
 
