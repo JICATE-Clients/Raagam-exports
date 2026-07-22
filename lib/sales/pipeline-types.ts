@@ -49,6 +49,11 @@ export interface SeasonalOrder {
   updated_at: string;
 }
 
+export const PIPELINE_STATUSES = ["draft", "confirmed", "cancelled"] as const;
+export const SEASONAL_STATUSES = ["draft", "confirmed", "cancelled"] as const;
+export const ORDER_CATEGORIES = ["new", "repeat", "development"] as const;
+export const RECEIPT_MODES = ["email", "phone", "fax", "courier", "direct"] as const;
+
 export const pipelineOrderInput = z.object({
   oc_date: z.string(),
   customer_id: z.string().uuid().optional().nullable(),

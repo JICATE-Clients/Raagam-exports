@@ -19,11 +19,19 @@ export async function listPipelineOrders(): Promise<PipelineOrderRow[]> {
   });
 }
 
-export async function listSeasonalOrders(): Promise<SeasonalOrder[]> {
+export type SeasonalOrderRow = SeasonalOrder & { vendor_name: string | null };
+
+export async function listSeasonalOrders(): Promise<SeasonalOrderRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("seasonal_orders")
-    .select("*")
+    .select("*, vendors:vendor_id(name)")
     .order("created_at", { ascending: false });
-  return (data ?? []) as SeasonalOrder[];
+  return ((data ?? []) as unknown[]).map((r: unknown) => {
+    const row = r as Record<string, unknown>;
+    return {
+      ...row,
+      vendor_name: (row.vendors as { name: string } | null)?.name ?? null,
+    } as unknown as SeasonalOrderRow;
+  });
 }
