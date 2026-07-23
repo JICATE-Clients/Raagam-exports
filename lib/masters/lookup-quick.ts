@@ -22,7 +22,7 @@ export async function createLookupValue(
   // Blank code → default to the name (forms no longer ask for codes).
   const { data, error } = await s
     .from("config_lookups")
-    .insert({ kind, code: code?.trim() || name.trim(), name: name.trim(), type_code: typeCode?.trim() || null, is_active: true })
+    .insert({ kind, code: code?.trim() || name.trim(), name: name.trim().toUpperCase(), type_code: typeCode?.trim() || null, is_active: true })
     .select("id")
     .single();
   if (error) return { ok: false, error: error.message };

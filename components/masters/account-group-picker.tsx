@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,27 @@ export function AccountGroupPicker({
     setOpen(false);
   }
 
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((g) => g.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((g) => g.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        setOpen(false);
+      }
+    }
+  }
+
   const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   return (
@@ -119,6 +140,7 @@ export function AccountGroupPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onListKeyDown}
                   placeholder="Search name…"
                   className="text-base md:text-sm"
                 />
@@ -139,6 +161,11 @@ export function AccountGroupPicker({
                       {filtered.map((g) => (
                         <tr
                           key={g.id}
+                          ref={
+                            highlightId === g.id
+                              ? (el) => el?.scrollIntoView({ block: "nearest" })
+                              : undefined
+                          }
                           onClick={() => setHighlightId(g.id)}
                           onDoubleClick={() => {
                             onChange(g.id);

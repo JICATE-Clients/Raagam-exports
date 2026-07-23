@@ -249,7 +249,7 @@ export function CustomerMasterScreen({
   }, [applicants]);
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of countries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
 
@@ -566,7 +566,6 @@ export function CustomerMasterScreen({
         empty="No customers yet."
         mobile={{
           title: (r) => r.name,
-          subtitle: (r) => r.code ?? "—",
           meta: (r) => (r.country_id ? (countryLabel.get(r.country_id) ?? "") : ""),
           pill: (r) => (
             <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
@@ -670,7 +669,7 @@ export function CustomerMasterScreen({
                       )}
                       <div className="sm:col-span-2">
                         <Label htmlFor="cu-name">Name <span className="text-danger">*</span></Label>
-                        <Input id="cu-name" value={form.name} onChange={(e) => set({ name: e.target.value })} required className="text-base md:text-sm" />
+                        <Input id="cu-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} required className="text-base md:text-sm" />
                       </div>
                       <div>
                         <Label htmlFor="cu-prefix">Doc Prefix</Label>
@@ -918,7 +917,7 @@ export function CustomerMasterScreen({
                         <Label htmlFor="cu-shiptype">Ship Type</Label>
                         <Select id="cu-shiptype" value={form.ship_type_id} onChange={(e) => set({ ship_type_id: e.target.value })} className="text-base md:text-sm">
                           <option value="">—</option>
-                          {shipTypes.map((t) => <option key={t.id} value={t.id}>{t.code ? `${t.code} — ${t.name}` : t.name}</option>)}
+                          {shipTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </Select>
                       </div>
                       <div>

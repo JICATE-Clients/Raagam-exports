@@ -102,7 +102,6 @@ export function NewProformaForm({ buyers, currencies }: Props) {
                   <option value="">— select buyer —</option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.code ? `${b.code} — ` : ""}
                       {b.name}
                     </option>
                   ))}

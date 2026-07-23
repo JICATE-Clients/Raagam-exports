@@ -146,7 +146,6 @@ export function LcDetailClient({ lc, buyers, currencies, canEdit, canDelete }: P
                   <option value="">— select —</option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.code ? `${b.code} — ` : ""}
                       {b.name}
                     </option>
                   ))}

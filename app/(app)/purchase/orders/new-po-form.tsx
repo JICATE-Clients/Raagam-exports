@@ -201,7 +201,6 @@ export function NewPoForm({
                   <option value="">— None —</option>
                   {budgets.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.code ? `${b.code} — ` : ""}
                       {b.name}
                     </option>
                   ))}
@@ -225,7 +224,7 @@ export function NewPoForm({
                   <option value="">— Select location —</option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.code} — {l.name}
+                      {l.name}
                     </option>
                   ))}
                 </Select>

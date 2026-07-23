@@ -351,6 +351,7 @@ export function ShadeGroupMasterScreen({
               </Label>
               <Input
                 id="shg-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required

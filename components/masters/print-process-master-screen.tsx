@@ -20,17 +20,13 @@ const descriptor: SimpleMasterDescriptor<PrintProcess> = {
   ioEntityKey: "print-processes",
   status: "active",
   // Code is auto-generated from the name on create (client 2026-07-23: don't
-  // ask users for codes) — shown as a read-only column, never edited.
+  // ask users for codes) — backend-only, never shown or edited.
   fields: [
     { key: "name", label: "Name", required: true },
     // Process-type flags as inline checkbox columns (legacy grid had the same).
     ...PRINT_PROCESS_FLAGS.map((f) => ({ key: f.key, label: f.label, kind: "checkbox" as const })),
   ],
-  extraColumns: [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-  ],
   mobileTitleKey: "name",
-  mobileMeta: (r) => r.code,
   fromRow: (r) => ({
     name: r.name,
     ...Object.fromEntries(FLAG_KEYS.map((k) => [k, r[k as keyof PrintProcess] as boolean])),

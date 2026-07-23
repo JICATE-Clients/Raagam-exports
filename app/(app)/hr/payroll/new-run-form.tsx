@@ -84,7 +84,7 @@ export function NewRunForm({ locations }: { locations: LocationOption[] }) {
               <option value="">All locations</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.code ? `${l.code} — ` : ""}{l.name}
+                  {l.name}
                 </option>
               ))}
             </Select>

@@ -1,4 +1,5 @@
 "use client";
+import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -95,7 +96,7 @@ export function LookupMasterScreen({
     startTransition(async () => {
       const res = await deleteLookup(r.id);
       if (res.ok) {
-        success(res.inactive ? `${singular} is in use — marked inactive instead of deleted.` : `${singular} deleted.`);
+        success(deletedToast(singular, res));
         router.refresh();
       } else {
         error(res.error);
@@ -104,7 +105,6 @@ export function LookupMasterScreen({
   }
 
   const columns: Column<ConfigLookup>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "Notes",
@@ -189,7 +189,6 @@ export function LookupMasterScreen({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  {r.code && <div className="mt-0.5 font-mono text-xs text-muted-foreground">{r.code}</div>}
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "neutral"}>
                   {r.is_active ? "Active" : "Inactive"}
@@ -226,6 +225,7 @@ export function LookupMasterScreen({
             </Label>
             <Input
               id="lk-name"
+              uppercase
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required

@@ -270,6 +270,7 @@ export function OurBankMasterScreen({
               <Label htmlFor="ob-account-name">Account Name</Label>
               <Input
                 id="ob-account-name"
+                uppercase
                 value={form.account_name}
                 onChange={(e) => setForm({ ...form, account_name: e.target.value })}
                 className="text-base md:text-sm"
@@ -279,6 +280,7 @@ export function OurBankMasterScreen({
               <Label htmlFor="ob-bank-name">Bank Name</Label>
               <Input
                 id="ob-bank-name"
+                uppercase
                 value={form.bank_name}
                 onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
                 className="text-base md:text-sm"
@@ -288,6 +290,7 @@ export function OurBankMasterScreen({
               <Label htmlFor="ob-branch-name">Branch Name</Label>
               <Input
                 id="ob-branch-name"
+                uppercase
                 value={form.branch_name}
                 onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
                 className="text-base md:text-sm"

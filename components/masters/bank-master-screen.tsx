@@ -79,7 +79,7 @@ export function BankMasterScreen({
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of countries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
 
@@ -167,7 +167,6 @@ export function BankMasterScreen({
   }
 
   const columns: Column<Bank>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Type", cell: (r) => <span className="text-sm text-muted-foreground">{r.bank_type ?? "—"}</span> },
     {
@@ -212,7 +211,6 @@ export function BankMasterScreen({
         empty="No bank records yet."
         mobile={{
           title: (r) => r.name,
-          subtitle: (r) => r.code ?? "—",
           meta: (r) =>
             `${r.bank_type ?? "—"} · ${r.branches.length} branch${r.branches.length === 1 ? "" : "es"}`,
           pill: (r) => (
@@ -277,6 +275,7 @@ export function BankMasterScreen({
             </Label>
             <Input
               id="bk-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required

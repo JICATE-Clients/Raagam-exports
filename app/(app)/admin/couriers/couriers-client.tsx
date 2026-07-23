@@ -204,7 +204,7 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
                     <Label htmlFor="d-courier">Courier</Label>
                     <Select id="d-courier" value={dCourier} onChange={(e) => setDCourier(e.target.value)}>
                       <option value="">— none —</option>
-                      {courierOpts.map((c) => <option key={c.id} value={c.id}>{c.code ? `${c.code} — ` : ""}{c.name}</option>)}
+                      {courierOpts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </Select>
                   </div>
                   <div><Label htmlFor="d-ref">Reference</Label><Input id="d-ref" value={dRef} onChange={(e) => setDRef(e.target.value)} /></div>

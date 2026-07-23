@@ -121,7 +121,7 @@ function CreateUserForm({
               <option value="">— None —</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.code} — {l.name}
+                  {l.name}
                 </option>
               ))}
             </Select>
@@ -271,7 +271,7 @@ function RolePanel({
                 <option value="">— Any —</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.code} — {l.name}
+                    {l.name}
                   </option>
                 ))}
               </Select>

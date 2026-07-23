@@ -7,7 +7,7 @@ import { levyInput, type LevyInput } from "./levy-types";
 import { deleteOrDeactivate } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
 function rev(): void {
   revalidatePath("/masters/materials");
@@ -45,5 +45,5 @@ export async function deleteLevy(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "levies", id, "inactive");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

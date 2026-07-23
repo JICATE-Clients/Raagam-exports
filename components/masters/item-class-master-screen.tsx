@@ -280,6 +280,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
             </Label>
             <Input
               id="ic-name"
+              uppercase
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required

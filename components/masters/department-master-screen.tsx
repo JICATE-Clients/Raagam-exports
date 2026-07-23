@@ -80,7 +80,7 @@ export function DepartmentMasterScreen({
 
   const locationLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const l of locations) m.set(l.id, `${l.code} — ${l.name}`);
+    for (const l of locations) m.set(l.id, l.name);
     return m;
   }, [locations]);
 
@@ -289,6 +289,7 @@ export function DepartmentMasterScreen({
             </Label>
             <Input
               id="dep-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"

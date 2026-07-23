@@ -241,6 +241,7 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
             </Label>
             <Input
               id="hd-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required

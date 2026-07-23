@@ -122,14 +122,14 @@ export function PieceRatesClient({ rows, contractors, workTypes, canCreate, canE
                     <Label htmlFor="pr-contractor">Contractor</Label>
                     <Select id="pr-contractor" value={contractorId} onChange={(e) => setContractorId(e.target.value)}>
                       <option value="">— none —</option>
-                      {contractors.map((c) => <option key={c.id} value={c.id}>{c.code ? `${c.code} — ` : ""}{c.name}</option>)}
+                      {contractors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </Select>
                   </div>
                   <div>
                     <Label htmlFor="pr-wt">Work type</Label>
                     <Select id="pr-wt" value={workTypeId} onChange={(e) => setWorkTypeId(e.target.value)}>
                       <option value="">— none —</option>
-                      {workTypes.map((w) => <option key={w.id} value={w.id}>{w.code ? `${w.code} — ` : ""}{w.name}</option>)}
+                      {workTypes.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </Select>
                   </div>
                   <div>

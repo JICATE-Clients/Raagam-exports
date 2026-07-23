@@ -121,7 +121,7 @@ export function CourierDeliveryAddressMasterScreen({
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of countries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
   const cityLabel = useMemo(() => {
@@ -287,7 +287,6 @@ export function CourierDeliveryAddressMasterScreen({
         empty="No courier addresses yet."
         mobile={{
           title: (r) => r.name,
-          subtitle: (r) => r.code ?? "—",
           meta: (r) => (r.country_id ? countryLabel.get(r.country_id) ?? null : null),
           pill: (r) => (
             <StatusPill tone={r.inactive ? "danger" : "success"}>
@@ -324,6 +323,7 @@ export function CourierDeliveryAddressMasterScreen({
             </Label>
             <Input
               id="cda-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required

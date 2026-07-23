@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -121,6 +121,27 @@ export function CurrencyPicker({
     });
   }
 
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((c) => c.code === highlight);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlight(next.code);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlight && filtered.some((c) => c.code === highlight) ? highlight : filtered[0]?.code;
+      if (pick) {
+        onChange(pick);
+        close();
+      }
+    }
+  }
+
   const selectedLabel = selected
     ? `${selected.code}${selected.name ? ` — ${selected.name}` : ""}`
     : `— Select ${label} —`;
@@ -177,6 +198,7 @@ export function CurrencyPicker({
                       autoFocus
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={onListKeyDown}
                       placeholder="Search code or name…"
                       className="text-base md:text-sm"
                     />
@@ -199,6 +221,11 @@ export function CurrencyPicker({
                           {filtered.map((c) => (
                             <tr
                               key={c.code}
+                              ref={
+                                highlight === c.code
+                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                                  : undefined
+                              }
                               onClick={() => setHighlight(c.code)}
                               onDoubleClick={() => {
                                 onChange(c.code);
@@ -254,8 +281,9 @@ export function CurrencyPicker({
                         </Label>
                         <Input
                           id="cur-code"
+                          uppercase
                           value={code}
-                          onChange={(e) => setCode(e.target.value.toUpperCase())}
+                          onChange={(e) => setCode(e.target.value)}
                           disabled={!!formEditCode}
                           maxLength={8}
                           className="text-base md:text-sm"
@@ -278,6 +306,7 @@ export function CurrencyPicker({
                       <Input
                         id="cur-name"
                         autoFocus
+                        uppercase
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         className="text-base md:text-sm"

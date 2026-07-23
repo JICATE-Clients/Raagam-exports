@@ -1,4 +1,5 @@
 "use client";
+import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -112,7 +113,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
     startTransition(async () => {
       const res = await deleteProcessSequence(r.id);
       if (res.ok) {
-        success(res.inactive ? "Process sequence marked inactive." : "Process sequence deleted.");
+        success(deletedToast("Process sequence", res));
         router.refresh();
       } else {
         error(res.error);
@@ -121,7 +122,6 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
   }
 
   const columns: Column<ProcessSequence>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Steps", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
     {
@@ -181,7 +181,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                <div className="mt-0.5 font-mono text-xs text-muted-foreground">{r.code} · {r.details.length} step{r.details.length === 1 ? "" : "s"}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{r.details.length} step{r.details.length === 1 ? "" : "s"}</div>
               </div>
               <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
             </div>
@@ -205,7 +205,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Label htmlFor="ps-name">Name <span className="text-danger">*</span></Label>
-            <Input id="ps-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            <Input id="ps-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
             {!editId && (
               <p className="mt-1 text-xs text-muted-foreground">
                 The code is generated automatically from the name.
@@ -229,7 +229,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
               {lines.map((l, i) => (
                 <div key={l.key} className="flex items-center gap-2">
                   <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
-                  <Input placeholder="Description" value={l.description}
+                  <Input placeholder="Description" uppercase value={l.description}
                     onChange={(e) => setLineAt(l.key, { description: e.target.value })}
                     className="flex-1 text-base md:text-sm" />
                   <Input type="number" placeholder="Loss %" value={l.loss_pct} min={0} max={100}

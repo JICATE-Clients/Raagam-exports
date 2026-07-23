@@ -1,4 +1,5 @@
 "use client";
+import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -114,7 +115,7 @@ export function ProcessSequenceGroupMasterScreen({
     startTransition(async () => {
       const res = await deleteProcessSequenceGroup(r.id);
       if (res.ok) {
-        success(res.inactive ? "Process sequence group marked inactive." : "Process sequence group deleted.");
+        success(deletedToast("Process sequence group", res));
         router.refresh();
       } else {
         error(res.error);
@@ -123,7 +124,6 @@ export function ProcessSequenceGroupMasterScreen({
   }
 
   const columns: Column<ProcessSequenceGroup>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Sequences", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
     {
@@ -183,7 +183,7 @@ export function ProcessSequenceGroupMasterScreen({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                <div className="mt-0.5 font-mono text-xs text-muted-foreground">{r.code} · {r.details.length} sequence{r.details.length === 1 ? "" : "s"}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{r.details.length} sequence{r.details.length === 1 ? "" : "s"}</div>
               </div>
               <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
             </div>
@@ -207,7 +207,7 @@ export function ProcessSequenceGroupMasterScreen({
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Label htmlFor="psg-name">Name <span className="text-danger">*</span></Label>
-            <Input id="psg-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            <Input id="psg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
             {!editId && (
               <p className="mt-1 text-xs text-muted-foreground">
                 The code is generated automatically from the name.
@@ -233,11 +233,11 @@ export function ProcessSequenceGroupMasterScreen({
                       className="flex-1 text-base md:text-sm">
                       <option value="">— select sequence —</option>
                       {sequences.map((s) => (
-                        <option key={s.id} value={s.id}>{s.code} — {s.name}</option>
+                        <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </Select>
                   ) : (
-                    <Input placeholder="Sequence name" value={l.sequence_name}
+                    <Input placeholder="Sequence name" uppercase value={l.sequence_name}
                       onChange={(e) => setLineAt(l.key, { sequence_name: e.target.value })}
                       className="flex-1 text-base md:text-sm" />
                   )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -56,7 +56,28 @@ export function AcHeadPicker({
     setOpen(false);
   }
 
-  const selectedLabel = selected ? `${selected.code} — ${selected.name}` : `— Select ${label} —`;
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((a) => a.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((a) => a.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        setOpen(false);
+      }
+    }
+  }
+
+  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   return (
     <div>
@@ -111,6 +132,7 @@ export function AcHeadPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onListKeyDown}
                   placeholder="Search code or name…"
                   className="text-base md:text-sm"
                 />
@@ -122,7 +144,6 @@ export function AcHeadPicker({
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                       <tr>
-                        <th className="w-28 px-4 py-2 text-left font-medium">Code</th>
                         <th className="px-4 py-2 text-left font-medium">Name</th>
                         <th className="w-32 px-4 py-2 text-left font-medium">Type</th>
                       </tr>
@@ -131,6 +152,11 @@ export function AcHeadPicker({
                       {filtered.map((a) => (
                         <tr
                           key={a.id}
+                          ref={
+                            highlightId === a.id
+                              ? (el) => el?.scrollIntoView({ block: "nearest" })
+                              : undefined
+                          }
                           onClick={() => setHighlightId(a.id)}
                           onDoubleClick={() => {
                             onChange(a.id);
@@ -141,7 +167,6 @@ export function AcHeadPicker({
                             (highlightId === a.id ? "bg-primary/10" : "hover:bg-surface-muted")
                           }
                         >
-                          <td className="px-4 py-2 font-mono text-xs">{a.code}</td>
                           <td className="px-4 py-2">{a.name}</td>
                           <td className="px-4 py-2 text-xs text-muted-foreground">{a.account_type}</td>
                         </tr>

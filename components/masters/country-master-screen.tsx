@@ -148,7 +148,6 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
         empty="No country records yet."
         mobile={{
           title: (r) => r.name,
-          subtitle: (r) => r.code ?? "—",
           meta: (r) =>
             [r.country_group, r.isd_code ? `+${r.isd_code}` : null].filter(Boolean).join(" · ") || null,
           pill: (r) => statusPill(r),
@@ -190,6 +189,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               </Label>
               <Input
                 id="co-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 required

@@ -335,6 +335,7 @@ export function CompositionMasterScreen({
             </Label>
             <Input
               id="cmp-name"
+              uppercase
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
@@ -360,7 +361,7 @@ export function CompositionMasterScreen({
               {
                 header: "Description",
                 cell: (l) => (
-                  <Input value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
+                  <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
                 ),
               },
               {

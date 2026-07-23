@@ -294,7 +294,7 @@ function MovementsTab({
                 >
                   {items.map((it) => (
                     <option key={it.id} value={it.id}>
-                      {it.code} — {it.name}
+                      {it.name}
                     </option>
                   ))}
                 </Select>
@@ -334,7 +334,7 @@ function MovementsTab({
                 >
                   {transferStores.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.code} — {s.name}
+                      {s.name}
                     </option>
                   ))}
                 </Select>

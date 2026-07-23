@@ -451,6 +451,7 @@ export function ProcessMasterScreen({
               </Label>
               <Input
                 id="pr-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 required
@@ -462,6 +463,7 @@ export function ProcessMasterScreen({
               <Label htmlFor="pr-desc">Short Description</Label>
               <Input
                 id="pr-desc"
+                uppercase
                 value={form.short_description}
                 onChange={(e) => set({ short_description: e.target.value })}
                 className="text-base md:text-sm"
@@ -582,13 +584,13 @@ export function ProcessMasterScreen({
                 {
                   header: "Sub Category",
                   cell: (s) => (
-                    <Input value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} placeholder="Sub Category" className="text-base md:text-sm" />
+                    <Input uppercase value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} placeholder="Sub Category" className="text-base md:text-sm" />
                   ),
                 },
                 {
                   header: "Short Description",
                   cell: (s) => (
-                    <Input value={s.short_description} onChange={(e) => setSubAt(s.key, { short_description: e.target.value })} placeholder="Short Description" className="text-base md:text-sm" />
+                    <Input uppercase value={s.short_description} onChange={(e) => setSubAt(s.key, { short_description: e.target.value })} placeholder="Short Description" className="text-base md:text-sm" />
                   ),
                 },
                 {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -164,11 +164,28 @@ export function CountryPicker({
     });
   }
 
-  const selectedLabel = selected
-    ? selected.code
-      ? `${selected.code} — ${selected.name}`
-      : selected.name
-    : "— Select Country —";
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((c) => c.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((c) => c.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        close();
+      }
+    }
+  }
+
+  const selectedLabel = selected ? selected.name : "— Select Country —";
 
   return (
     <div>
@@ -222,6 +239,7 @@ export function CountryPicker({
                       autoFocus
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={onListKeyDown}
                       placeholder="Search code or name…"
                       className="text-base md:text-sm"
                     />
@@ -235,7 +253,6 @@ export function CountryPicker({
                       <table className="w-full text-sm">
                         <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                           <tr>
-                            <th className="w-28 px-4 py-2 text-left font-medium">Code</th>
                             <th className="px-4 py-2 text-left font-medium">Name</th>
                           </tr>
                         </thead>
@@ -243,6 +260,11 @@ export function CountryPicker({
                           {filtered.map((c) => (
                             <tr
                               key={c.id}
+                              ref={
+                                highlightId === c.id
+                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                                  : undefined
+                              }
                               onClick={() => setHighlightId(c.id)}
                               onDoubleClick={() => {
                                 onChange(c.id);
@@ -253,7 +275,6 @@ export function CountryPicker({
                                 (highlightId === c.id ? "bg-primary/10" : "hover:bg-surface-muted")
                               }
                             >
-                              <td className="px-4 py-2 font-mono text-xs">{c.code ?? "—"}</td>
                               <td className="px-4 py-2">{c.name}</td>
                             </tr>
                           ))}
@@ -295,6 +316,7 @@ export function CountryPicker({
                         <Label htmlFor="cp-code">Code</Label>
                         <Input
                           id="cp-code"
+                          uppercase
                           value={form.code}
                           onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
                           className="text-base md:text-sm"
@@ -325,6 +347,7 @@ export function CountryPicker({
                       </Label>
                       <Input
                         id="cp-name"
+                        uppercase
                         value={form.name}
                         onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                         className="text-base md:text-sm"

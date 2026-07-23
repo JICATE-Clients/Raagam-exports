@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,9 +53,28 @@ export function LocationPicker({
     setOpen(false);
   }
 
-  const selectedLabel = selected
-    ? `${selected.code} — ${selected.name}`
-    : `— Select ${label} —`;
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((l) => l.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((l) => l.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        setOpen(false);
+      }
+    }
+  }
+
+  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   return (
     <div>
@@ -113,6 +132,7 @@ export function LocationPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onListKeyDown}
                   placeholder="Search code or name…"
                   className="text-base md:text-sm"
                 />
@@ -126,7 +146,6 @@ export function LocationPicker({
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                       <tr>
-                        <th className="w-28 px-4 py-2 text-left font-medium">Code</th>
                         <th className="px-4 py-2 text-left font-medium">Name</th>
                       </tr>
                     </thead>
@@ -134,6 +153,11 @@ export function LocationPicker({
                       {filtered.map((l) => (
                         <tr
                           key={l.id}
+                          ref={
+                            highlightId === l.id
+                              ? (el) => el?.scrollIntoView({ block: "nearest" })
+                              : undefined
+                          }
                           onClick={() => setHighlightId(l.id)}
                           onDoubleClick={() => {
                             onChange(l.id);
@@ -144,7 +168,6 @@ export function LocationPicker({
                             (highlightId === l.id ? "bg-primary/10" : "hover:bg-surface-muted")
                           }
                         >
-                          <td className="px-4 py-2 font-mono text-xs">{l.code}</td>
                           <td className="px-4 py-2">{l.name}</td>
                         </tr>
                       ))}

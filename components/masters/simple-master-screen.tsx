@@ -1,4 +1,5 @@
 "use client";
+import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -104,7 +105,7 @@ export type SimpleMasterDescriptor<Row> = {
   actions: {
     create: (payload: never) => Promise<ActionResult & { id?: string }>;
     update: (id: string, payload: never) => Promise<ActionResult>;
-    remove: (id: string) => Promise<ActionResult & { inactive?: boolean }>;
+    remove: (id: string) => Promise<ActionResult & { inactive?: boolean; usedBy?: string }>;
   };
 };
 
@@ -248,7 +249,7 @@ export function SimpleMasterScreen<Row>({
     startTransition(async () => {
       const res = await d.actions.remove(getId(r));
       if (res.ok) {
-        success(res.inactive ? `${d.entityLabel} marked inactive.` : `${d.entityLabel} deleted.`);
+        success(deletedToast(d.entityLabel, { inactive: res.inactive ?? false, usedBy: res.usedBy }));
         router.refresh();
       } else {
         error(res.error);
@@ -332,7 +333,9 @@ export function SimpleMasterScreen<Row>({
       autoFocus,
       "aria-label": f.label,
     };
-    const input = f.format ? <ValidatedInput format={f.format} {...common} /> : <Input {...common} />;
+    // Plain text fields type in CAPS (client 2026-07-23) — no-op for digits;
+    // format-driven fields keep their own ValidatedInput transforms.
+    const input = f.format ? <ValidatedInput format={f.format} {...common} /> : <Input uppercase {...common} />;
     if (d.dupCheck?.fieldKey === f.key) {
       return (
         <div>
@@ -620,8 +623,6 @@ export function SimpleMasterScreen<Row>({
             const second = d.fields[1];
             const titleKey = d.mobileTitleKey ?? second?.key ?? first.key;
             const title = String(values[titleKey] ?? "") || String(values[first.key] ?? "");
-            const sub =
-              !d.mobileTitleKey && second ? String(values[first.key] ?? "") : "";
             return (
               <div key={getId(r)} className="rounded-xl border border-border bg-surface">
                 <button
@@ -633,7 +634,6 @@ export function SimpleMasterScreen<Row>({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-[15px] font-semibold text-foreground">{title || "—"}</div>
-                      {sub && <div className="mt-0.5 font-mono text-xs text-muted-foreground">{sub}</div>}
                       {d.mobileMeta && (
                         <div className="mt-0.5 text-xs text-muted-foreground">{d.mobileMeta(r)}</div>
                       )}

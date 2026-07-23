@@ -179,7 +179,6 @@ export function AccountHeadMasterScreen({
         empty="No account heads yet."
         mobile={{
           title: (r) => r.name,
-          subtitle: (r) => r.short_name ?? "—",
           meta: (r) =>
             r.debit_group_id ? `Dr ${groupName.get(r.debit_group_id) ?? "—"}` : null,
           pill: (r) => (
@@ -217,6 +216,7 @@ export function AccountHeadMasterScreen({
               </Label>
               <Input
                 id="ah-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 className="text-base md:text-sm"

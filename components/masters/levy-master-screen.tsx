@@ -1,4 +1,5 @@
 "use client";
+import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -281,7 +282,7 @@ export function LevyMasterScreen({
     startTransition(async () => {
       const res = await deleteLevy(r.id);
       if (res.ok) {
-        success(res.inactive ? "Levy is in use — marked inactive instead of deleted." : "Levy deleted.");
+        success(deletedToast("Levy", res));
         router.refresh();
       } else {
         error(res.error);
@@ -294,7 +295,7 @@ export function LevyMasterScreen({
   const pctCell = (v: number) => (v ? `${fmtNumber(v)}%` : "—");
   const categoryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of dutyCategories) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of dutyCategories) m.set(c.id, c.name);
     return m;
   }, [dutyCategories]);
 
@@ -491,7 +492,7 @@ export function LevyMasterScreen({
               <option value="">All</option>
               {dutyCategories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.code ? `${c.code} — ${c.name}` : c.name}
+                  {c.name}
                 </option>
               ))}
             </Select>

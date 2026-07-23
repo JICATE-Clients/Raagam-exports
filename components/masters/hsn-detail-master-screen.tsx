@@ -300,6 +300,7 @@ export function HsnDetailMasterScreen({
             <Label htmlFor="hsn-desc">Description</Label>
             <Input
               id="hsn-desc"
+              uppercase
               value={form.description}
               onChange={(e) => set({ description: e.target.value })}
               className="text-base md:text-sm"

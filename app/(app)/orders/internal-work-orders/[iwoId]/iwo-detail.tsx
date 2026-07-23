@@ -215,7 +215,7 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
             <div>
               <dt className="text-xs text-muted-foreground">Unit / Location</dt>
               <dd className="font-medium">
-                {iwo.locations ? `${iwo.locations.code} — ${iwo.locations.name}` : "—"}
+                {iwo.locations ? iwo.locations.name : "—"}
               </dd>
             </div>
             <div>

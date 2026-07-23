@@ -10,7 +10,7 @@ import { checkDuplicateName } from "./dup-guard";
 import { generateUniqueCode } from "./auto-code";
 
 type Result = { ok: true } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
 function rev(): void {
   revalidatePath("/masters/materials");
@@ -44,7 +44,7 @@ function toHeader(d: MaterialInput) {
   void _bru;
   return {
     ...rest,
-    name: (d.name?.trim() || d.code.trim()) as string, // Name falls back to Short Name
+    name: (d.name?.trim() || d.code.trim()).toUpperCase() as string, // Name falls back to Short Name; stored in CAPS (client 2026-07-23)
     hsn_code: d.hsn_code?.trim() || null,
     material_type: d.material_type?.trim() || null,
     specifications: d.specifications?.trim() || null,
@@ -282,7 +282,7 @@ export async function quickCreateMaterial(
   name: string,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const trimmed = name.trim();
+  const trimmed = name.trim().toUpperCase();
   if (!trimmed) return fail("Name is required.");
   const s = await createClient();
   const dup = await checkDuplicateName(s, "items", trimmed, {
@@ -306,7 +306,7 @@ export async function quickCreateMaterial(
  *  unlike updateMaterial which wholesale-replaces every child grid. */
 export async function renameMaterial(id: string, name: string): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
-  const trimmed = name.trim();
+  const trimmed = name.trim().toUpperCase();
   if (!trimmed) return fail("Name is required.");
   const s = await createClient();
   const { data: item } = await s.from("items").select("item_class_id").eq("id", id).maybeSingle();
@@ -328,5 +328,5 @@ export async function deleteMaterial(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "items", id, "is_active"); // grids cascade; FK-in-use → inactive instead
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

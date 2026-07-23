@@ -476,7 +476,7 @@ export function MaterialAttributeMasterScreen({
                   <option value="">— None —</option>
                   {units.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.code} — {u.name}
+                      {u.name}
                     </option>
                   ))}
                 </Select>

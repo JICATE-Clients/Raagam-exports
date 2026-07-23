@@ -9,7 +9,7 @@ import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 type CreateResult = { ok: true; id: string } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
 function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
@@ -57,7 +57,7 @@ export async function deleteCategory(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "categories", id, "inactive");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 /** Inline "+ New" Item Class add from the Category picker — returns the new id

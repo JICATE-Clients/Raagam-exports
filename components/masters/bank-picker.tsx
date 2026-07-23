@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -132,11 +132,28 @@ export function BankPicker({
     });
   }
 
-  const selectedLabel = selected
-    ? selected.code
-      ? `${selected.code} — ${selected.name}`
-      : selected.name
-    : `— Select ${label} —`;
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((b) => b.id === highlight);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlight(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlight && filtered.some((b) => b.id === highlight) ? highlight : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        close();
+      }
+    }
+  }
+
+  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   return (
     <div>
@@ -190,6 +207,7 @@ export function BankPicker({
                       autoFocus
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={onListKeyDown}
                       placeholder="Search code or name…"
                       className="text-base md:text-sm"
                     />
@@ -203,7 +221,6 @@ export function BankPicker({
                       <table className="w-full text-sm">
                         <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                           <tr>
-                            <th className="w-24 px-4 py-2 text-left font-medium">Code</th>
                             <th className="px-4 py-2 text-left font-medium">Name</th>
                             <th className="w-20 px-4 py-2 text-left font-medium">Type</th>
                           </tr>
@@ -212,6 +229,11 @@ export function BankPicker({
                           {filtered.map((b) => (
                             <tr
                               key={b.id}
+                              ref={
+                                highlight === b.id
+                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                                  : undefined
+                              }
                               onClick={() => setHighlight(b.id)}
                               onDoubleClick={() => {
                                 onChange(b.id);
@@ -222,7 +244,6 @@ export function BankPicker({
                                 (highlight === b.id ? "bg-primary/10" : "hover:bg-surface-muted")
                               }
                             >
-                              <td className="px-4 py-2 font-mono text-xs">{b.code ?? "—"}</td>
                               <td className="px-4 py-2">{b.name}</td>
                               <td className="px-4 py-2 text-muted-foreground">{b.bank_type ?? "—"}</td>
                             </tr>
@@ -270,6 +291,7 @@ export function BankPicker({
                         <Label htmlFor="bp-code">Code</Label>
                         <Input
                           id="bp-code"
+                          uppercase
                           value={code}
                           onChange={(e) => setCode(e.target.value)}
                           className="text-base md:text-sm"
@@ -299,6 +321,7 @@ export function BankPicker({
                       <Input
                         id="bp-name"
                         autoFocus
+                        uppercase
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         className="text-base md:text-sm"

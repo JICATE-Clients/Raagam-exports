@@ -160,7 +160,7 @@ export function ApplicantMasterScreen({
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of countries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
   const cityLabel = useMemo(() => {
@@ -457,6 +457,7 @@ export function ApplicantMasterScreen({
             </Label>
             <Input
               id="ap-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required

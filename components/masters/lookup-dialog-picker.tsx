@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -154,11 +154,28 @@ export function LookupDialogPicker({
     });
   }
 
-  const selectedLabel = selected
-    ? selected.code
-      ? `${selected.code} — ${selected.name}`
-      : selected.name
-    : `— Select ${label} —`;
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((o) => o.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((o) => o.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        close();
+      }
+    }
+  }
+
+  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   const trigger = (
     <button
@@ -220,6 +237,7 @@ export function LookupDialogPicker({
                       autoFocus
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={onListKeyDown}
                       placeholder="Search code or name…"
                       className="text-base md:text-sm"
                     />
@@ -233,7 +251,6 @@ export function LookupDialogPicker({
                       <table className="w-full text-sm">
                         <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                           <tr>
-                            <th className="w-28 px-4 py-2 text-left font-medium">Code</th>
                             <th className="px-4 py-2 text-left font-medium">Name</th>
                           </tr>
                         </thead>
@@ -241,6 +258,11 @@ export function LookupDialogPicker({
                           {filtered.map((o) => (
                             <tr
                               key={o.id}
+                              ref={
+                                highlightId === o.id
+                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                                  : undefined
+                              }
                               onClick={() => setHighlightId(o.id)}
                               onDoubleClick={() => {
                                 onChange(o.id);
@@ -251,7 +273,6 @@ export function LookupDialogPicker({
                                 (highlightId === o.id ? "bg-primary/10" : "hover:bg-surface-muted")
                               }
                             >
-                              <td className="px-4 py-2 font-mono text-xs">{o.code ?? "—"}</td>
                               <td className="px-4 py-2">{o.name}</td>
                             </tr>
                           ))}
@@ -292,6 +313,7 @@ export function LookupDialogPicker({
                       <Label htmlFor="ldp-code">Code</Label>
                       <Input
                         id="ldp-code"
+                        uppercase
                         value={code}
                         onChange={(e) => setCode(e.target.value)}
                         className="text-base md:text-sm"
@@ -304,6 +326,7 @@ export function LookupDialogPicker({
                       <Input
                         id="ldp-name"
                         autoFocus
+                        uppercase
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         className="text-base md:text-sm"

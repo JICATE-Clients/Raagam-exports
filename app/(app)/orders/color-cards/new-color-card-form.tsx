@@ -141,7 +141,7 @@ export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
                     <option value="">— select buyer —</option>
                     {buyers.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.code} — {b.name}
+                        {b.name}
                       </option>
                     ))}
                   </Select>

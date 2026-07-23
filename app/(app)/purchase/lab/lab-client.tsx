@@ -293,7 +293,7 @@ export function LabClient(props: Props) {
                     <Label htmlFor="t-standard">Standard</Label>
                     <Select id="t-standard" value={tStandard} onChange={(e) => setTStandard(e.target.value)}>
                       <option value="">— none —</option>
-                      {standardOpts.map((o) => <option key={o.id} value={o.id}>{o.code ? `${o.code} — ` : ""}{o.name}</option>)}
+                      {standardOpts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                     </Select>
                   </div>
                   <div>
@@ -307,7 +307,7 @@ export function LabClient(props: Props) {
                     <Label htmlFor="t-item">Item</Label>
                     <Select id="t-item" value={tItem} onChange={(e) => setTItem(e.target.value)}>
                       <option value="">— none —</option>
-                      {items.map((i) => <option key={i.id} value={i.id}>{i.code ? `${i.code} — ` : ""}{i.name}</option>)}
+                      {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                     </Select>
                   </div>
                   <div>
@@ -325,7 +325,7 @@ export function LabClient(props: Props) {
                       <Label htmlFor="t-vendor">Outside lab</Label>
                       <Select id="t-vendor" value={tVendor} onChange={(e) => setTVendor(e.target.value)}>
                         <option value="">— select —</option>
-                        {vendors.map((v) => <option key={v.id} value={v.id}>{v.code ? `${v.code} — ` : ""}{v.name}</option>)}
+                        {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                       </Select>
                     </div>
                   )}

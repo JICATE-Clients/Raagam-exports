@@ -325,6 +325,7 @@ export function ComponentMasterScreen({
               </Label>
               <Input
                 id="cmp-short"
+                uppercase
                 value={form.short_name}
                 onChange={(e) => setForm({ ...form, short_name: e.target.value })}
                 className="text-base md:text-sm"
@@ -335,6 +336,7 @@ export function ComponentMasterScreen({
               <Label htmlFor="cmp-desc">Description</Label>
               <Input
                 id="cmp-desc"
+                uppercase
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 className="text-base md:text-sm"

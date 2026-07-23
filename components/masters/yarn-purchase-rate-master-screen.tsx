@@ -208,7 +208,7 @@ export function YarnPurchaseRateMasterScreen({
                       className="text-base md:text-sm">
                       <option value="">— yarn —</option>
                       {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.code} — {it.name}</option>
+                        <option key={it.id} value={it.id}>{it.name}</option>
                       ))}
                     </Select>
                     <Select value={l.purity_id ?? ""}

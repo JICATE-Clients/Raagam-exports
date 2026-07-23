@@ -181,7 +181,7 @@ export function GrnNewForm({ openPoLines, vendors, locations }: Props) {
                 <option value="">Select location</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.code} — {l.name}
+                    {l.name}
                   </option>
                 ))}
               </Select>

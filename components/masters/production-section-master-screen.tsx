@@ -24,16 +24,12 @@ const descriptor: SimpleMasterDescriptor<ProductionSection> = {
   ioEntityKey: "production-sections",
   status: "active",
   // Code is auto-generated from the name on create (client 2026-07-23: don't
-  // ask users for codes) — shown as a read-only column, never edited.
+  // ask users for codes) — backend-only, never shown or edited.
   fields: [
     { key: "name", label: "Name", required: true },
     { key: "section_for", label: "Section For", kind: "select", options: FOR_OPTIONS },
   ],
-  extraColumns: [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-  ],
   mobileTitleKey: "name",
-  mobileMeta: (r) => r.code,
   extraFilters: [
     {
       key: "sectionFor",

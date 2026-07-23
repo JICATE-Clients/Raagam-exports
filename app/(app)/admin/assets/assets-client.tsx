@@ -102,7 +102,7 @@ export function AssetsClient({ rows, locations, canCreate }: Props) {
                     <Label htmlFor="as-loc">Location</Label>
                     <Select id="as-loc" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
                       <option value="">— none —</option>
-                      {locations.map((l) => <option key={l.id} value={l.id}>{l.code} — {l.name}</option>)}
+                      {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </Select>
                   </div>
                   <div><Label htmlFor="as-date">Purchase date</Label><Input id="as-date" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></div>

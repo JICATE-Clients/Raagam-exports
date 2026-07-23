@@ -9,7 +9,7 @@ import { deleteOrDeactivate } from "./delete-guard";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
-type DeleteResult = { ok: true; inactive: boolean } | Failure;
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | Failure;
 
 function fail(msg: string): Failure {
   return { ok: false, error: msg };
@@ -85,5 +85,5 @@ export async function deleteComposition(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "compositions", id, "blocked"); // lines cascade
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

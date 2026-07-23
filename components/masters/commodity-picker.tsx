@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -72,7 +72,7 @@ export function CommodityPicker({
 
   const classLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of itemClasses) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of itemClasses) m.set(c.id, c.name);
     return m;
   }, [itemClasses]);
 
@@ -187,6 +187,27 @@ export function CommodityPicker({
     });
   }
 
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((c) => c.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((c) => c.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        close();
+      }
+    }
+  }
+
   const selectedLabel = selected ? selected.name || selected.short_name || "—" : "— Select Commodity —";
 
   return (
@@ -239,6 +260,7 @@ export function CommodityPicker({
                       autoFocus
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={onListKeyDown}
                       placeholder="Search name…"
                       className="text-base md:text-sm"
                     />
@@ -258,6 +280,11 @@ export function CommodityPicker({
                           {filtered.map((c) => (
                             <tr
                               key={c.id}
+                              ref={
+                                highlightId === c.id
+                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                                  : undefined
+                              }
                               onClick={() => setHighlightId(c.id)}
                               onDoubleClick={() => {
                                 onChange(c.id);
@@ -369,6 +396,7 @@ export function CommodityPicker({
                       </Label>
                       <Input
                         id="cop-name"
+                        uppercase
                         value={form.name}
                         onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                         className="text-base md:text-sm"

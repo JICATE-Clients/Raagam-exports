@@ -188,7 +188,7 @@ export default function ContractorsClient({
                   <option value="">— Select —</option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.code ? `${l.code} — ` : ""}{l.name}
+                      {l.name}
                     </option>
                   ))}
                 </Select>

@@ -306,6 +306,7 @@ export function BrandMasterScreen({
               </Label>
               <Input
                 id="brd-name"
+                uppercase
                 value={form.brand_name}
                 onChange={(e) => set({ brand_name: e.target.value })}
                 className="text-base md:text-sm"

@@ -136,7 +136,6 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
   }
 
   const columns: Column<Tyre>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
     { header: "Brand", cell: (r) => <span className="text-sm text-muted-foreground">{r.brand ?? "—"}</span> },
     { header: "Type", cell: (r) => <span className="text-sm text-muted-foreground">{r.tyre_type ?? "—"}</span> },
@@ -241,10 +240,9 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
-                    <span className="font-mono">{r.code}</span>
-                    {r.brand ? ` · ${r.brand}` : ""}
-                    {r.size ? ` · ${r.size}` : ""}
-                    {` · Retreads: ${r.retreads_done}/${r.allowed_retreads}`}
+                    {r.brand ? `${r.brand} · ` : ""}
+                    {r.size ? `${r.size} · ` : ""}
+                    {`Retreads: ${r.retreads_done}/${r.allowed_retreads}`}
                   </div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "danger"}>
@@ -289,6 +287,7 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
               </Label>
               <Input
                 id="tyr-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 className="text-base md:text-sm"

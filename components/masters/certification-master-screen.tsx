@@ -332,6 +332,7 @@ export function CertificationMasterScreen({
               </Label>
               <Input
                 id="cert-name"
+                uppercase
                 value={form.certification_name}
                 onChange={(e) => setForm({ ...form, certification_name: e.target.value })}
                 required

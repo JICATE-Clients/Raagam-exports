@@ -1,4 +1,5 @@
 "use client";
+import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -138,7 +139,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
     startTransition(async () => {
       const res = await deleteConstruction(r.id);
       if (res.ok) {
-        success(res.inactive ? "Construction marked inactive." : "Construction deleted.");
+        success(deletedToast("Construction", res));
         router.refresh();
       } else {
         error(res.error);
@@ -150,7 +151,6 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
   const weftCount = (r: Construction) => (r.details ?? []).filter((d) => d.count_type === "T").length;
 
   const columns: Column<Construction>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Reed", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.reed ?? "—"}</span> },
     { header: "EPI", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.epi_on_loom ?? "—"}</span> },
@@ -215,7 +215,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                <div className="mt-0.5 font-mono text-xs text-muted-foreground">{r.code} · Reed {r.reed} · Pick {r.pick}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Reed {r.reed} · Pick {r.pick}</div>
               </div>
               <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
             </div>
@@ -239,7 +239,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Label htmlFor="con-name">Name <span className="text-danger">*</span></Label>
-            <Input id="con-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            <Input id="con-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
             {!editId && (
               <p className="mt-1 text-xs text-muted-foreground">
                 The code is generated automatically from the name.
@@ -278,7 +278,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
           </div>
           <div>
             <Label htmlFor="con-desc">Weave Tech Description</Label>
-            <Input id="con-desc" value={form.weave_tech_desc} onChange={(e) => setForm({ ...form, weave_tech_desc: e.target.value })} className="text-base md:text-sm" />
+            <Input id="con-desc" uppercase value={form.weave_tech_desc} onChange={(e) => setForm({ ...form, weave_tech_desc: e.target.value })} className="text-base md:text-sm" />
           </div>
           <div className="flex gap-4 sm:col-span-2">
             <label className="flex cursor-pointer items-center gap-2">
@@ -319,7 +319,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
                     className="flex-1 text-base md:text-sm">
                     <option value="">— yarn item —</option>
                     {items.map((it) => (
-                      <option key={it.id} value={it.id}>{it.code} — {it.name}</option>
+                      <option key={it.id} value={it.id}>{it.name}</option>
                     ))}
                   </Select>
                   <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"

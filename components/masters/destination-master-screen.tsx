@@ -46,7 +46,7 @@ export function DestinationMasterScreen({
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of countries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
 
@@ -242,6 +242,7 @@ export function DestinationMasterScreen({
             </Label>
             <Input
               id="de-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"

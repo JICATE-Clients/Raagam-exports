@@ -224,6 +224,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
             <Label htmlFor="lt-desc">Description</Label>
             <Input
               id="lt-desc"
+              uppercase
               value={form.description}
               onChange={(e) => set({ description: e.target.value })}
               className="text-base md:text-sm"

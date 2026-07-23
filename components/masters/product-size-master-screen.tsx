@@ -441,6 +441,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
               <Label htmlFor="ps-desc1">Description 1</Label>
               <Input
                 id="ps-desc1"
+                uppercase
                 value={form.desc1}
                 onChange={(e) => set({ desc1: e.target.value })}
                 className="text-base md:text-sm"
@@ -450,6 +451,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
               <Label htmlFor="ps-desc2">Description 2</Label>
               <Input
                 id="ps-desc2"
+                uppercase
                 value={form.desc2}
                 onChange={(e) => set({ desc2: e.target.value })}
                 className="text-base md:text-sm"
@@ -459,6 +461,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
               <Label htmlFor="ps-desc3">Description 3</Label>
               <Input
                 id="ps-desc3"
+                uppercase
                 value={form.desc3}
                 onChange={(e) => set({ desc3: e.target.value })}
                 className="text-base md:text-sm"

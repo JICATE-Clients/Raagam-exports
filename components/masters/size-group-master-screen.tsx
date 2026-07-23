@@ -317,6 +317,7 @@ export function SizeGroupMasterScreen({
               </Label>
               <Input
                 id="sg-name"
+                uppercase
                 value={form.size_group_name}
                 onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
                 placeholder="Size group name"

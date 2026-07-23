@@ -221,6 +221,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
             <Label htmlFor="al-name">Name *</Label>
             <Input
               id="al-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"

@@ -231,7 +231,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
                       className="flex-1 text-base md:text-sm">
                       <option value="">— yarn —</option>
                       {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.code} — {it.name}</option>
+                        <option key={it.id} value={it.id}>{it.name}</option>
                       ))}
                     </Select>
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,11 +54,28 @@ export function NotifyPicker({
     setOpen(false);
   }
 
-  const selectedLabel = selected
-    ? selected.code
-      ? `${selected.code} — ${selected.name}`
-      : selected.name
-    : `— Select ${label} —`;
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((n) => n.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((n) => n.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        setOpen(false);
+      }
+    }
+  }
+
+  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   return (
     <div>
@@ -116,6 +133,7 @@ export function NotifyPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onListKeyDown}
                   placeholder="Search short name or name…"
                   className="text-base md:text-sm"
                 />
@@ -129,7 +147,6 @@ export function NotifyPicker({
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                       <tr>
-                        <th className="w-28 px-4 py-2 text-left font-medium">Short Name</th>
                         <th className="px-4 py-2 text-left font-medium">Name</th>
                       </tr>
                     </thead>
@@ -137,6 +154,11 @@ export function NotifyPicker({
                       {filtered.map((n) => (
                         <tr
                           key={n.id}
+                          ref={
+                            highlightId === n.id
+                              ? (el) => el?.scrollIntoView({ block: "nearest" })
+                              : undefined
+                          }
                           onClick={() => setHighlightId(n.id)}
                           onDoubleClick={() => {
                             onChange(n.id);
@@ -147,7 +169,6 @@ export function NotifyPicker({
                             (highlightId === n.id ? "bg-primary/10" : "hover:bg-surface-muted")
                           }
                         >
-                          <td className="px-4 py-2 font-mono text-xs">{n.code ?? "—"}</td>
                           <td className="px-4 py-2">{n.name}</td>
                         </tr>
                       ))}

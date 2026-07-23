@@ -474,7 +474,7 @@ function RecordOutputTab({
                     <option value="">— no line —</option>
                     {lines.map((l) => (
                       <option key={l.id} value={l.id}>
-                        {l.code} — {l.name}
+                        {l.name}
                       </option>
                     ))}
                   </Select>

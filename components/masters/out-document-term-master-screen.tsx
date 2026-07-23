@@ -432,7 +432,7 @@ export function OutDocumentTermMasterScreen({
               {
                 header: "Description",
                 cell: (l) => (
-                  <Input value={l.description} onChange={(e) => setLineAt(l.key, e.target.value)} placeholder="Description" className="text-base md:text-sm" />
+                  <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, e.target.value)} placeholder="Description" className="text-base md:text-sm" />
                 ),
               },
             ]}

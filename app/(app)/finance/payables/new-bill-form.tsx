@@ -245,7 +245,7 @@ export function NewBillForm({
                   <option value="">— All locations —</option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.code} — {l.name}
+                      {l.name}
                     </option>
                   ))}
                 </Select>

@@ -369,6 +369,7 @@ export function PackingMethodMasterScreen({
               <Label htmlFor="pm-desc">Description</Label>
               <Input
                 id="pm-desc"
+                uppercase
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 className="text-base md:text-sm"

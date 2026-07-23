@@ -186,7 +186,7 @@ export function YarnDebitRateMasterScreen({
                     className="flex-1 text-base md:text-sm">
                     <option value="">— select yarn —</option>
                     {items.map((it) => (
-                      <option key={it.id} value={it.id}>{it.code} — {it.name}</option>
+                      <option key={it.id} value={it.id}>{it.name}</option>
                     ))}
                   </Select>
                   <Input type="number" placeholder="Rate/KG" value={l.rate_per_kg} min={0} step="0.01"

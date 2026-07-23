@@ -9,7 +9,7 @@ import { generateUniqueCode } from "./auto-code";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
-type DeleteResult = { ok: true; inactive: boolean } | Failure;
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | Failure;
 type CreateResult = { ok: true; id: string } | Failure;
 
 function fail(msg: string): Failure {
@@ -29,7 +29,7 @@ export async function createYarnComposition(data: {
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   if (!code) {
@@ -57,7 +57,7 @@ export async function updateYarnComposition(
 ): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -84,7 +84,7 @@ export async function deleteYarnComposition(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "yarn_compositions", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -97,7 +97,7 @@ export async function createDefectGroup(data: {
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   if (!code) {
@@ -125,7 +125,7 @@ export async function updateDefectGroup(
 ): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -152,7 +152,7 @@ export async function deleteDefectGroup(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "defect_groups", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -210,7 +210,7 @@ export async function deleteStyleStockCategory(id: string): Promise<DeleteResult
   const res = await deleteOrDeactivate(s, "style_stock_categories", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -282,7 +282,7 @@ export async function deleteSpecialInstruction(id: string): Promise<DeleteResult
   const res = await deleteOrDeactivate(s, "special_instructions", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -295,7 +295,7 @@ export async function createBeamType(data: {
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   if (!code) {
@@ -323,7 +323,7 @@ export async function updateBeamType(
 ): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -350,7 +350,7 @@ export async function deleteBeamType(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "beam_types", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -361,7 +361,7 @@ export async function createDesign(data: {
   is_active: boolean;
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   const dupName = await checkDuplicateName(s, "designs", name, { nameColumn: "name" });
@@ -381,7 +381,7 @@ export async function updateDesign(
   data: { name: string; is_active: boolean },
 ): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   const dupName = await checkDuplicateName(s, "designs", name, {
@@ -404,7 +404,7 @@ export async function deleteDesign(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "designs", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -467,7 +467,7 @@ export async function deleteDomesticProductDesign(id: string): Promise<DeleteRes
   const res = await deleteOrDeactivate(s, "domestic_product_designs", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -481,7 +481,7 @@ export async function createLabTestStandard(data: {
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   if (!code) {
@@ -509,7 +509,7 @@ export async function updateLabTestStandard(
 ): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -537,7 +537,7 @@ export async function deleteLabTestStandard(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "lab_test_standards", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -550,7 +550,7 @@ export async function createProductType(data: {
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   if (!code) {
@@ -578,7 +578,7 @@ export async function updateProductType(
 ): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -605,5 +605,5 @@ export async function deleteProductType(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "product_types", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

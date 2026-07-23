@@ -203,7 +203,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   <option value="">— select buyer —</option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.code} — {b.name}
+                      {b.name}
                     </option>
                   ))}
                 </Select>
@@ -219,7 +219,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   <option value="">— select location —</option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.code} — {l.name}
+                      {l.name}
                     </option>
                   ))}
                 </Select>

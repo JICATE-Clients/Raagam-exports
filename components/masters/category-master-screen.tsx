@@ -554,6 +554,7 @@ export function CategoryMasterScreen({
               </Label>
               <Input
                 id="cat-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="text-base md:text-sm"

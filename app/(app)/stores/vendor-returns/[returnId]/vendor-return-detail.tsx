@@ -102,7 +102,7 @@ export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDe
                 <Label htmlFor="vl-item">Item</Label>
                 <Select id="vl-item" value={itemId} onChange={(e) => setItemId(e.target.value)}>
                   <option value="">— select item —</option>
-                  {items.map((i) => <option key={i.id} value={i.id}>{i.code ? `${i.code} — ` : ""}{i.name}</option>)}
+                  {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </Select>
               </div>
               <div className="w-28">

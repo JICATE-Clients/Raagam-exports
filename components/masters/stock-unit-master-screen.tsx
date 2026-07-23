@@ -178,7 +178,6 @@ export function StockUnitMasterScreen({
   }
 
   const columns: Column<StockUnit>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "Decimals",
@@ -272,8 +271,8 @@ export function StockUnitMasterScreen({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 font-mono text-xs text-muted-foreground">
-                    {r.code} · {r.decimal_places} dp
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    {r.decimal_places} dp
                   </div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "neutral"}>
@@ -326,6 +325,7 @@ export function StockUnitMasterScreen({
               </Label>
               <Input
                 id="su-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 placeholder="Kilogram"

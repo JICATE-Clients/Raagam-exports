@@ -18,16 +18,12 @@ const descriptor: SimpleMasterDescriptor<Row> = {
   ioEntityKey: "lab-test-standards",
   status: "active",
   // Code is auto-generated from the name on create (client 2026-07-23: don't
-  // ask users for codes) — shown as a read-only column, never edited.
+  // ask users for codes) — backend-only, never shown or edited.
   fields: [
     { key: "name", label: "Name", required: true },
     { key: "category", label: "Category" },
   ],
-  extraColumns: [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-  ],
   mobileTitleKey: "name",
-  mobileMeta: (r) => r.code,
   fromRow: (r) => ({ name: r.name, category: r.category ?? "" }),
   searchText: (r) => [r.code, r.name, r.category].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),

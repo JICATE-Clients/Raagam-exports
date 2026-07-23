@@ -135,7 +135,7 @@ export function NewShipmentForm({ buyers, currencies, orders }: Props) {
                   <option value="">— select buyer —</option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.code ? `${b.code} — ` : ""}{b.name}
+                      {b.name}
                     </option>
                   ))}
                 </Select>

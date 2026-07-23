@@ -318,6 +318,7 @@ export function ZoneMasterScreen({
               </Label>
               <Input
                 id="zn-name"
+                uppercase
                 value={form.zone_name}
                 onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
                 required

@@ -153,7 +153,7 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
                 <option value="">Select location</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.code} — {l.name}
+                    {l.name}
                   </option>
                 ))}
               </Select>
@@ -235,7 +235,7 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
                         <option value="">Select item</option>
                         {items.map((item) => (
                           <option key={item.id} value={item.id}>
-                            {item.code} — {item.name}
+                            {item.name}
                           </option>
                         ))}
                       </Select>

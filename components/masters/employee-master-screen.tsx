@@ -527,6 +527,7 @@ export function EmployeeMasterScreen({
             </Label>
             <Input
               id="emp-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
@@ -555,6 +556,7 @@ export function EmployeeMasterScreen({
               <Label htmlFor="emp-gname">Guardian Name</Label>
               <Input
                 id="emp-gname"
+                uppercase
                 value={form.guardian_name}
                 onChange={(e) => set({ guardian_name: e.target.value })}
                 className="text-base md:text-sm"
@@ -689,6 +691,7 @@ export function EmployeeMasterScreen({
                 <Label htmlFor="emp-spouse-name">Spouse Name</Label>
                 <Input
                   id="emp-spouse-name"
+                  uppercase
                   value={form.spouse_name}
                   onChange={(e) => set({ spouse_name: e.target.value })}
                   className="text-base md:text-sm"
@@ -710,6 +713,7 @@ export function EmployeeMasterScreen({
                 <Label htmlFor="emp-father">Father Name</Label>
                 <Input
                   id="emp-father"
+                  uppercase
                   value={form.father_name}
                   onChange={(e) => set({ father_name: e.target.value })}
                   className="text-base md:text-sm"
@@ -719,6 +723,7 @@ export function EmployeeMasterScreen({
                 <Label htmlFor="emp-mother">Mother Name</Label>
                 <Input
                   id="emp-mother"
+                  uppercase
                   value={form.mother_name}
                   onChange={(e) => set({ mother_name: e.target.value })}
                   className="text-base md:text-sm"
@@ -836,6 +841,7 @@ export function EmployeeMasterScreen({
                 <Label htmlFor="emp-bankname">Bank Name</Label>
                 <Input
                   id="emp-bankname"
+                  uppercase
                   value={form.bank_name}
                   onChange={(e) => set({ bank_name: e.target.value })}
                   className="text-base md:text-sm"

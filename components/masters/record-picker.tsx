@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,11 +54,28 @@ export function RecordPicker({
     setOpen(true);
   }
 
-  const selectedLabel = selected
-    ? selected.code
-      ? `${selected.code} — ${selected.name}`
-      : selected.name
-    : `— Select ${label} —`;
+  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((o) => o.id === highlightId);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlightId(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick =
+        highlightId && filtered.some((o) => o.id === highlightId) ? highlightId : filtered[0]?.id;
+      if (pick) {
+        onChange(pick);
+        setOpen(false);
+      }
+    }
+  }
+
+  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   return (
     <div>
@@ -120,6 +137,7 @@ export function RecordPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onListKeyDown}
                   placeholder="Search code or name…"
                   className="text-base md:text-sm"
                 />
@@ -133,7 +151,6 @@ export function RecordPicker({
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                       <tr>
-                        <th className="w-28 px-4 py-2 text-left font-medium">Code</th>
                         <th className="px-4 py-2 text-left font-medium">Name</th>
                       </tr>
                     </thead>
@@ -141,6 +158,11 @@ export function RecordPicker({
                       {filtered.map((o) => (
                         <tr
                           key={o.id}
+                          ref={
+                            highlightId === o.id
+                              ? (el) => el?.scrollIntoView({ block: "nearest" })
+                              : undefined
+                          }
                           onClick={() => setHighlightId(o.id)}
                           onDoubleClick={() => {
                             onChange(o.id);
@@ -151,7 +173,6 @@ export function RecordPicker({
                             (highlightId === o.id ? "bg-primary/10" : "hover:bg-surface-muted")
                           }
                         >
-                          <td className="px-4 py-2 font-mono text-xs">{o.code ?? "—"}</td>
                           <td className="px-4 py-2">{o.name}</td>
                         </tr>
                       ))}

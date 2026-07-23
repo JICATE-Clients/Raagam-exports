@@ -9,7 +9,7 @@ import { deleteOrDeactivate } from "./delete-guard";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
-type DeleteResult = { ok: true; inactive: boolean } | Failure;
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | Failure;
 type CreateResult = { ok: true; id: string } | Failure;
 
 function fail(msg: string): Failure {
@@ -60,5 +60,5 @@ export async function deleteProductSize(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "product_sizes", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

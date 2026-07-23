@@ -1,4 +1,5 @@
 "use client";
+import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -96,7 +97,7 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
     startTransition(async () => {
       const res = await deleteCountGroup(r.id);
       if (res.ok) {
-        success(res.inactive ? "Count group marked inactive." : "Count group deleted.");
+        success(deletedToast("Count group", res));
         router.refresh();
       } else {
         error(res.error);
@@ -105,7 +106,6 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
   }
 
   const columns: Column<CountGroup>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Counts", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
     {
@@ -167,7 +167,7 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                <div className="mt-0.5 font-mono text-xs text-muted-foreground">{r.code} · {r.details.length} count{r.details.length === 1 ? "" : "s"}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{r.details.length} count{r.details.length === 1 ? "" : "s"}</div>
               </div>
               <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
             </div>
@@ -191,7 +191,7 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Label htmlFor="cg-name">Name <span className="text-danger">*</span></Label>
-            <Input id="cg-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            <Input id="cg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
             {!editId && (
               <p className="mt-1 text-xs text-muted-foreground">
                 The code is generated automatically from the name.
@@ -216,7 +216,7 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
                     className="flex-1 text-base md:text-sm">
                     <option value="">— select count —</option>
                     {counts.map((c) => (
-                      <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
+                      <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </Select>
                   <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"

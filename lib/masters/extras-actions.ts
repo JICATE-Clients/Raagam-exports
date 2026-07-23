@@ -19,7 +19,7 @@ import {
 } from "./extras-types";
 
 type Result = { ok: true } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
 function rev(): void {
   revalidatePath("/masters");
@@ -38,6 +38,7 @@ export async function createLookup(data: LookupInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = lookupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  p.data.name = p.data.name.trim().toUpperCase(); // names stored in CAPS (client 2026-07-23)
   // Blank code → default to the name (forms no longer ask for codes; codes in
   // config_lookups are per-kind and nullable, so name is a safe default).
   if (!p.data.code?.trim()) p.data.code = p.data.name;
@@ -65,6 +66,7 @@ export async function updateLookup(id: string, data: LookupInput): Promise<Resul
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const p = lookupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  p.data.name = p.data.name.trim().toUpperCase(); // names stored in CAPS (client 2026-07-23)
   const s = await createClient();
   const dup = await checkDuplicateName(s, "config_lookups", p.data.name, {
     excludeId: id,
@@ -82,7 +84,7 @@ export async function deleteLookup(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "config_lookups", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ---------- item classes (config_lookups kind='item_class') ----------
@@ -103,6 +105,7 @@ export async function createItemClass(data: ItemClassInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = itemClassInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  p.data.name = p.data.name.trim().toUpperCase(); // names stored in CAPS (client 2026-07-23)
   // Blank code → default to the name (forms no longer ask for codes).
   if (!p.data.code?.trim()) p.data.code = p.data.name;
   const s = await createClient();
@@ -129,6 +132,7 @@ export async function updateItemClass(id: string, data: ItemClassInput): Promise
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const p = itemClassInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  p.data.name = p.data.name.trim().toUpperCase(); // names stored in CAPS (client 2026-07-23)
   const s = await createClient();
   const dup = await checkDuplicateName(s, "config_lookups", p.data.name, {
     excludeId: id,
@@ -159,7 +163,7 @@ export async function deleteItemClass(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "config_lookups", id, "is_active");
   if (!res.ok) return fail(res.error);
   revAttributes();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ---------- attribute values (per Item Class; gated by has_attribute) ----------

@@ -182,7 +182,7 @@ export function ConsigneeMasterScreen({
 
   const notifyCountryLabel = useMemo(() => {
     const country = new Map<string, string>();
-    for (const c of countries) country.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) country.set(c.id, c.name);
     const m = new Map<string, string>();
     for (const n of notifies) m.set(n.id, n.country_id ? (country.get(n.country_id) ?? "—") : "—");
     return m;
@@ -192,12 +192,12 @@ export function ConsigneeMasterScreen({
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of countries) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
   const customerLabel = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of customers) m.set(c.id, c.code ? `${c.code} — ${c.name}` : c.name);
+    for (const c of customers) m.set(c.id, c.name);
     return m;
   }, [customers]);
 
@@ -525,6 +525,7 @@ export function ConsigneeMasterScreen({
             </Label>
             <Input
               id="cn-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required

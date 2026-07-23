@@ -224,6 +224,7 @@ export function PortMasterScreen({
             </Label>
             <Input
               id="pt-name"
+              uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required

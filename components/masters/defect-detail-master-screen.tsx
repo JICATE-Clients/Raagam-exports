@@ -385,6 +385,7 @@ export function DefectDetailMasterScreen({
               </Label>
               <Input
                 id="dd-name"
+                uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 className="text-base md:text-sm"

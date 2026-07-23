@@ -12,6 +12,7 @@ import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { quickCreateMaterial, renameMaterial, deleteMaterial } from "@/lib/masters/material-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import type { ConfigLookup, LookupKind, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Category } from "@/lib/masters/category-types";
@@ -32,11 +33,6 @@ export type PickerRow = {
   disabled?: boolean;
 };
 
-// These kinds store `code` as an internal lowercase slug of `name` (e.g.
-// code "yarn_dyed" / name "Yarn-dyed") rather than a genuinely distinct
-// business code — showing "code — name" there just repeats the same word.
-const SLUG_CODE_KINDS = new Set<LookupKind>(["fabric_type", "yarn_type", "fabric_structure"]);
-
 type PickerDraft = { code: string; name: string; typeCode?: string };
 type ManageConfig = {
   canCreate: boolean;
@@ -44,7 +40,7 @@ type ManageConfig = {
   canDelete: boolean;
   onCreate: (draft: PickerDraft) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   onUpdate: (id: string, draft: PickerDraft) => Promise<{ ok: true } | { ok: false; error: string }>;
-  onDelete: (id: string) => Promise<{ ok: true; inactive: boolean } | { ok: false; error: string }>;
+  onDelete: (id: string) => Promise<{ ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string }>;
   onCreated: (id: string, draft: PickerDraft) => void;
   onUpdated: (id: string, draft: PickerDraft) => void;
   onDeleted: (id: string, inactive: boolean) => void;
@@ -111,6 +107,25 @@ function DialogListPicker({
     close();
   }
 
+  /** ↓/↑ walk the filtered list, Enter = OK (client 2026-07-23). The search
+   *  input keeps focus the whole time — arrows only move the highlight. */
+  function onListKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const idx = filtered.findIndex((r) => r.id === highlighted);
+      const next =
+        e.key === "ArrowDown"
+          ? filtered[Math.min(idx + 1, filtered.length - 1)]
+          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+      setHighlighted(next.id);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick = highlighted && filtered.some((r) => r.id === highlighted) ? highlighted : filtered[0]?.id;
+      if (pick) commit(pick);
+    }
+  }
+
   function startAdd() {
     setDraftCode("");
     setDraftName("");
@@ -167,11 +182,7 @@ function DialogListPicker({
       if (res.ok) {
         manage.onDeleted(id, res.inactive);
         if (!res.inactive && value === id) onChange("");
-        success(
-          res.inactive
-            ? `${noun.replace(/s$/, "")} is in use — marked inactive instead of deleted, history preserved.`
-            : `${noun.replace(/s$/, "")} deleted.`,
-        );
+        success(deletedToast(noun.replace(/s$/, ""), res));
         setHighlighted(res.inactive ? id : null);
         setMode("list");
       } else {
@@ -233,6 +244,7 @@ function DialogListPicker({
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onListKeyDown}
               placeholder="Search…"
               className="sticky top-0 text-base md:text-sm"
             />
@@ -269,6 +281,9 @@ function DialogListPicker({
               {filtered.map((r) => (
                 <div
                   key={r.id}
+                  // Ref-callback identity changes with the highlight, so the
+                  // newly highlighted row scrolls itself into view on ↓/↑.
+                  ref={highlighted === r.id ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                   onClick={() => setHighlighted(r.id)}
                   onDoubleClick={() => commit(r.id)}
                   className={cn(
@@ -313,12 +328,26 @@ function DialogListPicker({
               <Label>
                 Name <span className="text-danger">*</span>
               </Label>
-              <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} className="text-base md:text-sm" />
+              <Input
+                autoFocus
+                uppercase
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter = save (client 2026-07-23)
+                  if (e.key === "Enter" && !isPending && draftName.trim()) {
+                    e.preventDefault();
+                    (mode === "edit" ? saveEdit : saveAdd)();
+                  }
+                }}
+                className="text-base md:text-sm"
+              />
             </div>
             {manage?.showTypeField && (
               <div>
                 <Label>Type</Label>
                 <Input
+                  uppercase
                   value={draftType}
                   onChange={(e) => setDraftType(e.target.value)}
                   placeholder="Functional grouping (e.g. FAB, GEN)"
@@ -396,19 +425,18 @@ export function LookupDialogPicker({
   const byId = useMemo(() => new Map(all.map((o) => [o.id, o])), [all]);
 
   // Inactive values must be excluded from new selections but stay resolvable
-  // for a record that already references them.
-  const isSlugCode = SLUG_CODE_KINDS.has(kind);
+  // for a record that already references them. Codes are backend-only
+  // (client 2026-07-23) — show just the name.
   const rows: PickerRow[] = useMemo(
     () =>
       all
         .filter((o) => o.is_active || o.id === value)
         .map((o) => ({
           id: o.id,
-          label: o.code && !isSlugCode ? `${o.code} — ${o.name}` : o.name,
-          sublabel: isSlugCode ? undefined : o.code ?? undefined,
+          label: o.name,
           disabled: !o.is_active,
         })),
-    [all, value, isSlugCode],
+    [all, value],
   );
 
   const manage: ManageConfig | undefined =
@@ -543,8 +571,9 @@ export function ItemPicker({
     const seen = new Set<string>();
     return [...items, ...extra].filter((it) => (seen.has(it.id) ? false : (seen.add(it.id), true)));
   }, [items, extra]);
+  // Codes are backend-only (client 2026-07-23) — rows show just the name.
   const rows: PickerRow[] = useMemo(
-    () => all.map((it) => ({ id: it.id, label: it.name, sublabel: it.code || undefined })),
+    () => all.map((it) => ({ id: it.id, label: it.name })),
     [all],
   );
 
@@ -574,7 +603,8 @@ export function ItemPicker({
             if (!inactive) setExtra((xs) => xs.filter((it) => it.id !== id));
             router.refresh();
           },
-          draftOf: (row) => ({ code: row.sublabel ?? "", name: row.label }),
+          // code unused by renameMaterial — the stored code is preserved server-side.
+          draftOf: (row) => ({ code: "", name: row.label }),
         }
       : undefined;
 

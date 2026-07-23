@@ -19,7 +19,7 @@ import type {
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
-type DeleteResult = { ok: true; inactive: boolean } | Failure;
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | Failure;
 type CreateResult = { ok: true; id: string } | Failure;
 
 function fail(msg: string): Failure {
@@ -50,7 +50,7 @@ async function replaceDetails(
 export async function createCountGroup(data: CountGroupInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   if (!data.details.length) return fail("At least one count row is required.");
   const s = await createClient();
@@ -76,7 +76,7 @@ export async function createCountGroup(data: CountGroupInput): Promise<CreateRes
 export async function updateCountGroup(id: string, data: CountGroupInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -99,7 +99,7 @@ export async function deleteCountGroup(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "count_groups", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -108,7 +108,7 @@ export async function deleteCountGroup(id: string): Promise<DeleteResult> {
 export async function createConstruction(data: ConstructionInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   if (!code) {
@@ -153,7 +153,7 @@ export async function createConstruction(data: ConstructionInput): Promise<Creat
 export async function updateConstruction(id: string, data: ConstructionInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -194,7 +194,7 @@ export async function deleteConstruction(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "constructions", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -455,7 +455,7 @@ export async function deleteWarpLengthAllowance(id: string): Promise<Result> {
 export async function createProcessSequence(data: ProcessSequenceInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   if (!data.details.length) return fail("At least one step is required.");
   const s = await createClient();
@@ -493,7 +493,7 @@ export async function createProcessSequence(data: ProcessSequenceInput): Promise
 export async function updateProcessSequence(id: string, data: ProcessSequenceInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -528,7 +528,7 @@ export async function deleteProcessSequence(id: string): Promise<DeleteResult> {
   const res = await deleteOrDeactivate(s, "process_sequences", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================
@@ -537,7 +537,7 @@ export async function deleteProcessSequence(id: string): Promise<DeleteResult> {
 export async function createProcessSequenceGroup(data: ProcessSequenceGroupInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   let code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   if (!data.details.length) return fail("At least one sequence row is required.");
   const s = await createClient();
@@ -567,7 +567,7 @@ export async function createProcessSequenceGroup(data: ProcessSequenceGroupInput
 export async function updateProcessSequenceGroup(id: string, data: ProcessSequenceGroupInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
-  const name = data.name.trim();
+  const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
   // Blank code on update = keep the stored one (the form doesn't edit codes).
@@ -594,5 +594,5 @@ export async function deleteProcessSequenceGroup(id: string): Promise<DeleteResu
   const res = await deleteOrDeactivate(s, "process_sequence_groups", id, "is_active");
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

@@ -17,6 +17,7 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/material-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { LookupDialogPicker, CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -473,15 +474,16 @@ export function MaterialMasterScreen({
     startTransition(async () => {
       const res = await deleteMaterial(r.id);
       if (res.ok) {
-        success(res.inactive ? "Material is in use — deactivated instead of deleted (history kept)." : "Material deleted.");
+        success(deletedToast("Material", res));
         router.refresh();
       } else error(res.error);
     });
   }
 
+  // Codes are backend-only (client 2026-07-23) — options show just the name.
   const uomOptions = units.map((u) => (
     <option key={u.id} value={u.id}>
-      {u.code} — {u.name}
+      {u.name}
     </option>
   ));
   const uomSelect = (value: string, onChange: (v: string) => void) => (
@@ -606,7 +608,8 @@ export function MaterialMasterScreen({
           .filter((m) => m.pct && m.label);
         if (filled.length) parts.push(filled.map((m) => `${m.pct}% ${m.label}`).join(" / "));
       }
-      return parts.join(" ") || null;
+      // Generated names come out in CAPS (client 2026-07-23).
+      return parts.join(" ").toUpperCase() || null;
     }
     if (formKey === "FABRIC") {
       const structureName = structureCode ? fabricStructures.find((s) => s.code === structureCode)?.name : null;
@@ -624,12 +627,12 @@ export function MaterialMasterScreen({
           parts.push(filled.map((m) => (isYarnDyedFabric ? m.label : `${m.pct}% ${m.label}`)).join(" / "));
         }
       }
-      return parts.join(" ") || null;
+      return parts.join(" ").toUpperCase() || null;
     }
     // SEW/PACK (generic form) with a configured attribute set: join the answers.
     if (formKey === "A" && attrQuestions.length) {
       const parts = attrQuestions.map((q) => (answers[q.lineId] ?? "").trim()).filter(Boolean);
-      return parts.length ? parts.join(attrSeparator) : null;
+      return parts.length ? parts.join(attrSeparator).toUpperCase() : null;
     }
     return null;
   }, [formKey, form.count_id, form.purity_id, form.fabric_type_id, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, structureCode, fabricStructures, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric]);
@@ -1024,7 +1027,6 @@ export function MaterialMasterScreen({
       header: "Category Name",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.category_id ? catLabel.get(r.category_id) ?? "—" : "—"}</span>,
     },
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "HSN Code", cell: (r) => <span className="text-xs text-muted-foreground">{r.hsn_code ?? "—"}</span> },
     { header: "Base", cell: (r) => uomCell(r.base_uom_id) },
@@ -1190,7 +1192,6 @@ export function MaterialMasterScreen({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 font-mono text-xs text-muted-foreground">{r.code}</div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
               </div>
@@ -1326,7 +1327,7 @@ export function MaterialMasterScreen({
                 <Label htmlFor="mt-name">
                   Name <span className="text-danger">*</span>
                 </Label>
-                <Input id="mt-name" value={form.name} onChange={(e) => set({ name: e.target.value })} className="text-base md:text-sm" />
+                <Input id="mt-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} className="text-base md:text-sm" />
                 {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
                 {!editId && (
                   <p className="mt-1 text-xs text-muted-foreground">
