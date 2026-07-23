@@ -22,6 +22,7 @@ import {
   deactivateZone,
 } from "@/lib/masters/zone-actions";
 import type { Zone, ZoneInput } from "@/lib/masters/zone-types";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; area_name: string };
@@ -67,6 +68,15 @@ export function ZoneMasterScreen({
 
   const pg = usePagination(filtered, 10);
 
+  // Real-time duplicate check on the zone name (mirrors the on-save guard).
+  const dupError = useDuplicateCheck({
+    table: "zones",
+    name: form.zone_name,
+    nameColumn: "zone_name",
+    excludeId: editId ?? undefined,
+    enabled: !!form.zone_name.trim(),
+  });
+
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
@@ -104,7 +114,9 @@ export function ZoneMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: ZoneInput = {
-        zone_short_name: form.zone_short_name.trim() || null,
+        // New records derive the short name from the display name; edits keep
+        // the record's original stored short name (it can be a logic key).
+        zone_short_name: (editId ? form.zone_short_name.trim() : form.zone_name.trim()) || null,
         zone_name: form.zone_name.trim(),
         inactive: form.inactive,
       };
@@ -137,7 +149,6 @@ export function ZoneMasterScreen({
   }
 
   const columns: Column<Zone>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.zone_short_name ?? "---"}</span> },
     { header: "Zone Name", cell: (r) => <span className="text-sm">{r.zone_name}</span> },
     {
       header: "Areas",
@@ -255,9 +266,6 @@ export function ZoneMasterScreen({
                   <div className="truncate text-[15px] font-semibold text-foreground">
                     {r.zone_name}
                   </div>
-                  {r.zone_short_name && (
-                    <div className="mt-0.5 text-xs text-muted-foreground">{r.zone_short_name}</div>
-                  )}
                 </div>
                 <StatusPill tone={r.inactive ? "danger" : "success"}>
                   {r.inactive ? "Inactive" : "Active"}
@@ -294,7 +302,7 @@ export function ZoneMasterScreen({
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.zone_name.trim()}
+              disabled={isPending || !form.zone_name.trim() || !!dupError}
               onClick={submit}
             >
               {isPending ? "Saving..." : "Save"}
@@ -304,29 +312,18 @@ export function ZoneMasterScreen({
       >
         <div className="space-y-4">
           <DetailSection label="Details">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="zn-short">Short Name</Label>
-                <Input
-                  id="zn-short"
-                  value={form.zone_short_name}
-                  onChange={(e) => setForm({ ...form, zone_short_name: e.target.value })}
-                  placeholder="Unique short name"
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="zn-name">
-                  Zone Name <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="zn-name"
-                  value={form.zone_name}
-                  onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
-                  required
-                  className="text-base md:text-sm"
-                />
-              </div>
+            <div>
+              <Label htmlFor="zn-name">
+                Zone Name <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="zn-name"
+                value={form.zone_name}
+                onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
+                required
+                className="text-base md:text-sm"
+              />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
           </DetailSection>
 
@@ -368,15 +365,17 @@ export function ZoneMasterScreen({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

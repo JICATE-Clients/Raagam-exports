@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/server";
 import { tyreInput, type TyreInput } from "./tyre-types";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
+import { generateUniqueCode } from "./auto-code";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
@@ -26,10 +27,14 @@ export async function createTyre(data: TyreInput): Promise<CreateResult> {
   const p = tyreInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "tyres", p.data.code, { nameColumn: "code", label: "code" });
-  if (!dupCode.ok) return fail(dupCode.error);
   const dupName = await checkDuplicateName(s, "tyres", p.data.name, { label: "name" });
   if (!dupName.ok) return fail(dupName.error);
+  if (!p.data.code.trim()) {
+    p.data.code = await generateUniqueCode(s, "tyres", p.data.name);
+  } else {
+    const dupCode = await checkDuplicateName(s, "tyres", p.data.code, { nameColumn: "code", label: "code" });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { data: row, error } = await s.from("tyres").insert(p.data).select("id").single();
   if (error) return fail(error.message);
   rev();
@@ -41,15 +46,20 @@ export async function updateTyre(id: string, data: TyreInput): Promise<Result> {
   const p = tyreInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "tyres", p.data.code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
   const dupName = await checkDuplicateName(s, "tyres", p.data.name, { label: "name", excludeId: id });
   if (!dupName.ok) return fail(dupName.error);
-  const { error } = await s.from("tyres").update(p.data).eq("id", id);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  const row: Partial<TyreInput> = { ...p.data };
+  if (!p.data.code.trim()) delete row.code;
+  else {
+    const dupCode = await checkDuplicateName(s, "tyres", p.data.code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
+  const { error } = await s.from("tyres").update(row).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

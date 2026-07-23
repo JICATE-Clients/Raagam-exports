@@ -29,7 +29,10 @@ export const PRINT_PROCESS_FLAGS: { key: keyof PrintProcess; label: string }[] =
 
 export const printProcessInput = z
   .object({
-    code: z.string().min(1, "Code is required"),
+    /** Blank on create → the action auto-generates a unique code from the name
+     *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+     *  code through unchanged. */
+    code: z.string().optional().default(""),
     name: z.string().min(1, "Name is required"),
     is_yarn_process: z.boolean().default(false),
     is_fabric_process: z.boolean().default(false),

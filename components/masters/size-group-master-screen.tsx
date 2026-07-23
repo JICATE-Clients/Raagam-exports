@@ -141,7 +141,7 @@ export function SizeGroupMasterScreen({
     });
   }
 
-  const canSave = !!(form.size_group_no.trim() || form.size_group_name.trim());
+  const canSave = !!form.size_group_name.trim();
 
   const columns: Column<SizeGroup>[] = [
     { header: "No", cell: (r) => <span className="font-mono text-xs">{r.size_group_no ?? "---"}</span> },
@@ -311,27 +311,22 @@ export function SizeGroupMasterScreen({
       >
         <div className="space-y-4">
           <DetailSection label="Details">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="sg-no">Group No</Label>
-                <Input
-                  id="sg-no"
-                  value={form.size_group_no}
-                  onChange={(e) => setForm({ ...form, size_group_no: e.target.value })}
-                  placeholder="Unique number"
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="sg-name">Group Name</Label>
-                <Input
-                  id="sg-name"
-                  value={form.size_group_name}
-                  onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
-                  placeholder="Size group name"
-                  className="text-base md:text-sm"
-                />
-              </div>
+            <div>
+              <Label htmlFor="sg-name">
+                Group Name <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="sg-name"
+                value={form.size_group_name}
+                onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
+                placeholder="Size group name"
+                className="text-base md:text-sm"
+              />
+              {!editId && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The group no. is generated automatically from the name.
+                </p>
+              )}
             </div>
           </DetailSection>
 
@@ -380,15 +375,17 @@ export function SizeGroupMasterScreen({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

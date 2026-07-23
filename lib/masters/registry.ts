@@ -34,12 +34,13 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "seasons" | "colors" | "brands" | "bins" | "size_groups" | "shade_groups" | "style_names" | "style_levels" | "packing_instructions" | "packing_methods" | "garment_rejection_rules" | "yarn_compositions" | "defect_groups" | "defect_details" | "product_sizes" | "style_stock_categories" | "special_instructions" | "production_sections" | "beams" | "beam_types" | "tyres" | "designs" | "domestic_product_designs" | "lab_test_standards" | "print_types" | "product_types" | "print_items" | "print_processes" | "garment_accepted_qty_levels" | "count_groups" | "constructions" | "yarn_purchase_rates" | "yarn_debit_rates" | "sizing_rates" | "warp_length_allowances" | "process_sequences" | "process_sequence_groups";
+  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "seasons" | "colors" | "brands" | "bins" | "size_groups" | "shade_groups" | "style_names" | "style_levels" | "packing_instructions" | "packing_methods" | "garment_rejection_rules" | "yarn_compositions" | "defect_groups" | "defect_details" | "product_sizes" | "style_stock_categories" | "special_instructions" | "production_sections" | "beams" | "beam_types" | "tyres" | "designs" | "domestic_product_designs" | "lab_test_standards" | "print_types" | "product_types" | "print_items" | "print_processes" | "garment_accepted_qty_levels" | "count_groups" | "constructions" | "yarn_purchase_rates" | "yarn_debit_rates" | "sizing_rates" | "warp_length_allowances" | "process_sequences" | "process_sequence_groups";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
 export const MATERIALS_CHILDREN: MaterialChild[] = [
-  { slug: "attributes", label: "Attributes", singular: "Attribute", description: "Attribute definitions with value lists", custom: "attributes" },
+  { slug: "item-class", label: "Item Classes", singular: "Item Class", description: "Item class definitions (Name + Has Attribute)", custom: "item_class" },
+  { slug: "attributes", label: "Attributes", singular: "Attribute", description: "Per item-class attribute value lists", custom: "attributes" },
   { slug: "levies", label: "Levies", singular: "Levy", description: "Tax & duty configuration (GST rates + account heads)", custom: "levies" },
   { slug: "categories", label: "Categories", singular: "Category", description: "Material classifications", custom: "categories" },
   { slug: "material-attributes", label: "Material Attributes", singular: "Material Attribute", description: "Per class/category attribute specs", custom: "material_attributes" },

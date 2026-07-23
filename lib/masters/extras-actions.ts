@@ -10,12 +10,12 @@ import {
   transporterInput,
   gstRateInput,
   currencyInput,
-  attributeInput,
+  itemClassInput,
   type LookupInput,
   type TransporterInput,
   type GstRateInput,
   type CurrencyInput,
-  type AttributeInput,
+  type ItemClassInput,
 } from "./extras-types";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -38,6 +38,9 @@ export async function createLookup(data: LookupInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = lookupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  // Blank code → default to the name (forms no longer ask for codes; codes in
+  // config_lookups are per-kind and nullable, so name is a safe default).
+  if (!p.data.code?.trim()) p.data.code = p.data.name;
   const s = await createClient();
   const dup = await checkDuplicateName(s, "config_lookups", p.data.name, { scope: { kind: p.data.kind } });
   if (!dup.ok) return fail(dup.error);
@@ -82,89 +85,142 @@ export async function deleteLookup(id: string): Promise<DeleteResult> {
   return { ok: true, inactive: res.inactive };
 }
 
-// ---------- attributes (= Item Class rows, merged by 0293) ----------
-/** Drop blanks and renumber sno 1..n so the persisted rows always mirror the grid. */
-function normalizeValues(data: AttributeInput): { sno: number; value: string }[] {
-  return data.values
-    .map((v) => ({ ...v, value: v.value.trim() }))
-    .filter((v) => v.value.length > 0)
-    .map((v, i) => ({ sno: i + 1, value: v.value }));
-}
-
-export async function createAttribute(data: AttributeInput): Promise<Result> {
-  if (!(await can("masters", "create"))) return fail("Forbidden");
-  const p = attributeInput.safeParse(data);
-  if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
-  const s = await createClient();
-  const { values: _drop, ...header } = p.data;
-  void _drop;
-  const dup = await checkDuplicateName(s, "config_lookups", header.name, { scope: { kind: "item_class" } });
-  if (!dup.ok) return fail(dup.error);
-  const dupCode = await checkDuplicateName(s, "config_lookups", header.code, {
-    nameColumn: "code",
-    label: "code",
-    scope: { kind: "item_class" },
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
-  const { data: created, error } = await s
-    .from("config_lookups")
-    .insert({ ...header, kind: "item_class" })
-    .select("id")
+// ---------- item classes (config_lookups kind='item_class') ----------
+async function currentUserName(s: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
+  const {
+    data: { user },
+  } = await s.auth.getUser();
+  if (!user) return null;
+  const { data: profile } = await s
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
     .single();
-  if (error) return fail(error.message);
-  const rows = normalizeValues(p.data);
-  if (rows.length) {
-    const { error: vErr } = await s
-      .from("attribute_values")
-      .insert(rows.map((r) => ({ ...r, item_class_id: created.id })));
-    if (vErr) return fail(vErr.message);
+  return profile?.full_name || profile?.email || null;
+}
+
+export async function createItemClass(data: ItemClassInput): Promise<Result> {
+  if (!(await can("masters", "create"))) return fail("Forbidden");
+  const p = itemClassInput.safeParse(data);
+  if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  // Blank code → default to the name (forms no longer ask for codes).
+  if (!p.data.code?.trim()) p.data.code = p.data.name;
+  const s = await createClient();
+  const dup = await checkDuplicateName(s, "config_lookups", p.data.name, { scope: { kind: "item_class" } });
+  if (!dup.ok) return fail(dup.error);
+  if (p.data.code) {
+    const dupCode = await checkDuplicateName(s, "config_lookups", p.data.code, {
+      nameColumn: "code",
+      label: "code",
+      scope: { kind: "item_class" },
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
   }
+  const createdBy = await currentUserName(s);
+  const { error } = await s
+    .from("config_lookups")
+    .insert({ ...p.data, kind: "item_class", created_by: createdBy });
+  if (error) return fail(error.message);
   revAttributes();
   return { ok: true };
 }
 
-export async function updateAttribute(id: string, data: AttributeInput): Promise<Result> {
+export async function updateItemClass(id: string, data: ItemClassInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
-  const p = attributeInput.safeParse(data);
+  const p = itemClassInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { values: _drop, ...header } = p.data;
-  void _drop;
-  const dup = await checkDuplicateName(s, "config_lookups", header.name, {
+  const dup = await checkDuplicateName(s, "config_lookups", p.data.name, {
     excludeId: id,
     scope: { kind: "item_class" },
   });
   if (!dup.ok) return fail(dup.error);
-  const dupCode = await checkDuplicateName(s, "config_lookups", header.code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-    scope: { kind: "item_class" },
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
-  const { error } = await s.from("config_lookups").update(header).eq("id", id);
-  if (error) return fail(error.message);
-  // Replace the child grid wholesale (small, fully-loaded set).
-  const { error: delErr } = await s.from("attribute_values").delete().eq("item_class_id", id);
-  if (delErr) return fail(delErr.message);
-  const rows = normalizeValues(p.data);
-  if (rows.length) {
-    const { error: vErr } = await s
-      .from("attribute_values")
-      .insert(rows.map((r) => ({ ...r, item_class_id: id })));
-    if (vErr) return fail(vErr.message);
+  if (p.data.code) {
+    const dupCode = await checkDuplicateName(s, "config_lookups", p.data.code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+      scope: { kind: "item_class" },
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
   }
+  const { error } = await s
+    .from("config_lookups")
+    .update({ ...p.data, kind: "item_class" })
+    .eq("id", id);
+  if (error) return fail(error.message);
   revAttributes();
   return { ok: true };
 }
 
-export async function deleteAttribute(id: string): Promise<DeleteResult> {
+export async function deleteItemClass(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
   const res = await deleteOrDeactivate(s, "config_lookups", id, "is_active");
   if (!res.ok) return fail(res.error);
   revAttributes();
   return { ok: true, inactive: res.inactive };
+}
+
+// ---------- attribute values (per Item Class; gated by has_attribute) ----------
+/** Replace the value grid for one Item Class. Only classes flagged `has_attribute`
+ *  may carry values (the split — Item Class lifecycle lives on its own screen). */
+export async function saveAttributeValues(
+  itemClassId: string,
+  values: { value: string; input_type?: "option_list" | "numeric_range"; options?: { value: string }[] }[],
+): Promise<Result> {
+  if (!(await can("masters", "edit"))) return fail("Forbidden");
+  const s = await createClient();
+  const { data: cls, error: clsErr } = await s
+    .from("config_lookups")
+    .select("id, kind, has_attribute")
+    .eq("id", itemClassId)
+    .single();
+  if (clsErr) return fail(clsErr.message);
+  if (!cls || cls.kind !== "item_class") return fail("Not an Item Class.");
+  if (!cls.has_attribute) return fail("This Item Class does not have attributes enabled.");
+
+  const clean = values
+    .map((v) => ({
+      value: (v.value ?? "").trim(),
+      input_type: v.input_type === "option_list" ? "option_list" : "numeric_range",
+      options: (v.options ?? []).map((o) => (o.value ?? "").trim()).filter((x) => x.length > 0),
+    }))
+    .filter((v) => v.value.length > 0);
+
+  // Replace wholesale — attribute_value_options cascade-delete with their parent value.
+  const { error: delErr } = await s.from("attribute_values").delete().eq("item_class_id", itemClassId);
+  if (delErr) return fail(delErr.message);
+
+  if (clean.length) {
+    const { data: inserted, error: insErr } = await s
+      .from("attribute_values")
+      .insert(
+        clean.map((v, i) => ({
+          sno: i + 1,
+          value: v.value,
+          input_type: v.input_type,
+          item_class_id: itemClassId,
+        })),
+      )
+      .select("id");
+    if (insErr) return fail(insErr.message);
+
+    // Options for categorical attributes (RETURNING preserves VALUES order → index-match).
+    const optRows: { attribute_value_id: string; sno: number; value: string }[] = [];
+    (inserted ?? []).forEach((row, i) => {
+      const v = clean[i];
+      if (v && v.input_type === "option_list") {
+        v.options.forEach((opt, j) => optRows.push({ attribute_value_id: row.id, sno: j + 1, value: opt }));
+      }
+    });
+    if (optRows.length) {
+      const { error: optErr } = await s.from("attribute_value_options").insert(optRows);
+      if (optErr) return fail(optErr.message);
+    }
+  }
+  revAttributes();
+  return { ok: true };
 }
 
 // ---------- transporters ----------

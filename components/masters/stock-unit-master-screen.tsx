@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -18,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import {
   createStockUnit,
   updateStockUnit,
@@ -87,24 +87,22 @@ export function StockUnitMasterScreen({
         [r.code, r.name, r.description].filter(Boolean).join(" ").toLowerCase().includes(q),
       filters: {
         status: (r, v) => (v === "active" ? !!r.is_active : v === "inactive" ? !r.is_active : true),
-        itemClass: (r, v) => r.for_all_item_classes || r.item_classes.includes(v),
-        forAll: (r, v) =>
-          v === "yes" ? r.for_all_item_classes : v === "no" ? !r.for_all_item_classes : true,
       },
-      initialFilters: { status: "", itemClass: "", forAll: "" },
+      initialFilters: { status: "" },
     },
   );
 
   const pg = usePagination(filtered, 10);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
-  const toggleClass = (cls: string) =>
-    setForm((f) => ({
-      ...f,
-      item_classes: f.item_classes.includes(cls)
-        ? f.item_classes.filter((c) => c !== cls)
-        : [...f.item_classes, cls],
-    }));
+
+  // Real-time duplicate check on Name (mirrors the on-save guard in the action).
+  const dupError = useDuplicateCheck({
+    table: "uoms",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+  });
 
   function openAdd() {
     setEditId(null);
@@ -179,9 +177,6 @@ export function StockUnitMasterScreen({
     });
   }
 
-  const classesLabel = (r: StockUnit) =>
-    r.for_all_item_classes ? "All" : r.item_classes.length ? r.item_classes.join(", ") : "—";
-
   const columns: Column<StockUnit>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
@@ -189,10 +184,6 @@ export function StockUnitMasterScreen({
       header: "Decimals",
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm">{r.decimal_places}</span>,
-    },
-    {
-      header: "Item Classes",
-      cell: (r) => <span className="text-sm text-muted-foreground">{classesLabel(r)}</span>,
     },
     {
       header: "Status",
@@ -248,44 +239,6 @@ export function StockUnitMasterScreen({
               <option value="inactive">Inactive</option>
             </Select>
           </div>
-          <div>
-            <Label htmlFor="su-filter-itemclass">Item Class</Label>
-            <Select
-              id="su-filter-itemclass"
-              value={filterValues.itemClass}
-              onChange={(e) => {
-                setFilter("itemClass", e.target.value);
-                pg.setPage(1);
-              }}
-              className="text-base md:text-sm"
-            >
-              <option value="">All</option>
-              {itemClasses.map((c) => {
-                const code = c.code ?? c.name;
-                return (
-                  <option key={c.id} value={code}>
-                    {c.code ? `${c.code} — ${c.name}` : c.name}
-                  </option>
-                );
-              })}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="su-filter-forall">For All Item Classes</Label>
-            <Select
-              id="su-filter-forall"
-              value={filterValues.forAll}
-              onChange={(e) => {
-                setFilter("forAll", e.target.value);
-                pg.setPage(1);
-              }}
-              className="text-base md:text-sm"
-            >
-              <option value="">All</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </Select>
-          </div>
         </FilterBar>
         <div className="flex flex-1 items-center justify-end gap-2">
           <DataIoToolbar entityKey="stock-units" rows={filtered} canExport={perms.canExport} />
@@ -327,7 +280,6 @@ export function StockUnitMasterScreen({
                   {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>
-              <div className="mt-2 text-[13px] text-muted-foreground">Classes: {classesLabel(r)}</div>
             </button>
           ))
         )}
@@ -354,7 +306,7 @@ export function StockUnitMasterScreen({
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.code.trim() || !form.name.trim()}
+              disabled={isPending || !form.name.trim() || !!dupError}
               onClick={submit}
             >
               {isPending ? "Saving…" : "Save"}
@@ -363,33 +315,11 @@ export function StockUnitMasterScreen({
         }
       >
         <div className="space-y-4">
+          {/* Minimal form (client 2026-07-23: ask only what's needed, don't mirror
+              legacy). Hidden legacy columns — description, decimal_places_allowed,
+              applicable-for flags, item-class scoping — keep their DB defaults and
+              round-trip untouched on edit via the seeded form state. */}
           <DetailSection label="Details">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="su-code">
-                  Code <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="su-code"
-                  value={form.code}
-                  onChange={(e) => set({ code: e.target.value })}
-                  placeholder="KG"
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="su-dp">No. of Decimal Places</Label>
-                <Input
-                  id="su-dp"
-                  type="number"
-                  min="0"
-                  max="6"
-                  value={form.decimal_places}
-                  onChange={(e) => set({ decimal_places: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-            </div>
             <div>
               <Label htmlFor="su-name">
                 Unit of Measurement <span className="text-danger">*</span>
@@ -401,109 +331,38 @@ export function StockUnitMasterScreen({
                 placeholder="Kilogram"
                 className="text-base md:text-sm"
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="su-uqc">UQC Code</Label>
-                <Input
-                  id="su-uqc"
-                  value={form.unit_code}
-                  onChange={(e) => set({ unit_code: e.target.value })}
-                  placeholder="KGS"
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="su-dpa">Decimal Places Allowed</Label>
-                <Input
-                  id="su-dpa"
-                  type="number"
-                  min="0"
-                  max="9"
-                  value={form.decimal_places_allowed}
-                  onChange={(e) => set({ decimal_places_allowed: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              {!editId && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The code is generated automatically from the name.
+                </p>
+              )}
             </div>
             <div>
-              <Label htmlFor="su-desc">Description</Label>
-              <Textarea
-                id="su-desc"
-                rows={2}
-                value={form.description}
-                onChange={(e) => set({ description: e.target.value })}
+              <Label htmlFor="su-dp">Decimal Places</Label>
+              <Input
+                id="su-dp"
+                type="number"
+                min="0"
+                max="6"
+                value={form.decimal_places}
+                onChange={(e) => set({ decimal_places: e.target.value })}
                 className="text-base md:text-sm"
               />
             </div>
           </DetailSection>
 
-          {/* applicable-for flags */}
-          <DetailSection label="Applicable For">
-            <div className="flex flex-wrap gap-x-5 gap-y-2">
-              {([
-                ["is_yarn", "Yarn"],
-                ["is_fabric", "Fabric"],
-                ["is_sewing", "Sewing"],
-                ["is_packing", "Packing"],
-                ["is_garment", "Garments"],
-                ["is_general", "General"],
-              ] as const).map(([key, label]) => (
-                <label key={key} className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form[key]}
-                    onChange={(e) => set({ [key]: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">{label}</span>
-                </label>
-              ))}
-            </div>
-          </DetailSection>
-
-          {/* item classes */}
-          <DetailSection label="Item Classes">
+          {editId && (
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.for_all_item_classes}
-                onChange={(e) => set({ for_all_item_classes: e.target.checked })}
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
               />
-              <span className="text-sm font-medium text-foreground">For all Item Classes</span>
+              <span className="text-sm text-foreground">Inactive</span>
             </label>
-            {!form.for_all_item_classes && (
-              <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-3">
-                {itemClasses.map((c) => {
-                  const code = c.code ?? c.name;
-                  return (
-                    <label key={c.id} className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.item_classes.includes(code)}
-                        onChange={() => toggleClass(code)}
-                      />
-                      <span className="text-sm text-foreground">
-                        {c.code ? `${c.code} — ${c.name}` : c.name}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </DetailSection>
-
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => set({ inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          )}
         </div>
       </Sheet>
     </div>

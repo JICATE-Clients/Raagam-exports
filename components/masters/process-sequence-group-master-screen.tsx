@@ -72,7 +72,7 @@ export function ProcessSequenceGroupMasterScreen({
     setLines(r.details.slice().sort((a, b) => a.sno - b.sno).map((d) => ({
       key: newKey(),
       sequence_id: d.sequence_id ?? "",
-      sequence_name: d.sequence_name ?? "",
+      sequence_name: sequences.find((s) => s.id === d.sequence_id)?.name ?? "",
     })));
     setOpen(true);
   }
@@ -92,7 +92,7 @@ export function ProcessSequenceGroupMasterScreen({
     startTransition(async () => {
       const payload: ProcessSequenceGroupInput = {
         code: form.code.trim(),
-        name: form.name.trim() || form.code.trim(),
+        name: form.name.trim(),
         is_active: !form.inactive,
         details: lines.map((l, i) => ({
           sno: i + 1,
@@ -198,29 +198,30 @@ export function ProcessSequenceGroupMasterScreen({
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.code.trim() || lines.length === 0} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.name.trim() || lines.length === 0} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="psg-code">Code <span className="text-danger">*</span></Label>
-              <Input id="psg-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="text-base md:text-sm" />
-            </div>
-            <div>
-              <Label htmlFor="psg-name">Name</Label>
-              <Input id="psg-name" value={form.name} placeholder={form.code || undefined} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-            </div>
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label htmlFor="psg-name">Name <span className="text-danger">*</span></Label>
+            <Input id="psg-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            {!editId && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The code is generated automatically from the name.
+              </p>
+            )}
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="sm:col-span-2 flex cursor-pointer items-center gap-2">
+              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
 
-          <div className="rounded-lg border border-border">
+          <div className="sm:col-span-2 rounded-lg border border-border">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Sequences</div>
             <div className="space-y-2 p-3">
               {lines.map((l, i) => (

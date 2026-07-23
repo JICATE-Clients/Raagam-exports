@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createLeaveType, updateLeaveType, deleteLeaveType } from "@/lib/masters/leave-type-actions";
 import {
   LEAVE_APPLIES_TO,
@@ -39,20 +41,11 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.code, r.description, r.applies_to].filter(Boolean).join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -140,17 +133,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -158,58 +141,30 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search leave type…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Leave Type
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No leave types yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No leave types yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">
-                    {r.code ?? "—"}
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.description ?? "—"} · {r.applies_to ?? "—"} · {r.no_of_days}/yr
-                  </div>
-                </div>
-                <StatusPill tone={r.inactive ? "danger" : r.loss_of_pay ? "warning" : "success"}>
-                  {r.inactive ? "Inactive" : r.loss_of_pay ? "LOP" : "Active"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) => [r.code, r.description, r.applies_to].filter(Boolean).join(" ")}
+        searchPlaceholder="Search leave type…"
+        statusOf={(r) => (r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Leave Type"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No leave types yet."
+        mobile={{
+          title: (r) => r.code ?? "—",
+          meta: (r) => `${r.description ?? "—"} · ${r.applies_to ?? "—"} · ${r.no_of_days}/yr`,
+          pill: (r) => (
+            <StatusPill tone={r.inactive ? "danger" : r.loss_of_pay ? "warning" : "success"}>
+              {r.inactive ? "Inactive" : r.loss_of_pay ? "LOP" : "Active"}
+            </StatusPill>
+          ),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -227,8 +182,8 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2">
             <div>
               <Label htmlFor="lt-code">
                 ID <span className="text-danger">*</span>
@@ -251,15 +206,17 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
                 />
                 <span className="text-sm text-foreground">Loss Of Pay</span>
               </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
+              {editId && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => set({ inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              )}
             </div>
           </div>
 
@@ -274,7 +231,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
           </div>
 
           {/* Encash Possible + For + No of Days */}
-          <div className="rounded-lg border border-border p-3">
+          <div className="sm:col-span-2 rounded-lg border border-border p-3">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
               <div>
                 <span className="mr-3 text-sm text-foreground">Encash Possible</span>

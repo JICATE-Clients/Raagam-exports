@@ -22,6 +22,7 @@ import {
   deleteComposition,
 } from "@/lib/masters/composition-actions";
 import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import type { Composition, CompositionInput } from "@/lib/masters/composition-types";
@@ -66,6 +67,14 @@ export function CompositionMasterScreen({
     for (const c of itemClasses) m.set(c.id, c.name);
     return m;
   }, [itemClasses]);
+
+  // Real-time duplicate check on Name (mirrors the on-save guard in composition-actions).
+  const dupError = useDuplicateCheck({
+    table: "compositions",
+    name: form.name ?? "",
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+  });
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
     search: (r, q) =>
@@ -121,7 +130,7 @@ export function CompositionMasterScreen({
     startTransition(async () => {
       const payload: CompositionInput = {
         item_class_id: form.item_class_id,
-        short_name: form.short_name.trim() || null,
+        short_name: form.name.trim() || null,
         name: form.name.trim() || null,
         inactive: form.inactive,
         lines: lines
@@ -296,13 +305,13 @@ export function CompositionMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.item_class_id} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.item_class_id || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           {/* Item Class — same LookupDialogPicker every master uses (search +
               inline Add/Modify/Delete). Composition only ever applies to
               Fabric, so `itemClasses` from page.tsx is already filtered to
@@ -321,25 +330,21 @@ export function CompositionMasterScreen({
           />
 
           <div>
-            <Label htmlFor="cmp-short">Short Name</Label>
-            <Input
-              id="cmp-short"
-              value={form.short_name}
-              onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="cmp-name">Name</Label>
+            <Label htmlFor="cmp-name">
+              Name <span className="text-danger">*</span>
+            </Label>
             <Input
               id="cmp-name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
               className="text-base md:text-sm"
             />
+            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
           </div>
 
           {/* Mixing grid */}
+          <div className="sm:col-span-2">
           <ChildGrid<LineRow>
             label="Mixing"
             badge={
@@ -367,16 +372,19 @@ export function CompositionMasterScreen({
               },
             ]}
           />
+          </div>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

@@ -23,6 +23,7 @@ import {
   deactivateCertification,
 } from "@/lib/masters/certification-actions";
 import type { Certification, CertificationInput } from "@/lib/masters/certification-types";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; valid_from: string; valid_to: string };
@@ -67,6 +68,15 @@ export function CertificationMasterScreen({
   );
 
   const pg = usePagination(filtered, 10);
+
+  // Real-time duplicate check on the name (mirrors the on-save guard).
+  const dupError = useDuplicateCheck({
+    table: "certifications",
+    name: form.certification_name,
+    nameColumn: "certification_name",
+    excludeId: editId ?? undefined,
+    enabled: !!form.certification_name.trim(),
+  });
 
   function openAdd() {
     setEditId(null);
@@ -306,7 +316,7 @@ export function CertificationMasterScreen({
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.certification_name.trim()}
+              disabled={isPending || !form.certification_name.trim() || !!dupError}
               onClick={submit}
             >
               {isPending ? "Saving..." : "Save"}
@@ -327,6 +337,7 @@ export function CertificationMasterScreen({
                 required
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             <div>
               <Label htmlFor="cert-desc">Description</Label>
@@ -385,15 +396,17 @@ export function CertificationMasterScreen({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

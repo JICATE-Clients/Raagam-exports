@@ -183,8 +183,8 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="sr-code">Code</Label>
               <Input id="sr-code" value={editCode ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -194,7 +194,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
               <Input id="sr-eff" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="text-base md:text-sm" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="sr-type">Entry Type</Label>
               <Input id="sr-type" value={entryType} onChange={(e) => setEntryType(e.target.value)} className="text-base md:text-sm" />
@@ -204,12 +204,14 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
               <Input id="sr-base" type="number" min={0} step="0.01" value={baseRate} onChange={(e) => setBaseRate(e.target.value)} className="text-base md:text-sm" />
             </div>
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={inactive} onChange={(e) => setInactive(e.target.checked)} />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={inactive} onChange={(e) => setInactive(e.target.checked)} />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
 
-          <div className="rounded-lg border border-border">
+          <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Yarn Rates (by Ends)</div>
             <div className="space-y-2 p-3">
               {lines.map((l, i) => (

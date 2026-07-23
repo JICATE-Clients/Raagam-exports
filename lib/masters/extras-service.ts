@@ -24,15 +24,27 @@ export async function listGstRates(): Promise<GstRate[]> {
   return (data ?? []) as GstRate[];
 }
 
+export async function listItemClasses(): Promise<ConfigLookup[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("config_lookups")
+    .select("*")
+    .eq("kind", "item_class")
+    .order("code");
+  return (data ?? []) as ConfigLookup[];
+}
+
 export async function listAttributes(): Promise<Attribute[]> {
   const s = await createClient();
   const { data } = await s
     .from("config_lookups")
-    .select("*, values:attribute_values(*)")
+    .select("*, values:attribute_values(*, options:attribute_value_options(*))")
     .eq("kind", "item_class")
     .order("code");
   return ((data ?? []) as Attribute[]).map((a) => ({
     ...a,
-    values: [...(a.values ?? [])].sort((x, y) => x.sno - y.sno),
+    values: [...(a.values ?? [])]
+      .sort((x, y) => x.sno - y.sno)
+      .map((v) => ({ ...v, options: [...(v.options ?? [])].sort((x, y) => x.sno - y.sno) })),
   }));
 }

@@ -28,7 +28,10 @@ export interface ProductionSection {
 }
 
 export const productionSectionInput = z.object({
-  code: z.string().min(1, "Code is required"),
+  /** Blank on create → the action auto-generates a unique code from the name
+   *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+   *  code through unchanged. */
+  code: z.string().optional().default(""),
   name: z.string().min(1, "Name is required"),
   section_for: z.enum(SECTION_FOR).nullable().default(null),
   is_active: z.boolean().default(true),

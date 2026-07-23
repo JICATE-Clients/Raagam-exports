@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -49,7 +51,6 @@ export function AccountGroupMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(blankForm());
@@ -61,18 +62,6 @@ export function AccountGroupMasterScreen({
     for (const r of rows) m.set(r.id, r.name);
     return m;
   }, [rows]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.short_name, r.name, r.nature_of_group, r.parent_id ? nameById.get(r.parent_id) : null]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query, nameById]);
 
   function openAdd() {
     setEditId(null);
@@ -97,7 +86,9 @@ export function AccountGroupMasterScreen({
     startTransition(async () => {
       const payload: AccountGroupInput = {
         parent_id: form.parent_id,
-        short_name: form.short_name.trim() || null,
+        // Create derives the code from Name; edit keeps the record's original
+        // stored short_name (it can be a logic key referenced elsewhere).
+        short_name: editId ? form.short_name || null : form.name.trim() || null,
         name: form.name.trim(),
         nature_of_group: form.nature_of_group ? form.nature_of_group : null,
         debit_schedule_id: form.debit_schedule_id,
@@ -128,7 +119,6 @@ export function AccountGroupMasterScreen({
   }
 
   const columns: Column<AccountGroup>[] = [
-    { header: "Short Name", cell: (r) => <span className="text-sm">{r.short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm font-medium text-foreground">{r.name}</span> },
     {
       header: "Under",
@@ -155,17 +145,7 @@ export function AccountGroupMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -173,57 +153,35 @@ export function AccountGroupMasterScreen({
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search account group…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Account Group
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No account groups yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No account groups yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.nature_of_group ?? "—"}
-                    {r.parent_id ? ` · under ${nameById.get(r.parent_id) ?? "—"}` : ""}
-                  </div>
-                </div>
-                <StatusPill tone={r.inactive ? "danger" : "success"}>
-                  {r.inactive ? "Inactive" : "Active"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) =>
+          [r.short_name, r.name, r.nature_of_group, r.parent_id ? nameById.get(r.parent_id) : null]
+            .filter(Boolean)
+            .join(" ")
+        }
+        searchPlaceholder="Search account group…"
+        statusOf={(r) => (r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Account Group"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No account groups yet."
+        mobile={{
+          title: (r) => r.name,
+          meta: (r) =>
+            `${r.nature_of_group ?? "—"}${r.parent_id ? ` · under ${nameById.get(r.parent_id) ?? "—"}` : ""}`,
+          pill: (r) => (
+            <StatusPill tone={r.inactive ? "danger" : "success"}>
+              {r.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          ),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -241,8 +199,8 @@ export function AccountGroupMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="flex items-start gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="flex items-start gap-3 sm:col-span-2">
             <div className="flex-1">
               <AccountGroupPicker
                 groups={rows}
@@ -252,26 +210,19 @@ export function AccountGroupMasterScreen({
                 label="Under"
               />
             </div>
-            <label className="mt-7 flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
+            {editId && (
+              <label className="mt-7 flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
+            )}
           </div>
 
-          <div>
-            <Label htmlFor="ag-short">Short Name</Label>
-            <Input
-              id="ag-short"
-              value={form.short_name}
-              onChange={(e) => set({ short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
           <div>
             <Label htmlFor="ag-name">
               Name <span className="text-danger">*</span>

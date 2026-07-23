@@ -11,6 +11,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import type { ConfigLookup, LookupKind } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -40,6 +41,16 @@ export function LookupMasterScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
+
+  // Real-time duplicate check on Name, scoped to this kind (mirrors the
+  // on-save guard in extras-actions createLookup/updateLookup).
+  const dupError = useDuplicateCheck({
+    table: "config_lookups",
+    name: form.name ?? "",
+    scope: { kind },
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+  });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -200,23 +211,15 @@ export function LookupMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div>
-            <Label htmlFor="lk-code">Code</Label>
-            <Input
-              id="lk-code"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              placeholder="Short unique code"
-              className="text-base md:text-sm"
-            />
-          </div>
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          {/* No Code input — the code is set automatically (blank → name server-side
+              on create; edits keep the stored code via form.code passing through). */}
           <div>
             <Label htmlFor="lk-name">
               Name <span className="text-danger">*</span>
@@ -228,8 +231,14 @@ export function LookupMasterScreen({
               required
               className="text-base md:text-sm"
             />
+            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+            {!editId && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The code is generated automatically from the name.
+              </p>
+            )}
           </div>
-          <div>
+          <div className="sm:col-span-2">
             <Label htmlFor="lk-notes">Notes</Label>
             <Textarea
               id="lk-notes"
@@ -239,15 +248,17 @@ export function LookupMasterScreen({
               className="text-base md:text-sm"
             />
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.is_active}
-              onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Active</span>
-          </label>
+          {editId && (
+            <label className="sm:col-span-2 flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.is_active}
+                onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Active</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

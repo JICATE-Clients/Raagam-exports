@@ -302,7 +302,9 @@ export function ConsigneeMasterScreen({
   function submit(asDraft: boolean) {
     startTransition(async () => {
       const payload: ConsigneeInput = {
-        code: form.code.trim() || null,
+        // Create derives the code from the display name; edit keeps the
+        // record's original stored code (held in state, never rendered).
+        code: editId ? form.code.trim() || null : form.name.trim() || null,
         name: form.name.trim(),
         inactive: form.inactive,
         country_id: form.country_id || null,
@@ -369,7 +371,6 @@ export function ConsigneeMasterScreen({
   }
 
   const columns: Column<Consignee>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "Country",
@@ -519,15 +520,6 @@ export function ConsigneeMasterScreen({
         <div className="space-y-4">
           {/* ---- Header (shown across all tabs) ---- */}
           <div>
-            <Label htmlFor="cn-code">Short Name</Label>
-            <Input
-              id="cn-code"
-              value={form.code}
-              onChange={(e) => set({ code: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
             <Label htmlFor="cn-name">
               Name <span className="text-danger">*</span>
             </Label>
@@ -569,15 +561,17 @@ export function ConsigneeMasterScreen({
               compact
             />
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => set({ inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
 
           {/* ---- Address | General | Notify tabs ---- */}
           <div className="flex gap-1 rounded-lg border border-border bg-surface-muted p-1">

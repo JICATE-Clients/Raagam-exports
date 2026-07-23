@@ -162,7 +162,7 @@ export default async function SubEntityPage({
         <DepartmentMasterScreen
           rows={departments}
           locations={departmentLocations}
-          divisions={divisionRows.map((d) => ({ id: d.id, division_id: d.division_id ?? "", division_name: d.division_name }))}
+          divisions={divisionRows.map((d) => ({ id: d.id, division_id: d.division_id ?? "", division_name: d.division_name ?? "" }))}
           perms={perms}
         />
       );

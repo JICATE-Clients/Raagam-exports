@@ -81,7 +81,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
     startTransition(async () => {
       const payload: ProcessSequenceInput = {
         code: form.code.trim(),
-        name: form.name.trim() || form.code.trim(),
+        name: form.name.trim(),
         item_class_type: form.item_class_type.trim(),
         is_active: !form.inactive,
         details: lines.map((l, i) => ({
@@ -196,33 +196,34 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.code.trim() || lines.length === 0} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.name.trim() || lines.length === 0} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="ps-code">Code <span className="text-danger">*</span></Label>
-              <Input id="ps-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="text-base md:text-sm" />
-            </div>
-            <div>
-              <Label htmlFor="ps-name">Name</Label>
-              <Input id="ps-name" value={form.name} placeholder={form.code || undefined} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-            </div>
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label htmlFor="ps-name">Name <span className="text-danger">*</span></Label>
+            <Input id="ps-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            {!editId && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The code is generated automatically from the name.
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="ps-ict">Item Class Type <span className="text-danger">*</span></Label>
             <Input id="ps-ict" value={form.item_class_type} onChange={(e) => setForm({ ...form, item_class_type: e.target.value })} className="text-base md:text-sm" />
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="sm:col-span-2 flex cursor-pointer items-center gap-2">
+              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
 
-          <div className="rounded-lg border border-border">
+          <div className="sm:col-span-2 rounded-lg border border-border">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Steps</div>
             <div className="space-y-2 p-3">
               {lines.map((l, i) => (

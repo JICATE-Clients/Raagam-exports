@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { sizeGroupInput, type SizeGroupInput } from "./size-group-types";
 import { checkDuplicateName } from "./dup-guard";
+import { generateUniqueCode } from "./auto-code";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
@@ -27,10 +28,16 @@ export async function createSizeGroup(
   const p = sizeGroupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "size_groups", p.data.size_group_no, {
-    nameColumn: "size_group_no",
-  });
-  if (!dup.ok) return fail(dup.error);
+  if (!p.data.size_group_no?.trim()) {
+    p.data.size_group_no = await generateUniqueCode(s, "size_groups", p.data.size_group_name ?? "", {
+      codeColumn: "size_group_no",
+    });
+  } else {
+    const dup = await checkDuplicateName(s, "size_groups", p.data.size_group_no, {
+      nameColumn: "size_group_no",
+    });
+    if (!dup.ok) return fail(dup.error);
+  }
   const { data: row, error } = await s
     .from("size_groups")
     .insert(p.data)
@@ -56,12 +63,18 @@ export async function updateSizeGroup(
   const p = sizeGroupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "size_groups", p.data.size_group_no, {
-    nameColumn: "size_group_no",
-    excludeId: id,
-  });
-  if (!dup.ok) return fail(dup.error);
-  const { error } = await s.from("size_groups").update(p.data).eq("id", id);
+  // Blank no. on update = keep the stored one (the form doesn't edit codes).
+  const row: Partial<SizeGroupInput> = { ...p.data };
+  if (!p.data.size_group_no?.trim()) {
+    delete row.size_group_no;
+  } else {
+    const dup = await checkDuplicateName(s, "size_groups", p.data.size_group_no, {
+      nameColumn: "size_group_no",
+      excludeId: id,
+    });
+    if (!dup.ok) return fail(dup.error);
+  }
+  const { error } = await s.from("size_groups").update(row).eq("id", id);
   if (error) return fail(error.message);
   // Replace children wholesale
   await s.from("size_group_sizes").delete().eq("size_group_id", id);

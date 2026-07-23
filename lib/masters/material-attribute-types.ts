@@ -25,6 +25,8 @@ export interface MaterialAttribute {
   id: string;
   item_class_id: string | null;
   category_id: string | null;
+  /** 0341: separator used to join chosen attribute answers into the auto item name. */
+  name_separator: string;
   created_at: string;
   updated_at: string;
   lines: MaterialAttributeLine[];
@@ -47,6 +49,7 @@ export const materialAttributeLineInput = z.object({
 export const materialAttributeInput = z.object({
   item_class_id: z.string().uuid().nullable().default(null),
   category_id: z.string().uuid().nullable().default(null),
+  name_separator: z.string().default(" "),
   lines: z.array(materialAttributeLineInput).default([]),
 });
 export type MaterialAttributeInput = z.infer<typeof materialAttributeInput>;

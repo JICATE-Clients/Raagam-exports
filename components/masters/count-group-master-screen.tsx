@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,7 +76,7 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
     startTransition(async () => {
       const payload: CountGroupInput = {
         code: form.code.trim(),
-        name: form.name.trim() || form.code.trim(),
+        name: form.name.trim(),
         is_active: !form.inactive,
         category_id: null,
         details: lines.map((l, i) => ({ sno: i + 1, count_lookup_id: l.count_lookup_id })),
@@ -182,27 +182,30 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.code.trim() || lines.length === 0} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.name.trim() || lines.length === 0} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div>
-            <Label htmlFor="cg-code">Code <span className="text-danger">*</span></Label>
-            <Input id="cg-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="text-base md:text-sm" />
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label htmlFor="cg-name">Name <span className="text-danger">*</span></Label>
+            <Input id="cg-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            {!editId && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The code is generated automatically from the name.
+              </p>
+            )}
           </div>
-          <div>
-            <Label htmlFor="cg-name">Name</Label>
-            <Input id="cg-name" value={form.name} placeholder={form.code || undefined} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-          </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
           {/* Counts grid */}
-          <div className="rounded-lg border border-border">
+          <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Counts</div>
             <div className="space-y-2 p-3">
               {lines.map((l, i) => (

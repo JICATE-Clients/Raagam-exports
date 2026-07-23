@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { stockUnitInput, type StockUnitInput } from "./stock-unit-types";
 import { checkDuplicateName } from "./dup-guard";
+import { generateUniqueCode } from "./auto-code";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -44,8 +45,12 @@ export async function createStockUnit(data: StockUnitInput): Promise<Result> {
   const s = await createClient();
   const dup = await checkDuplicateName(s, "uoms", p.data.name);
   if (!dup.ok) return fail(dup.error);
-  const dupCode = await checkDuplicateName(s, "uoms", p.data.code, { nameColumn: "code", label: "code" });
-  if (!dupCode.ok) return fail(dupCode.error);
+  if (!p.data.code.trim()) {
+    p.data.code = await generateUniqueCode(s, "uoms", p.data.name);
+  } else {
+    const dupCode = await checkDuplicateName(s, "uoms", p.data.code, { nameColumn: "code", label: "code" });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { error } = await s.from("uoms").insert(toRow(p.data));
   if (error) return fail(error.message);
   rev();
@@ -59,13 +64,18 @@ export async function updateStockUnit(id: string, data: StockUnitInput): Promise
   const s = await createClient();
   const dup = await checkDuplicateName(s, "uoms", p.data.name, { excludeId: id });
   if (!dup.ok) return fail(dup.error);
-  const dupCode = await checkDuplicateName(s, "uoms", p.data.code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
-  const { error } = await s.from("uoms").update(toRow(p.data)).eq("id", id);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  const row: Partial<ReturnType<typeof toRow>> = toRow(p.data);
+  if (!p.data.code.trim()) delete row.code;
+  else {
+    const dupCode = await checkDuplicateName(s, "uoms", p.data.code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
+  const { error } = await s.from("uoms").update(row).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

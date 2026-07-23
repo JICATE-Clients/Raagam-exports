@@ -30,7 +30,10 @@ export const countGroupDetailInput = z.object({
 });
 
 export const countGroupInput = z.object({
-  code: z.string().min(1, "Code is required"),
+  /** Blank on create → the action auto-generates a unique code from the name
+   *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+   *  code through unchanged. */
+  code: z.string().optional().default(""),
   name: z.string().min(1, "Name is required"),
   category_id: z.string().uuid().nullable().default(null),
   is_active: z.boolean().default(true),
@@ -76,7 +79,10 @@ export const constructionCountInput = z.object({
 });
 
 export const constructionInput = z.object({
-  code: z.string().min(1, "Code is required"),
+  /** Blank on create → the action auto-generates a unique code from the name
+   *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+   *  code through unchanged. */
+  code: z.string().optional().default(""),
   name: z.string().min(1, "Name is required"),
   reed: z.coerce.number().int().min(0).default(0),
   epi_on_loom: z.coerce.number().int().min(0).default(0),
@@ -300,7 +306,10 @@ export const processSequenceStepInput = z.object({
 });
 
 export const processSequenceInput = z.object({
-  code: z.string().min(1, "Code is required"),
+  /** Blank on create → the action auto-generates a unique code from the name
+   *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+   *  code through unchanged. */
+  code: z.string().optional().default(""),
   name: z.string().min(1, "Name is required"),
   item_class_type: z.string().min(1, "Item class type is required"),
   is_active: z.boolean().default(true),
@@ -334,7 +343,10 @@ export const processSequenceGroupMemberInput = z.object({
 });
 
 export const processSequenceGroupInput = z.object({
-  code: z.string().min(1, "Code is required"),
+  /** Blank on create → the action auto-generates a unique code from the name
+   *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+   *  code through unchanged. */
+  code: z.string().optional().default(""),
   name: z.string().min(1, "Name is required"),
   is_active: z.boolean().default(true),
   details: z

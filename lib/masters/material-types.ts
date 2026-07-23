@@ -68,9 +68,8 @@ export interface Material {
   /** Fabric "Using" — Single Yarn / Multiple Yarn, free values (see
    *  `FABRIC_USING`). Fabric only, stored as-is (no behavior tied to it). */
   fabric_using: string | null;
-  /** Yarn type (Grey/Melange/Doubling, kind `yarn_type`) — Yarn only. */
+  /** Yarn type (Grey/Melange/Twisted/Doubling, kind `yarn_type`) — Yarn only. */
   yarn_type_id: string | null;
-  ply: number | null;
   /** Fabric bought finished from a vendor — skips the yarn-composition
    *  requirement entirely (functional spec, 0280). Fabric only. */
   direct_purchase: boolean;
@@ -87,6 +86,7 @@ export interface Material {
   mixings: MaterialMixing[];
   conversions: MaterialUomConversion[];
   using_items: MaterialUsingItem[];
+  item_attribute_values: { id: string; attribute_line_id: string | null; sno: number; value: string | null }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -177,9 +177,17 @@ export const usingItemInput = z.object({
   shade: z.string().optional().nullable(),
   uom_id: uuidN,
 });
+export const itemAttributeValueInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  attribute_line_id: z.string().uuid().nullable().default(null),
+  value: z.string().nullable().default(null),
+});
 
 export const materialInput = z.object({
-  code: z.string().min(1, "Short Name is required"),
+  /** Blank on create → the action auto-generates a unique code from the name
+   *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+   *  code through unchanged. */
+  code: z.string().optional().default(""),
   name: z.string().optional().nullable(), // falls back to code
   is_active: z.boolean().default(true),
   item_class_id: uuidN,
@@ -189,7 +197,7 @@ export const materialInput = z.object({
   material_type: z.string().optional().nullable(),
   user_defined: z.boolean().default(false),
   specifications: z.string().optional().nullable(),
-  short_spec: z.string().optional().nullable(),
+  short_spec: z.string().max(200, "Short spec max 200 chars").optional().nullable(),
   count_id: uuidN,
   purity_id: uuidN,
   shade: z.string().optional().nullable(),
@@ -197,7 +205,6 @@ export const materialInput = z.object({
   fabric_structure_id: uuidN,
   fabric_using: z.string().optional().nullable(),
   yarn_type_id: uuidN,
-  ply: z.coerce.number().int().positive().nullable().default(null),
   direct_purchase: z.boolean().default(false),
   base_uom_id: uuidN,
   stock_uom_id: uuidN,
@@ -210,6 +217,7 @@ export const materialInput = z.object({
   mixings: z.array(mixingInput).default([]),
   conversions: z.array(conversionInput).default([]),
   using_items: z.array(usingItemInput).default([]),
+  item_attribute_values: z.array(itemAttributeValueInput).default([]),
 }).refine(
   (d) => {
     const pcts = d.mixings.map((m) => m.blend_pct).filter((v): v is number => v != null);

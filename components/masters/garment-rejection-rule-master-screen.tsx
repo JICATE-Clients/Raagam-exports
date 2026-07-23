@@ -269,8 +269,8 @@ export function GarmentRejectionRuleMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="grr-entry">Entry No</Label>
               <Input id="grr-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -298,18 +298,20 @@ export function GarmentRejectionRuleMasterScreen({
               className="text-base md:text-sm"
             />
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={inactive}
-              onChange={(e) => setBlocked(e.target.checked)}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={inactive}
+                onChange={(e) => setBlocked(e.target.checked)}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
 
           {/* Details grid */}
-          <div className="rounded-lg border border-border">
+          <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
               Details
             </div>

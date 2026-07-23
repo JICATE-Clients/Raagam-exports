@@ -26,6 +26,7 @@ import {
   type NavSearchRow,
 } from "./nav-search";
 import { type StoreNavLink } from "./sidebar";
+import { mastersFabSections } from "@/lib/masters/masters-nav";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
 import type { SearchEntity, SearchResult } from "@/lib/search/types";
@@ -133,7 +134,10 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   // can switch sub-module AND pick an action from one place. Uses the static
   // sub-modules (not the injected live store records). Actions come from the
   // registry, falling back to a single "New <singular>".
-  const moduleSubs = activeModule.children ?? [];
+  const moduleSubs =
+    activeModule.href === "/masters"
+      ? mastersFabSections(pathname)
+      : (activeModule.children ?? []);
   const actionsFor = (href: string, label: string) =>
     SECTION_ACTIONS[href] ?? [`New ${singularize(label)}`];
 

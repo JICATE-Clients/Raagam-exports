@@ -70,6 +70,7 @@ export function MaterialAttributeMasterScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [itemClassId, setItemClassId] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [nameSeparator, setNameSeparator] = useState(" ");
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
@@ -153,6 +154,7 @@ export function MaterialAttributeMasterScreen({
     setEditId(null);
     setItemClassId("");
     setCategoryId("");
+    setNameSeparator(" ");
     setLines([blankLine()]);
     setOpen(true);
   }
@@ -160,6 +162,7 @@ export function MaterialAttributeMasterScreen({
     setEditId(r.id);
     setItemClassId(r.item_class_id ?? "");
     setCategoryId(r.category_id ?? "");
+    setNameSeparator(r.name_separator ?? " ");
     setLines(
       r.lines.length
         ? r.lines.map((l) => ({
@@ -188,6 +191,7 @@ export function MaterialAttributeMasterScreen({
       const payload: MaterialAttributeInput = {
         item_class_id: itemClassId || null,
         category_id: categoryId || null,
+        name_separator: nameSeparator || " ",
         lines: lines
           .filter((l) => l.attribute_id)
           .map((l, i) => ({
@@ -386,21 +390,29 @@ export function MaterialAttributeMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           {/* header */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <LookupDialogPicker
-              kind="item_class"
-              label="Item Class"
-              required
-              options={attributes}
-              value={itemClassId}
-              onChange={changeItemClass}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-              isSuperAdmin={perms.isSuperAdmin}
-            />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2">
+            <div>
+              <Label htmlFor="ma-item-class">
+                Item Class <span className="text-danger">*</span>
+              </Label>
+              <Select
+                id="ma-item-class"
+                value={itemClassId}
+                onChange={(e) => changeItemClass(e.target.value)}
+                className="text-base md:text-sm"
+              >
+                <option value="">— Select —</option>
+                {attributes
+                  .filter((c) => c.is_active || c.id === itemClassId)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
             <div>
               <CategoryPicker
                 label="Category"
@@ -417,9 +429,23 @@ export function MaterialAttributeMasterScreen({
                 <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
               )}
             </div>
+            <div>
+              <Label htmlFor="ma-name-separator">Name Separator</Label>
+              <Input
+                id="ma-name-separator"
+                value={nameSeparator}
+                onChange={(e) => setNameSeparator(e.target.value)}
+                maxLength={2}
+                className="text-base md:text-sm"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Joins attribute answers into the item name (default: space).
+              </p>
+            </div>
           </div>
 
           {/* attribute lines */}
+          <div className="sm:col-span-2">
           {(() => {
             const attrCell = (l: LineRow) => (
               <div>
@@ -501,6 +527,7 @@ export function MaterialAttributeMasterScreen({
               />
             );
           })()}
+          </div>
         </div>
       </Sheet>
     </div>

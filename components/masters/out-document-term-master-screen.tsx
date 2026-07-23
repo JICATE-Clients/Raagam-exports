@@ -401,17 +401,24 @@ export function OutDocumentTermMasterScreen({
                 ))}
               </Select>
             </div>
-            <LookupDialogPicker
-              kind="item_class"
-              label="Item Class"
-              options={itemClasses}
-              value={form.item_class_id}
-              onChange={(v) => set({ item_class_id: v })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-              isSuperAdmin={perms.isSuperAdmin}
-            />
+            <div>
+              <Label htmlFor="odt-item-class">Item Class</Label>
+              <Select
+                id="odt-item-class"
+                value={form.item_class_id}
+                onChange={(e) => set({ item_class_id: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— Select —</option>
+                {itemClasses
+                  .filter((c) => c.is_active || c.id === form.item_class_id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
           </DetailSection>
 
           {/* Description grid */}

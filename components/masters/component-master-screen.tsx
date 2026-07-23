@@ -21,6 +21,7 @@ import {
   deleteComponent,
 } from "@/lib/masters/component-actions";
 import type { Component, ComponentInput } from "@/lib/masters/component-types";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -52,6 +53,15 @@ export function ComponentMasterScreen({
   const [coordinates, setCoordinates] = useState<CoordinateRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `c${keySeq.current++}`;
+
+  // Real-time duplicate check on Short Name (mirrors the on-save guard in component-actions).
+  const dupError = useDuplicateCheck({
+    table: "components",
+    name: form.short_name ?? "",
+    nameColumn: "short_name",
+    excludeId: editId ?? undefined,
+    enabled: !!form.short_name.trim(),
+  });
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
     search: (r, q) =>
@@ -301,14 +311,14 @@ export function ComponentMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.short_name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.short_name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="cmp-short">
                 Short Name <span className="text-danger">*</span>
@@ -319,6 +329,7 @@ export function ComponentMasterScreen({
                 onChange={(e) => setForm({ ...form, short_name: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             <div>
               <Label htmlFor="cmp-desc">Description</Label>
@@ -360,15 +371,17 @@ export function ComponentMasterScreen({
             />
           )}
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

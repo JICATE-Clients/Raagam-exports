@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { DEFAULT_COLUMNS } from "@/lib/masters/packing-format-columns-service";
-import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-service";
+import { DEFAULT_COLUMNS } from "@/lib/masters/packing-format-columns-types";
+import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-types";
 import {
   savePackingFormatColumns,
   initPackingFormatColumns,
@@ -115,6 +115,7 @@ export function PackingFormatColumnsDialog({ formatId, savedColumns, open, onClo
       open={open}
       onClose={onClose}
       title="Packing List Columns"
+      size="sm"
       footer={
         <>
           <Button variant="outline" size="md" onClick={onClose}>Cancel</Button>

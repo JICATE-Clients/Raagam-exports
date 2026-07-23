@@ -1,16 +1,18 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import {
   createReceivableTerm,
   updateReceivableTerm,
@@ -63,25 +65,12 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editEntryNo, setEditEntryNo] = useState<number | null>(null);
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [String(r.entry_no), r.pay_mode, atPhrase(r), r.description]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -168,17 +157,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -186,58 +165,32 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search receivable term…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Receivable Term
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No receivable terms yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No receivable terms yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[15px] font-semibold text-foreground">
-                    Entry #{r.entry_no} · {r.pay_mode ?? "—"}
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {atPhrase(r)} · {r.with_interest ? "With interest" : "No interest"}
-                  </div>
-                </div>
-                <StatusPill tone={r.inactive ? "danger" : "success"}>
-                  {r.inactive ? "Inactive" : "Active"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) =>
+          [String(r.entry_no), r.pay_mode, atPhrase(r), r.description].filter(Boolean).join(" ")
+        }
+        searchPlaceholder="Search receivable term…"
+        statusOf={(r) => (r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Receivable Term"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No receivable terms yet."
+        mobile={{
+          title: (r) => `Entry #${r.entry_no} · ${r.pay_mode ?? "—"}`,
+          meta: (r) => `${atPhrase(r)} · ${r.with_interest ? "With interest" : "No interest"}`,
+          pill: (r) => (
+            <StatusPill tone={r.inactive ? "danger" : "success"}>
+              {r.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          ),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -255,8 +208,8 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="rt-entry">Entry No</Label>
               <Input id="rt-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -290,7 +243,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
           </div>
 
           {/* AT phrase — three dropdowns */}
-          <div className="rounded-lg border border-border p-3">
+          <div className="rounded-lg border border-border p-3 sm:col-span-2">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">AT</div>
             <div className="grid grid-cols-3 gap-2">
               <Select
@@ -370,7 +323,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
               className="text-base md:text-sm"
             />
           </div>
-          <div>
+          <div className="sm:col-span-2">
             <Label htmlFor="rt-desc">Description</Label>
             <Textarea
               id="rt-desc"
@@ -380,15 +333,17 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
               className="text-base md:text-sm"
             />
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => set({ inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

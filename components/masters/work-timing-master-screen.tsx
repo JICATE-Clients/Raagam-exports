@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -67,7 +69,6 @@ export function WorkTimingMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editNo, setEditNo] = useState<number | null>(null);
@@ -77,14 +78,6 @@ export function WorkTimingMasterScreen({
   const newKey = () => `l${keySeq.current++}`;
 
   const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [String(r.entry_no), r.location?.name].filter(Boolean).join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -193,17 +186,7 @@ export function WorkTimingMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -211,57 +194,27 @@ export function WorkTimingMasterScreen({
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by entry no or location…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Work Timing
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No work timings yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No work timings yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">
-                    #{r.entry_no}
-                    {r.location?.name ? ` · ${r.location.name}` : ""}
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.date?.slice(0, 10)} · {r.lines.length} shift{r.lines.length === 1 ? "" : "s"}
-                  </div>
-                </div>
-                {statusPill(r)}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) => [String(r.entry_no), r.location?.name].filter(Boolean).join(" ")}
+        searchPlaceholder="Search by entry no or location…"
+        statusOf={(r) => (r.is_draft ? "draft" : "active")}
+        addLabel="+ Add Work Timing"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No work timings yet."
+        mobile={{
+          title: (r) => `#${r.entry_no}${r.location?.name ? ` · ${r.location.name}` : ""}`,
+          meta: (r) =>
+            `${r.date?.slice(0, 10) ?? ""} · ${r.lines.length} shift${r.lines.length === 1 ? "" : "s"}`,
+          pill: (r) => statusPill(r),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -291,8 +244,8 @@ export function WorkTimingMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label>Entry No</Label>
               <Input
@@ -313,7 +266,7 @@ export function WorkTimingMasterScreen({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label>Location</Label>
               <LocationPicker
@@ -335,7 +288,7 @@ export function WorkTimingMasterScreen({
           </div>
 
           {/* Shift line grid */}
-          <div className="overflow-hidden rounded-lg border border-border">
+          <div className="overflow-hidden rounded-lg border border-border sm:col-span-2">
             <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3.5 py-2.5">
               <h3 className="text-[13px] font-bold text-foreground">Shifts</h3>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>

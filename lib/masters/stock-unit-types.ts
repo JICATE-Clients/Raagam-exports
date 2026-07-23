@@ -26,7 +26,10 @@ export interface StockUnit {
 }
 
 export const stockUnitInput = z.object({
-  code: z.string().min(1, "Code is required"),
+  /** Blank on create → the action auto-generates a unique code from the name
+   *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+   *  code through unchanged. */
+  code: z.string().optional().default(""),
   name: z.string().min(1, "Name is required"),
   description: z.string().optional().nullable(),
   decimal_places: z.coerce.number().int().min(0).max(6).default(0),

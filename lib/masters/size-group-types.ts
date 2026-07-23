@@ -23,6 +23,9 @@ export interface SizeGroup {
 }
 
 export const sizeGroupInput = z.object({
+  /** Blank on create → the action auto-generates a unique group no. from the
+   *  name (client 2026-07-23: don't ask users for a code). Edit passes the
+   *  existing no. through unchanged. */
   size_group_no: z.string().optional().nullable(),
   size_group_name: z.string().optional().nullable(),
   inactive: z.boolean().default(false),

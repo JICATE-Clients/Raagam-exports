@@ -19,6 +19,9 @@ export interface PackingInstruction {
 }
 
 export const packingInstructionInput = z.object({
+  /** Blank on create → the action auto-generates a unique packing no. from the
+   *  packing type (client 2026-07-23: don't ask users for a code). Edit passes
+   *  the existing no. through unchanged. */
   packing_no: z.string().optional().nullable(),
   packing_type: z.string().min(1, "Packing type is required"),
   packing_type_new_old: z.string().optional().nullable(),

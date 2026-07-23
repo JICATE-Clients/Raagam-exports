@@ -106,7 +106,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
     startTransition(async () => {
       const payload: ConstructionInput = {
         code: form.code.trim(),
-        name: form.name.trim() || form.code.trim(),
+        name: form.name.trim(),
         reed: numOrZero(form.reed),
         epi_on_loom: numOrZero(form.epi_on_loom),
         reed_count: form.reed_count.trim() || null,
@@ -230,24 +230,23 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.code.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="con-code">Code <span className="text-danger">*</span></Label>
-              <Input id="con-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className="text-base md:text-sm" />
-            </div>
-            <div>
-              <Label htmlFor="con-name">Name</Label>
-              <Input id="con-name" value={form.name} placeholder={form.code || undefined} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-            </div>
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label htmlFor="con-name">Name <span className="text-danger">*</span></Label>
+            <Input id="con-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+            {!editId && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                The code is generated automatically from the name.
+              </p>
+            )}
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="con-reed">Reed</Label>
               <Input id="con-reed" type="number" min={0} value={form.reed} onChange={(e) => setForm({ ...form, reed: e.target.value })} className="text-base md:text-sm" />
@@ -261,7 +260,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
               <Input id="con-reedcount" value={form.reed_count} onChange={(e) => setForm({ ...form, reed_count: e.target.value })} className="text-base md:text-sm" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="con-pick">Pick</Label>
               <Input id="con-pick" type="number" min={0} step="0.01" value={form.pick} onChange={(e) => setForm({ ...form, pick: e.target.value })} className="text-base md:text-sm" />
@@ -281,19 +280,21 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
             <Label htmlFor="con-desc">Weave Tech Description</Label>
             <Input id="con-desc" value={form.weave_tech_desc} onChange={(e) => setForm({ ...form, weave_tech_desc: e.target.value })} className="text-base md:text-sm" />
           </div>
-          <div className="flex gap-4">
+          <div className="flex gap-4 sm:col-span-2">
             <label className="flex cursor-pointer items-center gap-2">
               <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.is_direct_purchase} onChange={(e) => setForm({ ...form, is_direct_purchase: e.target.checked })} />
               <span className="text-sm text-foreground">Direct Purchase</span>
             </label>
-            <label className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
+            {editId && (
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
+            )}
           </div>
 
           {/* Warp/Weft Counts child grid */}
-          <div className="rounded-lg border border-border">
+          <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Warp &amp; Weft Counts</div>
             <div className="space-y-2 p-3">
               {lines.map((l, i) => (

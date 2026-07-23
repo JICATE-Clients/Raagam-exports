@@ -17,7 +17,7 @@ type FormState = { item_class_id: string; short_name: string; name: string; inac
 const BLANK_FORM: FormState = { item_class_id: "", short_name: "", name: "", inactive: false };
 
 /**
- * The legacy ⓘ Commodity popup: a searchable Item Class/Short Name/Name grid
+ * The legacy ⓘ Commodity popup: a searchable Item Class/Name grid
  * with Add / Modify / Delete / OK / Cancel. Add/Modify/Delete write through
  * the shared Commodity master (create/update/deleteCommodity) — so a
  * commodity added or edited here changes everywhere it is referenced (e.g.
@@ -125,7 +125,8 @@ export function CommodityPicker({
     start(async () => {
       const payload: CommodityInput = {
         item_class_id: form.item_class_id,
-        short_name: form.short_name.trim() || null,
+        // merged: Short Name = Name on create; edits keep the stored short name
+        short_name: formEditId ? form.short_name.trim() || null : form.name.trim() || null,
         name: form.name.trim() || null,
         inactive: form.inactive,
       };
@@ -238,7 +239,7 @@ export function CommodityPicker({
                       autoFocus
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search short name or name…"
+                      placeholder="Search name…"
                       className="text-base md:text-sm"
                     />
                   </div>
@@ -250,7 +251,6 @@ export function CommodityPicker({
                         <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                           <tr>
                             <th className="px-4 py-2 text-left font-medium">Item Class</th>
-                            <th className="px-4 py-2 text-left font-medium">Short Name</th>
                             <th className="px-4 py-2 text-left font-medium">Name</th>
                           </tr>
                         </thead>
@@ -272,7 +272,6 @@ export function CommodityPicker({
                               <td className="px-4 py-2 text-xs text-muted-foreground">
                                 {classLabel.get(c.item_class_id) ?? "—"}
                               </td>
-                              <td className="px-4 py-2">{c.short_name ?? "—"}</td>
                               <td className="px-4 py-2">
                                 {c.name ?? "—"}
                                 {c.inactive ? " (inactive)" : ""}
@@ -364,41 +363,34 @@ export function CommodityPicker({
                         ))}
                       </Select>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="cop-short">Short Name</Label>
-                        <Input
-                          id="cop-short"
-                          value={form.short_name}
-                          onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="cop-name">Name</Label>
-                        <Input
-                          id="cop-name"
-                          value={form.name}
-                          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                    </div>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.inactive}
-                        onChange={(e) => setForm((f) => ({ ...f, inactive: e.target.checked }))}
+                    <div>
+                      <Label htmlFor="cop-name">
+                        Name <span className="text-danger">*</span>
+                      </Label>
+                      <Input
+                        id="cop-name"
+                        value={form.name}
+                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        className="text-base md:text-sm"
                       />
-                      <span className="text-sm text-foreground">Inactive</span>
-                    </label>
+                    </div>
+                    {formEditId && (
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={form.inactive}
+                          onChange={(e) => setForm((f) => ({ ...f, inactive: e.target.checked }))}
+                        />
+                        <span className="text-sm text-foreground">Inactive</span>
+                      </label>
+                    )}
                   </div>
                   <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
                     <Button type="button" variant="outline" size="md" onClick={() => setMode("list")}>
                       Back
                     </Button>
-                    <Button type="button" size="md" disabled={isPending || !form.item_class_id} onClick={saveForm}>
+                    <Button type="button" size="md" disabled={isPending || !form.item_class_id || !form.name.trim()} onClick={saveForm}>
                       {isPending ? "Saving…" : "Save"}
                     </Button>
                   </div>

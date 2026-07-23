@@ -22,6 +22,7 @@ import {
   updateOurBank,
   deleteOurBank,
 } from "@/lib/masters/our-bank-actions";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import type { OurBank, OurBankInput } from "@/lib/masters/our-bank-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
@@ -41,6 +42,16 @@ export function OurBankMasterScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
+
+  // Real-time duplicate check on Account No — mirrors the on-save guard in
+  // our-bank-actions (our_banks / account_no).
+  const dupError = useDuplicateCheck({
+    table: "our_banks",
+    name: form.account_no,
+    nameColumn: "account_no",
+    excludeId: editId ?? undefined,
+    enabled: !!form.account_no.trim(),
+  });
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
     search: (r, q) =>
@@ -237,14 +248,14 @@ export function OurBankMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.account_name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.account_name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="ob-account-no">Account No</Label>
               <Input
@@ -253,6 +264,7 @@ export function OurBankMasterScreen({
                 onChange={(e) => setForm({ ...form, account_no: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             <div>
               <Label htmlFor="ob-account-name">Account Name</Label>
@@ -310,15 +322,17 @@ export function OurBankMasterScreen({
             </div>
           </DetailSection>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

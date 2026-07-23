@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -63,6 +64,15 @@ export function BrandMasterScreen({
     return m;
   }, [countries]);
 
+  // Real-time duplicate check on Name (mirrors the on-save guard in brand-actions).
+  const dupError = useDuplicateCheck({
+    table: "brands",
+    name: form.brand_name ?? "",
+    nameColumn: "brand_name",
+    excludeId: editId ?? undefined,
+    enabled: !!form.brand_name.trim(),
+  });
+
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
     search: (r, q) =>
       [r.brand_short_name, r.brand_name, r.country?.name ?? (r.country_id ? countryLabel.get(r.country_id) : null)]
@@ -101,7 +111,7 @@ export function BrandMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: BrandInput = {
-        brand_short_name: form.brand_short_name.trim() || null,
+        brand_short_name: form.brand_name.trim() || null,
         brand_name: form.brand_name.trim(),
         country_id: form.country_id || null,
         website: form.website.trim() || null,
@@ -137,7 +147,6 @@ export function BrandMasterScreen({
   }
 
   const columns: Column<Brand>[] = [
-    { header: "Short Name", cell: (r) => <span className="text-sm">{r.brand_short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm font-medium">{r.brand_name ?? "—"}</span> },
     { header: "Country", cell: (r) => <span className="text-sm">{countryName(r)}</span> },
     {
@@ -283,7 +292,7 @@ export function BrandMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.brand_name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.brand_name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -291,15 +300,6 @@ export function BrandMasterScreen({
       >
         <div className="space-y-4">
           <DetailSection label="Details">
-            <div>
-              <Label htmlFor="brd-short">Short Name</Label>
-              <Input
-                id="brd-short"
-                value={form.brand_short_name}
-                onChange={(e) => set({ brand_short_name: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
             <div>
               <Label htmlFor="brd-name">
                 Name <span className="text-danger">*</span>
@@ -310,6 +310,7 @@ export function BrandMasterScreen({
                 onChange={(e) => set({ brand_name: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             <CountryPicker
               countries={countries}
@@ -349,15 +350,17 @@ export function BrandMasterScreen({
             </div>
           </DetailSection>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => set({ inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

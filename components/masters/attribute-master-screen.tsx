@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -17,57 +16,30 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { ChildGrid } from "@/components/masters/child-grid";
-import {
-  createAttribute,
-  updateAttribute,
-} from "@/lib/masters/extras-actions";
-import { type Attribute, type AttributeInput } from "@/lib/masters/extras-types";
+import { saveAttributeValues } from "@/lib/masters/extras-actions";
+import { type Attribute } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
-type ValueRow = { key: string; value: string };
-
-const BLANK = {
-  code: "",
-  name: "",
-  type_code: "",
-  notes: "",
-  inactive: false,
+type ValueRow = {
+  key: string;
+  value: string;
+  input_type: "option_list" | "numeric_range";
+  optionsText: string;
 };
 
-// Fixed legacy list — the old RP-Software Attribute editor hardcoded this
-// exact 8-value Type dropdown; matches the type_code values already stored
-// on existing rows (CAP, FAB, GAR, GEN, PAK, SEW, YRN).
-const TYPE_OPTIONS = [
-  { code: "YRN", label: "Yarn" },
-  { code: "FAB", label: "Fabric" },
-  { code: "SEW", label: "Sewing Accessories" },
-  { code: "PAK", label: "Packing Accessories" },
-  { code: "GEN", label: "General" },
-  { code: "GAR", label: "Garments" },
-  { code: "CON", label: "Consumables" },
-  { code: "CAP", label: "Capital Items" },
-] as const;
-const TYPE_LABELS = new Map<string, string>(TYPE_OPTIONS.map((t) => [t.code, t.label]));
-
 /**
- * Attributes = Item Class (config_lookups kind `item_class`, merged 0293) —
- * Code/Name/Type/Inactive header, plus a child grid of named attribute values
- * (e.g. GSM, Width) that Material Attribute Lines pick from. Dense table on
- * desktop, record cards on mobile, shared <Sheet> editor.
+ * Attribute master (doc/update.md #2-3) — the second half of the Item Class /
+ * Attribute split. Lists every Item Class; for a class flagged Has Attribute =
+ * Yes it shows the value-adding grid (e.g. GSM 180/200), for No it shows the
+ * class with no value section. Item Class lifecycle (create / rename / block)
+ * lives on the Item Class screen — here you only edit the per-class value list.
  */
-export function AttributeMasterScreen({
-  rows,
-  perms,
-}: {
-  rows: Attribute[];
-  perms: Perms;
-}) {
+export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState(BLANK);
+  const [editRow, setEditRow] = useState<Attribute | null>(null);
   const [values, setValues] = useState<ValueRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `v${keySeq.current++}`;
@@ -76,67 +48,69 @@ export function AttributeMasterScreen({
     rows,
     {
       search: (r, q) =>
-        [r.code, r.name, r.type_code, r.notes, ...r.values.map((v) => v.value)]
+        [r.code, r.name, ...r.values.map((v) => v.value)]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(q),
       filters: {
         status: (r, v) => (v === "active" ? !!r.is_active : v === "inactive" ? !r.is_active : true),
-        type: (r, v) => r.type_code === v,
+        attr: (r, v) => (v === "yes" ? !!r.has_attribute : v === "no" ? !r.has_attribute : true),
       },
-      initialFilters: { status: "", type: "" },
+      initialFilters: { status: "", attr: "" },
     },
   );
 
   const pg = usePagination(filtered, 10);
 
-  function openAdd() {
-    setEditId(null);
-    setForm(BLANK);
-    setValues([]);
-    setOpen(true);
-  }
   function openEdit(r: Attribute) {
-    setEditId(r.id);
-    setForm({
-      code: r.code ?? "",
-      name: r.name,
-      type_code: r.type_code ?? "",
-      notes: r.notes ?? "",
-      inactive: !r.is_active,
-    });
-    setValues(r.values.map((v) => ({ key: newKey(), value: v.value })));
+    setEditRow(r);
+    setValues(
+      r.values.map((v) => ({
+        key: newKey(),
+        value: v.value,
+        input_type: v.input_type ?? "numeric_range",
+        optionsText: (v.options ?? []).map((o) => o.value).join(", "),
+      })),
+    );
     setOpen(true);
   }
-
   function addValueRow() {
-    setValues((vs) => [...vs, { key: newKey(), value: "" }]);
+    setValues((vs) => [...vs, { key: newKey(), value: "", input_type: "numeric_range", optionsText: "" }]);
   }
   function setValueAt(key: string, value: string) {
     setValues((vs) => vs.map((v) => (v.key === key ? { ...v, value } : v)));
+  }
+  function setInputTypeAt(key: string, input_type: "option_list" | "numeric_range") {
+    setValues((vs) => vs.map((v) => (v.key === key ? { ...v, input_type } : v)));
+  }
+  function setOptionsTextAt(key: string, optionsText: string) {
+    setValues((vs) => vs.map((v) => (v.key === key ? { ...v, optionsText } : v)));
   }
   function removeValueRow(key: string) {
     setValues((vs) => vs.filter((v) => v.key !== key));
   }
 
   function submit() {
+    if (!editRow) return;
     startTransition(async () => {
-      const payload: AttributeInput = {
-        code: form.code.trim() || null,
-        name: form.name.trim(),
-        type_code: form.type_code.trim() || null,
-        notes: form.notes.trim() || null,
-        is_active: !form.inactive,
-        values: values
-          .filter((v) => v.value.trim())
-          .map((v, i) => ({ sno: i + 1, value: v.value.trim() })),
-      };
-      const res = editId
-        ? await updateAttribute(editId, payload)
-        : await createAttribute(payload);
+      const payload = values
+        .filter((v) => v.value.trim())
+        .map((v) => ({
+          value: v.value.trim(),
+          input_type: v.input_type,
+          options:
+            v.input_type === "option_list"
+              ? v.optionsText
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .map((s) => ({ value: s }))
+              : [],
+        }));
+      const res = await saveAttributeValues(editRow.id, payload);
       if (res.ok) {
-        success(editId ? "Attribute updated." : "Attribute added.");
+        success("Attributes saved.");
         setOpen(false);
         router.refresh();
       } else {
@@ -145,36 +119,11 @@ export function AttributeMasterScreen({
     });
   }
 
-  function deactivate(r: Attribute) {
-    startTransition(async () => {
-      const payload: AttributeInput = {
-        code: r.code ?? null,
-        name: r.name,
-        type_code: r.type_code ?? null,
-        notes: r.notes ?? null,
-        is_active: false,
-        values: r.values.map((v) => ({ sno: v.sno, value: v.value })),
-      };
-      const res = await updateAttribute(r.id, payload);
-      if (res.ok) {
-        success("Attribute marked inactive.");
-        router.refresh();
-      } else {
-        error(res.error);
-      }
-    });
-  }
-
   const columns: Column<Attribute>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    { header: "Item Class", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
     {
-      header: "Type",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.type_code ? TYPE_LABELS.get(r.type_code) ?? r.type_code : "—"}
-        </span>
-      ),
+      header: "Has Attribute",
+      cell: (r) => <span className="text-sm text-muted-foreground">{r.has_attribute ? "Yes" : "No"}</span>,
     },
     {
       header: "Attributes",
@@ -198,18 +147,7 @@ export function AttributeMasterScreen({
         <div className="flex justify-end gap-1">
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && r.is_active && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => deactivate(r)}
-            >
-              Deactivate
+              {r.has_attribute ? "Edit attributes" : "View"}
             </Button>
           )}
         </div>
@@ -227,9 +165,12 @@ export function AttributeMasterScreen({
             setQuery(v);
             pg.setPage(1);
           }}
-          searchPlaceholder="Search attribute…"
+          searchPlaceholder="Search item class / attribute…"
           activeCount={activeCount}
-          onReset={reset}
+          onReset={() => {
+            reset();
+            pg.setPage(1);
+          }}
         >
           <div>
             <Label htmlFor="at-filter-status">Status</Label>
@@ -248,50 +189,37 @@ export function AttributeMasterScreen({
             </Select>
           </div>
           <div>
-            <Label htmlFor="at-filter-type">Type</Label>
+            <Label htmlFor="at-filter-attr">Has Attribute</Label>
             <Select
-              id="at-filter-type"
-              value={filterValues.type}
+              id="at-filter-attr"
+              value={filterValues.attr}
               onChange={(e) => {
-                setFilter("type", e.target.value);
+                setFilter("attr", e.target.value);
                 pg.setPage(1);
               }}
               className="text-base md:text-sm"
             >
               <option value="">All</option>
-              {TYPE_OPTIONS.map((t) => (
-                <option key={t.code} value={t.code}>
-                  {t.label}
-                </option>
-              ))}
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
             </Select>
           </div>
         </FilterBar>
         <div className="flex flex-1 items-center justify-end gap-2">
           <DataIoToolbar entityKey="attributes" rows={filtered} canExport={perms.canExport} />
-          {perms.canCreate && (
-            <Button size="md" onClick={openAdd}>
-              + Add Attribute
-            </Button>
-          )}
         </div>
       </div>
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable
-          columns={columns}
-          rows={pg.paged}
-          getKey={(r) => r.id}
-          empty="No attribute records yet."
-        />
+        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
         {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No attribute records yet.
+            No item classes yet.
           </div>
         ) : (
           pg.paged.map((r) => (
@@ -303,20 +231,16 @@ export function AttributeMasterScreen({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">
-                    {r.name}
+                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Has Attribute: {r.has_attribute ? "Yes" : "No"}
+                    {r.has_attribute && r.values.length > 0 ? ` · ${r.values.length} value${r.values.length === 1 ? "" : "s"}` : ""}
                   </div>
-                  {r.code && <div className="mt-0.5 text-xs text-muted-foreground">{r.code}</div>}
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "danger"}>
                   {r.is_active ? "Active" : "Inactive"}
                 </StatusPill>
               </div>
-              {r.values.length > 0 && (
-                <div className="mt-2 text-[13px] text-muted-foreground">
-                  {r.values.length} value{r.values.length === 1 ? "" : "s"}
-                </div>
-              )}
             </button>
           ))
         )}
@@ -335,104 +259,80 @@ export function AttributeMasterScreen({
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
-        title={editId ? "Edit Attribute" : "New Attribute"}
+        title={editRow ? `Attributes — ${editRow.name}` : "Attributes"}
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
+              {editRow?.has_attribute ? "Cancel" : "Close"}
             </Button>
-            <Button
-              size="md"
-              disabled={isPending || !form.name.trim()}
-              onClick={submit}
-            >
-              {isPending ? "Saving…" : "Save"}
-            </Button>
+            {editRow?.has_attribute && (
+              <Button size="md" disabled={isPending} onClick={submit}>
+                {isPending ? "Saving…" : "Save"}
+              </Button>
+            )}
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="at-code">Code</Label>
-              <Input
-                id="at-code"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
-                placeholder="Unique code"
-                className="text-base md:text-sm"
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          {editRow && !editRow.has_attribute ? (
+            <div className="rounded-lg border border-border bg-surface-muted px-3 py-4 text-sm text-muted-foreground sm:col-span-2">
+              Attributes are not enabled for{" "}
+              <span className="font-medium text-foreground">{editRow.name}</span>. Turn on “Has
+              Attribute” for this class on the Item Class screen to add values.
+            </div>
+          ) : (
+            <div className="sm:col-span-2">
+              <ChildGrid<ValueRow>
+                label="Attributes"
+                rows={values}
+                onAdd={addValueRow}
+                onRemove={(v) => removeValueRow(v.key)}
+                addLabel="+ Add attribute"
+                columns={[
+                  {
+                    header: "Value",
+                    cell: (v) => (
+                      <Input
+                        value={v.value}
+                        onChange={(e) => setValueAt(v.key, e.target.value)}
+                        placeholder="Attribute value"
+                        className="text-base md:text-sm"
+                      />
+                    ),
+                  },
+                  {
+                    header: "Type",
+                    cell: (v) => (
+                      <Select
+                        value={v.input_type}
+                        onChange={(e) =>
+                          setInputTypeAt(v.key, e.target.value as "option_list" | "numeric_range")
+                        }
+                        className="text-base md:text-sm"
+                      >
+                        <option value="numeric_range">Numeric range</option>
+                        <option value="option_list">Options list</option>
+                      </Select>
+                    ),
+                  },
+                  {
+                    header: "Options",
+                    cell: (v) =>
+                      v.input_type === "option_list" ? (
+                        <Input
+                          value={v.optionsText}
+                          onChange={(e) => setOptionsTextAt(v.key, e.target.value)}
+                          placeholder="e.g. Printed, Laminated"
+                          className="text-base md:text-sm"
+                        />
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      ),
+                  },
+                ]}
               />
             </div>
-            <div>
-              <Label htmlFor="at-type">Type</Label>
-              <Select
-                id="at-type"
-                value={form.type_code}
-                onChange={(e) => setForm({ ...form, type_code: e.target.value })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {TYPE_OPTIONS.map((t) => (
-                  <option key={t.code} value={t.code}>
-                    {t.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="at-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="at-name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="at-notes">Notes</Label>
-            <Textarea
-              id="at-notes"
-              rows={3}
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
-
-          {/* value grid — named properties (GSM, Width, …) scoped to this Item Class */}
-          <ChildGrid<ValueRow>
-            label="Attributes"
-            rows={values}
-            onAdd={addValueRow}
-            onRemove={(v) => removeValueRow(v.key)}
-            addLabel="+ Add attribute"
-            columns={[
-              {
-                header: "Value",
-                cell: (v) => (
-                  <Input
-                    value={v.value}
-                    onChange={(e) => setValueAt(v.key, e.target.value)}
-                    placeholder="Attribute value"
-                    className="text-base md:text-sm"
-                  />
-                ),
-              },
-            ]}
-          />
+          )}
         </div>
       </Sheet>
     </div>

@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
 import { LocationPicker } from "@/components/masters/location-picker";
 import {
@@ -65,7 +67,6 @@ export function DepartmentMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(blankHeader());
@@ -82,14 +83,6 @@ export function DepartmentMasterScreen({
     for (const l of locations) m.set(l.id, `${l.code} — ${l.name}`);
     return m;
   }, [locations]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.short_name, r.name, r.doc_prefix].filter(Boolean).join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -160,7 +153,9 @@ export function DepartmentMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: DepartmentInput = {
-        short_name: form.short_name.trim(),
+        // Create derives the code from Name; edit keeps the record's original
+        // stored short_name (it can be a logic key referenced elsewhere).
+        short_name: editId ? form.short_name : form.name.trim(),
         name: form.name.trim() || null,
         doc_prefix: form.doc_prefix.trim() || null,
         warehouse: form.warehouse,
@@ -208,7 +203,6 @@ export function DepartmentMasterScreen({
   }
 
   const columns: Column<Department>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-medium text-sm">{r.short_name}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
     {
       header: "Doc Prefix",
@@ -239,17 +233,7 @@ export function DepartmentMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -257,56 +241,30 @@ export function DepartmentMasterScreen({
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search department…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Department
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No departments yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No departments yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[15px] font-semibold text-foreground">{r.short_name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.name ?? "—"} · {r.locations.length} location(s)
-                  </div>
-                </div>
-                <StatusPill tone={r.inactive ? "danger" : "success"}>
-                  {r.inactive ? "Inactive" : "Active"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) => [r.short_name, r.name, r.doc_prefix].filter(Boolean).join(" ")}
+        searchPlaceholder="Search department…"
+        statusOf={(r) => (r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Department"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No departments yet."
+        mobile={{
+          title: (r) => r.short_name,
+          meta: (r) => `${r.name ?? "—"} · ${r.locations.length} location(s)`,
+          pill: (r) => (
+            <StatusPill tone={r.inactive ? "danger" : "success"}>
+              {r.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          ),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -318,7 +276,7 @@ export function DepartmentMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.short_name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -326,18 +284,9 @@ export function DepartmentMasterScreen({
       >
         <div className="space-y-4">
           <div>
-            <Label htmlFor="dep-short">
-              Short Name <span className="text-danger">*</span>
+            <Label htmlFor="dep-name">
+              Name <span className="text-danger">*</span>
             </Label>
-            <Input
-              id="dep-short"
-              value={form.short_name}
-              onChange={(e) => set({ short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="dep-name">Name</Label>
             <Input
               id="dep-name"
               value={form.name}
@@ -365,15 +314,17 @@ export function DepartmentMasterScreen({
                 />
                 <span className="text-sm text-foreground">Warehouse</span>
               </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
+              {editId && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => set({ inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              )}
             </div>
           </div>
 

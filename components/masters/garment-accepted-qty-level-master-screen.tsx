@@ -295,9 +295,9 @@ export function GarmentAcceptedQtyLevelMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           {/* header fields */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="gaql-code">Code</Label>
               <Input
@@ -335,7 +335,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
           </div>
 
           {/* detail grid */}
-          <div className="rounded-lg border border-border">
+          <div className="rounded-lg border border-border sm:col-span-2">
             <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
               <span className="text-sm font-medium text-foreground">
                 Detail Rows{" "}

@@ -258,18 +258,28 @@ export function HsnDetailMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <LookupDialogPicker
-              kind="item_class"
-              label="Item Class"
-              options={itemClasses}
-              value={form.item_class_id || null}
-              onChange={(id) => set({ item_class_id: id })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              required
-            />
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2">
+            <div>
+              <Label htmlFor="hsn-item-class">
+                Item Class <span className="text-danger">*</span>
+              </Label>
+              <Select
+                id="hsn-item-class"
+                value={form.item_class_id || ""}
+                onChange={(e) => set({ item_class_id: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— Select —</option>
+                {itemClasses
+                  .filter((c) => c.is_active || c.id === form.item_class_id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
             <div>
               <Label htmlFor="hsn-for">For</Label>
               <Select
@@ -305,15 +315,17 @@ export function HsnDetailMasterScreen({
               className="text-base md:text-sm"
             />
           </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => set({ inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

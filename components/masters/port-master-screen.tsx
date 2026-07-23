@@ -83,7 +83,9 @@ export function PortMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: PortInput = {
-        short_name: form.short_name.trim() || null,
+        // Create derives the short name from the display name; edit keeps the
+        // record's original stored short name (held in state, never rendered).
+        short_name: editId ? form.short_name.trim() || null : form.name.trim() || null,
         name: form.name.trim() || null,
         country_id: form.country_id,
         port_type: form.port_type ? form.port_type : null,
@@ -116,7 +118,6 @@ export function PortMasterScreen({
   }
 
   const columns: Column<Port>[] = [
-    { header: "Short Name", cell: (r) => <span className="text-sm">{r.short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm font-medium">{r.name ?? "—"}</span> },
     { header: "Country", cell: (r) => <span className="text-sm">{countryName(r)}</span> },
     {
@@ -210,28 +211,22 @@ export function PortMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.country_id} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.country_id || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           <div>
-            <Label htmlFor="pt-short">Short Name</Label>
-            <Input
-              id="pt-short"
-              value={form.short_name}
-              onChange={(e) => set({ short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="pt-name">Name</Label>
+            <Label htmlFor="pt-name">
+              Name <span className="text-danger">*</span>
+            </Label>
             <Input
               id="pt-name"
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
+              required
               className="text-base md:text-sm"
             />
           </div>

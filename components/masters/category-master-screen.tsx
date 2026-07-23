@@ -13,13 +13,14 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
-import { LookupDialogPicker, LevyPicker } from "@/components/masters/lookup-picker";
+import { LevyPicker } from "@/components/masters/lookup-picker";
 import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import {
   MADE_TYPES,
   showsUserDefined,
@@ -123,6 +124,15 @@ export function CategoryMasterScreen({
   const showUserDefined = showsUserDefined(selectedClassCode);
   const showFabricStructure = selectedClassCode === "FABRIC";
 
+  // Real-time duplicate check on Name, scoped to the selected Item Class.
+  const dupError = useDuplicateCheck({
+    table: "categories",
+    name: form.name ?? "",
+    scope: { item_class_id: form.item_class_id || null },
+    excludeId: editId ?? undefined,
+    enabled: !!(form.name && form.item_class_id),
+  });
+
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
@@ -185,7 +195,7 @@ export function CategoryMasterScreen({
     startTransition(async () => {
       const payload: CategoryInput = {
         item_class_id: form.item_class_id,
-        short_name: form.short_name.trim() || null,
+        short_name: form.name.trim() || null, // merged: Short Name = Name (single field)
         name: form.name.trim() || null,
         short_spec: form.short_spec.trim() || null,
         made: form.made ? form.made : null,
@@ -217,7 +227,7 @@ export function CategoryMasterScreen({
     startTransition(async () => {
       const res = await deleteCategory(r.id);
       if (res.ok) {
-        success(res.inactive ? "Category is in use — marked inactive instead of deleted." : "Category deleted.");
+        success(res.inactive ? "Category is in use — deactivated instead of deleted (history kept)." : "Category deleted.");
         router.refresh();
       } else {
         error(res.error);
@@ -230,7 +240,6 @@ export function CategoryMasterScreen({
       header: "Item Class",
       cell: (r) => <span className="text-sm">{classLabel.get(r.item_class_id) ?? "—"}</span>,
     },
-    { header: "Short Name", cell: (r) => <span className="text-sm">{r.short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
     {
       header: "Short Description",
@@ -452,26 +461,34 @@ export function CategoryMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.item_class_id} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.item_class_id || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Classification">
-            <LookupDialogPicker
-              kind="item_class"
-              label="Item Class"
-              required
-              options={itemClasses}
-              value={form.item_class_id}
-              onChange={(v) => setForm({ ...form, item_class_id: v })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-              isSuperAdmin={perms.isSuperAdmin}
-            />
+          <DetailSection label="Classification" cols={2}>
+            <div>
+              <Label htmlFor="cat-item-class">
+                Item Class <span className="text-danger">*</span>
+              </Label>
+              <Select
+                id="cat-item-class"
+                value={form.item_class_id}
+                onChange={(e) => setForm({ ...form, item_class_id: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— Select —</option>
+                {itemClasses
+                  .filter((c) => c.is_active || c.id === form.item_class_id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
 
             {showUserDefined && (
               <div>
@@ -488,56 +505,60 @@ export function CategoryMasterScreen({
               </div>
             )}
 
-            <div>
-              <Label htmlFor="cat-made">Made</Label>
-              <Select
-                id="cat-made"
-                value={form.made}
-                onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {MADE_TYPES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only;
+                Fabric classifies via Fabric Structure below instead. */}
+            {selectedClassCode === "YARN" && (
+              <div>
+                <Label htmlFor="cat-made">Category Type</Label>
+                <Select
+                  id="cat-made"
+                  value={form.made}
+                  onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
+                  className="text-base md:text-sm"
+                >
+                  <option value="">— Select —</option>
+                  {MADE_TYPES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             {showFabricStructure && (
-              <LookupDialogPicker
-                kind="fabric_structure"
-                label="Fabric Structure"
-                options={fabricStructures}
-                value={form.fabric_structure_id}
-                onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-                isSuperAdmin={perms.isSuperAdmin}
-                adminOnly
-              />
+              <div>
+                <Label htmlFor="cat-fabric-structure">Fabric Structure</Label>
+                <Select
+                  id="cat-fabric-structure"
+                  value={form.fabric_structure_id}
+                  onChange={(e) => setForm({ ...form, fabric_structure_id: e.target.value })}
+                  className="text-base md:text-sm"
+                >
+                  <option value="">— Select —</option>
+                  {fabricStructures
+                    .filter((s) => s.is_active || s.id === form.fabric_structure_id)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                </Select>
+              </div>
             )}
           </DetailSection>
 
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
-              <Label htmlFor="cat-short-name">Short Name</Label>
-              <Input
-                id="cat-short-name"
-                value={form.short_name}
-                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cat-name">Name</Label>
+              <Label htmlFor="cat-name">
+                Name <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="cat-name"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             {/* Short Spec removed for new entries (functional spec, 0280) — descriptive
                 data now comes from structured attributes instead. Still shown when
@@ -570,103 +591,17 @@ export function CategoryMasterScreen({
             />
           </DetailSection>
 
-          <DetailSection label="Costing">
-            <div>
-              <Label htmlFor="cat-wastage">Wastage %</Label>
-              <Input
-                id="cat-wastage"
-                type="number"
-                step="0.01"
-                value={form.wastage_per}
-                onChange={(e) => setForm({ ...form, wastage_per: +e.target.value })}
-                className="text-base md:text-sm"
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
               />
-            </div>
-            <div>
-              <Label htmlFor="cat-profit">Profit %</Label>
-              <Input
-                id="cat-profit"
-                type="number"
-                step="0.01"
-                value={form.profit_per}
-                onChange={(e) => setForm({ ...form, profit_per: +e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cat-freight">Freight %</Label>
-              <Input
-                id="cat-freight"
-                type="number"
-                step="0.01"
-                value={form.freight_per}
-                onChange={(e) => setForm({ ...form, freight_per: +e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cat-insurance">Insurance %</Label>
-              <Input
-                id="cat-insurance"
-                type="number"
-                step="0.01"
-                value={form.insurance_per}
-                onChange={(e) => setForm({ ...form, insurance_per: +e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cat-interest">Interest %</Label>
-              <Input
-                id="cat-interest"
-                type="number"
-                step="0.01"
-                value={form.interest_per}
-                onChange={(e) => setForm({ ...form, interest_per: +e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </DetailSection>
-
-          <DetailSection label="Additional">
-            <div>
-              <Label htmlFor="cat-size-group">Size Group</Label>
-              <Select
-                id="cat-size-group"
-                value={form.size_group_id}
-                onChange={(e) => setForm({ ...form, size_group_id: e.target.value })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— None —</option>
-                {sizeGroups
-                  .filter((sg) => !sg.inactive)
-                  .map((sg) => (
-                    <option key={sg.id} value={sg.id}>
-                      {sg.size_group_name ?? sg.size_group_no ?? sg.id}
-                    </option>
-                  ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="cat-status-monitoring">Status Monitoring Type</Label>
-              <Input
-                id="cat-status-monitoring"
-                value={form.status_monitoring_type}
-                onChange={(e) => setForm({ ...form, status_monitoring_type: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </DetailSection>
-
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

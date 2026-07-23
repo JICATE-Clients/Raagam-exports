@@ -1,16 +1,18 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createCountry, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import { COUNTRY_GROUPS, type Country, type CountryGroup, type CountryInput } from "@/lib/masters/country-types";
 
@@ -29,29 +31,18 @@ const BLANK = {
 /**
  * Legacy "Country" master (Associates). Flat form with a Country Group enum and
  * Save / Save-As-Drafts — the draft button persists with `is_draft = true`.
+ * List chrome via MasterListShell (search + status facet + pagination + mobile
+ * delete + two-step delete + ?new=1 create intent).
  */
 export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.code, r.name, r.country_group, r.isd_code, r.ecgc_code]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -75,7 +66,9 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
   function submit(asDraft: boolean) {
     startTransition(async () => {
       const payload: CountryInput = {
-        code: form.code.trim() || null,
+        // Create derives the code from Name; edit keeps the record's original
+        // stored code (it can be a logic key referenced elsewhere).
+        code: editId ? form.code || null : form.name.trim() || null,
         name: form.name.trim(),
         country_group: form.country_group ? form.country_group : null,
         ecgc_code: form.ecgc_code.trim() || null,
@@ -114,7 +107,6 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
   }
 
   const columns: Column<Country>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Group", cell: (r) => <span className="text-sm text-muted-foreground">{r.country_group ?? "—"}</span> },
     { header: "ISD", cell: (r) => <span className="text-sm text-muted-foreground">{r.isd_code ?? "—"}</span> },
@@ -133,17 +125,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -151,56 +133,30 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search country…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Country
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No country records yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No country records yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.code ?? "—"}
-                    {r.country_group ? ` · ${r.country_group}` : ""}
-                    {r.isd_code ? ` · +${r.isd_code}` : ""}
-                  </div>
-                </div>
-                {statusPill(r)}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) =>
+          [r.code, r.name, r.country_group, r.isd_code, r.ecgc_code].filter(Boolean).join(" ")
+        }
+        searchPlaceholder="Search country…"
+        statusOf={(r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Country"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No country records yet."
+        mobile={{
+          title: (r) => r.name,
+          subtitle: (r) => r.code ?? "—",
+          meta: (r) =>
+            [r.country_group, r.isd_code ? `+${r.isd_code}` : null].filter(Boolean).join(" · ") || null,
+          pill: (r) => statusPill(r),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -226,14 +182,17 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
-              <Label htmlFor="co-code">Code</Label>
+              <Label htmlFor="co-name">
+                Name <span className="text-danger">*</span>
+              </Label>
               <Input
-                id="co-code"
-                value={form.code}
-                onChange={(e) => set({ code: e.target.value })}
+                id="co-name"
+                value={form.name}
+                onChange={(e) => set({ name: e.target.value })}
+                required
                 className="text-base md:text-sm"
               />
             </div>
@@ -254,19 +213,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               </Select>
             </div>
           </div>
-          <div>
-            <Label htmlFor="co-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="co-name"
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="co-ecgc">ECGC Code</Label>
               <Input
@@ -296,15 +243,17 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             />
             <span className="text-sm text-foreground">Default Country</span>
           </label>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => set({ inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

@@ -85,7 +85,9 @@ export function MerchandisingTeamMasterScreen({
   function submit(asDraft: boolean) {
     startTransition(async () => {
       const payload: MerchandisingTeamInput = {
-        code: form.code.trim() || null,
+        // Create derives the code from the display name; edit keeps the
+        // record's original stored code (held in state, never rendered).
+        code: editId ? form.code.trim() || null : form.name.trim() || null,
         name: form.name.trim(),
         inactive: form.inactive,
         location_id: form.location_id || null,
@@ -123,7 +125,6 @@ export function MerchandisingTeamMasterScreen({
   }
 
   const columns: Column<MerchandisingTeam>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "Location",
@@ -236,27 +237,20 @@ export function MerchandisingTeamMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="mt-code">Short Name</Label>
-              <Input
-                id="mt-code"
-                value={form.code}
-                onChange={(e) => set({ code: e.target.value })}
-                className="text-base md:text-sm"
-              />
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          {editId && (
+            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
             </div>
-            <label className="flex cursor-pointer items-center gap-2 pt-6">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          </div>
+          )}
           <div>
             <Label htmlFor="mt-name">
               Name <span className="text-danger">*</span>

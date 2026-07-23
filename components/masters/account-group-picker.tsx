@@ -61,11 +61,7 @@ export function AccountGroupPicker({
     setOpen(false);
   }
 
-  const selectedLabel = selected
-    ? selected.short_name
-      ? `${selected.short_name} — ${selected.name}`
-      : selected.name
-    : `— Select ${label} —`;
+  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
   return (
     <div>
@@ -123,7 +119,7 @@ export function AccountGroupPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search short name or name…"
+                  placeholder="Search name…"
                   className="text-base md:text-sm"
                 />
               </div>
@@ -136,7 +132,6 @@ export function AccountGroupPicker({
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
                       <tr>
-                        <th className="w-28 px-4 py-2 text-left font-medium">Short Name</th>
                         <th className="px-4 py-2 text-left font-medium">Name</th>
                       </tr>
                     </thead>
@@ -154,7 +149,6 @@ export function AccountGroupPicker({
                             (highlightId === g.id ? "bg-primary/10" : "hover:bg-surface-muted")
                           }
                         >
-                          <td className="px-4 py-2 font-mono text-xs">{g.short_name ?? "—"}</td>
                           <td className="px-4 py-2">{g.name}</td>
                         </tr>
                       ))}

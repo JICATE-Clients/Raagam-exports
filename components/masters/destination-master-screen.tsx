@@ -17,6 +17,7 @@ import {
 import type { Destination, DestinationInput } from "@/lib/masters/destination-types";
 import type { Country } from "@/lib/masters/country-types";
 import { CountryPicker } from "@/components/masters/country-picker";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -51,6 +52,19 @@ export function DestinationMasterScreen({
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
 
+  // Real-time duplicate check on Name, per country — mirrors the DB's unique
+  // index on (country_id, lower(trim(short_name))) (0335); creates derive
+  // short_name from Name, so a clash would otherwise surface as a raw
+  // constraint error on save.
+  const dupError = useDuplicateCheck({
+    table: "destinations",
+    name: form.name,
+    nameColumn: "short_name",
+    scope: { country_id: form.country_id || null },
+    excludeId: editId ?? undefined,
+    enabled: !!(form.name.trim() && form.country_id),
+  });
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -82,7 +96,9 @@ export function DestinationMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: DestinationInput = {
-        short_name: form.short_name.trim() || null,
+        // Create derives the short name from the display name; edit keeps the
+        // record's original stored short name (held in state, never rendered).
+        short_name: editId ? form.short_name.trim() || null : form.name.trim() || null,
         country_id: form.country_id,
         name: form.name.trim() || null,
         inactive: form.inactive,
@@ -111,7 +127,6 @@ export function DestinationMasterScreen({
   }
 
   const columns: Column<Destination>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
     {
       header: "Country",
@@ -214,30 +229,24 @@ export function DestinationMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.country_id} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.country_id || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           <div>
-            <Label htmlFor="de-short">Short Name</Label>
-            <Input
-              id="de-short"
-              value={form.short_name}
-              onChange={(e) => set({ short_name: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="de-name">Name</Label>
+            <Label htmlFor="de-name">
+              Name <span className="text-danger">*</span>
+            </Label>
             <Input
               id="de-name"
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"
             />
+            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
           </div>
           <CountryPicker
             countries={countries}
@@ -246,15 +255,17 @@ export function DestinationMasterScreen({
             canCreate={perms.canCreate}
             canEdit={perms.canEdit}
           />
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => set({ inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

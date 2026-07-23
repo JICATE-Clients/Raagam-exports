@@ -128,6 +128,10 @@ export interface ConfigLookup {
   type_code?: string | null;
   notes: string | null;
   is_active: boolean;
+  /** Item Class only (0338): when true, the Attribute screen shows a value-adding
+   *  section for this class; when false it shows the class with no values. Optional
+   *  so the many inline-add call sites constructing ConfigLookup don't all need it. */
+  has_attribute?: boolean;
   /** Legacy attribution (e.g. "SELVARAJ", "admin") — free text, not a
    *  profiles FK, since config_lookups must carry legacy usernames that
    *  don't correspond to real Supabase Auth accounts (0290). Populated
@@ -147,11 +151,23 @@ export interface ConfigLookup {
 // values (e.g. GSM, Width) is what Material Attribute Lines actually pick
 // from, scoped per Item Class.
 // ============================================================================
+export type AttributeInputType = "option_list" | "numeric_range";
+export interface AttributeValueOption {
+  id: string;
+  attribute_value_id: string;
+  sno: number;
+  value: string;
+}
 export interface AttributeValue {
   id: string;
   item_class_id: string;
   sno: number;
   value: string;
+  /** 0341: whether this attribute is a categorical option list (Printed/Laminated)
+   *  or a numeric range (GSM 180-200). Drives the material-form question input. */
+  input_type: AttributeInputType;
+  /** Allowed options for an `option_list` attribute (empty for numeric_range). */
+  options: AttributeValueOption[];
 }
 export interface Attribute extends ConfigLookup {
   values: AttributeValue[];
@@ -160,6 +176,10 @@ export interface Attribute extends ConfigLookup {
 export const attributeValueInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   value: z.string().min(1),
+  input_type: z.enum(["option_list", "numeric_range"]).default("numeric_range"),
+  options: z
+    .array(z.object({ sno: z.coerce.number().int().nonnegative().default(0), value: z.string().min(1) }))
+    .default([]),
 });
 export const attributeInput = z.object({
   code: z.string().optional().nullable(),
@@ -179,6 +199,23 @@ export const lookupInput = z.object({
   is_active: z.boolean().default(true),
 });
 export type LookupInput = z.infer<typeof lookupInput>;
+
+// ============================================================================
+// Item Class — its own master (doc/update.md #1-3). Backed by config_lookups
+// kind='item_class' (same rows FKs already point at). Split from the Attribute
+// screen: Item Class carries Name + Has Attribute; the Attribute screen edits
+// the per-class value list (gated by has_attribute).
+// ============================================================================
+export type ItemClass = ConfigLookup;
+export const itemClassInput = z.object({
+  code: z.string().optional().nullable(),
+  name: z.string().min(1, "Name is required"),
+  type_code: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  has_attribute: z.boolean().default(false),
+  is_active: z.boolean().default(true),
+});
+export type ItemClassInput = z.infer<typeof itemClassInput>;
 
 // ============================================================================
 // Transporters (Associates)

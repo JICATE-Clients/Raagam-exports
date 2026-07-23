@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
+import { MASTERS_SECTION_ACTIONS } from "@/lib/masters/masters-nav";
 
 /** A sub-module link nested under a module. Inherits the parent's `module` permission. */
 export interface SubNavItem {
@@ -296,6 +297,10 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
 
   "/admin/users": ["New User"],
   "/admin/roles": ["New Role"],
+
+  // Masters entity pages — generated from the same registries the hub pages
+  // render from, so new masters get their ＋ action automatically.
+  ...MASTERS_SECTION_ACTIONS,
 };
 
 /** Actions for a route, falling back to the module root if the section has none. */

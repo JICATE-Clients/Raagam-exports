@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createHoliday, updateHoliday, deleteHoliday } from "@/lib/masters/holiday-actions";
 import {
   HOLIDAY_CATEGORIES,
@@ -47,25 +49,12 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editEntryNo, setEditEntryNo] = useState<number | null>(null);
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [String(r.entry_no), r.name, r.category, r.pay_type, datePhrase(r)]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -151,17 +140,7 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -169,56 +148,33 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search holiday…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Holiday
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No holidays yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No holidays yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.category ?? "—"} · {datePhrase(r)}
-                  </div>
-                </div>
-                <StatusPill tone={r.pay_type === "LOP" ? "warning" : "success"}>
-                  {r.pay_type ?? "—"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) =>
+          [String(r.entry_no), r.name, r.category, r.pay_type, datePhrase(r)]
+            .filter(Boolean)
+            .join(" ")
+        }
+        searchPlaceholder="Search holiday…"
+        addLabel="+ Add Holiday"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No holidays yet."
+        mobile={{
+          title: (r) => r.name,
+          meta: (r) => `${r.category ?? "—"} · ${datePhrase(r)}`,
+          pill: (r) => (
+            <StatusPill tone={r.pay_type === "LOP" ? "warning" : "success"}>
+              {r.pay_type ?? "—"}
+            </StatusPill>
+          ),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -240,8 +196,8 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="hd-entry">Entry No</Label>
               <Input id="hd-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -259,7 +215,7 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
           </div>
 
           {/* Holiday category radio */}
-          <div className="rounded-lg border border-border p-3">
+          <div className="rounded-lg border border-border p-3 sm:col-span-2">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Holiday
             </div>
@@ -312,7 +268,7 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
           </div>
 
           {/* Holiday date — single or range */}
-          <div className="rounded-lg border border-border p-3">
+          <div className="rounded-lg border border-border p-3 sm:col-span-2">
             <label className="mb-2 flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"

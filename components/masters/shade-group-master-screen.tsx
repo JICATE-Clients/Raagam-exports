@@ -13,6 +13,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -49,6 +50,14 @@ export function ShadeGroupMasterScreen({
   const [childRows, setChildRows] = useState<ChildRow[]>([]);
   const keyRef = useRef(0);
   const nextKey = () => `shg-${++keyRef.current}`;
+
+  // Real-time duplicate check on Name (mirrors the on-save guard in shade-group-actions).
+  const dupError = useDuplicateCheck({
+    table: "shade_groups",
+    name: form.name ?? "",
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+  });
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
@@ -108,7 +117,8 @@ export function ShadeGroupMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: ShadeGroupInput = {
-        short_name: form.short_name.trim() || null,
+        // merged: Short Name = Name on create; edits keep the stored short name
+        short_name: editId ? form.short_name.trim() || null : form.name.trim() || null,
         name: form.name.trim(),
         hours_reqd: form.hours_reqd ? Number(form.hours_reqd) : null,
         inactive: form.inactive,
@@ -146,7 +156,6 @@ export function ShadeGroupMasterScreen({
   }
 
   const columns: Column<ShadeGroup>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.short_name ?? "---"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "Hours",
@@ -312,7 +321,7 @@ export function ShadeGroupMasterScreen({
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.name.trim()}
+              disabled={isPending || !form.name.trim() || !!dupError}
               onClick={submit}
             >
               {isPending ? "Saving..." : "Save"}
@@ -323,16 +332,6 @@ export function ShadeGroupMasterScreen({
         <div className="space-y-4">
           <DetailSection label="Details">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="shg-short">Short Name</Label>
-                <Input
-                  id="shg-short"
-                  value={form.short_name}
-                  onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-                  placeholder="Unique short name"
-                  className="text-base md:text-sm"
-                />
-              </div>
               <div>
                 <Label htmlFor="shg-hours">Hours Reqd</Label>
                 <Input
@@ -357,6 +356,7 @@ export function ShadeGroupMasterScreen({
                 required
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
           </DetailSection>
 
@@ -410,15 +410,17 @@ export function ShadeGroupMasterScreen({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

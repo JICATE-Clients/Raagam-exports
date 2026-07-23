@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createProductSize, updateProductSize, deleteProductSize } from "@/lib/masters/product-size-actions";
 import { SIZE_FOR, type ProductSize, type ProductSizeInput } from "@/lib/masters/product-size-types";
 
@@ -85,6 +86,15 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
   });
 
   const pg = usePagination(filtered, 10);
+
+  // Real-time duplicate check on Size ID (mirrors the on-save guard in the action).
+  const dupError = useDuplicateCheck({
+    table: "product_sizes",
+    name: form.prod_size_id,
+    nameColumn: "prod_size_id",
+    excludeId: editId ?? undefined,
+    enabled: !!form.prod_size_id.trim(),
+  });
 
   function openAdd() {
     setEditId(null);
@@ -324,7 +334,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.prod_size_id.trim() || !form.width || Number(form.width) <= 0}
+              disabled={isPending || !form.prod_size_id.trim() || !form.width || Number(form.width) <= 0 || !!dupError}
               onClick={submit}
             >
               {isPending ? "Saving…" : "Save"}
@@ -333,7 +343,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Identity">
+          <DetailSection label="Identity" cols={2}>
             <div>
               <Label htmlFor="ps-id">
                 Size ID <span className="text-danger">*</span>
@@ -344,6 +354,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
                 onChange={(e) => set({ prod_size_id: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             <div>
               <Label htmlFor="ps-for">Size For</Label>
@@ -416,7 +427,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
             )}
           </DetailSection>
 
-          <DetailSection label="Additional">
+          <DetailSection label="Additional" cols={2}>
             <div>
               <Label htmlFor="ps-cut">Cut Size</Label>
               <Input
@@ -455,15 +466,17 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
             </div>
           </DetailSection>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={!form.is_active}
-              onChange={(e) => set({ is_active: !e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={!form.is_active}
+                onChange={(e) => set({ is_active: !e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

@@ -90,20 +90,39 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
           return (
             <div key={item.href}>
               <div className="flex items-center gap-0.5">
-                <Link
-                  href={item.href}
-                  className={cn(
-                    "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    parentStrong
-                      ? "bg-primary/10 text-primary"
-                      : moduleActive
-                        ? "text-primary hover:bg-surface-muted"
-                        : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
-                  )}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  {item.label}
-                </Link>
+                {hasChildren ? (
+                  <button
+                    type="button"
+                    onClick={() => toggle(item.href)}
+                    aria-expanded={isExpanded}
+                    className={cn(
+                      "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors",
+                      parentStrong
+                        ? "bg-primary/10 text-primary"
+                        : moduleActive
+                          ? "text-primary hover:bg-surface-muted"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {item.label}
+                  </button>
+                ) : (
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      parentStrong
+                        ? "bg-primary/10 text-primary"
+                        : moduleActive
+                          ? "text-primary hover:bg-surface-muted"
+                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {item.label}
+                  </Link>
+                )}
 
                 {hasChildren && (
                   <button

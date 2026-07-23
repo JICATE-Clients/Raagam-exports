@@ -297,7 +297,9 @@ export function VendorMasterScreen({
   function submit(asDraft: boolean) {
     startTransition(async () => {
       const payload: VendorInput = {
-        code: form.code.trim() || null,
+        // Create derives the code from the display name; edit keeps the
+        // record's original stored code (held in state, never rendered).
+        code: editId ? form.code.trim() || null : form.name.trim() || null,
         name: form.name.trim(),
         inactive: form.inactive,
         vendor_type: form.vendor_type ? form.vendor_type : null,
@@ -394,7 +396,6 @@ export function VendorMasterScreen({
     s === "Approved" ? "success" : s === "Hold" ? "warning" : s === "Terminated" ? "danger" : "neutral";
 
   const columns: Column<Vendor>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Type", cell: (r) => <span className="text-sm text-muted-foreground">{r.vendor_type ?? "—"}</span> },
     {
@@ -619,24 +620,17 @@ export function VendorMasterScreen({
                 {section === "identity" && (
                   <SectionBody title="Identity" hint="Who this vendor is, their category and registration details.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div>
-                        <Label htmlFor="ve-code">Short Name</Label>
-                        <Input
-                          id="ve-code"
-                          value={form.code}
-                          onChange={(e) => set({ code: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <label className="flex cursor-pointer items-center gap-2 sm:pt-6">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={form.inactive}
-                          onChange={(e) => set({ inactive: e.target.checked })}
-                        />
-                        <span className="text-sm text-foreground">Inactive</span>
-                      </label>
+                      {editId && (
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer accent-primary"
+                            checked={form.inactive}
+                            onChange={(e) => set({ inactive: e.target.checked })}
+                          />
+                          <span className="text-sm text-foreground">Inactive</span>
+                        </label>
+                      )}
                       <div className="sm:col-span-2">
                         <Label htmlFor="ve-name">
                           Name <span className="text-danger">*</span>

@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -36,21 +38,12 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editEntryNo, setEditEntryNo] = useState<number | null>(null);
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [String(r.entry_no), r.entry_date, r.effective_from].join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -138,17 +131,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -156,52 +139,25 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by entry / date…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add PF/ESI Control
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No PF/ESI controls yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No PF/ESI controls yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="text-[15px] font-semibold text-foreground">
-                Entry #{r.entry_no} · effective {r.effective_from}
-              </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                Employee {pct(r.emp_pf_pct)}/{pct(r.emp_esi_pct)} · Employer{" "}
-                {pct(r.empr_pf_pct)}/{pct(r.empr_esi_pct)}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) => [String(r.entry_no), r.entry_date, r.effective_from].join(" ")}
+        searchPlaceholder="Search by entry / date…"
+        addLabel="+ Add PF/ESI Control"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No PF/ESI controls yet."
+        mobile={{
+          title: (r) => `Entry #${r.entry_no} · effective ${r.effective_from}`,
+          meta: (r) =>
+            `Employee ${pct(r.emp_pf_pct)}/${pct(r.emp_esi_pct)} · Employer ${pct(r.empr_pf_pct)}/${pct(r.empr_esi_pct)}`,
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* editor */}
       <Sheet
@@ -223,8 +179,8 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="pe-entry">Entry No</Label>
               <Input id="pe-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -252,7 +208,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
           </div>
 
           {/* Employee contribution */}
-          <div className="rounded-lg border border-border p-3">
+          <div className="sm:col-span-2 rounded-lg border border-border p-3">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Employee Contribution
             </div>
@@ -285,7 +241,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
           </div>
 
           {/* Employer contribution */}
-          <div className="rounded-lg border border-border p-3">
+          <div className="sm:col-span-2 rounded-lg border border-border p-3">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Employer Contribution
             </div>

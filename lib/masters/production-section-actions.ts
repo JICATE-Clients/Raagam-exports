@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/server";
 import { productionSectionInput, type ProductionSectionInput } from "./production-section-types";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
+import { generateUniqueCode } from "./auto-code";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
@@ -26,11 +27,15 @@ export async function createProductionSection(data: ProductionSectionInput): Pro
   const p = productionSectionInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "production_sections", p.data.code, {
-    nameColumn: "code",
-    label: "code",
-  });
-  if (!dup.ok) return fail(dup.error);
+  if (!p.data.code.trim()) {
+    p.data.code = await generateUniqueCode(s, "production_sections", p.data.name);
+  } else {
+    const dup = await checkDuplicateName(s, "production_sections", p.data.code, {
+      nameColumn: "code",
+      label: "code",
+    });
+    if (!dup.ok) return fail(dup.error);
+  }
   const { data: row, error } = await s.from("production_sections").insert(p.data).select("id").single();
   if (error) return fail(error.message);
   rev();
@@ -42,13 +47,18 @@ export async function updateProductionSection(id: string, data: ProductionSectio
   const p = productionSectionInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "production_sections", p.data.code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dup.ok) return fail(dup.error);
-  const { error } = await s.from("production_sections").update(p.data).eq("id", id);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  const row: Partial<ProductionSectionInput> = { ...p.data };
+  if (!p.data.code.trim()) delete row.code;
+  else {
+    const dup = await checkDuplicateName(s, "production_sections", p.data.code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dup.ok) return fail(dup.error);
+  }
+  const { error } = await s.from("production_sections").update(row).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

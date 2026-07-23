@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
+import { generateUniqueCode } from "./auto-code";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
@@ -27,16 +28,19 @@ export async function createYarnComposition(data: {
   is_active: boolean;
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "yarn_compositions", code, {
-    nameColumn: "code",
-    label: "code",
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "yarn_compositions", name);
+  } else {
+    const dupCode = await checkDuplicateName(s, "yarn_compositions", code, {
+      nameColumn: "code",
+      label: "code",
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { data: row, error } = await s
     .from("yarn_compositions")
     .insert({ code, name, is_active: data.is_active })
@@ -54,18 +58,20 @@ export async function updateYarnComposition(
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "yarn_compositions", code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dupCode = await checkDuplicateName(s, "yarn_compositions", code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { error } = await s
     .from("yarn_compositions")
-    .update({ code, name, is_active: data.is_active })
+    .update(code ? { code, name, is_active: data.is_active } : { name, is_active: data.is_active })
     .eq("id", id);
   if (error) return fail(error.message);
   rev();
@@ -90,16 +96,19 @@ export async function createDefectGroup(data: {
   is_active: boolean;
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "defect_groups", code, {
-    nameColumn: "code",
-    label: "code",
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "defect_groups", name);
+  } else {
+    const dupCode = await checkDuplicateName(s, "defect_groups", code, {
+      nameColumn: "code",
+      label: "code",
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { data: row, error } = await s
     .from("defect_groups")
     .insert({ code, name, is_active: data.is_active })
@@ -117,18 +126,20 @@ export async function updateDefectGroup(
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "defect_groups", code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dupCode = await checkDuplicateName(s, "defect_groups", code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { error } = await s
     .from("defect_groups")
-    .update({ code, name, is_active: data.is_active })
+    .update(code ? { code, name, is_active: data.is_active } : { name, is_active: data.is_active })
     .eq("id", id);
   if (error) return fail(error.message);
   rev();
@@ -211,16 +222,19 @@ export async function createSpecialInstruction(data: {
   is_active: boolean;
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const description = data.description.trim();
-  if (!code) return fail("Code is required.");
   if (!description) return fail("Description is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "special_instructions", code, {
-    nameColumn: "code",
-    label: "code",
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "special_instructions", description);
+  } else {
+    const dupCode = await checkDuplicateName(s, "special_instructions", code, {
+      nameColumn: "code",
+      label: "code",
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { data: row, error } = await s
     .from("special_instructions")
     .insert({ code, description, is_active: data.is_active })
@@ -238,18 +252,24 @@ export async function updateSpecialInstruction(
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const description = data.description.trim();
-  if (!code) return fail("Code is required.");
   if (!description) return fail("Description is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "special_instructions", code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dupCode = await checkDuplicateName(s, "special_instructions", code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { error } = await s
     .from("special_instructions")
-    .update({ code, description, is_active: data.is_active })
+    .update(
+      code
+        ? { code, description, is_active: data.is_active }
+        : { description, is_active: data.is_active },
+    )
     .eq("id", id);
   if (error) return fail(error.message);
   rev();
@@ -274,16 +294,19 @@ export async function createBeamType(data: {
   is_active: boolean;
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "beam_types", code, {
-    nameColumn: "code",
-    label: "code",
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "beam_types", name);
+  } else {
+    const dupCode = await checkDuplicateName(s, "beam_types", code, {
+      nameColumn: "code",
+      label: "code",
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { data: row, error } = await s
     .from("beam_types")
     .insert({ code, name, is_active: data.is_active })
@@ -301,18 +324,20 @@ export async function updateBeamType(
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "beam_types", code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dupCode = await checkDuplicateName(s, "beam_types", code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { error } = await s
     .from("beam_types")
-    .update({ code, name, is_active: data.is_active })
+    .update(code ? { code, name, is_active: data.is_active } : { name, is_active: data.is_active })
     .eq("id", id);
   if (error) return fail(error.message);
   rev();
@@ -455,16 +480,19 @@ export async function createLabTestStandard(data: {
   is_active: boolean;
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "lab_test_standards", code, {
-    nameColumn: "code",
-    label: "code",
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "lab_test_standards", name);
+  } else {
+    const dupCode = await checkDuplicateName(s, "lab_test_standards", code, {
+      nameColumn: "code",
+      label: "code",
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { data: row, error } = await s
     .from("lab_test_standards")
     .insert({ code, name, category: data.category?.trim() || null, is_active: data.is_active })
@@ -482,18 +510,21 @@ export async function updateLabTestStandard(
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "lab_test_standards", code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dupCode = await checkDuplicateName(s, "lab_test_standards", code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
+  const row = { name, category: data.category?.trim() || null, is_active: data.is_active };
   const { error } = await s
     .from("lab_test_standards")
-    .update({ code, name, category: data.category?.trim() || null, is_active: data.is_active })
+    .update(code ? { code, ...row } : row)
     .eq("id", id);
   if (error) return fail(error.message);
   rev();
@@ -518,16 +549,19 @@ export async function createProductType(data: {
   is_active: boolean;
 }): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "product_types", code, {
-    nameColumn: "code",
-    label: "code",
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "product_types", name);
+  } else {
+    const dupCode = await checkDuplicateName(s, "product_types", code, {
+      nameColumn: "code",
+      label: "code",
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { data: row, error } = await s
     .from("product_types")
     .insert({ code, name, is_active: data.is_active })
@@ -545,18 +579,20 @@ export async function updateProductType(
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dupCode = await checkDuplicateName(s, "product_types", code, {
-    nameColumn: "code",
-    label: "code",
-    excludeId: id,
-  });
-  if (!dupCode.ok) return fail(dupCode.error);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dupCode = await checkDuplicateName(s, "product_types", code, {
+      nameColumn: "code",
+      label: "code",
+      excludeId: id,
+    });
+    if (!dupCode.ok) return fail(dupCode.error);
+  }
   const { error } = await s
     .from("product_types")
-    .update({ code, name, is_active: data.is_active })
+    .update(code ? { code, name, is_active: data.is_active } : { name, is_active: data.is_active })
     .eq("id", id);
   if (error) return fail(error.message);
   rev();

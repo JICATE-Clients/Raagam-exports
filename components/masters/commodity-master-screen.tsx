@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { LookupDialogPicker } from "@/components/masters/lookup-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
@@ -60,6 +61,14 @@ export function CommodityMasterScreen({
     return m;
   }, [itemClasses]);
 
+  // Real-time duplicate check on Name (mirrors the on-save guard in commodity-actions).
+  const dupError = useDuplicateCheck({
+    table: "commodities",
+    name: form.name ?? "",
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+  });
+
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
     search: (r, q) =>
       [r.name, r.short_name, classLabel.get(r.item_class_id)].filter(Boolean).join(" ").toLowerCase().includes(q),
@@ -92,7 +101,7 @@ export function CommodityMasterScreen({
     startTransition(async () => {
       const payload: CommodityInput = {
         item_class_id: form.item_class_id,
-        short_name: form.short_name.trim() || null,
+        short_name: form.name.trim() || null,
         name: form.name.trim() || null,
         inactive: form.inactive,
       };
@@ -124,7 +133,6 @@ export function CommodityMasterScreen({
       header: "Item Class",
       cell: (r) => <span className="text-sm">{classLabel.get(r.item_class_id) ?? "—"}</span>,
     },
-    { header: "Short Name", cell: (r) => <span className="text-sm">{r.short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
     {
       header: "Status",
@@ -269,33 +277,28 @@ export function CommodityMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.item_class_id} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.item_class_id || !form.name.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
-              <Label htmlFor="cmd-short">Short Name</Label>
-              <Input
-                id="cmd-short"
-                value={form.short_name}
-                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cmd-name">Name</Label>
+              <Label htmlFor="cmd-name">
+                Name <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="cmd-name"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
 
+            {/* Item Class stays the standard dialog picker (icon-field rule) */}
             <LookupDialogPicker
               kind="item_class"
               label="Item Class"
@@ -310,15 +313,17 @@ export function CommodityMasterScreen({
             />
           </DetailSection>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

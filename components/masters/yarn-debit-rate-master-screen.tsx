@@ -164,8 +164,8 @@ export function YarnDebitRateMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="ydr-code">Code</Label>
               <Input id="ydr-code" value={editCode ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -175,7 +175,7 @@ export function YarnDebitRateMasterScreen({
               <Input id="ydr-eff" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="text-base md:text-sm" />
             </div>
           </div>
-          <div className="rounded-lg border border-border">
+          <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Rates</div>
             <div className="space-y-2 p-3">
               {lines.map((l, i) => (

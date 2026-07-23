@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  X,
   User,
   MapPin,
   Users,
@@ -12,16 +11,18 @@ import {
   SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
+import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { ApplicantPicker } from "@/components/masters/applicant-picker";
@@ -46,14 +47,6 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 type SectionKey = "identity" | "address" | "agents" | "supplied" | "vendors" | "general";
-const SECTIONS: { key: SectionKey; label: string; icon: LucideIcon }[] = [
-  { key: "identity", label: "Identity", icon: User },
-  { key: "address", label: "Address", icon: MapPin },
-  { key: "agents", label: "Agents", icon: Users },
-  { key: "supplied", label: "Supplied Items", icon: Package },
-  { key: "vendors", label: "Nominated Vendors", icon: Truck },
-  { key: "general", label: "General", icon: SlidersHorizontal },
-];
 
 type HeaderForm = {
   code: string;
@@ -226,11 +219,10 @@ export function CustomerMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
+  // list filtering/search is owned by MasterListShell
   const [open, setOpen] = useState(false);
   const [colsOpen, setColsOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [section, setSection] = useState<SectionKey>("identity");
   const [dirty, setDirty] = useState(false);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -248,15 +240,7 @@ export function CustomerMasterScreen({
     setForm((f) => ({ ...f, ...patch }));
     setDirty(true);
   };
-
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  // (body-scroll-lock + section state now live inside MasterFullScreen)
 
   const applicantById = useMemo(() => {
     const m = new Map<string, Applicant>();
@@ -269,13 +253,6 @@ export function CustomerMasterScreen({
     return m;
   }, [countries]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.code, r.name, r.email].filter(Boolean).join(" ").toLowerCase().includes(q),
-    );
-  }, [rows, query]);
 
   function openAdd() {
     setEditId(null);
@@ -288,7 +265,6 @@ export function CustomerMasterScreen({
     setNominated([]);
     setRecommended([]);
     setMarkings([]);
-    setSection("identity");
     setDirty(false);
     setOpen(true);
   }
@@ -372,7 +348,6 @@ export function CustomerMasterScreen({
         .map((v) => ({ key: newKey(), vendor_id: v.vendor_id ?? "" })),
     );
     setMarkings(r.markings.map((m) => ({ key: newKey(), marking: m.marking ?? "" })));
-    setSection("identity");
     setDirty(false);
     setOpen(true);
   }
@@ -403,7 +378,9 @@ export function CustomerMasterScreen({
   function submit(asDraft: boolean) {
     startTransition(async () => {
       const payload: CustomerInput = {
-        code: form.code.trim() || null,
+        // Create derives the code from the display name; edit keeps the
+        // record's original stored code (held in state, never rendered).
+        code: editId ? form.code.trim() || null : form.name.trim() || null,
         name: form.name.trim(),
         inactive: form.inactive,
         doc_prefix: form.doc_prefix.trim() || null,
@@ -535,7 +512,6 @@ export function CustomerMasterScreen({
   };
 
   const columns: Column<Customer>[] = [
-    { header: "Short Name", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
       header: "Country",
@@ -567,17 +543,7 @@ export function CustomerMasterScreen({
               Edit
             </Button>
           )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
+          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
       ),
     },
@@ -587,107 +553,69 @@ export function CustomerMasterScreen({
 
   return (
     <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search customer…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Customer
-          </Button>
-        )}
-      </div>
-
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No customers yet." />
-      </div>
-
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No customers yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.code ?? "—"}
-                    {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
-                  </div>
-                </div>
-                <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
-                  {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
+      <MasterListShell<Customer>
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) => [r.code, r.name, r.email].filter(Boolean).join(" ")}
+        searchPlaceholder="Search customer…"
+        statusOf={(r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active")}
+        addLabel="+ Add Customer"
+        onAdd={openAdd}
+        columns={columns}
+        empty="No customers yet."
+        mobile={{
+          title: (r) => r.name,
+          subtitle: (r) => r.code ?? "—",
+          meta: (r) => (r.country_id ? (countryLabel.get(r.country_id) ?? "") : ""),
+          pill: (r) => (
+            <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
+              {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          ),
+          onEdit: openEdit,
+          onDelete: remove,
+        }}
+        isPending={isPending}
+      />
 
       {/* ================= full-screen editor ================= */}
-      {open && (
-        <div className="fixed inset-0 z-[80] flex flex-col bg-background">
-          {/* topbar */}
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5">
-            <div className="text-xs text-muted-foreground">
-              {editId ? "Editing" : "New"}{" "}
-              <span className="font-semibold text-foreground">{form.name.trim() || "customer"}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* record header (sticky identity band) */}
-          <div className="grid gap-3 border-b border-border bg-surface px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-primary/10 text-base font-bold text-primary">
-                {initials}
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="truncate text-[15px] font-bold tracking-tight text-foreground">
-                    {form.name.trim() || "Untitled customer"}
-                  </span>
-                  {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
-                  {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
-                </div>
-                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                  <span>
-                    {form.code ? (
-                      <span className="font-mono font-semibold text-foreground">{form.code}</span>
-                    ) : (
-                      "No short name"
-                    )}
-                  </span>
-                  {form.country_id && countryLabel.get(form.country_id) && (
-                    <span>· {countryLabel.get(form.country_id)}</span>
-                  )}
-                  {form.also_consignee && <span>· Also consignee</span>}
-                  {form.also_notify && <span>· Also notify</span>}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 md:items-end">
+      <MasterFullScreen
+        open={open}
+        onClose={() => setOpen(false)}
+        modeLabel={
+          <>
+            {editId ? "Editing" : "New"}{" "}
+            <span className="font-semibold text-foreground">{form.name.trim() || "customer"}</span>
+          </>
+        }
+        header={{
+          initials,
+          title: form.name.trim() || "Untitled customer",
+          badges: (
+            <>
+              {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
+            </>
+          ),
+          meta: (
+            <>
+              <span>
+                {form.code ? (
+                  <span className="font-mono font-semibold text-foreground">{form.code}</span>
+                ) : (
+                  "No short name"
+                )}
+              </span>
+              {form.country_id && countryLabel.get(form.country_id) && (
+                <span>· {countryLabel.get(form.country_id)}</span>
+              )}
+              {form.also_consignee && <span>· Also consignee</span>}
+              {form.also_notify && <span>· Also notify</span>}
+            </>
+          ),
+          right: (
+            <>
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Applicant(s)
               </span>
@@ -722,59 +650,24 @@ export function CustomerMasterScreen({
                   onChange={addApplicant}
                 />
               </div>
-            </div>
-          </div>
-
-          {/* body: rail + content */}
-          <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[228px_1fr]">
-            <nav className="flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:flex-col md:overflow-visible md:border-b-0 md:border-r md:p-3">
-              <span className="hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
-                Sections
-              </span>
-              {SECTIONS.map((s) => {
-                const active = section === s.key;
-                const Icon = s.icon;
-                return (
-                  <button
-                    key={s.key}
-                    type="button"
-                    onClick={() => setSection(s.key)}
-                    aria-current={active}
-                    className={cn(
-                      "flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
-                      active
-                        ? "border-border bg-surface font-semibold text-foreground shadow-sm"
-                        : "border-transparent text-muted-foreground hover:bg-surface hover:text-foreground",
-                    )}
-                  >
-                    <Icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
-                    <span className="flex-1 truncate whitespace-nowrap">{s.label}</span>
-                    <span
-                      className={cn(
-                        "h-1.5 w-1.5 shrink-0 rounded-full border",
-                        done[s.key] ? "border-accent bg-accent" : "border-border bg-transparent",
-                      )}
-                      aria-label={done[s.key] ? "has data" : "empty"}
-                    />
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
-                {/* ---------------- Identity ---------------- */}
-                {section === "identity" && (
+            </>
+          ),
+        }}
+        sections={[
+          {
+            key: "identity",
+            label: "Identity",
+            icon: User,
+            done: done.identity,
+            content: (
                   <SectionBody title="Identity" hint="Who this customer is and how their documents are numbered.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div>
-                        <Label htmlFor="cu-code">Short Name</Label>
-                        <Input id="cu-code" value={form.code} onChange={(e) => set({ code: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                      <label className="flex cursor-pointer items-center gap-2 sm:pt-6">
-                        <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
-                        <span className="text-sm text-foreground">Inactive</span>
-                      </label>
+                      {editId && (
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
+                          <span className="text-sm text-foreground">Inactive</span>
+                        </label>
+                      )}
                       <div className="sm:col-span-2">
                         <Label htmlFor="cu-name">Name <span className="text-danger">*</span></Label>
                         <Input id="cu-name" value={form.name} onChange={(e) => set({ name: e.target.value })} required className="text-base md:text-sm" />
@@ -814,10 +707,14 @@ export function CustomerMasterScreen({
                       </div>
                     </div>
                   </SectionBody>
-                )}
-
-                {/* ---------------- Address ---------------- */}
-                {section === "address" && (
+            ),
+          },
+          {
+            key: "address",
+            label: "Address",
+            icon: MapPin,
+            done: done.address,
+            content: (
                   <SectionBody title="Address" hint="Primary correspondence address for this customer.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="sm:col-span-2">
@@ -927,10 +824,14 @@ export function CustomerMasterScreen({
                       />
                     </div>
                   </SectionBody>
-                )}
-
-                {/* ---------------- Agents ---------------- */}
-                {section === "agents" && (
+            ),
+          },
+          {
+            key: "agents",
+            label: "Agents",
+            icon: Users,
+            done: done.agents,
+            content: (
                   <SectionBody title="Agents" hint="Brokers / agents who represent this customer.">
                     <ChildGrid<AgentRow>
                       label="Customer Agents"
@@ -960,30 +861,42 @@ export function CustomerMasterScreen({
                       ]}
                     />
                   </SectionBody>
-                )}
-
-                {/* ---------------- Supplied Items ---------------- */}
-                {section === "supplied" && (
+            ),
+          },
+          {
+            key: "supplied",
+            label: "Supplied Items",
+            icon: Package,
+            done: done.supplied,
+            content: (
                   <SectionBody title="Supplied Items" hint="Categories the customer supplies (free-issue), by accessory group.">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
                       <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
                     </div>
                   </SectionBody>
-                )}
-
-                {/* ---------------- Nominated Vendors ---------------- */}
-                {section === "vendors" && (
+            ),
+          },
+          {
+            key: "vendors",
+            label: "Nominated Vendors",
+            icon: Truck,
+            done: done.vendors,
+            content: (
                   <SectionBody title="Nominated Vendors" hint="Vendors this customer nominates or recommends for sourcing.">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <VendorGrid title="Nominated Vendor" rows={nominated} setRows={setNominated} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                       <VendorGrid title="Recommended Vendor" rows={recommended} setRows={setRecommended} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                     </div>
                   </SectionBody>
-                )}
-
-                {/* ---------------- General ---------------- */}
-                {section === "general" && (
+            ),
+          },
+          {
+            key: "general",
+            label: "General",
+            icon: SlidersHorizontal,
+            done: done.general,
+            content: (
                   <SectionBody title="General" hint="Trade defaults, shipping, formats and export marking for this customer.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
@@ -1089,27 +1002,19 @@ export function CustomerMasterScreen({
                       />
                     </div>
                   </SectionBody>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* sticky footer */}
-          <div className="flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6">
-            <span className="text-xs text-muted-foreground">
-              {dirty ? "Unsaved changes" : editId ? "All changes saved" : "New customer"}
-            </span>
-            <div className="flex-1" />
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            {perms.canCreate && (
-              <Button variant="outline" size="md" disabled={isPending || !form.name.trim()} onClick={() => submit(true)}>Save as Draft</Button>
-            )}
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={() => submit(false)}>
-              {isPending ? "Saving…" : "Save customer"}
-            </Button>
-          </div>
-        </div>
-      )}
+            ),
+          },
+        ]}
+        footer={{
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New customer",
+          onCancel: () => setOpen(false),
+          onSave: () => submit(false),
+          saveLabel: "Save customer",
+          canSave: !!form.name.trim(),
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          isPending,
+        }}
+      />
       <PackingFormatColumnsDialog
         formatId={form.packing_list_format_id || null}
         savedColumns={packingColumns}
@@ -1117,17 +1022,6 @@ export function CustomerMasterScreen({
         onClose={() => setColsOpen(false)}
         canEdit={perms.canEdit}
       />
-    </div>
-  );
-}
-
-/** A titled content block inside the editor's content pane. */
-function SectionBody({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h2 className="text-[15px] font-bold tracking-tight text-foreground">{title}</h2>
-      <p className="mb-4 mt-0.5 text-[12.5px] text-muted-foreground">{hint}</p>
-      {children}
     </div>
   );
 }

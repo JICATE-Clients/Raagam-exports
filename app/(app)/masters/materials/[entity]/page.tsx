@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requirePermission, can, getAppUser } from "@/lib/auth/server";
-import { listConfigLookups, listAttributes } from "@/lib/masters/extras-service";
+import { listConfigLookups, listAttributes, listItemClasses } from "@/lib/masters/extras-service";
 import {
   findMaterialChild,
   isLinkChild,
@@ -15,6 +15,7 @@ import { getAccountsForPicker } from "@/lib/finance/gl-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { LookupMasterScreen } from "@/components/masters/lookup-master-screen";
 import { AttributeMasterScreen } from "@/components/masters/attribute-master-screen";
+import { ItemClassMasterScreen } from "@/components/masters/item-class-master-screen";
 import { LevyMasterScreen } from "@/components/masters/levy-master-screen";
 import { MaterialAttributeMasterScreen } from "@/components/masters/material-attribute-master-screen";
 import { CategoryMasterScreen } from "@/components/masters/category-master-screen";
@@ -223,12 +224,14 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "materials") {
-      const [materials, all, categories, units, hsnRows] = await Promise.all([
+      const [materials, all, categories, units, hsnRows, materialAttributes, attributeList] = await Promise.all([
         listMaterials(),
         listConfigLookups(),
         listCategories(),
         listUoms(),
         listHsnDetails(),
+        listMaterialAttributes(),
+        listAttributes(),
       ]);
       screen = (
         <MaterialMasterScreen
@@ -242,6 +245,8 @@ export default async function MaterialEntityPage({
           yarnTypes={all.filter((l) => l.kind === "yarn_type")}
           fabricStructures={all.filter((l) => l.kind === "fabric_structure")}
           units={units}
+          materialAttributes={materialAttributes}
+          attributes={attributeList}
           perms={perms}
         />
       );
@@ -390,24 +395,24 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "constructions") {
       const [rows, lookups, materials] = await Promise.all([listConstructions(), listConfigLookups(), listMaterials()]);
       const counts = lookups.filter((l) => l.kind === "yarn_count").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
-      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
       screen = <ConstructionMasterScreen rows={rows} counts={counts} items={items} perms={perms} />;
     } else if (child.custom === "yarn_purchase_rates") {
       const [rows, lookups, categories, materials] = await Promise.all([
         listYarnPurchaseRates(), listConfigLookups(), listCategories(), listMaterials(),
       ]);
-      const cats = categories.map((c) => ({ id: c.id, code: c.short_name, name: c.name }));
-      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      const cats = categories.map((c) => ({ id: c.id, code: c.short_name ?? "", name: c.name ?? "" }));
+      const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
       const purities = lookups.filter((l) => l.kind === "yarn_purity").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
       screen = <YarnPurchaseRateMasterScreen rows={rows} categories={cats} items={items} purities={purities} perms={perms} />;
     } else if (child.custom === "yarn_debit_rates") {
       const [rows, materials] = await Promise.all([listYarnDebitRates(), listMaterials()]);
-      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
       screen = <YarnDebitRateMasterScreen rows={rows} items={items} perms={perms} />;
     } else if (child.custom === "sizing_rates") {
       const [rows, categories, materials] = await Promise.all([listSizingRates(), listCategories(), listMaterials()]);
-      const cats = categories.map((c) => ({ id: c.id, code: c.short_name, name: c.name }));
-      const items = materials.map((m) => ({ id: m.id, code: m.code, name: m.name }));
+      const cats = categories.map((c) => ({ id: c.id, code: c.short_name ?? "", name: c.name ?? "" }));
+      const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
       screen = <SizingRateMasterScreen rows={rows} categories={cats} items={items} perms={perms} />;
     } else if (child.custom === "warp_length_allowances") {
       const rows = await listWarpLengthAllowances();
@@ -418,6 +423,9 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "process_sequence_groups") {
       const [rows, sequences] = await Promise.all([listProcessSequenceGroups(), listProcessSequences()]);
       screen = <ProcessSequenceGroupMasterScreen rows={rows} sequences={sequences} perms={perms} />;
+    } else if (child.custom === "item_class") {
+      const rows = await listItemClasses();
+      screen = <ItemClassMasterScreen rows={rows} perms={perms} />;
     } else {
       const attributes = await listAttributes();
       screen = <AttributeMasterScreen rows={attributes} perms={perms} />;

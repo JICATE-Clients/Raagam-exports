@@ -22,6 +22,7 @@ import {
   deactivatePackingMethod,
 } from "@/lib/masters/packing-method-actions";
 import type { PackingMethod, PackingMethodInput } from "@/lib/masters/packing-method-types";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; sort_order: string; category_name: string };
@@ -69,6 +70,15 @@ export function PackingMethodMasterScreen({
   );
 
   const pg = usePagination(filtered, 10);
+
+  // Real-time duplicate check on the packing type (mirrors the on-save guard).
+  const dupError = useDuplicateCheck({
+    table: "packing_methods",
+    name: form.packing_type,
+    nameColumn: "packing_type",
+    excludeId: editId ?? undefined,
+    enabled: !!form.packing_type.trim(),
+  });
 
   function openAdd() {
     setEditId(null);
@@ -323,7 +333,7 @@ export function PackingMethodMasterScreen({
             </Button>
             <Button
               size="md"
-              disabled={isPending || !form.packing_type.trim()}
+              disabled={isPending || !form.packing_type.trim() || !!dupError}
               onClick={submit}
             >
               {isPending ? "Saving..." : "Save"}
@@ -332,7 +342,7 @@ export function PackingMethodMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="pm-type">
                 Packing Type <span className="text-danger">*</span>
@@ -344,6 +354,7 @@ export function PackingMethodMasterScreen({
                 required
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             <div>
               <Label htmlFor="pm-ref">Reference</Label>
@@ -431,15 +442,17 @@ export function PackingMethodMasterScreen({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.inactive}
-              onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

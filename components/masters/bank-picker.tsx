@@ -304,15 +304,17 @@ export function BankPicker({
                         className="text-base md:text-sm"
                       />
                     </div>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={inactive}
-                        onChange={(e) => setBlocked(e.target.checked)}
-                      />
-                      <span className="text-sm text-foreground">Inactive</span>
-                    </label>
+                    {formEditId && (
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={inactive}
+                          onChange={(e) => setBlocked(e.target.checked)}
+                        />
+                        <span className="text-sm text-foreground">Inactive</span>
+                      </label>
+                    )}
                   </div>
                   <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
                     <Button type="button" variant="outline" size="md" onClick={() => setMode("list")}>

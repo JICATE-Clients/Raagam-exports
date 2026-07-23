@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
+import { generateUniqueCode } from "./auto-code";
 import type {
   CountGroupInput,
   ConstructionInput,
@@ -48,14 +49,17 @@ async function replaceDetails(
 // ============================================================================
 export async function createCountGroup(data: CountGroupInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   if (!data.details.length) return fail("At least one count row is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "count_groups", code, { nameColumn: "code", label: "code" });
-  if (!dup.ok) return fail(dup.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "count_groups", name);
+  } else {
+    const dup = await checkDuplicateName(s, "count_groups", code, { nameColumn: "code", label: "code" });
+    if (!dup.ok) return fail(dup.error);
+  }
   const { data: hdr, error } = await s
     .from("count_groups")
     .insert({ code, name, category_id: data.category_id, is_active: data.is_active })
@@ -73,12 +77,14 @@ export async function updateCountGroup(id: string, data: CountGroupInput): Promi
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "count_groups", code, { nameColumn: "code", label: "code", excludeId: id });
-  if (!dup.ok) return fail(dup.error);
-  const { error } = await s.from("count_groups").update({ code, name, category_id: data.category_id, is_active: data.is_active }).eq("id", id);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dup = await checkDuplicateName(s, "count_groups", code, { nameColumn: "code", label: "code", excludeId: id });
+    if (!dup.ok) return fail(dup.error);
+  }
+  const { error } = await s.from("count_groups").update({ ...(code ? { code } : {}), name, category_id: data.category_id, is_active: data.is_active }).eq("id", id);
   if (error) return fail(error.message);
   const dRes = await replaceDetails(s, "count_group_counts", "count_group_id", id,
     data.details.map((d, i) => ({ count_group_id: id, sno: i + 1, count_lookup_id: d.count_lookup_id })));
@@ -101,13 +107,16 @@ export async function deleteCountGroup(id: string): Promise<DeleteResult> {
 // ============================================================================
 export async function createConstruction(data: ConstructionInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "constructions", code, { nameColumn: "code", label: "code" });
-  if (!dup.ok) return fail(dup.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "constructions", name);
+  } else {
+    const dup = await checkDuplicateName(s, "constructions", code, { nameColumn: "code", label: "code" });
+    if (!dup.ok) return fail(dup.error);
+  }
   const { data: row, error } = await s
     .from("constructions")
     .insert({
@@ -145,13 +154,15 @@ export async function updateConstruction(id: string, data: ConstructionInput): P
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "constructions", code, { nameColumn: "code", label: "code", excludeId: id });
-  if (!dup.ok) return fail(dup.error);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dup = await checkDuplicateName(s, "constructions", code, { nameColumn: "code", label: "code", excludeId: id });
+    if (!dup.ok) return fail(dup.error);
+  }
   const { error } = await s.from("constructions").update({
-    code,
+    ...(code ? { code } : {}),
     name,
     reed: data.reed,
     epi_on_loom: data.epi_on_loom,
@@ -443,14 +454,17 @@ export async function deleteWarpLengthAllowance(id: string): Promise<Result> {
 // ============================================================================
 export async function createProcessSequence(data: ProcessSequenceInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   if (!data.details.length) return fail("At least one step is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "process_sequences", code, { nameColumn: "code", label: "code" });
-  if (!dup.ok) return fail(dup.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "process_sequences", name);
+  } else {
+    const dup = await checkDuplicateName(s, "process_sequences", code, { nameColumn: "code", label: "code" });
+    if (!dup.ok) return fail(dup.error);
+  }
   const { data: hdr, error } = await s
     .from("process_sequences")
     .insert({ code, name, item_class_type: data.item_class_type, is_active: data.is_active })
@@ -480,12 +494,14 @@ export async function updateProcessSequence(id: string, data: ProcessSequenceInp
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "process_sequences", code, { nameColumn: "code", label: "code", excludeId: id });
-  if (!dup.ok) return fail(dup.error);
-  const { error } = await s.from("process_sequences").update({ code, name, item_class_type: data.item_class_type, is_active: data.is_active }).eq("id", id);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dup = await checkDuplicateName(s, "process_sequences", code, { nameColumn: "code", label: "code", excludeId: id });
+    if (!dup.ok) return fail(dup.error);
+  }
+  const { error } = await s.from("process_sequences").update({ ...(code ? { code } : {}), name, item_class_type: data.item_class_type, is_active: data.is_active }).eq("id", id);
   if (error) return fail(error.message);
   const dRes = await replaceDetails(s, "process_sequence_steps", "sequence_id", id,
     data.details.map((d, i) => ({
@@ -520,14 +536,17 @@ export async function deleteProcessSequence(id: string): Promise<DeleteResult> {
 // ============================================================================
 export async function createProcessSequenceGroup(data: ProcessSequenceGroupInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
-  const code = data.code.trim();
+  let code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   if (!data.details.length) return fail("At least one sequence row is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "process_sequence_groups", code, { nameColumn: "code", label: "code" });
-  if (!dup.ok) return fail(dup.error);
+  if (!code) {
+    code = await generateUniqueCode(s, "process_sequence_groups", name);
+  } else {
+    const dup = await checkDuplicateName(s, "process_sequence_groups", code, { nameColumn: "code", label: "code" });
+    if (!dup.ok) return fail(dup.error);
+  }
   const { data: hdr, error } = await s
     .from("process_sequence_groups")
     .insert({ code, name, is_active: data.is_active })
@@ -549,12 +568,14 @@ export async function updateProcessSequenceGroup(id: string, data: ProcessSequen
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) return fail("Code is required.");
   if (!name) return fail("Name is required.");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "process_sequence_groups", code, { nameColumn: "code", label: "code", excludeId: id });
-  if (!dup.ok) return fail(dup.error);
-  const { error } = await s.from("process_sequence_groups").update({ code, name, is_active: data.is_active }).eq("id", id);
+  // Blank code on update = keep the stored one (the form doesn't edit codes).
+  if (code) {
+    const dup = await checkDuplicateName(s, "process_sequence_groups", code, { nameColumn: "code", label: "code", excludeId: id });
+    if (!dup.ok) return fail(dup.error);
+  }
+  const { error } = await s.from("process_sequence_groups").update({ ...(code ? { code } : {}), name, is_active: data.is_active }).eq("id", id);
   if (error) return fail(error.message);
   const dRes = await replaceDetails(s, "process_sequence_group_members", "group_id", id,
     data.details.map((d, i) => ({

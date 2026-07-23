@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createTyre, updateTyre, deleteTyre } from "@/lib/masters/tyre-actions";
 import type { Tyre, TyreInput } from "@/lib/masters/tyre-types";
 
@@ -35,9 +36,9 @@ const BLANK = {
 };
 
 /**
- * Tyre master: unique code + name, brand, type, size, retread tracking
- * (km_per_retread required >0 when allowed_retreads > 0), active toggle.
- * Code auto-copies to name if name is empty. Table on desktop, cards on mobile.
+ * Tyre master: unique name (code auto-generated server-side), brand, type, size,
+ * retread tracking (km_per_retread required >0 when allowed_retreads > 0),
+ * active toggle. Table on desktop, cards on mobile.
  */
 export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }) {
   const router = useRouter();
@@ -63,6 +64,14 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
 
   const pg = usePagination(filtered, 10);
 
+  // Real-time duplicate check (mirrors the on-save guard: name is unique).
+  const dupNameError = useDuplicateCheck({
+    table: "tyres",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+  });
+
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
@@ -84,13 +93,9 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
     setOpen(true);
   }
 
-  function handleCodeChange(val: string) {
-    set({ code: val, name: form.name || val });
-  }
-
   const canSave =
-    form.code.trim().length > 0 &&
     form.name.trim().length > 0 &&
+    !dupNameError &&
     (!needsKm || (form.km_per_retread !== "" && Number(form.km_per_retread) > 0));
 
   function submit() {
@@ -279,17 +284,6 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
         <div className="space-y-4">
           <DetailSection label="Identity">
             <div>
-              <Label htmlFor="tyr-code">
-                Code <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="tyr-code"
-                value={form.code}
-                onChange={(e) => handleCodeChange(e.target.value)}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
               <Label htmlFor="tyr-name">
                 Name <span className="text-danger">*</span>
               </Label>
@@ -299,6 +293,12 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
                 onChange={(e) => set({ name: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupNameError && <p className="mt-1 text-xs text-danger">{dupNameError}</p>}
+              {!editId && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The code is generated automatically from the name.
+                </p>
+              )}
             </div>
           </DetailSection>
 
@@ -382,15 +382,17 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
             )}
           </DetailSection>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={!form.is_active}
-              onChange={(e) => set({ is_active: !e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={!form.is_active}
+                onChange={(e) => set({ is_active: !e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

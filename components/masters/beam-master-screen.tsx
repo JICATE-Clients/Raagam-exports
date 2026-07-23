@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createBeam, updateBeam, deleteBeam } from "@/lib/masters/beam-actions";
 import type { Beam, BeamVendorOption, BeamInput } from "@/lib/masters/beam-types";
 
@@ -80,6 +81,15 @@ export function BeamMasterScreen({
   });
 
   const pg = usePagination(filtered, 10);
+
+  // Real-time duplicate check on Beam No (mirrors the on-save guard in the action).
+  const dupError = useDuplicateCheck({
+    table: "beams",
+    name: form.beam_no,
+    nameColumn: "beam_no",
+    excludeId: editId ?? undefined,
+    enabled: !!form.beam_no.trim(),
+  });
 
   function openAdd() {
     setEditId(null);
@@ -323,7 +333,7 @@ export function BeamMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.beam_no.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !form.beam_no.trim() || !!dupError} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -341,6 +351,7 @@ export function BeamMasterScreen({
                 onChange={(e) => set({ beam_no: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -379,7 +390,7 @@ export function BeamMasterScreen({
             </div>
           </DetailSection>
 
-          <DetailSection label="Location">
+          <DetailSection label="Location" cols={2}>
             <div>
               <Label htmlFor="bm-loc-type">Location Type</Label>
               <Select
@@ -413,15 +424,17 @@ export function BeamMasterScreen({
             )}
           </DetailSection>
 
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={!form.is_active}
-              onChange={(e) => set({ is_active: !e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Inactive</span>
-          </label>
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={!form.is_active}
+                onChange={(e) => set({ is_active: !e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
         </div>
       </Sheet>
     </div>

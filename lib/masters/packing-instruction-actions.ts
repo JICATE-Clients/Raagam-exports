@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { packingInstructionInput, type PackingInstructionInput } from "./packing-instruction-types";
 import { checkDuplicateName } from "./dup-guard";
+import { generateUniqueCode } from "./auto-code";
 import { deleteOrDeactivate } from "./delete-guard";
 
 type Failure = { ok: false; error: string };
@@ -30,6 +31,11 @@ export async function createPackingInstruction(data: PackingInstructionInput): P
     nameColumn: "packing_type",
   });
   if (!dup.ok) return fail(dup.error);
+  if (!p.data.packing_no?.trim()) {
+    p.data.packing_no = await generateUniqueCode(s, "packing_instructions", p.data.packing_type, {
+      codeColumn: "packing_no",
+    });
+  }
   const { data: row, error } = await s.from("packing_instructions").insert(p.data).select("id").single();
   if (error) return fail(error.message);
   rev();
@@ -46,7 +52,10 @@ export async function updatePackingInstruction(id: string, data: PackingInstruct
     excludeId: id,
   });
   if (!dup.ok) return fail(dup.error);
-  const { error } = await s.from("packing_instructions").update(p.data).eq("id", id);
+  // Blank no. on update = keep the stored one (the form doesn't edit codes).
+  const row: Partial<PackingInstructionInput> = { ...p.data };
+  if (!p.data.packing_no?.trim()) delete row.packing_no;
+  const { error } = await s.from("packing_instructions").update(row).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

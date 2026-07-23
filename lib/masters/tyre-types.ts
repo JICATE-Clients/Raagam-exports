@@ -21,7 +21,10 @@ export interface Tyre {
 
 export const tyreInput = z
   .object({
-    code: z.string().min(1, "Code is required"),
+    /** Blank on create → the action auto-generates a unique code from the name
+     *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
+     *  code through unchanged. */
+    code: z.string().optional().default(""),
     name: z.string().min(1, "Name is required"),
     brand: z.string().optional().nullable(),
     tyre_type: z.string().optional().nullable(),
