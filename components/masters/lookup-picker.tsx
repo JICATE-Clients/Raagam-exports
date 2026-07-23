@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
+import { quickCreateMaterial, renameMaterial, deleteMaterial } from "@/lib/masters/material-actions";
 import type { ConfigLookup, LookupKind, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Category } from "@/lib/masters/category-types";
@@ -55,6 +56,7 @@ type ManageConfig = {
 
 function DialogListPicker({
   label,
+  title,
   rows,
   value,
   onChange,
@@ -64,6 +66,9 @@ function DialogListPicker({
   manage,
 }: {
   label: string;
+  /** Dialog title + toast noun when `label` is blank (e.g. grid cells whose
+   *  column header already names the field). Defaults to `label`. */
+  title?: string;
   rows: PickerRow[];
   value: string;
   onChange: (v: string) => void;
@@ -72,6 +77,7 @@ function DialogListPicker({
   required?: boolean;
   manage?: ManageConfig;
 }) {
+  const noun = title || label;
   const { success, error } = useToast();
   const [isPending, start] = useTransition();
   const [open, setOpen] = useState(false);
@@ -124,11 +130,12 @@ function DialogListPicker({
   function saveAdd() {
     if (!manage) return;
     start(async () => {
-      const draft: PickerDraft = { code: draftCode.trim(), name: draftName.trim(), typeCode: draftType.trim() };
+      // merged: Code = Name on create (no Code input anymore)
+      const draft: PickerDraft = { code: draftName.trim(), name: draftName.trim(), typeCode: draftType.trim() };
       const res = await manage.onCreate(draft);
       if (res.ok) {
         manage.onCreated(res.id, draft);
-        success(`${label} added.`);
+        success(`${noun} added.`);
         commit(res.id);
       } else {
         error(res.error);
@@ -139,11 +146,13 @@ function DialogListPicker({
     if (!manage || !highlighted) return;
     const id = highlighted;
     start(async () => {
+      // draftCode is the record's original stored code (set in startEdit, never
+      // rendered) — existing codes can be logic keys and must not be overwritten.
       const draft: PickerDraft = { code: draftCode.trim(), name: draftName.trim(), typeCode: draftType.trim() };
       const res = await manage.onUpdate(id, draft);
       if (res.ok) {
         manage.onUpdated(id, draft);
-        success(`${label} updated.`);
+        success(`${noun} updated.`);
         setMode("list");
       } else {
         error(res.error);
@@ -160,8 +169,8 @@ function DialogListPicker({
         if (!res.inactive && value === id) onChange("");
         success(
           res.inactive
-            ? `${label.replace(/s$/, "")} is in use — marked inactive instead of deleted, history preserved.`
-            : `${label.replace(/s$/, "")} deleted.`,
+            ? `${noun.replace(/s$/, "")} is in use — marked inactive instead of deleted, history preserved.`
+            : `${noun.replace(/s$/, "")} deleted.`,
         );
         setHighlighted(res.inactive ? id : null);
         setMode("list");
@@ -192,8 +201,9 @@ function DialogListPicker({
       <Sheet
         open={open}
         onClose={close}
-        title={label}
+        title={noun}
         zIndexBase={100}
+        size="sm"
         footer={
           mode === "list" ? (
             <>
@@ -300,11 +310,9 @@ function DialogListPicker({
         {(mode === "add" || mode === "edit") && (
           <div className="space-y-3">
             <div>
-              <Label>Code</Label>
-              <Input value={draftCode} onChange={(e) => setDraftCode(e.target.value)} className="text-base md:text-sm" />
-            </div>
-            <div>
-              <Label>Name</Label>
+              <Label>
+                Name <span className="text-danger">*</span>
+              </Label>
               <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} className="text-base md:text-sm" />
             </div>
             {manage?.showTypeField && (
@@ -492,29 +500,96 @@ export function LevyPicker({
 }
 
 /**
- * Select-only picker over the entire Materials master (`items`, any item
- * class) — used by the "Using (Items)" grid to link a line to a real
- * material regardless of which class it belongs to (0304). No inline
- * Add/Modify: Items already have their own dedicated Materials master.
+ * Picker over the Materials master (`items`). Select-only by default — used by
+ * the "Using (Items)" grid to link a line to a real material regardless of
+ * class (0304). When `quickCreateClassId` + manage permissions are given (e.g.
+ * the Fabric ▸ Attributes component-yarn list), it also gets inline
+ * **Add / Modify / Delete**: quick-create only sets the Name inside that item
+ * class (code auto-generated), Modify renames, Delete soft-deactivates when
+ * the item is in use — richer fields stay editable from the full Materials
+ * master, same as the CategoryPicker precedent.
  */
 export function ItemPicker({
   label,
+  title,
   items,
   value,
   onChange,
   clearable = true,
+  placeholder,
+  quickCreateClassId,
+  canCreate = false,
+  canEdit = false,
+  canDelete = false,
 }: {
   label: string;
+  title?: string;
   items: { id: string; code: string; name: string }[];
   value: string;
   onChange: (v: string) => void;
   clearable?: boolean;
+  placeholder?: string;
+  /** Item class new quick-created items belong to — enables the CRUD bar. */
+  quickCreateClassId?: string;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }) {
+  const router = useRouter();
+  // Quick-created items, visible immediately; the server row (with its real
+  // generated code) replaces the stub once router.refresh() lands.
+  const [extra, setExtra] = useState<{ id: string; code: string; name: string }[]>([]);
+  const all = useMemo(() => {
+    const seen = new Set<string>();
+    return [...items, ...extra].filter((it) => (seen.has(it.id) ? false : (seen.add(it.id), true)));
+  }, [items, extra]);
   const rows: PickerRow[] = useMemo(
-    () => items.map((it) => ({ id: it.id, label: it.name, sublabel: it.code })),
-    [items],
+    () => all.map((it) => ({ id: it.id, label: it.name, sublabel: it.code || undefined })),
+    [all],
   );
-  return <DialogListPicker label={label} rows={rows} value={value} onChange={onChange} clearable={clearable} />;
+
+  const manage: ManageConfig | undefined =
+    quickCreateClassId && (canCreate || canEdit || canDelete)
+      ? {
+          canCreate,
+          canEdit,
+          canDelete,
+          onCreate: (d) => quickCreateMaterial(quickCreateClassId, d.name),
+          onUpdate: (id, d) => renameMaterial(id, d.name),
+          onDelete: (id) => deleteMaterial(id),
+          onCreated: (id, d) => {
+            setExtra((xs) => [...xs, { id, code: "", name: d.name }]);
+            router.refresh();
+          },
+          onUpdated: (id, d) => {
+            setExtra((xs) => {
+              const has = xs.some((it) => it.id === id);
+              if (has) return xs.map((it) => (it.id === id ? { ...it, name: d.name } : it));
+              const base = items.find((it) => it.id === id);
+              return base ? [...xs, { ...base, name: d.name }] : xs;
+            });
+            router.refresh();
+          },
+          onDeleted: (id, inactive) => {
+            if (!inactive) setExtra((xs) => xs.filter((it) => it.id !== id));
+            router.refresh();
+          },
+          draftOf: (row) => ({ code: row.sublabel ?? "", name: row.label }),
+        }
+      : undefined;
+
+  return (
+    <DialogListPicker
+      label={label}
+      title={title}
+      rows={rows}
+      value={value}
+      onChange={onChange}
+      clearable={clearable}
+      placeholder={placeholder}
+      manage={manage}
+    />
+  );
 }
 
 /**
