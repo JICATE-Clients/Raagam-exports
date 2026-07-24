@@ -9,6 +9,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createGarmentRejectionRule,
   updateGarmentRejectionRule,
@@ -142,7 +143,7 @@ export function GarmentRejectionRuleMasterScreen({
     startTransition(async () => {
       const res = await deleteGarmentRejectionRule(r.id);
       if (res.ok) {
-        success("Rejection rule deleted.");
+        success(deletedToast("Rejection rule", res));
         router.refresh();
       } else {
         error(res.error);
@@ -269,8 +270,10 @@ export function GarmentRejectionRuleMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+        {/* Two-column body — header fields LEFT, Details tier grid RIGHT. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="grr-entry">Entry No</Label>
               <Input id="grr-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -299,7 +302,7 @@ export function GarmentRejectionRuleMasterScreen({
             />
           </div>
           {editId && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+            <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
@@ -309,14 +312,18 @@ export function GarmentRejectionRuleMasterScreen({
               <span className="text-sm text-foreground">Inactive</span>
             </label>
           )}
+          </div>
 
+          <div className="space-y-4">
           {/* Details grid */}
-          <div className="rounded-lg border border-border sm:col-span-2">
+          <div className="rounded-lg border border-border">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
               Details
             </div>
             <div className="space-y-3 p-3">
               {lines.length === 0 && <p className="text-xs text-muted-foreground">No tiers yet.</p>}
+              {/* row area capped with internal scroll — Add button stays pinned */}
+              <div className="max-h-56 space-y-3 overflow-y-auto">
               {lines.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -363,10 +370,12 @@ export function GarmentRejectionRuleMasterScreen({
                   </div>
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>
                 + Add tier
               </Button>
             </div>
+          </div>
           </div>
         </div>
       </Sheet>

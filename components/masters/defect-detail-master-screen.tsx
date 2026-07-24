@@ -329,47 +329,45 @@ export function DefectDetailMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Code Components">
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="dd-catg">
-                  Category ID <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="dd-catg"
-                  value={form.defect_catg_id}
-                  onChange={(e) => set({ defect_catg_id: e.target.value })}
-                  className="text-base md:text-sm"
-                  minLength={2}
-                />
-              </div>
-              <div>
-                <Label htmlFor="dd-id">
-                  Defect ID <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="dd-id"
-                  value={form.defect_id}
-                  onChange={(e) => set({ defect_id: e.target.value })}
-                  className="text-base md:text-sm"
-                  minLength={2}
-                />
-              </div>
-              <div>
-                <Label htmlFor="dd-det">
-                  Detail ID <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="dd-det"
-                  value={form.defect_det_id}
-                  onChange={(e) => set({ defect_det_id: e.target.value })}
-                  className="text-base md:text-sm"
-                  minLength={2}
-                />
-              </div>
+          <DetailSection label="Code Components" cols={3}>
+            <div>
+              <Label htmlFor="dd-catg">
+                Category ID <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="dd-catg"
+                value={form.defect_catg_id}
+                onChange={(e) => set({ defect_catg_id: e.target.value })}
+                className="text-base md:text-sm"
+                minLength={2}
+              />
+            </div>
+            <div>
+              <Label htmlFor="dd-id">
+                Defect ID <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="dd-id"
+                value={form.defect_id}
+                onChange={(e) => set({ defect_id: e.target.value })}
+                className="text-base md:text-sm"
+                minLength={2}
+              />
+            </div>
+            <div>
+              <Label htmlFor="dd-det">
+                Detail ID <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="dd-det"
+                value={form.defect_det_id}
+                onChange={(e) => set({ defect_det_id: e.target.value })}
+                className="text-base md:text-sm"
+                minLength={2}
+              />
             </div>
             {displayCode && (
-              <div>
+              <div className="sm:col-span-2 lg:col-span-3">
                 <Label>Generated Code</Label>
                 <div className="rounded-md border border-border bg-surface-muted px-3 py-2 font-mono text-sm text-muted-foreground">
                   {displayCode}

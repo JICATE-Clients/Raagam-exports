@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +26,7 @@ import type { Category } from "@/lib/masters/category-types";
 import type { Uom } from "@/lib/masters/types";
 import { CategoryPicker, AttributePicker, LookupDialogPicker } from "@/components/masters/lookup-picker";
 import { ChildGrid } from "@/components/masters/child-grid";
+import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
@@ -390,68 +392,79 @@ export function MaterialAttributeMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          {/* header */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2">
-            <div>
-              <Label htmlFor="ma-item-class">
-                Item Class <span className="text-danger">*</span>
-              </Label>
-              <Select
-                id="ma-item-class"
-                value={itemClassId}
-                onChange={(e) => changeItemClass(e.target.value)}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {attributes
-                  .filter((c) => c.is_active || c.id === itemClassId)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
+        <div className="space-y-4">
+          {/* Two-column body — header fields LEFT, attribute-lines grid RIGHT
+              (Material form design). Stacks on mobile via grid-cols-1. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            {/* LEFT: header fields */}
+            <div className="space-y-4">
+              <DetailSection label="Header" cols={2}>
+                <div>
+                  <Label htmlFor="ma-item-class">
+                    Item Class <span className="text-danger">*</span>
+                  </Label>
+                  <Select
+                    id="ma-item-class"
+                    value={itemClassId}
+                    onChange={(e) => changeItemClass(e.target.value)}
+                    className="text-base md:text-sm"
+                  >
+                    <option value="">— Select —</option>
+                    {attributes
+                      .filter((c) => c.is_active || c.id === itemClassId)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </Select>
+                </div>
+                <div>
+                  <CategoryPicker
+                    label="Category"
+                    required
+                    categories={scopedCategories}
+                    value={categoryId}
+                    onChange={setCategoryId}
+                    itemClassId={itemClassId}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                    canDelete={perms.canDelete}
+                  />
+                  {!itemClassId && (
+                    <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
+                  )}
+                </div>
+                <div>
+                  <Label htmlFor="ma-name-separator" className="flex items-center gap-1">
+                    Name Separator
+                    <span title="Joins attribute answers into the item name (default: space)." className="cursor-help text-muted-foreground">
+                      <Info className="h-3.5 w-3.5" />
+                    </span>
+                  </Label>
+                  <Input
+                    id="ma-name-separator"
+                    value={nameSeparator}
+                    onChange={(e) => setNameSeparator(e.target.value)}
+                    maxLength={2}
+                    className="text-base md:text-sm"
+                  />
+                </div>
+              </DetailSection>
             </div>
-            <div>
-              <CategoryPicker
-                label="Category"
-                required
-                categories={scopedCategories}
-                value={categoryId}
-                onChange={setCategoryId}
-                itemClassId={itemClassId}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                canDelete={perms.canDelete}
-              />
-              {!itemClassId && (
-                <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
-              )}
-            </div>
-            <div>
-              <Label htmlFor="ma-name-separator">Name Separator</Label>
-              <Input
-                id="ma-name-separator"
-                value={nameSeparator}
-                onChange={(e) => setNameSeparator(e.target.value)}
-                maxLength={2}
-                className="text-base md:text-sm"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Joins attribute answers into the item name (default: space).
-              </p>
-            </div>
-          </div>
 
-          {/* attribute lines */}
-          <div className="sm:col-span-2">
+            {/* RIGHT: attribute lines — meaningless until an Item Class scopes the
+                pickable values, so keep the placeholder gate here */}
+            <div className="space-y-4">
+          {!itemClassId ? (
+            <div className="rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-12 text-center text-sm text-muted-foreground">
+              Select an Item Class above to add its attribute lines.
+            </div>
+          ) : (
+          <div>
           {(() => {
             const attrCell = (l: LineRow) => (
-              <div>
-                <AttributePicker label="" values={scopedAttributeValues} value={l.attribute_id} onChange={(v) => setLineAt(l.key, { attribute_id: v })} />
-                {!itemClassId && <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>}
-              </div>
+              <AttributePicker label="" values={scopedAttributeValues} value={l.attribute_id} onChange={(v) => setLineAt(l.key, { attribute_id: v })} />
             );
             const rangeCell = (l: LineRow) => (
               <div className="grid grid-cols-3 gap-1.5">
@@ -506,6 +519,8 @@ export function MaterialAttributeMasterScreen({
             return (
               <ChildGrid<LineRow>
                 label="Attributes"
+                maxBodyHeight="max-h-56"
+                forceCards
                 rows={lines}
                 onAdd={addLine}
                 onRemove={(l) => removeLine(l.key)}
@@ -527,6 +542,9 @@ export function MaterialAttributeMasterScreen({
               />
             );
           })()}
+          </div>
+          )}
+            </div>
           </div>
         </div>
       </Sheet>

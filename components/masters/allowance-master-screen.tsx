@@ -12,6 +12,7 @@ import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button"
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createAllowance,
   updateAllowance,
@@ -119,7 +120,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
     startTransition(async () => {
       const res = await deleteAllowance(r.id);
       if (res.ok) {
-        success("Allowance deleted.");
+        success(deletedToast("Allowance", res));
         router.refresh();
       } else {
         error(res.error);

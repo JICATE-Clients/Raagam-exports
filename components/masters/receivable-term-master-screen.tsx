@@ -13,6 +13,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createReceivableTerm,
   updateReceivableTerm,
@@ -123,7 +124,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
     startTransition(async () => {
       const res = await deleteReceivableTerm(r.id);
       if (res.ok) {
-        success("Receivable term deleted.");
+        success(deletedToast("Receivable term", res));
         router.refresh();
       } else {
         error(res.error);

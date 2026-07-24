@@ -7,6 +7,7 @@ import {
   materialAttributeInput,
   type MaterialAttributeInput,
 } from "./material-attribute-types";
+import { deleteOrBlock } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -14,7 +15,7 @@ function rev(): void {
   revalidatePath("/masters/materials");
   revalidatePath("/masters/materials/material-attributes");
 }
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 
@@ -91,8 +92,9 @@ export async function updateMaterialAttribute(
 export async function deleteMaterialAttribute(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("material_attributes").delete().eq("id", id); // lines cascade
-  if (error) return fail(error.message);
+  // Lines cascade (RPC ignores cascade children); block only if referenced elsewhere.
+  const res = await deleteOrBlock(s, "material_attributes", id);
+  if (!res.ok) return fail(res.error);
   rev();
   return { ok: true };
 }

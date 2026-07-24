@@ -323,6 +323,9 @@ export function ExchangeRateMasterScreen({
               {lines.length === 0 && (
                 <p className="text-xs text-muted-foreground">No currencies yet.</p>
               )}
+              {/* Row area capped with an internal scroll (ChildGrid maxBodyHeight
+                  rule) — the Add button stays pinned below. */}
+              <div className="max-h-56 space-y-3 overflow-y-auto">
               {lines.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -370,6 +373,7 @@ export function ExchangeRateMasterScreen({
                   </div>
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>
                 + Add currency
               </Button>

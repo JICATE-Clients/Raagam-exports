@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import {
   createStockUnit,
@@ -169,7 +170,7 @@ export function StockUnitMasterScreen({
     startTransition(async () => {
       const res = await deleteStockUnit(r.id);
       if (res.ok) {
-        success("Stock unit deleted.");
+        success(deletedToast("Stock unit", res));
         router.refresh();
       } else {
         error(res.error);
@@ -318,7 +319,7 @@ export function StockUnitMasterScreen({
               legacy). Hidden legacy columns — description, decimal_places_allowed,
               applicable-for flags, item-class scoping — keep their DB defaults and
               round-trip untouched on edit via the seeded form state. */}
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="su-name">
                 Unit of Measurement <span className="text-danger">*</span>

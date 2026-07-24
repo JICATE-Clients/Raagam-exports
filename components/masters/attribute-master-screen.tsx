@@ -284,6 +284,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
             <div className="sm:col-span-2">
               <ChildGrid<ValueRow>
                 label="Attributes"
+                maxBodyHeight="max-h-56"
                 rows={values}
                 onAdd={addValueRow}
                 onRemove={(v) => removeValueRow(v.key)}
@@ -330,6 +331,37 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                       ),
                   },
                 ]}
+                renderMobileRow={(v) => (
+                  <>
+                    <Input
+                      value={v.value}
+                      onChange={(e) => setValueAt(v.key, e.target.value)}
+                      placeholder="Attribute value"
+                      className="text-base md:text-sm"
+                    />
+                    {/* fields pair up two-per-row inside cards */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select
+                        value={v.input_type}
+                        onChange={(e) =>
+                          setInputTypeAt(v.key, e.target.value as "option_list" | "numeric_range")
+                        }
+                        className="text-base md:text-sm"
+                      >
+                        <option value="numeric_range">Numeric range</option>
+                        <option value="option_list">Options list</option>
+                      </Select>
+                      {v.input_type === "option_list" && (
+                        <Input
+                          value={v.optionsText}
+                          onChange={(e) => setOptionsTextAt(v.key, e.target.value)}
+                          placeholder="e.g. Printed, Laminated"
+                          className="text-base md:text-sm"
+                        />
+                      )}
+                    </div>
+                  </>
+                )}
               />
             </div>
           )}

@@ -3,6 +3,7 @@ import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -409,23 +410,21 @@ export function LevyMasterScreen({
    *  only the labels + bound values differ per type. */
   function rateFieldsBlock(title: string, fields: [string, string, (v: string) => void][]) {
     return (
-      <DetailSection label={title}>
-        <div className="grid grid-cols-3 gap-2">
-          {fields.map(([label, value, onChange]) => (
-            <div key={label}>
-              <Label>{label}</Label>
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                className="text-base md:text-sm"
-              />
-            </div>
-          ))}
-        </div>
+      <DetailSection label={title} cols={3}>
+        {fields.map(([label, value, onChange]) => (
+          <div key={label}>
+            <Label>{label}</Label>
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              className="text-base md:text-sm"
+            />
+          </div>
+        ))}
       </DetailSection>
     );
   }
@@ -580,53 +579,51 @@ export function LevyMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Header">
-            <div className="grid grid-cols-2 gap-3">
-              {editEntryNo != null && (
-                <div className="col-span-2">
-                  <Label>Entry No</Label>
-                  <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-                    {editEntryNo}
-                  </div>
+          <DetailSection label="Header" cols={2}>
+            {editEntryNo != null && (
+              <div className="sm:col-span-2">
+                <Label>Entry No</Label>
+                <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
+                  {editEntryNo}
                 </div>
-              )}
-              <div className="col-span-2">
-                <Label htmlFor="lv-type">Type</Label>
-                <Select
-                  id="lv-type"
-                  value={form.type}
-                  onChange={(e) => {
-                    set({ type: e.target.value as LevyType });
-                    setGstTotalPct("");
-                  }}
-                >
-                  {LEVY_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </Select>
               </div>
-              <div>
-                <Label htmlFor="lv-date">Date</Label>
-                <Input
-                  id="lv-date"
-                  type="date"
-                  value={form.levy_date}
-                  onChange={(e) => set({ levy_date: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="lv-eff">Effective From</Label>
-                <Input
-                  id="lv-eff"
-                  type="date"
-                  value={form.effective_from}
-                  onChange={(e) => set({ effective_from: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+            )}
+            <div className="sm:col-span-2">
+              <Label htmlFor="lv-type">Type</Label>
+              <Select
+                id="lv-type"
+                value={form.type}
+                onChange={(e) => {
+                  set({ type: e.target.value as LevyType });
+                  setGstTotalPct("");
+                }}
+              >
+                {LEVY_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="lv-date">Date</Label>
+              <Input
+                id="lv-date"
+                type="date"
+                value={form.levy_date}
+                onChange={(e) => set({ levy_date: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="lv-eff">Effective From</Label>
+              <Input
+                id="lv-eff"
+                type="date"
+                value={form.effective_from}
+                onChange={(e) => set({ effective_from: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
           </DetailSection>
 
@@ -640,7 +637,19 @@ export function LevyMasterScreen({
             <DetailSection label="Rates & account heads">
               {(act.cgst || act.igst) && (
                 <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5">
-                  <Label>GST % (auto-split)</Label>
+                  <Label className="flex items-center gap-1">
+                    GST % (auto-split)
+                    <span
+                      title={
+                        act.igst
+                          ? "Fills IGST directly (inter-state — no split)."
+                          : "Splits evenly into CGST + SGST (intra-state). You can still override either below."
+                      }
+                      className="cursor-help text-muted-foreground"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </span>
+                  </Label>
                   <Input
                     type="number"
                     min="0"
@@ -651,11 +660,6 @@ export function LevyMasterScreen({
                     onChange={(e) => applyGstTotal(e.target.value, form.type)}
                     className="text-base md:text-sm"
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {act.igst
-                      ? "Fills IGST directly (inter-state — no split)."
-                      : "Splits evenly into CGST + SGST (intra-state). You can still override either below."}
-                  </p>
                 </div>
               )}
               {rateRow("CGST %", form.cgst_pct, (v) => set({ cgst_pct: v }), form.cgst_ac_head, (v) => set({ cgst_ac_head: v }), act.cgst)}

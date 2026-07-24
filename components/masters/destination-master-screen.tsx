@@ -14,6 +14,7 @@ import {
   updateDestination,
   deleteDestination,
 } from "@/lib/masters/destination-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import type { Destination, DestinationInput } from "@/lib/masters/destination-types";
 import type { Country } from "@/lib/masters/country-types";
 import { CountryPicker } from "@/components/masters/country-picker";
@@ -118,7 +119,7 @@ export function DestinationMasterScreen({
     startTransition(async () => {
       const res = await deleteDestination(r.id);
       if (res.ok) {
-        success("Destination deleted.");
+        success(deletedToast("Destination", res));
         router.refresh();
       } else {
         error(res.error);

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Plus, SquarePen, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,9 +13,12 @@ import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { quickCreateMaterial, renameMaterial, deleteMaterial } from "@/lib/masters/material-actions";
+import { YarnQuickCreateSheet } from "@/components/masters/yarn-quick-create-sheet";
+import { CategoryQuickCreateSheet } from "@/components/masters/category-quick-create-sheet";
 import { deletedToast } from "@/lib/masters/delete-message";
 import type { ConfigLookup, LookupKind, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
+import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Category } from "@/lib/masters/category-types";
 
 // ============================================================================
@@ -50,6 +54,11 @@ type ManageConfig = {
   showTypeField?: boolean;
 };
 
+/** Header icon-button style (mockup .ibtn): bordered square, danger tint on
+ *  the delete hover comes from the caller. */
+const ICON_BTN =
+  "flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground hover:bg-surface-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
+
 function DialogListPicker({
   label,
   title,
@@ -60,6 +69,7 @@ function DialogListPicker({
   clearable = true,
   required = false,
   manage,
+  onAddOverride,
 }: {
   label: string;
   /** Dialog title + toast noun when `label` is blank (e.g. grid cells whose
@@ -72,6 +82,11 @@ function DialogListPicker({
   clearable?: boolean;
   required?: boolean;
   manage?: ManageConfig;
+  /** When set, the footer "+ Add" hands off to a custom creation flow (e.g.
+   *  the Yarn quick-create sheet) instead of the inline name-only form —
+   *  receives the picker's `commit` so the flow can select the new row and
+   *  close this dialog once creation succeeds. */
+  onAddOverride?: (commit: (id: string) => void) => void;
 }) {
   const noun = title || label;
   const { success, error } = useToast();
@@ -107,8 +122,9 @@ function DialogListPicker({
     close();
   }
 
-  /** ↓/↑ walk the filtered list, Enter = OK (client 2026-07-23). The search
-   *  input keeps focus the whole time — arrows only move the highlight. */
+  /** ↓/↑ walk the filtered list, Enter = OK (client 2026-07-23). Attached to
+   *  the list-mode container so it works wherever focus sits inside the
+   *  dialog — arrows only move the highlight. */
   function onListKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -120,6 +136,8 @@ function DialogListPicker({
           : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
       setHighlighted(next.id);
     } else if (e.key === "Enter") {
+      // Enter on a focused button should still activate that button.
+      if (e.target instanceof HTMLButtonElement) return;
       e.preventDefault();
       const pick = highlighted && filtered.some((r) => r.id === highlighted) ? highlighted : filtered[0]?.id;
       if (pick) commit(pick);
@@ -215,6 +233,50 @@ function DialogListPicker({
         title={noun}
         zIndexBase={100}
         size="sm"
+        headerActions={
+          /* manage actions are compact icon buttons in the header, left of ✕
+             (planned layout 2026-07-23 — supersedes the earlier footer
+             placement). Modify/Delete arm only once a row is highlighted. */
+          mode === "list" && canManage ? (
+            <>
+              {manage!.canCreate && (
+                <button
+                  type="button"
+                  title="Add"
+                  aria-label="Add"
+                  onClick={onAddOverride ? () => onAddOverride(commit) : startAdd}
+                  className={ICON_BTN}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              )}
+              {manage!.canEdit && (
+                <button
+                  type="button"
+                  title="Modify"
+                  aria-label="Modify"
+                  disabled={!highlighted}
+                  onClick={startEdit}
+                  className={ICON_BTN}
+                >
+                  <SquarePen className="h-4 w-4" />
+                </button>
+              )}
+              {manage!.canDelete && (
+                <button
+                  type="button"
+                  title="Delete"
+                  aria-label="Delete"
+                  disabled={!highlighted}
+                  onClick={() => setMode("delete")}
+                  className={cn(ICON_BTN, "hover:bg-danger/10 hover:text-danger")}
+                >
+                  <Trash2 className="h-[15px] w-[15px]" />
+                </button>
+              )}
+            </>
+          ) : undefined
+        }
         footer={
           mode === "list" ? (
             <>
@@ -239,42 +301,15 @@ function DialogListPicker({
         }
       >
         {mode === "list" && (
-          <div className="space-y-2.5">
+          <div className="space-y-2.5" onKeyDown={onListKeyDown}>
             <Input
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={onListKeyDown}
               placeholder="Search…"
               className="sticky top-0 text-base md:text-sm"
             />
-            {canManage && (
-              <div className="flex gap-2">
-                {manage!.canCreate && (
-                  <Button type="button" variant="outline" size="sm" onClick={startAdd}>
-                    + Add
-                  </Button>
-                )}
-                {manage!.canEdit && (
-                  <Button type="button" variant="outline" size="sm" disabled={!highlighted} onClick={startEdit}>
-                    Modify
-                  </Button>
-                )}
-                {manage!.canDelete && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-muted-foreground hover:text-danger"
-                    disabled={!highlighted}
-                    onClick={() => setMode("delete")}
-                  >
-                    Delete
-                  </Button>
-                )}
-              </div>
-            )}
-            <div className="max-h-[50vh] space-y-1 overflow-y-auto">
+            <div className="max-h-[50vh] space-y-2 overflow-y-auto">
               {filtered.length === 0 && (
                 <p className="px-1 py-4 text-center text-sm text-muted-foreground">No matches.</p>
               )}
@@ -287,10 +322,12 @@ function DialogListPicker({
                   onClick={() => setHighlighted(r.id)}
                   onDoubleClick={() => commit(r.id)}
                   className={cn(
-                    "min-h-11 cursor-pointer rounded-lg border px-3 py-2.5 text-sm",
+                    // Card-style rows per the planned layout: always bordered,
+                    // primary-tinted when highlighted.
+                    "min-h-11 cursor-pointer rounded-lg border px-4 py-3 text-sm",
                     highlighted === r.id
-                      ? "border-primary bg-primary/10"
-                      : "border-transparent hover:bg-surface-muted",
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-border bg-surface hover:bg-surface-muted",
                   )}
                 >
                   <div className="text-foreground">
@@ -350,6 +387,13 @@ function DialogListPicker({
                   uppercase
                   value={draftType}
                   onChange={(e) => setDraftType(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Enter = save on the last field too (client 2026-07-23)
+                    if (e.key === "Enter" && !isPending && draftName.trim()) {
+                      e.preventDefault();
+                      (mode === "edit" ? saveEdit : saveAdd)();
+                    }
+                  }}
                   placeholder="Functional grouping (e.g. FAB, GEN)"
                   className="text-base md:text-sm"
                 />
@@ -536,6 +580,11 @@ export function LevyPicker({
  * class (code auto-generated), Modify renames, Delete soft-deactivates when
  * the item is in use — richer fields stay editable from the full Materials
  * master, same as the CategoryPicker precedent.
+ *
+ * With `yarnQuickCreate` (Component Yarn pickers), "+ Add" instead opens the
+ * full `YarnQuickCreateSheet` — a complete Yarn (Count/Category/Purity/Type,
+ * auto-name, kg UOMs) without leaving the host form (client 2026-07-23,
+ * Fabric Master #11). Modify/Delete keep the inline rename/soft-delete.
  */
 export function ItemPicker({
   label,
@@ -549,6 +598,7 @@ export function ItemPicker({
   canCreate = false,
   canEdit = false,
   canDelete = false,
+  yarnQuickCreate,
 }: {
   label: string;
   title?: string;
@@ -562,8 +612,22 @@ export function ItemPicker({
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  /** Lookup lists for the full Yarn quick-create sheet — when set (together
+   *  with `quickCreateClassId`), "+ Add" opens it instead of the inline
+   *  name-only form. `categories` must already be YARN-scoped by the caller. */
+  yarnQuickCreate?: {
+    counts: ConfigLookup[];
+    purities: ConfigLookup[];
+    yarnTypes: ConfigLookup[];
+    categories: Category[];
+    kgUnitId?: string | null;
+  };
 }) {
   const router = useRouter();
+  // Yarn quick-create sheet state — `qcCommit` holds the host dialog's commit
+  // so a successful create can select the new yarn and close the picker.
+  const [qcOpen, setQcOpen] = useState(false);
+  const qcCommit = useRef<((id: string) => void) | null>(null);
   // Quick-created items, visible immediately; the server row (with its real
   // generated code) replaces the stub once router.refresh() lands.
   const [extra, setExtra] = useState<{ id: string; code: string; name: string }[]>([]);
@@ -608,17 +672,49 @@ export function ItemPicker({
         }
       : undefined;
 
+  const useYarnQc = !!yarnQuickCreate && !!quickCreateClassId;
+
   return (
-    <DialogListPicker
-      label={label}
-      title={title}
-      rows={rows}
-      value={value}
-      onChange={onChange}
-      clearable={clearable}
-      placeholder={placeholder}
-      manage={manage}
-    />
+    <>
+      <DialogListPicker
+        label={label}
+        title={title}
+        rows={rows}
+        value={value}
+        onChange={onChange}
+        clearable={clearable}
+        placeholder={placeholder}
+        manage={manage}
+        onAddOverride={
+          useYarnQc
+            ? (commit) => {
+                qcCommit.current = commit;
+                setQcOpen(true);
+              }
+            : undefined
+        }
+      />
+      {useYarnQc && (
+        <YarnQuickCreateSheet
+          open={qcOpen}
+          onClose={() => setQcOpen(false)}
+          onCreated={({ id, code, name }) => {
+            // Same optimistic flow as manage.onCreated: stub the new yarn into
+            // the list, select it (committing also closes the picker dialog),
+            // and let router.refresh() swap in the real server row.
+            setExtra((xs) => [...xs, { id, code, name }]);
+            (qcCommit.current ?? onChange)(id);
+            router.refresh();
+          }}
+          yarnClassId={quickCreateClassId!}
+          counts={yarnQuickCreate!.counts}
+          purities={yarnQuickCreate!.purities}
+          yarnTypes={yarnQuickCreate!.yarnTypes}
+          categories={yarnQuickCreate!.categories}
+          kgUnitId={yarnQuickCreate!.kgUnitId}
+        />
+      )}
+    </>
   );
 }
 
@@ -638,9 +734,14 @@ export function CategoryPicker({
   clearable = true,
   required = false,
   itemClassId,
+  selectedClassCode,
   canCreate = false,
   canEdit = false,
   canDelete = false,
+  levies,
+  commodities,
+  itemClasses,
+  fabricStructures,
 }: {
   label: string;
   categories: Category[];
@@ -651,12 +752,26 @@ export function CategoryPicker({
   /** Parent Item Class id — new categories are created scoped to it; Add is
    *  disabled until it's set. */
   itemClassId?: string;
+  /** Parent Item Class CODE (YARN/FABRIC/GEN/…) — drives which fields the
+   *  full quick-create sheet renders (Category Type, Fabric Structure, …). */
+  selectedClassCode?: string | null;
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  /** Lookup lists for the full quick-create sheet — when set (with an
+   *  `itemClassId` + create permission), "+ Add" opens the complete Category
+   *  mini-child instead of the inline name-only form. */
+  levies?: Levy[];
+  commodities?: Commodity[];
+  itemClasses?: ConfigLookup[];
+  fabricStructures?: ConfigLookup[];
 }) {
   const router = useRouter();
   const [extra, setExtra] = useState<Category[]>([]);
+  // Full quick-create sheet state — `qcCommit` holds the picker dialog's commit
+  // so a successful create can select the new category and close the dialog.
+  const [qcOpen, setQcOpen] = useState(false);
+  const qcCommit = useRef<((id: string) => void) | null>(null);
 
   // extra is scoped to whichever item class it was added under — filter it
   // to the current one so switching Item Class doesn't leak stale additions.
@@ -787,16 +902,51 @@ export function CategoryPicker({
         }
       : undefined;
 
+  // "+ Add" opens the full mini-child sheet when the caller wired the lookup
+  // lists through; otherwise it falls back to the inline name-only add form.
+  const useFullQc = canAdd && !!(levies && commodities && itemClasses && fabricStructures);
+
   return (
-    <DialogListPicker
-      label={label}
-      rows={rows}
-      value={value}
-      onChange={onChange}
-      clearable={clearable}
-      required={required}
-      manage={manage}
-    />
+    <>
+      <DialogListPicker
+        label={label}
+        rows={rows}
+        value={value}
+        onChange={onChange}
+        clearable={clearable}
+        required={required}
+        manage={manage}
+        onAddOverride={
+          useFullQc
+            ? (commit) => {
+                qcCommit.current = commit;
+                setQcOpen(true);
+              }
+            : undefined
+        }
+      />
+      {useFullQc && (
+        <CategoryQuickCreateSheet
+          open={qcOpen}
+          onClose={() => setQcOpen(false)}
+          onCreated={(cat) => {
+            // Same optimistic flow as manage.onCreated: stub the new category
+            // into the list, select it (committing also closes the picker
+            // dialog), and let router.refresh() swap in the real server row.
+            setExtra((xs) => [...xs, cat]);
+            (qcCommit.current ?? onChange)(cat.id);
+            router.refresh();
+          }}
+          itemClassId={itemClassId!}
+          selectedClassCode={selectedClassCode ?? null}
+          levies={levies!}
+          commodities={commodities!}
+          itemClasses={itemClasses!}
+          fabricStructures={fabricStructures!}
+          perms={{ canCreate, canEdit, canDelete }}
+        />
+      )}
+    </>
   );
 }
 

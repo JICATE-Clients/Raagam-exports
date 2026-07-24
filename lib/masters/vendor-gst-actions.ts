@@ -8,7 +8,7 @@ import { GST_REG_STATUSES } from "./vendor-types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 

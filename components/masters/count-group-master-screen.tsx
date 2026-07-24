@@ -188,42 +188,50 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <Label htmlFor="cg-name">Name <span className="text-danger">*</span></Label>
-            <Input id="cg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-            {!editId && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                The code is generated automatically from the name.
-              </p>
+        {/* Two-column body — header fields LEFT, Counts line grid RIGHT. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="cg-name">Name <span className="text-danger">*</span></Label>
+              <Input id="cg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+              {!editId && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The code is generated automatically from the name.
+                </p>
+              )}
+            </div>
+            {editId && (
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
             )}
           </div>
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
-          {/* Counts grid */}
-          <div className="rounded-lg border border-border sm:col-span-2">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Counts</div>
-            <div className="space-y-2 p-3">
-              {lines.map((l, i) => (
-                <div key={l.key} className="flex items-center gap-2">
-                  <span className="w-6 text-center text-xs text-muted-foreground">{i + 1}</span>
-                  <Select value={l.count_lookup_id ?? ""}
-                    onChange={(e) => setLineAt(l.key, { count_lookup_id: e.target.value || null })}
-                    className="flex-1 text-base md:text-sm">
-                    <option value="">— select count —</option>
-                    {counts.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </Select>
-                  <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
-                    onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+          <div className="space-y-4">
+            {/* Counts grid */}
+            <div className="rounded-lg border border-border">
+              <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Counts</div>
+              <div className="space-y-2 p-3">
+                {/* row area capped with internal scroll — Add button stays pinned */}
+                <div className="max-h-56 space-y-2 overflow-y-auto">
+                  {lines.map((l, i) => (
+                    <div key={l.key} className="flex items-center gap-2">
+                      <span className="w-6 text-center text-xs text-muted-foreground">{i + 1}</span>
+                      <Select value={l.count_lookup_id ?? ""}
+                        onChange={(e) => setLineAt(l.key, { count_lookup_id: e.target.value || null })}
+                        className="flex-1 text-base md:text-sm">
+                        <option value="">— select count —</option>
+                        {counts.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </Select>
+                      <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
+                        onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>+ Add Count</Button>
+                <Button type="button" variant="outline" size="sm" onClick={addLine}>+ Add Count</Button>
+              </div>
             </div>
           </div>
         </div>

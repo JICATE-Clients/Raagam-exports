@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
@@ -50,6 +50,29 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       ),
   );
 
+  // The Sidebar lives in the persistent app layout, so it never re-mounts on
+  // navigation — the useState initializer above only ran for the FIRST page.
+  // Without this, moving to a page in another section leaves that section
+  // collapsed, hiding its active sub-item. Re-expand the active group whenever
+  // the route changes; only ever ADD, so a group the user opened by hand (and
+  // manual collapses of inactive groups) are left untouched.
+  useEffect(() => {
+    const activeHrefs = NAV.filter(
+      (i) => i.children?.length && isActive(pathname, i.href),
+    ).map((i) => i.href);
+    if (activeHrefs.length === 0) return;
+    // Legitimately syncing local UI state to an external system (the router);
+    // the updater returns `prev` unchanged when nothing's new, so this never
+    // cascades renders.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpanded((prev) => {
+      if (activeHrefs.every((h) => prev.has(h))) return prev; // already open — no re-render
+      const next = new Set(prev);
+      for (const h of activeHrefs) next.add(h);
+      return next;
+    });
+  }, [pathname]);
+
   function toggle(href: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -98,10 +121,10 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
                     className={cn(
                       "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors",
                       parentStrong
-                        ? "bg-primary/10 text-primary"
+                        ? "bg-primary/10 text-primary hover:bg-primary/20"
                         : moduleActive
-                          ? "text-primary hover:bg-surface-muted"
-                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-border hover:text-foreground",
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
@@ -113,10 +136,10 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
                     className={cn(
                       "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                       parentStrong
-                        ? "bg-primary/10 text-primary"
+                        ? "bg-primary/10 text-primary hover:bg-primary/20"
                         : moduleActive
-                          ? "text-primary hover:bg-surface-muted"
-                          : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+                          ? "text-primary hover:bg-primary/10"
+                          : "text-muted-foreground hover:bg-border hover:text-foreground",
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
@@ -130,7 +153,7 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
                     onClick={() => toggle(item.href)}
                     aria-label={`${isExpanded ? "Collapse" : "Expand"} ${item.label}`}
                     aria-expanded={isExpanded}
-                    className="flex h-8 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+                    className="flex h-8 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-border hover:text-foreground"
                   >
                     <ChevronRight
                       className={cn(
@@ -153,8 +176,8 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
                         className={cn(
                           "block rounded-md px-3 py-1.5 text-sm transition-colors",
                           childActive
-                            ? "bg-primary/10 font-medium text-primary"
-                            : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+                            ? "bg-primary/10 font-medium text-primary hover:bg-primary/20"
+                            : "text-muted-foreground hover:bg-border hover:text-foreground",
                         )}
                       >
                         {child.label}

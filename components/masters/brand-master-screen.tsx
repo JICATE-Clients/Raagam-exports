@@ -299,7 +299,7 @@ export function BrandMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="brd-name">
                 Name <span className="text-danger">*</span>
@@ -329,25 +329,23 @@ export function BrandMasterScreen({
                 className="text-base md:text-sm"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="brd-phone">Phone</Label>
-                <Input
-                  id="brd-phone"
-                  value={form.phone}
-                  onChange={(e) => set({ phone: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="brd-fax">Fax</Label>
-                <Input
-                  id="brd-fax"
-                  value={form.fax}
-                  onChange={(e) => set({ fax: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+            <div>
+              <Label htmlFor="brd-phone">Phone</Label>
+              <Input
+                id="brd-phone"
+                value={form.phone}
+                onChange={(e) => set({ phone: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="brd-fax">Fax</Label>
+              <Input
+                id="brd-fax"
+                value={form.fax}
+                onChange={(e) => set({ fax: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
           </DetailSection>
 

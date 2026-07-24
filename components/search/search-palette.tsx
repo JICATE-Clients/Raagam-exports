@@ -18,12 +18,16 @@ import {
   Package,
   ClipboardList,
   FileText,
+  Star,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { NAV } from "@/components/shell/nav";
 import { searchNav } from "@/components/shell/nav-search";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
+import { useFavorites } from "@/lib/use-favorites";
+import { useRecent, recordRecent } from "@/lib/use-recent";
 import type { SearchEntity, SearchResult } from "@/lib/search/types";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +61,8 @@ interface FlatItem {
   title: string;
   sub: string;
   href: string;
+  /** Nav rows can be pinned to Favorites; records can't. */
+  pinnable?: boolean;
 }
 
 interface Group {
@@ -88,6 +94,10 @@ export function SearchPalette({
     () => NAV.filter((i) => hasPermission(user, i.module, "view")),
     [user],
   );
+
+  // Favorites (pinned modules) + recent items — re-read from storage on open.
+  const { favorites, toggle, isFavorite } = useFavorites(isOpen);
+  const recent = useRecent(isOpen);
 
   // Reset transient state each time the palette opens; focus the input.
   useEffect(() => {
@@ -150,6 +160,35 @@ export function SearchPalette({
   const groups = useMemo<Group[]>(() => {
     const out: Group[] = [];
 
+    // Default view (no/short query): Recent, then Favorites (pinned modules).
+    if (query.trim().length < MIN_QUERY) {
+      if (recent.length)
+        out.push({
+          label: "Recent",
+          items: recent.map((r) => ({
+            key: `recent:${r.href}`,
+            icon: Clock,
+            title: r.title,
+            sub: r.sub ?? "",
+            href: r.href,
+          })),
+        });
+      const favModules = modules.filter((m) => favorites.includes(m.href));
+      if (favModules.length)
+        out.push({
+          label: "Favorites",
+          items: favModules.map((m) => ({
+            key: `fav:${m.href}`,
+            icon: m.icon,
+            title: m.label,
+            sub: m.href,
+            href: m.href,
+            pinnable: true,
+          })),
+        });
+      return out;
+    }
+
     const navRows = searchNav(query, modules);
     if (navRows.length)
       out.push({
@@ -160,6 +199,7 @@ export function SearchPalette({
           title: r.title,
           sub: r.sub,
           href: r.href,
+          pinnable: true,
         })),
       });
 
@@ -180,7 +220,7 @@ export function SearchPalette({
     }
 
     return out;
-  }, [query, modules, records]);
+  }, [query, modules, records, recent, favorites]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
@@ -189,9 +229,10 @@ export function SearchPalette({
     setActiveIndex((i) => (i >= flat.length ? 0 : i));
   }, [flat.length]);
 
-  function go(href: string) {
+  function go(item: FlatItem) {
+    recordRecent({ href: item.href, title: item.title, sub: item.sub });
     onClose();
-    router.push(href);
+    router.push(item.href);
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -209,7 +250,7 @@ export function SearchPalette({
     } else if (e.key === "Enter") {
       e.preventDefault();
       const target = flat[activeIndex];
-      if (target) go(target.href);
+      if (target) go(target);
     }
   }
 
@@ -259,9 +300,11 @@ export function SearchPalette({
 
         {/* Results */}
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          {q.length < MIN_QUERY && (
+          {q.length < MIN_QUERY && groups.length === 0 && (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
               Type at least {MIN_QUERY} characters to search records and pages.
+              <br />
+              Pin a page with the ★ to see it here.
             </p>
           )}
 
@@ -279,40 +322,60 @@ export function SearchPalette({
               {group.items.map((item) => {
                 runningIndex += 1;
                 const active = runningIndex === activeIndex;
+                const idx = runningIndex;
                 const Icon = item.icon;
+                const pinned = item.pinnable && isFavorite(item.href);
                 return (
-                  <button
+                  <div
                     key={item.key}
-                    type="button"
-                    onClick={() => go(item.href)}
-                    onMouseEnter={() => setActiveIndex(runningIndex)}
+                    onMouseEnter={() => setActiveIndex(idx)}
                     className={cn(
-                      "flex w-full items-center gap-3 px-4 py-2 text-left text-sm",
+                      "flex items-center gap-1 pr-2",
                       active ? "bg-surface-muted" : "hover:bg-surface-muted",
                     )}
                   >
-                    <span
-                      className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-                        active
-                          ? "bg-primary/10 text-primary"
-                          : "bg-surface-muted text-muted-foreground",
-                      )}
+                    <button
+                      type="button"
+                      onClick={() => go(item)}
+                      className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left text-sm"
                     >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-foreground">
-                        {item.title}
+                      <span
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
+                          active
+                            ? "bg-primary/10 text-primary"
+                            : "bg-surface-muted text-muted-foreground",
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {item.sub}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-foreground">
+                          {item.title}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {item.sub}
+                        </span>
                       </span>
-                    </span>
-                    {active && (
-                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {active && !item.pinnable && (
+                        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                    </button>
+                    {item.pinnable && (
+                      <button
+                        type="button"
+                        aria-label={pinned ? "Unpin" : "Pin to favorites"}
+                        title={pinned ? "Unpin" : "Pin to favorites"}
+                        onClick={() => toggle(item.href)}
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-surface",
+                          pinned ? "text-amber-500" : "text-muted-foreground",
+                        )}
+                      >
+                        <Star className={cn("h-4 w-4", pinned && "fill-current")} />
+                      </button>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>

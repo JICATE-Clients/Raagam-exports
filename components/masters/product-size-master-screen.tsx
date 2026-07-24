@@ -374,51 +374,49 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
             </div>
           </DetailSection>
 
-          <DetailSection label="Dimensions">
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="ps-width">
-                  Width <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="ps-width"
-                  type="number"
-                  min={0.001}
-                  step="any"
-                  value={form.width}
-                  onChange={(e) => set({ width: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ps-length">Length</Label>
-                <Input
-                  id="ps-length"
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={form.length}
-                  onChange={(e) => set({ length: e.target.value })}
-                  disabled={form.size_for === "F"}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ps-height">Height</Label>
-                <Input
-                  id="ps-height"
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={form.height}
-                  onChange={(e) => set({ height: e.target.value })}
-                  disabled={form.size_for === "F"}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          <DetailSection label="Dimensions" cols={3}>
+            <div>
+              <Label htmlFor="ps-width">
+                Width <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="ps-width"
+                type="number"
+                min={0.001}
+                step="any"
+                value={form.width}
+                onChange={(e) => set({ width: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ps-length">Length</Label>
+              <Input
+                id="ps-length"
+                type="number"
+                min={0}
+                step="any"
+                value={form.length}
+                onChange={(e) => set({ length: e.target.value })}
+                disabled={form.size_for === "F"}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ps-height">Height</Label>
+              <Input
+                id="ps-height"
+                type="number"
+                min={0}
+                step="any"
+                value={form.height}
+                onChange={(e) => set({ height: e.target.value })}
+                disabled={form.size_for === "F"}
+                className="text-base md:text-sm"
+              />
             </div>
             {displaySize && (
-              <div>
+              <div className="sm:col-span-2 lg:col-span-3">
                 <Label>Calculated Size</Label>
                 <div className="rounded-md border border-border bg-surface-muted px-3 py-2 font-mono text-sm text-muted-foreground">
                   {displaySize}

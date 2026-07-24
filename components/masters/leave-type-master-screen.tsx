@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createLeaveType, updateLeaveType, deleteLeaveType } from "@/lib/masters/leave-type-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   LEAVE_APPLIES_TO,
   type LeaveAppliesTo,
@@ -92,7 +93,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
     startTransition(async () => {
       const res = await deleteLeaveType(r.id);
       if (res.ok) {
-        success("Leave type deleted.");
+        success(deletedToast("Leave type", res));
         router.refresh();
       } else {
         error(res.error);

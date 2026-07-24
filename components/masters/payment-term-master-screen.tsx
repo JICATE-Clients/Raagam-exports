@@ -13,6 +13,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createPaymentTerm,
   updatePaymentTerm,
@@ -123,7 +124,7 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
     startTransition(async () => {
       const res = await deletePaymentTerm(r.id);
       if (res.ok) {
-        success("Payment term deleted.");
+        success(deletedToast("Payment term", res));
         router.refresh();
       } else {
         error(res.error);

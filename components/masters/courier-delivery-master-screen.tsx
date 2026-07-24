@@ -20,6 +20,7 @@ import {
   updateCourierDeliveryAddress,
   deleteCourierDeliveryAddress,
 } from "@/lib/masters/courier-delivery-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import type {
   CourierDeliveryAddress,
   CourierDeliveryInput,
@@ -224,7 +225,7 @@ export function CourierDeliveryAddressMasterScreen({
     startTransition(async () => {
       const res = await deleteCourierDeliveryAddress(r.id);
       if (res.ok) {
-        success("Courier address deleted.");
+        success(deletedToast("Courier address", res));
         router.refresh();
       } else {
         error(res.error);
@@ -354,8 +355,9 @@ export function CourierDeliveryAddressMasterScreen({
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
               Address
             </div>
-            <div className="space-y-4 p-3">
-              <div>
+            {/* dense 2-per-row address fields (organized layout) */}
+            <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="cda-street">Street</Label>
                 <Textarea
                   id="cda-street"
@@ -381,43 +383,39 @@ export function CourierDeliveryAddressMasterScreen({
                 value={form.state_id || null}
                 onChange={(id) => set({ state_id: id })}
               />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="cda-pin">Pin</Label>
-                  <Input
-                    id="cda-pin"
-                    value={form.pin}
-                    onChange={(e) => set({ pin: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <CountryPicker
-                  countries={countries}
-                  value={form.address_country_id || null}
-                  onChange={(id) => set({ address_country_id: id })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
+              <div>
+                <Label htmlFor="cda-pin">Pin</Label>
+                <Input
+                  id="cda-pin"
+                  value={form.pin}
+                  onChange={(e) => set({ pin: e.target.value })}
+                  className="text-base md:text-sm"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="cda-landline">Land Line</Label>
-                  <Input
-                    id="cda-landline"
-                    value={form.land_line}
-                    onChange={(e) => set({ land_line: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="cda-fax">Fax</Label>
-                  <Input
-                    id="cda-fax"
-                    value={form.fax}
-                    onChange={(e) => set({ fax: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
+              <CountryPicker
+                countries={countries}
+                value={form.address_country_id || null}
+                onChange={(id) => set({ address_country_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+              />
+              <div>
+                <Label htmlFor="cda-landline">Land Line</Label>
+                <Input
+                  id="cda-landline"
+                  value={form.land_line}
+                  onChange={(e) => set({ land_line: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="cda-fax">Fax</Label>
+                <Input
+                  id="cda-fax"
+                  value={form.fax}
+                  onChange={(e) => set({ fax: e.target.value })}
+                  className="text-base md:text-sm"
+                />
               </div>
               <div>
                 <Label htmlFor="cda-email">E-Mail</Label>
@@ -449,6 +447,9 @@ export function CourierDeliveryAddressMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {contacts.length === 0 && <p className="text-xs text-muted-foreground">No contacts yet.</p>}
+              {/* row area capped — a growing grid scrolls instead of pushing
+                  the content below (Add button stays pinned) */}
+              <div className="max-h-56 space-y-3 overflow-y-auto">
               {contacts.map((c, i) => (
                 <div key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -528,6 +529,7 @@ export function CourierDeliveryAddressMasterScreen({
                   </div>
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addContact}>
                 + Add contact
               </Button>

@@ -16,12 +16,14 @@ export function DetailSection({
 }: {
   label: ReactNode;
   children: ReactNode;
-  cols?: 1 | 2;
+  cols?: 1 | 2 | 3;
 }) {
   return (
     <div className="space-y-3 rounded-lg border border-border p-3">
       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={cn("grid gap-x-4 gap-y-3", cols === 2 && "sm:grid-cols-2")}>{children}</div>
+      <div className={cn("grid gap-x-4 gap-y-3", cols === 2 && "sm:grid-cols-2", cols === 3 && "sm:grid-cols-2 lg:grid-cols-3")}>
+        {children}
+      </div>
     </div>
   );
 }

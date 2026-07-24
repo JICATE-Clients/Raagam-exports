@@ -340,8 +340,8 @@ export function BeamMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
-            <div>
+          <DetailSection label="Details" cols={2}>
+            <div className="sm:col-span-2">
               <Label htmlFor="bm-no">
                 Beam No <span className="text-danger">*</span>
               </Label>
@@ -353,31 +353,29 @@ export function BeamMasterScreen({
               />
               {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="bm-tare">Tare Weight</Label>
-                <Input
-                  id="bm-tare"
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={form.tare_wt}
-                  onChange={(e) => set({ tare_wt: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="bm-flange">Flange Width</Label>
-                <Input
-                  id="bm-flange"
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={form.flange_width}
-                  onChange={(e) => set({ flange_width: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+            <div>
+              <Label htmlFor="bm-tare">Tare Weight</Label>
+              <Input
+                id="bm-tare"
+                type="number"
+                min={0}
+                step="any"
+                value={form.tare_wt}
+                onChange={(e) => set({ tare_wt: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="bm-flange">Flange Width</Label>
+              <Input
+                id="bm-flange"
+                type="number"
+                min={0}
+                step="any"
+                value={form.flange_width}
+                onChange={(e) => set({ flange_width: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
             <div>
               <Label htmlFor="bm-loom">Loom Type</Label>

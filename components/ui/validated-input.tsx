@@ -13,21 +13,30 @@ import { cn } from "@/lib/utils";
 interface ValidatedInputProps extends InputHTMLAttributes<HTMLInputElement> {
   /** Format to validate against; drives inline error + inputMode/maxLength/transform. */
   format?: FormatKind;
+  /** Inline error shown on blur when the field is `required` and left empty
+   *  (checklist "Required Field Indicators" — validate on leaving the field,
+   *  not only on Save). Defaults to "Required." when `required` is set. */
+  requiredMessage?: string;
 }
 
 /**
- * Drop-in replacement for <Input> that adds format validation. On change it
- * applies the format's transform (uppercase / digits-only); on blur it shows an
- * inline error below the field when the value doesn't match. Keeps the exact
- * value/onChange contract of <Input>, so wiring a field is a one-line swap. The
- * authoritative check still runs server-side via the shared Zod refinements.
+ * Drop-in replacement for <Input> that adds format + required validation. On
+ * change it applies the format's transform (uppercase / digits-only); on blur it
+ * shows an inline error below the field when the value is empty-but-required or
+ * doesn't match the format. Keeps the exact value/onChange contract of <Input>,
+ * so wiring a field is a one-line swap. The authoritative check still runs
+ * server-side via the shared Zod refinements.
  */
 export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
-  ({ format, onChange, onBlur, value, className, inputMode, maxLength, ...props }, ref) => {
+  ({ format, requiredMessage, onChange, onBlur, value, className, inputMode, maxLength, required, ...props }, ref) => {
     const [touched, setTouched] = useState(false);
     const spec = format ? FORMATS[format] : undefined;
     const strVal = value == null ? "" : String(value);
-    const error = format && touched ? validateFormat(format, strVal) : null;
+    // Empty-but-required wins over a format mismatch (there's nothing to format
+    // yet); otherwise fall back to the format check once the field has a value.
+    const requiredError =
+      required && touched && strVal.trim() === "" ? requiredMessage ?? "Required." : null;
+    const error = requiredError ?? (format && touched ? validateFormat(format, strVal) : null);
 
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
       if (format) {
@@ -46,6 +55,7 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
         <Input
           ref={ref}
           value={value}
+          required={required}
           onChange={handleChange}
           onBlur={handleBlur}
           inputMode={inputMode ?? spec?.inputMode}

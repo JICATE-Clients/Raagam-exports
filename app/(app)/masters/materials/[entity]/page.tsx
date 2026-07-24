@@ -224,15 +224,18 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "materials") {
-      const [materials, all, categories, units, hsnRows, materialAttributes, attributeList] = await Promise.all([
-        listMaterials(),
-        listConfigLookups(),
-        listCategories(),
-        listUoms(),
-        listHsnDetails(),
-        listMaterialAttributes(),
-        listAttributes(),
-      ]);
+      const [materials, all, categories, units, hsnRows, materialAttributes, attributeList, levies, commodities] =
+        await Promise.all([
+          listMaterials(),
+          listConfigLookups(),
+          listCategories(),
+          listUoms(),
+          listHsnDetails(),
+          listMaterialAttributes(),
+          listAttributes(),
+          listLevies(),
+          listCommodities(),
+        ]);
       screen = (
         <MaterialMasterScreen
           rows={materials}
@@ -247,6 +250,8 @@ export default async function MaterialEntityPage({
           units={units}
           materialAttributes={materialAttributes}
           attributes={attributeList}
+          levies={levies}
+          commodities={commodities}
           perms={perms}
         />
       );

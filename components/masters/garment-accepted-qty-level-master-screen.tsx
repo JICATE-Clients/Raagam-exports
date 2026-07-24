@@ -348,6 +348,10 @@ export function GarmentAcceptedQtyLevelMasterScreen({
               {lines.length === 0 && (
                 <p className="text-xs text-muted-foreground">No rows yet. Add at least one.</p>
               )}
+              {/* row area capped with internal scroll — Add button stays pinned.
+                  Taller cap than the usual max-h-56: each card is a ~5-row
+                  sub-form (same reasoning as bank branches). */}
+              <div className="max-h-96 space-y-3 overflow-y-auto">
               {lines.map((l, i) => (
                 <div key={l.key} className="rounded-md border border-border p-2.5 space-y-2">
                   <div className="flex items-center justify-between">
@@ -469,6 +473,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
                   </div>
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>
                 + Add Row
               </Button>

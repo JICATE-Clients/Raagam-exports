@@ -284,7 +284,7 @@ export function PackingInstructionMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
+          <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="pi-type">
                 Packing Type <span className="text-danger">*</span>
@@ -325,16 +325,6 @@ export function PackingInstructionMasterScreen({
               />
             </div>
             <div>
-              <Label htmlFor="pi-instructions">Instructions</Label>
-              <Textarea
-                id="pi-instructions"
-                rows={4}
-                value={form.instructions}
-                onChange={(e) => setForm({ ...form, instructions: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
               <Label htmlFor="pi-charges">Packing Charges</Label>
               <Input
                 id="pi-charges"
@@ -342,6 +332,16 @@ export function PackingInstructionMasterScreen({
                 step="any"
                 value={form.packing_charges}
                 onChange={(e) => setForm({ ...form, packing_charges: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="pi-instructions">Instructions</Label>
+              <Textarea
+                id="pi-instructions"
+                rows={4}
+                value={form.instructions}
+                onChange={(e) => setForm({ ...form, instructions: e.target.value })}
                 className="text-base md:text-sm"
               />
             </div>

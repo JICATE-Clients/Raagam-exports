@@ -6,14 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions } from "@/components/masters/row-actions";
+import { useFormDraft } from "@/lib/use-form-draft";
 import { createBank, updateBank, deleteBank } from "@/lib/masters/bank-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import { BANK_TYPES, type Bank, type BankInput, type BankType } from "@/lib/masters/bank-types";
 import type { Country } from "@/lib/masters/country-types";
 
@@ -77,6 +80,18 @@ export function BankMasterScreen({
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
   const codeLabel = form.bank_type === "Local" ? "RTGS/NIFT Code" : "Swift Code";
 
+  // Autosave the in-progress form to localStorage; offer to restore it if the
+  // editor is re-opened after an accidental close/refresh (checklist Auto Save).
+  const draft = useFormDraft({
+    storageKey: `masters:bank:${editId ?? "new"}`,
+    enabled: open,
+    value: { form, branches },
+    onRestore: (v) => {
+      setForm(v.form);
+      setBranches(v.branches);
+    },
+  });
+
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of countries) m.set(c.id, c.name);
@@ -92,6 +107,36 @@ export function BankMasterScreen({
   function openEdit(r: Bank) {
     setEditId(r.id);
     setForm({ code: r.code ?? "", bank_type: r.bank_type ?? "Foreign", name: r.name, inactive: r.inactive });
+    setBranches(
+      r.branches.map((b) => ({
+        key: newKey(),
+        country_id: b.country_id ?? "",
+        state: b.state ?? "",
+        city: b.city ?? "",
+        pin: b.pin ?? "",
+        street: b.street ?? "",
+        land_line: b.land_line ?? "",
+        fax: b.fax ?? "",
+        email: b.email ?? "",
+        swift_rtgs_code: b.swift_rtgs_code ?? "",
+        current_acc_no: b.current_acc_no ?? "",
+        ifs_code: b.ifs_code ?? "",
+      })),
+    );
+    setOpen(true);
+  }
+
+  function openDuplicate(r: Bank) {
+    // Duplicate = a new record pre-filled from this one (checklist Quick
+    // Actions). Code is cleared (it must be unique / auto), name gets a "(Copy)"
+    // suffix, and branches carry over.
+    setEditId(null);
+    setForm({
+      code: "",
+      bank_type: r.bank_type ?? "Foreign",
+      name: r.name ? `${r.name} (COPY)` : "",
+      inactive: false,
+    });
     setBranches(
       r.branches.map((b) => ({
         key: newKey(),
@@ -146,6 +191,7 @@ export function BankMasterScreen({
       const res = editId ? await updateBank(editId, payload) : await createBank(payload);
       if (res.ok) {
         success(editId ? "Bank updated." : "Bank added.");
+        draft.clear();
         setOpen(false);
         router.refresh();
       } else {
@@ -158,7 +204,7 @@ export function BankMasterScreen({
     startTransition(async () => {
       const res = await deleteBank(r.id);
       if (res.ok) {
-        success("Bank deleted.");
+        success(deletedToast("Bank", res));
         router.refresh();
       } else {
         error(res.error);
@@ -184,11 +230,12 @@ export function BankMasterScreen({
       header: "",
       align: "right",
       cell: (r) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex items-center justify-end gap-1">
           {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
+            <RowActions
+              onEdit={() => openEdit(r)}
+              onDuplicate={perms.canCreate ? () => openDuplicate(r) : undefined}
+            />
           )}
           {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
         </div>
@@ -241,6 +288,19 @@ export function BankMasterScreen({
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+          {draft.hasDraft && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-info bg-info-soft px-3 py-2 text-sm text-info sm:col-span-2">
+              <span>Unsaved changes from an earlier session were found.</span>
+              <span className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={draft.restore}>
+                  Restore
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={draft.discard}>
+                  Discard
+                </Button>
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="bk-code">Code</Label>
@@ -301,6 +361,10 @@ export function BankMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {branches.length === 0 && <p className="text-xs text-muted-foreground">No branches yet.</p>}
+              {/* Row area capped with an internal scroll (ChildGrid maxBodyHeight
+                  rule) — taller cap than the row-grids since each branch is a
+                  full sub-form card; the Add button stays pinned below. */}
+              <div className="max-h-96 space-y-3 overflow-y-auto">
               {branches.map((b, i) => (
                 <div key={b.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -318,18 +382,13 @@ export function BankMasterScreen({
                   </div>
                   <div>
                     <Label>Country</Label>
-                    <Select
+                    <Combobox
+                      options={countries.map((c) => ({ value: c.id, label: countryLabel.get(c.id) ?? c.name }))}
                       value={b.country_id}
-                      onChange={(e) => setBranchAt(b.key, { country_id: e.target.value })}
-                      className="text-base md:text-sm"
-                    >
-                      <option value="">— Select —</option>
-                      {countries.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {countryLabel.get(c.id)}
-                        </option>
-                      ))}
-                    </Select>
+                      onChange={(v) => setBranchAt(b.key, { country_id: v })}
+                      placeholder="— Select —"
+                      clearable
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Input placeholder="State" value={b.state} onChange={(e) => setBranchAt(b.key, { state: e.target.value })} className="text-base md:text-sm" />
@@ -347,6 +406,7 @@ export function BankMasterScreen({
                   <ValidatedInput format="account" placeholder="Current Acc No" value={b.current_acc_no} onChange={(e) => setBranchAt(b.key, { current_acc_no: e.target.value })} className="text-base md:text-sm" />
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addBranch}>
                 + Add branch
               </Button>

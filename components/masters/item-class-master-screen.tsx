@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { Select } from "@/components/ui/select";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
@@ -273,32 +274,34 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="ic-name">
-              Item Class Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="ic-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.has_attribute}
-              onChange={(e) => setForm({ ...form, has_attribute: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">Has Attribute</span>
-          </label>
+        <div className="space-y-4">
+          <DetailSection label="Details" cols={2}>
+            <div>
+              <Label htmlFor="ic-name">
+                Item Class Name <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="ic-name"
+                uppercase
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+                className="text-base md:text-sm"
+              />
+              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+            </div>
+            <label className="flex h-9 cursor-pointer items-center gap-2 self-end">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.has_attribute}
+                onChange={(e) => setForm({ ...form, has_attribute: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Has Attribute</span>
+            </label>
+          </DetailSection>
           {editId && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+            <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"

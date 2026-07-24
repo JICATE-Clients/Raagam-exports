@@ -341,7 +341,9 @@ export function PackingMethodMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
+        {/* Two-column body — header fields LEFT, Categories grid RIGHT. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
           <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="pm-type">
@@ -398,6 +400,20 @@ export function PackingMethodMasterScreen({
             </div>
           </DetailSection>
 
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
+          </div>
+
+          <div className="space-y-4">
           {/* child grid: categories */}
           <div className="rounded-lg border border-border">
             <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
@@ -410,6 +426,8 @@ export function PackingMethodMasterScreen({
               {childRows.length === 0 && (
                 <p className="text-xs text-muted-foreground">No categories yet.</p>
               )}
+              {/* row area capped with internal scroll — header + Add stay pinned */}
+              <div className="max-h-56 space-y-2 overflow-y-auto">
               {childRows.map((row, i) => (
                 <div key={row.key} className="flex items-center gap-2">
                   <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
@@ -440,20 +458,10 @@ export function PackingMethodMasterScreen({
                   </Button>
                 </div>
               ))}
+              </div>
             </div>
           </div>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
+          </div>
         </div>
       </Sheet>
     </div>

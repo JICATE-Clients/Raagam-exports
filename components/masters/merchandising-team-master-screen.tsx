@@ -10,6 +10,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { LocationPicker } from "@/components/masters/location-picker";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createMerchandisingTeam,
   updateMerchandisingTeam,
@@ -110,7 +111,7 @@ export function MerchandisingTeamMasterScreen({
     startTransition(async () => {
       const res = await deleteMerchandisingTeam(r.id);
       if (res.ok) {
-        success("Merchandising team deleted.");
+        success(deletedToast("Merchandising team", res));
         router.refresh();
       } else {
         error(res.error);

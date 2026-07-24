@@ -178,27 +178,30 @@ export function YarnDebitRateMasterScreen({
           <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Rates</div>
             <div className="space-y-2 p-3">
-              {lines.map((l, i) => (
-                <div key={l.key} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
-                  <Select value={l.item_id ?? ""}
-                    onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
-                    className="flex-1 text-base md:text-sm">
-                    <option value="">— select yarn —</option>
-                    {items.map((it) => (
-                      <option key={it.id} value={it.id}>{it.name}</option>
-                    ))}
-                  </Select>
-                  <Input type="number" placeholder="Rate/KG" value={l.rate_per_kg} min={0} step="0.01"
-                    onChange={(e) => setLineAt(l.key, { rate_per_kg: e.target.value })}
-                    className="w-24 text-base md:text-sm" />
-                  <Input type="number" placeholder="Rate/Bundle" value={l.rate_per_bundle} min={0}
-                    onChange={(e) => setLineAt(l.key, { rate_per_bundle: e.target.value })}
-                    className="w-28 text-base md:text-sm" />
-                  <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
-                    onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
-                </div>
-              ))}
+              {/* row area capped with internal scroll — Add button stays pinned */}
+              <div className="max-h-56 space-y-2 overflow-y-auto">
+                {lines.map((l, i) => (
+                  <div key={l.key} className="flex items-center gap-2">
+                    <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
+                    <Select value={l.item_id ?? ""}
+                      onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
+                      className="flex-1 text-base md:text-sm">
+                      <option value="">— select yarn —</option>
+                      {items.map((it) => (
+                        <option key={it.id} value={it.id}>{it.name}</option>
+                      ))}
+                    </Select>
+                    <Input type="number" placeholder="Rate/KG" value={l.rate_per_kg} min={0} step="0.01"
+                      onChange={(e) => setLineAt(l.key, { rate_per_kg: e.target.value })}
+                      className="w-24 text-base md:text-sm" />
+                    <Input type="number" placeholder="Rate/Bundle" value={l.rate_per_bundle} min={0}
+                      onChange={(e) => setLineAt(l.key, { rate_per_bundle: e.target.value })}
+                      className="w-28 text-base md:text-sm" />
+                    <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
+                      onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+                  </div>
+                ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>+ Add Row</Button>
             </div>
           </div>

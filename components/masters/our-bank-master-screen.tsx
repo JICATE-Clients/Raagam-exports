@@ -314,7 +314,7 @@ export function OurBankMasterScreen({
                 className="text-base md:text-sm"
               />
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <Label htmlFor="ob-address">Address</Label>
               <Input
                 id="ob-address"

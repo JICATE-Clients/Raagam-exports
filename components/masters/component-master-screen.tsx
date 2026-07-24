@@ -318,72 +318,83 @@ export function ComponentMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details" cols={2}>
-            <div>
-              <Label htmlFor="cmp-short">
-                Short Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="cmp-short"
-                uppercase
-                value={form.short_name}
-                onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-                className="text-base md:text-sm"
-              />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+          {/* Two-column body — header fields LEFT, line-item grid RIGHT (Material
+              form design). Stacks on mobile via grid-cols-1. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            {/* LEFT: header fields + flags + status */}
+            <div className="space-y-4">
+              <DetailSection label="Details" cols={2}>
+                <div>
+                  <Label htmlFor="cmp-short">
+                    Short Name <span className="text-danger">*</span>
+                  </Label>
+                  <Input
+                    id="cmp-short"
+                    uppercase
+                    value={form.short_name}
+                    onChange={(e) => setForm({ ...form, short_name: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                  {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+                </div>
+                <div>
+                  <Label htmlFor="cmp-desc">Description</Label>
+                  <Input
+                    id="cmp-desc"
+                    uppercase
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </div>
+              </DetailSection>
+
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.all_coordinates}
+                  onChange={(e) => setForm({ ...form, all_coordinates: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">All Coordinates</span>
+              </label>
+
+              {editId && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              )}
             </div>
-            <div>
-              <Label htmlFor="cmp-desc">Description</Label>
-              <Input
-                id="cmp-desc"
-                uppercase
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                className="text-base md:text-sm"
-              />
+
+            {/* RIGHT: coordinates grid — hidden while "All Coordinates" is ticked */}
+            <div className="space-y-4">
+              {!form.all_coordinates && (
+                <ChildGrid<CoordinateRow>
+                  label="Coordinates"
+                  maxBodyHeight="max-h-56"
+                  forceCards
+                  rows={coordinates}
+                  onAdd={addCoordinate}
+                  onRemove={(c) => removeCoordinate(c.key)}
+                  addLabel="+ Add line"
+                  columns={[
+                    {
+                      header: "Coordinate",
+                      cell: (c) => (
+                        <Input value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
+                      ),
+                    },
+                  ]}
+                />
+              )}
             </div>
-          </DetailSection>
-
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.all_coordinates}
-              onChange={(e) => setForm({ ...form, all_coordinates: e.target.checked })}
-            />
-            <span className="text-sm text-foreground">All Coordinates</span>
-          </label>
-
-          {/* Coordinates grid — hidden while "All Coordinates" is ticked */}
-          {!form.all_coordinates && (
-            <ChildGrid<CoordinateRow>
-              label="Coordinates"
-              rows={coordinates}
-              onAdd={addCoordinate}
-              onRemove={(c) => removeCoordinate(c.key)}
-              addLabel="+ Add line"
-              columns={[
-                {
-                  header: "Coordinate",
-                  cell: (c) => (
-                    <Input value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
-                  ),
-                },
-              ]}
-            />
-          )}
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
+          </div>
         </div>
       </Sheet>
     </div>

@@ -9,7 +9,9 @@ import { findDuplicateYarn, findDuplicateBySpec } from "./material-service";
 import { checkDuplicateName } from "./dup-guard";
 import { generateUniqueCode } from "./auto-code";
 
-type Result = { ok: true } | { ok: false; error: string };
+/** `id` is set by createMaterial (the new row) so callers like the yarn
+ *  quick-create dialog can select the record immediately without re-querying. */
+type Result = { ok: true; id?: string } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
 function rev(): void {
@@ -186,7 +188,7 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
     if (e) return fail(e.message);
   }
   rev();
-  return { ok: true };
+  return { ok: true, id: created.id };
 }
 
 export async function updateMaterial(id: string, data: MaterialInput): Promise<Result> {

@@ -110,3 +110,37 @@ export async function bulkDelete(
 
   return { ok: true, count: ids.length };
 }
+
+/**
+ * Bulk status change (checklist "Bulk Operations" → update status in bulk):
+ * set `is_active` to `active` for the given ids. Deactivating is gated by the
+ * module's delete permission (it's the soft-delete), reactivating by edit.
+ */
+export async function bulkSetActive(
+  entityKey: string,
+  ids: string[],
+  active: boolean,
+): Promise<DeleteResult> {
+  const entity = getIoEntity(entityKey);
+  if (!entity) return { ok: false, error: "Unknown entity" };
+  if (!(await can(entity.module, active ? "edit" : "delete"))) {
+    return { ok: false, error: "Forbidden" };
+  }
+  if (ids.length === 0) return { ok: false, error: "No rows selected" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from(entity.table)
+    .update({ is_active: active })
+    .in("id", ids);
+  if (error) return { ok: false, error: error.message };
+
+  await writeAudit({
+    action: active ? "bulk_activate" : "bulk_deactivate",
+    entityType: entity.table,
+    metadata: { count: ids.length },
+  });
+  entity.revalidate.forEach((path) => revalidatePath(path));
+
+  return { ok: true, count: ids.length };
+}

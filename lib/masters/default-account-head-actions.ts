@@ -10,7 +10,7 @@ import {
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {

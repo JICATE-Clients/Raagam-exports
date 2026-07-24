@@ -20,6 +20,7 @@ import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
 import { NotifyPicker } from "@/components/masters/notify-picker";
 import { createConsignee, updateConsignee, deleteConsignee } from "@/lib/masters/consignee-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   SHIP_MODES,
   PAY_MODES,
@@ -362,7 +363,7 @@ export function ConsigneeMasterScreen({
     startTransition(async () => {
       const res = await deleteConsignee(r.id);
       if (res.ok) {
-        success("Consignee deleted.");
+        success(deletedToast("Consignee", res));
         router.refresh();
       } else {
         error(res.error);
@@ -583,33 +584,34 @@ export function ConsigneeMasterScreen({
 
           {section === "address" && (
             <div className="space-y-4">
-              <div>
-                <Label htmlFor="cn-street">Street</Label>
-                <Textarea
-                  id="cn-street"
-                  rows={3}
-                  value={form.street}
-                  onChange={(e) => set({ street: e.target.value })}
-                  className="text-base md:text-sm"
+              {/* dense 2-per-row address fields (organized layout) */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Label htmlFor="cn-street">Street</Label>
+                  <Textarea
+                    id="cn-street"
+                    rows={3}
+                    value={form.street}
+                    onChange={(e) => set({ street: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </div>
+                <LookupDialogPicker
+                  kind="city"
+                  label="City"
+                  options={cities}
+                  value={form.city_id || null}
+                  onChange={(id) => set({ city_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
                 />
-              </div>
-              <LookupDialogPicker
-                kind="city"
-                label="City"
-                options={cities}
-                value={form.city_id || null}
-                onChange={(id) => set({ city_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-              />
-              <LookupDialogPicker
-                kind="state"
-                label="State"
-                options={states}
-                value={form.state_id || null}
-                onChange={(id) => set({ state_id: id })}
-              />
-              <div className="grid grid-cols-2 gap-3">
+                <LookupDialogPicker
+                  kind="state"
+                  label="State"
+                  options={states}
+                  value={form.state_id || null}
+                  onChange={(id) => set({ state_id: id })}
+                />
                 <div>
                   <Label htmlFor="cn-pin">Pin</Label>
                   <Input
@@ -628,8 +630,6 @@ export function ConsigneeMasterScreen({
                     canEdit={perms.canEdit}
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="cn-landline">Land Line</Label>
                   <Input
@@ -648,26 +648,26 @@ export function ConsigneeMasterScreen({
                     className="text-base md:text-sm"
                   />
                 </div>
-              </div>
-              <div>
-                <Label htmlFor="cn-email">E-Mail</Label>
-                <ValidatedInput
-                  format="email"
-                  id="cn-email"
-                  value={form.email}
-                  onChange={(e) => set({ email: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="cn-web">Web site</Label>
-                <ValidatedInput
-                  format="website"
-                  id="cn-web"
-                  value={form.web_site}
-                  onChange={(e) => set({ web_site: e.target.value })}
-                  className="text-base md:text-sm"
-                />
+                <div>
+                  <Label htmlFor="cn-email">E-Mail</Label>
+                  <ValidatedInput
+                    format="email"
+                    id="cn-email"
+                    value={form.email}
+                    onChange={(e) => set({ email: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cn-web">Web site</Label>
+                  <ValidatedInput
+                    format="website"
+                    id="cn-web"
+                    value={form.web_site}
+                    onChange={(e) => set({ web_site: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </div>
               </div>
 
               {/* Contact grid */}
@@ -679,6 +679,9 @@ export function ConsigneeMasterScreen({
                   {contacts.length === 0 && (
                     <p className="text-xs text-muted-foreground">No contacts yet.</p>
                   )}
+                  {/* row area capped — a growing grid scrolls instead of pushing
+                      the content below (Add button stays pinned) */}
+                  <div className="max-h-56 space-y-3 overflow-y-auto">
                   {contacts.map((c, i) => (
                     <div key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                       <div className="flex items-center justify-between">
@@ -760,6 +763,7 @@ export function ConsigneeMasterScreen({
                       </div>
                     </div>
                   ))}
+                  </div>
                   <Button type="button" variant="outline" size="sm" onClick={addContact}>
                     + Add contact
                   </Button>
@@ -887,6 +891,8 @@ export function ConsigneeMasterScreen({
                   {markings.length === 0 && (
                     <p className="text-xs text-muted-foreground">No markings yet.</p>
                   )}
+                  {/* row area capped (Add stays pinned) */}
+                  <div className="max-h-56 space-y-2 overflow-y-auto">
                   {markings.map((m, i) => (
                     <div key={m.key} className="flex items-center gap-2">
                       <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">
@@ -910,6 +916,7 @@ export function ConsigneeMasterScreen({
                       </Button>
                     </div>
                   ))}
+                  </div>
                   <Button type="button" variant="outline" size="sm" onClick={addMarking}>
                     + Add marking
                   </Button>
@@ -940,23 +947,25 @@ export function ConsigneeMasterScreen({
                       />
                     </div>
                   </div>
-                  <div>
-                    <Label htmlFor="cn-pan">PAN No</Label>
-                    <Input
-                      id="cn-pan"
-                      value={form.pan_no}
-                      onChange={(e) => set({ pan_no: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="cn-gst">GST No</Label>
-                    <Input
-                      id="cn-gst"
-                      value={form.gst_no}
-                      onChange={(e) => set({ gst_no: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="cn-pan">PAN No</Label>
+                      <Input
+                        id="cn-pan"
+                        value={form.pan_no}
+                        onChange={(e) => set({ pan_no: e.target.value })}
+                        className="text-base md:text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="cn-gst">GST No</Label>
+                      <Input
+                        id="cn-gst"
+                        value={form.gst_no}
+                        onChange={(e) => set({ gst_no: e.target.value })}
+                        className="text-base md:text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -972,6 +981,8 @@ export function ConsigneeMasterScreen({
                 {notifyRefs.length === 0 && (
                   <p className="text-xs text-muted-foreground">No notify parties yet.</p>
                 )}
+                {/* row area capped (Add stays pinned) */}
+                <div className="max-h-56 space-y-3 overflow-y-auto">
                 {notifyRefs.map((n, i) => (
                   <div key={n.key} className="space-y-2 rounded-md border border-border p-2.5">
                     <div className="flex items-center justify-between">
@@ -1009,6 +1020,7 @@ export function ConsigneeMasterScreen({
                     </div>
                   </div>
                 ))}
+                </div>
                 <Button type="button" variant="outline" size="sm" onClick={addNotifyRef}>
                   + Add notify party
                 </Button>

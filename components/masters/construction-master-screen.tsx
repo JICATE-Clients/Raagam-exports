@@ -17,6 +17,7 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createConstruction,
   updateConstruction,
@@ -236,17 +237,19 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <Label htmlFor="con-name">Name <span className="text-danger">*</span></Label>
-            <Input id="con-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-            {!editId && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                The code is generated automatically from the name.
-              </p>
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-3 sm:col-span-2">
+        {/* Two-column body — header fields LEFT, Warp & Weft counts grid RIGHT. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+          <DetailSection label="Details" cols={2}>
+            <div className="sm:col-span-2">
+              <Label htmlFor="con-name">Name <span className="text-danger">*</span></Label>
+              <Input id="con-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+              {!editId && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The code is generated automatically from the name.
+                </p>
+              )}
+            </div>
             <div>
               <Label htmlFor="con-reed">Reed</Label>
               <Input id="con-reed" type="number" min={0} value={form.reed} onChange={(e) => setForm({ ...form, reed: e.target.value })} className="text-base md:text-sm" />
@@ -259,8 +262,6 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
               <Label htmlFor="con-reedcount">Reed Count</Label>
               <Input id="con-reedcount" value={form.reed_count} onChange={(e) => setForm({ ...form, reed_count: e.target.value })} className="text-base md:text-sm" />
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="con-pick">Pick</Label>
               <Input id="con-pick" type="number" min={0} step="0.01" value={form.pick} onChange={(e) => setForm({ ...form, pick: e.target.value })} className="text-base md:text-sm" />
@@ -275,59 +276,65 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
                 ))}
               </Select>
             </div>
-          </div>
-          <div>
-            <Label htmlFor="con-desc">Weave Tech Description</Label>
-            <Input id="con-desc" uppercase value={form.weave_tech_desc} onChange={(e) => setForm({ ...form, weave_tech_desc: e.target.value })} className="text-base md:text-sm" />
-          </div>
-          <div className="flex gap-4 sm:col-span-2">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.is_direct_purchase} onChange={(e) => setForm({ ...form, is_direct_purchase: e.target.checked })} />
-              <span className="text-sm text-foreground">Direct Purchase</span>
-            </label>
-            {editId && (
+            <div>
+              <Label htmlFor="con-desc">Weave Tech Description</Label>
+              <Input id="con-desc" uppercase value={form.weave_tech_desc} onChange={(e) => setForm({ ...form, weave_tech_desc: e.target.value })} className="text-base md:text-sm" />
+            </div>
+            <div className="flex gap-4 sm:col-span-2">
               <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
-                <span className="text-sm text-foreground">Inactive</span>
+                <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.is_direct_purchase} onChange={(e) => setForm({ ...form, is_direct_purchase: e.target.checked })} />
+                <span className="text-sm text-foreground">Direct Purchase</span>
               </label>
-            )}
+              {editId && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              )}
+            </div>
+          </DetailSection>
           </div>
 
+          <div className="space-y-4">
           {/* Warp/Weft Counts child grid */}
-          <div className="rounded-lg border border-border sm:col-span-2">
+          <div className="rounded-lg border border-border">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Warp &amp; Weft Counts</div>
             <div className="space-y-2 p-3">
-              {lines.map((l, i) => (
-                <div key={l.key} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
-                  <Select value={l.count_type}
-                    onChange={(e) => setLineAt(l.key, { count_type: e.target.value as "P" | "T" })}
-                    className="w-28 text-base md:text-sm">
-                    <option value="P">Warp (P)</option>
-                    <option value="T">Weft (T)</option>
-                  </Select>
-                  <Select value={l.count_lookup_id ?? ""}
-                    onChange={(e) => setLineAt(l.key, { count_lookup_id: e.target.value || null })}
-                    className="flex-1 text-base md:text-sm">
-                    <option value="">— count —</option>
-                    {counts.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </Select>
-                  <Select value={l.item_id ?? ""}
-                    onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
-                    className="flex-1 text-base md:text-sm">
-                    <option value="">— yarn item —</option>
-                    {items.map((it) => (
-                      <option key={it.id} value={it.id}>{it.name}</option>
-                    ))}
-                  </Select>
-                  <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
-                    onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
-                </div>
-              ))}
+              {/* row area capped with internal scroll — Add button stays pinned */}
+              <div className="max-h-56 space-y-2 overflow-y-auto">
+                {lines.map((l, i) => (
+                  <div key={l.key} className="flex items-center gap-2">
+                    <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
+                    <Select value={l.count_type}
+                      onChange={(e) => setLineAt(l.key, { count_type: e.target.value as "P" | "T" })}
+                      className="w-28 text-base md:text-sm">
+                      <option value="P">Warp (P)</option>
+                      <option value="T">Weft (T)</option>
+                    </Select>
+                    <Select value={l.count_lookup_id ?? ""}
+                      onChange={(e) => setLineAt(l.key, { count_lookup_id: e.target.value || null })}
+                      className="flex-1 text-base md:text-sm">
+                      <option value="">— count —</option>
+                      {counts.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </Select>
+                    <Select value={l.item_id ?? ""}
+                      onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
+                      className="flex-1 text-base md:text-sm">
+                      <option value="">— yarn item —</option>
+                      {items.map((it) => (
+                        <option key={it.id} value={it.id}>{it.name}</option>
+                      ))}
+                    </Select>
+                    <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
+                      onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+                  </div>
+                ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>+ Add Count</Button>
             </div>
+          </div>
           </div>
         </div>
       </Sheet>

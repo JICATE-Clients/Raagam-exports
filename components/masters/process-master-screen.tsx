@@ -443,9 +443,11 @@ export function ProcessMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <DetailSection label="Details">
-            <div>
+        {/* Two-column body — header fields LEFT, Sub Categories grid RIGHT. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+          <DetailSection label="Details" cols={2}>
+            <div className="sm:col-span-2">
               <Label htmlFor="pr-name">
                 Process <span className="text-danger">*</span>
               </Label>
@@ -478,7 +480,7 @@ export function ProcessMasterScreen({
               canEdit={perms.canEdit}
               canDelete={perms.canDelete}
             />
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3 sm:col-span-2">
               <div>
                 <Label htmlFor="pr-billing">Billing On</Label>
                 <Select
@@ -573,13 +575,40 @@ export function ProcessMasterScreen({
             />
             <span className="text-sm font-medium text-foreground">Has Sub Categories</span>
           </label>
+
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => set({ inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
+          </div>
+
+          <div className="space-y-4">
           {form.has_sub_categories && (
             <ChildGrid<SubRow>
               label="Sub Categories"
+              maxBodyHeight="max-h-56"
+              forceCards
               rows={subs}
               onAdd={addSub}
               onRemove={(s) => removeSub(s.key)}
               addLabel="+ Add sub category"
+              renderMobileRow={(s) => (
+                <>
+                  <Input uppercase value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} placeholder="Sub Category" className="text-base md:text-sm" />
+                  {/* short fields pair up two-per-row inside cards */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input uppercase value={s.short_description} onChange={(e) => setSubAt(s.key, { short_description: e.target.value })} placeholder="Short Description" className="text-base md:text-sm" />
+                    <Input value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
+                  </div>
+                </>
+              )}
               columns={[
                 {
                   header: "Sub Category",
@@ -602,18 +631,7 @@ export function ProcessMasterScreen({
               ]}
             />
           )}
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
+          </div>
         </div>
       </Sheet>
     </div>

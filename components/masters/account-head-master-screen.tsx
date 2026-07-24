@@ -11,6 +11,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { DetailSection } from "@/components/masters/detail-section";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { CostHeadPicker } from "@/components/masters/cost-head-picker";
 import {
@@ -18,6 +19,7 @@ import {
   updateAccountHead,
   deleteAccountHead,
 } from "@/lib/masters/account-head-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import type { AccountHead, AccountHeadInput } from "@/lib/masters/account-head-types";
 import type { AccountGroup } from "@/lib/masters/account-group-types";
 import type { CostHead } from "@/lib/finance/cost-heads/types";
@@ -111,7 +113,7 @@ export function AccountHeadMasterScreen({
     startTransition(async () => {
       const res = await deleteAccountHead(r.id);
       if (res.ok) {
-        success("Account head deleted.");
+        success(deletedToast("Account head", res));
         router.refresh();
       } else {
         error(res.error);
@@ -236,11 +238,8 @@ export function AccountHeadMasterScreen({
           </div>
 
           {/* Group Under */}
-          <div className="rounded-lg border border-border sm:col-span-2">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-              Group Under
-            </div>
-            <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <DetailSection label="Group Under" cols={2}>
               <AccountGroupPicker
                 groups={accountGroups}
                 value={form.debit_group_id}
@@ -253,7 +252,7 @@ export function AccountHeadMasterScreen({
                 onChange={(id) => set({ credit_group_id: id })}
                 label="If Credits"
               />
-            </div>
+            </DetailSection>
           </div>
 
           <CostHeadPicker

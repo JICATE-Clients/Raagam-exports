@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -301,26 +302,24 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
             </div>
           </DetailSection>
 
-          <DetailSection label="Details">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="tyr-brand">Brand</Label>
-                <Input
-                  id="tyr-brand"
-                  value={form.brand}
-                  onChange={(e) => set({ brand: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="tyr-type">Tyre Type</Label>
-                <Input
-                  id="tyr-type"
-                  value={form.tyre_type}
-                  onChange={(e) => set({ tyre_type: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          <DetailSection label="Details" cols={2}>
+            <div>
+              <Label htmlFor="tyr-brand">Brand</Label>
+              <Input
+                id="tyr-brand"
+                value={form.brand}
+                onChange={(e) => set({ brand: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="tyr-type">Tyre Type</Label>
+              <Input
+                id="tyr-type"
+                value={form.tyre_type}
+                onChange={(e) => set({ tyre_type: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
             <div>
               <Label htmlFor="tyr-size">Size</Label>
@@ -333,37 +332,38 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
             </div>
           </DetailSection>
 
-          <DetailSection label="Retreads">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="tyr-allowed">Allowed Retreads</Label>
-                <Input
-                  id="tyr-allowed"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={form.allowed_retreads}
-                  onChange={(e) => set({ allowed_retreads: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="tyr-done">Retreads Done</Label>
-                <Input
-                  id="tyr-done"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={form.retreads_done}
-                  onChange={(e) => set({ retreads_done: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          <DetailSection label="Retreads" cols={2}>
+            <div>
+              <Label htmlFor="tyr-allowed">Allowed Retreads</Label>
+              <Input
+                id="tyr-allowed"
+                type="number"
+                min={0}
+                step={1}
+                value={form.allowed_retreads}
+                onChange={(e) => set({ allowed_retreads: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="tyr-done">Retreads Done</Label>
+              <Input
+                id="tyr-done"
+                type="number"
+                min={0}
+                step={1}
+                value={form.retreads_done}
+                onChange={(e) => set({ retreads_done: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
             {needsKm && (
               <div>
-                <Label htmlFor="tyr-km">
+                <Label htmlFor="tyr-km" className="flex items-center gap-1">
                   KM per Retread <span className="text-danger">*</span>
+                  <span title="Required when retreads are allowed." className="cursor-help text-muted-foreground">
+                    <Info className="h-3.5 w-3.5" />
+                  </span>
                 </Label>
                 <Input
                   id="tyr-km"
@@ -374,9 +374,6 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
                   onChange={(e) => set({ km_per_retread: e.target.value })}
                   className="text-base md:text-sm"
                 />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Required when retreads are allowed.
-                </p>
               </div>
             )}
           </DetailSection>

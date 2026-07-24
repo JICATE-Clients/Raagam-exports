@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { deleteOrBlock } from "./delete-guard";
 import type { GarmentAcceptedQtyLevelInput } from "./garment-accepted-qty-level-types";
 
 type Failure = { ok: false; error: string };
@@ -117,8 +118,8 @@ export async function deleteGarmentAcceptedQtyLevel(id: string): Promise<Result>
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
   await s.from("garment_accepted_qty_level_details").delete().eq("header_id", id);
-  const { error } = await s.from("garment_accepted_qty_levels").delete().eq("id", id);
-  if (error) return fail(error.message);
+  const res = await deleteOrBlock(s, "garment_accepted_qty_levels", id);
+  if (!res.ok) return fail(res.error);
   rev();
   return { ok: true };
 }

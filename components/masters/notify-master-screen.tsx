@@ -16,6 +16,7 @@ import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button"
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { createNotify, updateNotify, deleteNotify } from "@/lib/masters/notify-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import type { Notify, NotifyInput } from "@/lib/masters/notify-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -215,7 +216,7 @@ export function NotifyMasterScreen({
     startTransition(async () => {
       const res = await deleteNotify(r.id);
       if (res.ok) {
-        success("Notify deleted.");
+        success(deletedToast("Notify", res));
         router.refresh();
       } else {
         error(res.error);
@@ -345,8 +346,9 @@ export function NotifyMasterScreen({
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
               Address
             </div>
-            <div className="space-y-4 p-3">
-              <div>
+            {/* dense 2-per-row address fields (organized layout) */}
+            <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
                 <Label htmlFor="nt-street">Street</Label>
                 <Textarea
                   id="nt-street"
@@ -372,43 +374,39 @@ export function NotifyMasterScreen({
                 value={form.state_id || null}
                 onChange={(id) => set({ state_id: id })}
               />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="nt-pin">Pin</Label>
-                  <Input
-                    id="nt-pin"
-                    value={form.pin}
-                    onChange={(e) => set({ pin: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <CountryPicker
-                  countries={countries}
-                  value={form.address_country_id || null}
-                  onChange={(id) => set({ address_country_id: id })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
+              <div>
+                <Label htmlFor="nt-pin">Pin</Label>
+                <Input
+                  id="nt-pin"
+                  value={form.pin}
+                  onChange={(e) => set({ pin: e.target.value })}
+                  className="text-base md:text-sm"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="nt-landline">Land Line</Label>
-                  <Input
-                    id="nt-landline"
-                    value={form.land_line}
-                    onChange={(e) => set({ land_line: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="nt-fax">Fax</Label>
-                  <Input
-                    id="nt-fax"
-                    value={form.fax}
-                    onChange={(e) => set({ fax: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
+              <CountryPicker
+                countries={countries}
+                value={form.address_country_id || null}
+                onChange={(id) => set({ address_country_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+              />
+              <div>
+                <Label htmlFor="nt-landline">Land Line</Label>
+                <Input
+                  id="nt-landline"
+                  value={form.land_line}
+                  onChange={(e) => set({ land_line: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="nt-fax">Fax</Label>
+                <Input
+                  id="nt-fax"
+                  value={form.fax}
+                  onChange={(e) => set({ fax: e.target.value })}
+                  className="text-base md:text-sm"
+                />
               </div>
               <div>
                 <Label htmlFor="nt-email">E-Mail</Label>
@@ -440,6 +438,9 @@ export function NotifyMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {contacts.length === 0 && <p className="text-xs text-muted-foreground">No contacts yet.</p>}
+              {/* row area capped — a growing grid scrolls instead of pushing
+                  the content below (Add button stays pinned) */}
+              <div className="max-h-56 space-y-3 overflow-y-auto">
               {contacts.map((c, i) => (
                 <div key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -519,6 +520,7 @@ export function NotifyMasterScreen({
                   </div>
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addContact}>
                 + Add contact
               </Button>

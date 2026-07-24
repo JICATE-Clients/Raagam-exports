@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { deleteOrBlock } from "./delete-guard";
 import { workTimingInput, type WorkTimingInput } from "./work-timing-types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -85,8 +86,8 @@ export async function updateWorkTiming(id: string, data: WorkTimingInput): Promi
 export async function deleteWorkTiming(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("work_timings").delete().eq("id", id); // lines cascade
-  if (error) return fail(error.message);
+  const res = await deleteOrBlock(s, "work_timings", id); // lines cascade
+  if (!res.ok) return fail(res.error);
   rev();
   return { ok: true };
 }

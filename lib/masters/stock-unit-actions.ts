@@ -6,14 +6,16 @@ import { can } from "@/lib/auth/server";
 import { stockUnitInput, type StockUnitInput } from "./stock-unit-types";
 import { checkDuplicateName } from "./dup-guard";
 import { generateUniqueCode } from "./auto-code";
+import { deleteOrDeactivate } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
 function rev(): void {
   revalidatePath("/masters/materials");
   revalidatePath("/masters/materials/stock-units");
 }
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 
@@ -81,11 +83,12 @@ export async function updateStockUnit(id: string, data: StockUnitInput): Promise
   return { ok: true };
 }
 
-export async function deleteStockUnit(id: string): Promise<Result> {
+export async function deleteStockUnit(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("uoms").delete().eq("id", id);
-  if (error) return fail(error.message); // FK-referenced units surface a clear error
+  // uoms uses `is_active`; in-use units (e.g. referenced by materials) deactivate.
+  const res = await deleteOrDeactivate(s, "uoms", id, "is_active");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

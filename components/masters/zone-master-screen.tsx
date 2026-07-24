@@ -311,6 +311,10 @@ export function ZoneMasterScreen({
         }
       >
         <div className="space-y-4">
+          {/* Two-column body — fields LEFT, Areas grid RIGHT. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            {/* LEFT: zone name + status (single-field column is intentionally short) */}
+            <div className="space-y-4">
           <DetailSection label="Details">
             <div>
               <Label htmlFor="zn-name">
@@ -328,6 +332,21 @@ export function ZoneMasterScreen({
             </div>
           </DetailSection>
 
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
+            </div>
+
+            {/* RIGHT: areas grid */}
+            <div className="space-y-4">
           {/* child grid: areas */}
           <div className="rounded-lg border border-border">
             <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
@@ -340,6 +359,9 @@ export function ZoneMasterScreen({
               {childRows.length === 0 && (
                 <p className="text-xs text-muted-foreground">No areas yet.</p>
               )}
+              {/* row area capped — a growing grid scrolls instead of pushing
+                  the content below (Add stays pinned in the header) */}
+              <div className="max-h-56 space-y-2 overflow-y-auto">
               {childRows.map((row, i) => (
                 <div key={row.key} className="flex items-center gap-2">
                   <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
@@ -363,20 +385,11 @@ export function ZoneMasterScreen({
                   </Button>
                 </div>
               ))}
+              </div>
             </div>
           </div>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
+            </div>
+          </div>
         </div>
       </Sheet>
     </div>

@@ -24,6 +24,7 @@ import {
 import { LookupDialogPicker } from "@/components/masters/lookup-picker";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { ChildGrid } from "@/components/masters/child-grid";
+import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import type { Composition, CompositionInput } from "@/lib/masters/composition-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -311,81 +312,101 @@ export function CompositionMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          {/* Item Class — same LookupDialogPicker every master uses (search +
-              inline Add/Modify/Delete). Composition only ever applies to
-              Fabric, so `itemClasses` from page.tsx is already filtered to
-              that single row — the dialog just naturally lists only Fabric. */}
-          <LookupDialogPicker
-            kind="item_class"
-            label="Item Class"
-            required
-            options={itemClasses}
-            value={form.item_class_id}
-            onChange={(v) => setForm({ ...form, item_class_id: v })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-            canDelete={perms.canDelete}
-            isSuperAdmin={perms.isSuperAdmin}
-          />
+        <div className="space-y-4">
+          {/* Two-column body — header fields LEFT, line-item grid RIGHT (Material
+              form design). Stacks on mobile via grid-cols-1. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            {/* LEFT: header fields + status */}
+            <div className="space-y-4">
+              <DetailSection label="Details" cols={2}>
+                {/* Item Class — same LookupDialogPicker every master uses (search +
+                    inline Add/Modify/Delete). Composition only ever applies to
+                    Fabric, so `itemClasses` from page.tsx is already filtered to
+                    that single row — the dialog just naturally lists only Fabric. */}
+                <LookupDialogPicker
+                  kind="item_class"
+                  label="Item Class"
+                  required
+                  options={itemClasses}
+                  value={form.item_class_id}
+                  onChange={(v) => setForm({ ...form, item_class_id: v })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                  isSuperAdmin={perms.isSuperAdmin}
+                />
 
-          <div>
-            <Label htmlFor="cmp-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="cmp-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-          </div>
+                <div>
+                  <Label htmlFor="cmp-name">
+                    Name <span className="text-danger">*</span>
+                  </Label>
+                  <Input
+                    id="cmp-name"
+                    uppercase
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    required
+                    className="text-base md:text-sm"
+                  />
+                  {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+                </div>
+              </DetailSection>
 
-          {/* Mixing grid */}
-          <div className="sm:col-span-2">
-          <ChildGrid<LineRow>
-            label="Mixing"
-            badge={
-              <span className={`text-xs tabular-nums ${pctTotal === 100 ? "text-success" : "text-muted-foreground"}`}>
-                Total {fmtNumber(pctTotal)}%
-              </span>
-            }
-            rows={lines}
-            onAdd={addLine}
-            onRemove={(l) => removeLine(l.key)}
-            addLabel="+ Add line"
-            columns={[
-              {
-                header: "Description",
-                cell: (l) => (
-                  <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
-                ),
-              },
-              {
-                header: "%",
-                align: "center",
-                cell: (l) => (
-                  <Input type="number" min="0" step="0.01" value={l.mixing_pct} onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })} placeholder="%" className="text-base md:text-sm" />
-                ),
-              },
-            ]}
-          />
-          </div>
+              {editId && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              )}
+            </div>
 
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+            {/* RIGHT: mixing grid */}
+            <div className="space-y-4">
+              <ChildGrid<LineRow>
+                label="Mixing"
+                badge={
+                  <span className={`text-xs tabular-nums ${pctTotal === 100 ? "text-success" : "text-muted-foreground"}`}>
+                    Total {fmtNumber(pctTotal)}%
+                  </span>
+                }
+                maxBodyHeight="max-h-56"
+                forceCards
+                rows={lines}
+                onAdd={addLine}
+                onRemove={(l) => removeLine(l.key)}
+                addLabel="+ Add line"
+                columns={[
+                  {
+                    header: "Description",
+                    cell: (l) => (
+                      <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
+                    ),
+                  },
+                  {
+                    header: "%",
+                    align: "center",
+                    cell: (l) => (
+                      <Input type="number" min="0" step="0.01" value={l.mixing_pct} onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })} placeholder="%" className="text-base md:text-sm" />
+                    ),
+                  },
+                ]}
+                renderMobileRow={(l) => (
+                  <>
+                    <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
+                    {/* fields pair up two-per-row inside cards */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input type="number" min="0" step="0.01" value={l.mixing_pct} onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })} placeholder="%" className="text-base md:text-sm" />
+                    </div>
+                  </>
+                )}
               />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
+            </div>
+          </div>
         </div>
       </Sheet>
     </div>

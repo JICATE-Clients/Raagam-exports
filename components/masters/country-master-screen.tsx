@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createCountry, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import { COUNTRY_GROUPS, type Country, type CountryGroup, type CountryInput } from "@/lib/masters/country-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -92,7 +93,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
     startTransition(async () => {
       const res = await deleteCountry(r.id);
       if (res.ok) {
-        success("Country deleted.");
+        success(deletedToast("Country", res));
         router.refresh();
       } else {
         error(res.error);

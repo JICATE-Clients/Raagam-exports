@@ -17,6 +17,7 @@ import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid } from "@/components/masters/child-grid";
 import {
   createShadeGroup,
   updateShadeGroup,
@@ -330,98 +331,98 @@ export function ShadeGroupMasterScreen({
         }
       >
         <div className="space-y-4">
-          <DetailSection label="Details">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="shg-hours">Hours Reqd</Label>
-                <Input
-                  id="shg-hours"
-                  type="number"
-                  step="any"
-                  value={form.hours_reqd}
-                  onChange={(e) => setForm({ ...form, hours_reqd: e.target.value })}
-                  placeholder="Processing hours"
-                  className="text-base md:text-sm"
-                />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="shg-name">
-                Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="shg-name"
-                uppercase
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                required
-                className="text-base md:text-sm"
-              />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-            </div>
-          </DetailSection>
-
-          {/* child grid: shades */}
-          <div className="rounded-lg border border-border">
-            <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-              <span className="text-sm font-medium">Shades</span>
-              <Button variant="ghost" size="sm" onClick={addChildRow}>
-                + Add
-              </Button>
-            </div>
-            <div className="space-y-2 p-3">
-              {childRows.length === 0 && (
-                <p className="text-xs text-muted-foreground">No shades yet.</p>
-              )}
-              {childRows.map((row, i) => (
-                <div key={row.key} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {i + 1}
-                  </span>
+          {/* Two-column body — header fields LEFT, line-item grid RIGHT (Material
+              form design). Stacks on mobile via grid-cols-1. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            {/* LEFT: header fields + status */}
+            <div className="space-y-4">
+              <DetailSection label="Details" cols={2}>
+                <div>
+                  <Label htmlFor="shg-name">
+                    Name <span className="text-danger">*</span>
+                  </Label>
                   <Input
-                    value={row.shade_id}
-                    onChange={(e) => updateChild(row.key, "shade_id", e.target.value)}
-                    placeholder="ID"
-                    className="w-20 text-base md:text-sm"
+                    id="shg-name"
+                    uppercase
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    required
+                    className="text-base md:text-sm"
                   />
-                  <Input
-                    value={row.short_name}
-                    onChange={(e) => updateChild(row.key, "short_name", e.target.value)}
-                    placeholder="Short"
-                    className="w-24 text-base md:text-sm"
-                  />
-                  <Input
-                    value={row.shade_name}
-                    onChange={(e) => updateChild(row.key, "shade_name", e.target.value)}
-                    placeholder="Shade name"
-                    className="flex-1 text-base md:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => removeChildRow(row.key)}
-                    aria-label="Remove shade"
-                  >
-                    ✕
-                  </Button>
+                  {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
                 </div>
-              ))}
+                <div>
+                  <Label htmlFor="shg-hours">Hours Reqd</Label>
+                  <Input
+                    id="shg-hours"
+                    type="number"
+                    step="any"
+                    value={form.hours_reqd}
+                    onChange={(e) => setForm({ ...form, hours_reqd: e.target.value })}
+                    placeholder="Processing hours"
+                    className="text-base md:text-sm"
+                  />
+                </div>
+              </DetailSection>
+
+              {editId && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              )}
+            </div>
+
+            {/* RIGHT: shades grid */}
+            <div className="space-y-4">
+              <ChildGrid<ChildRow>
+                label="Shades"
+                maxBodyHeight="max-h-56"
+                forceCards
+                rows={childRows}
+                onAdd={addChildRow}
+                onRemove={(r) => removeChildRow(r.key)}
+                addLabel="+ Add shade"
+                columns={[
+                  {
+                    header: "ID",
+                    className: "w-24",
+                    cell: (r) => (
+                      <Input value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
+                    ),
+                  },
+                  {
+                    header: "Short",
+                    className: "w-28",
+                    cell: (r) => (
+                      <Input value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
+                    ),
+                  },
+                  {
+                    header: "Shade Name",
+                    cell: (r) => (
+                      <Input value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
+                    ),
+                  },
+                ]}
+                renderMobileRow={(r) => (
+                  <>
+                    <Input value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
+                    {/* fields pair up two-per-row inside cards */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
+                      <Input value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
+                    </div>
+                  </>
+                )}
+              />
             </div>
           </div>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
         </div>
       </Sheet>
     </div>

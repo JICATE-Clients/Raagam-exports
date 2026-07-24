@@ -18,6 +18,7 @@ import {
   updateDepartment,
   deleteDepartment,
 } from "@/lib/masters/department-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   DEPARTMENT_ITEM_CLASSES,
   type Department,
@@ -194,7 +195,7 @@ export function DepartmentMasterScreen({
     startTransition(async () => {
       const res = await deleteDepartment(r.id);
       if (res.ok) {
-        success("Department deleted.");
+        success(deletedToast("Department", res));
         router.refresh();
       } else {
         error(res.error);
@@ -283,6 +284,10 @@ export function DepartmentMasterScreen({
         }
       >
         <div className="space-y-4">
+          {/* Two-column body — header fields LEFT, Location grid RIGHT. */}
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+            {/* LEFT: header fields + item-class applicability */}
+            <div className="space-y-4">
           <div>
             <Label htmlFor="dep-name">
               Name <span className="text-danger">*</span>
@@ -329,31 +334,29 @@ export function DepartmentMasterScreen({
             </div>
           </div>
 
-          {/* Sequence numbers + outsourcing */}
-          <DetailSection label="Sequence & Outsourcing">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="dep-seq">Sequence No</Label>
-                <Input
-                  id="dep-seq"
-                  type="number"
-                  value={form.sequence_no}
-                  onChange={(e) => set({ sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="dep-staff-seq">Staff Sequence No</Label>
-                <Input
-                  id="dep-staff-seq"
-                  type="number"
-                  value={form.staff_sequence_no}
-                  onChange={(e) => set({ staff_sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          {/* Sequence numbers + outsourcing — dense 2-per-row grid */}
+          <DetailSection label="Sequence & Outsourcing" cols={2}>
+            <div>
+              <Label htmlFor="dep-seq">Sequence No</Label>
+              <Input
+                id="dep-seq"
+                type="number"
+                value={form.sequence_no}
+                onChange={(e) => set({ sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
+                className="text-base md:text-sm"
+              />
             </div>
-            <label className="flex cursor-pointer items-center gap-2">
+            <div>
+              <Label htmlFor="dep-staff-seq">Staff Sequence No</Label>
+              <Input
+                id="dep-staff-seq"
+                type="number"
+                value={form.staff_sequence_no}
+                onChange={(e) => set({ staff_sequence_no: e.target.value === "" ? "" : Number(e.target.value) })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
@@ -380,7 +383,10 @@ export function DepartmentMasterScreen({
               ))}
             </div>
           </DetailSection>
+            </div>
 
+            {/* RIGHT: location grid */}
+            <div className="space-y-4">
           {/* Location grid */}
           <div className="rounded-lg border border-border">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
@@ -388,6 +394,9 @@ export function DepartmentMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {locs.length === 0 && <p className="text-xs text-muted-foreground">No locations yet.</p>}
+              {/* Row area capped with an internal scroll (same rule as ChildGrid
+                  maxBodyHeight) — a growing list never pushes the Add button away. */}
+              <div className="max-h-56 space-y-3 overflow-y-auto">
               {locs.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -443,9 +452,12 @@ export function DepartmentMasterScreen({
                   )}
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addLoc}>
                 + Add location
               </Button>
+            </div>
+          </div>
             </div>
           </div>
         </div>

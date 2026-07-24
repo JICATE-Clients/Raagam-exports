@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { enterAdvance, focusFirstField } from "@/lib/focus";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 
 /**
  * The COMPLEX-tier editor surface: a full-screen takeover with a left section
@@ -70,12 +72,30 @@ export function MasterFullScreen({
 }) {
   const firstKey = initialSection ?? sections[0]?.key ?? "";
   const [section, setSection] = useState(firstKey);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Re-open always lands on the initial section.
   useEffect(() => {
     if (open) setSection(firstKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Autofocus the first field of the active section (checklist "Auto Focus") —
+  // on open and whenever the section switches.
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => focusFirstField(contentRef.current), 60);
+    return () => window.clearTimeout(id);
+  }, [open, section]);
+
+  // Ctrl/⌘+S saves the open editor (checklist keyboard shortcut).
+  useRegisterShortcut(
+    "save",
+    () => {
+      if (!footer.isPending && footer.canSave) footer.onSave();
+    },
+    open,
+  );
 
   // Lock body scroll behind the overlay (same behavior the customer editor had).
   useEffect(() => {
@@ -167,8 +187,13 @@ export function MasterFullScreen({
           })}
         </nav>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-4 py-5 md:px-6">{active?.content}</div>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto"
+          onKeyDown={(e) => enterAdvance(e, contentRef.current)}
+        >
+          <div ref={contentRef} className="mx-auto max-w-3xl px-4 py-5 md:px-6">
+            {active?.content}
+          </div>
         </div>
       </div>
 

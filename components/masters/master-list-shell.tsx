@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -9,9 +9,12 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useRegisterShortcut } from "@/lib/shortcuts";
+import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { BulkActionsBar } from "@/components/data-io/bulk-actions-bar";
 
 export type MasterStatus = "active" | "inactive" | "draft";
 
@@ -55,6 +58,14 @@ export type MasterListShellProps<Row> = {
   isPending?: boolean;
   /** Rare per-screen extra toolbar buttons (rendered next to Add). */
   toolbarExtra?: ReactNode;
+  /**
+   * data-io entity key — when set, the desktop table gains row multi-select and
+   * a bulk-actions bar (Deactivate / Activate / Export selected). Omit to keep
+   * the list single-action. Independent of `ioEntityKey` (import/export toolbar).
+   */
+  bulkEntityKey?: string;
+  /** Noun for bulk toasts, e.g. "banks". Defaults to "records". */
+  bulkLabel?: string;
 };
 
 /**
@@ -81,6 +92,8 @@ export function MasterListShell<Row>({
   mobile,
   isPending = false,
   toolbarExtra,
+  bulkEntityKey,
+  bulkLabel,
 }: MasterListShellProps<Row>) {
   const hasDraft = useMemo(
     () => !!statusOf && rows.some((r) => statusOf(r) === "draft"),
@@ -117,12 +130,35 @@ export function MasterListShell<Row>({
     if (perms.canCreate) onAdd?.();
   });
 
+  // Global keyboard shortcuts (checklist): Ctrl+N adds a record, Ctrl+F focuses
+  // the search box. Registered only when the corresponding action is available.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useRegisterShortcut("new", () => onAdd?.(), perms.canCreate && !!onAdd);
+  useRegisterShortcut("search", () => {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  });
+
+  // Opt-in desktop multi-select + bulk actions (only when bulkEntityKey given).
+  const sel = useRowSelection();
+  const rowByKey = useMemo(() => {
+    const m = new Map<string, Row>();
+    rows.forEach((r) => m.set(getKey(r), r));
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+  const selectedRows = useMemo(
+    () => sel.selectedIds.map((id) => rowByKey.get(id)).filter(Boolean) as Row[],
+    [sel.selectedIds, rowByKey],
+  );
+
   const hasFacets = !!statusOf || (extraFilters?.length ?? 0) > 0;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <FilterBar
+          searchRef={searchRef}
           search={query}
           onSearch={(v) => {
             setQuery(v);
@@ -202,8 +238,29 @@ export function MasterListShell<Row>({
         </div>
       </div>
 
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => getKey(r)} empty={empty} />
+      <div className="hidden space-y-3 md:block">
+        {bulkEntityKey && sel.selectedIds.length > 0 && (
+          <BulkActionsBar
+            entityKey={bulkEntityKey}
+            selectedIds={sel.selectedIds}
+            selectedRows={selectedRows as Record<string, unknown>[]}
+            onClear={sel.clear}
+            label={bulkLabel}
+            canDelete={perms.canDelete}
+            canEdit={perms.canEdit}
+            canExport={perms.canExport}
+          />
+        )}
+        <DataTable
+          columns={columns}
+          rows={pg.paged}
+          getKey={(r) => getKey(r)}
+          empty={empty}
+          selectable={!!bulkEntityKey}
+          selectedKeys={bulkEntityKey ? sel.selectedKeys : undefined}
+          onToggle={bulkEntityKey ? sel.toggle : undefined}
+          onToggleAll={bulkEntityKey ? () => sel.toggleAll(pg.paged.map((r) => getKey(r))) : undefined}
+        />
       </div>
 
       <div className="md:hidden">

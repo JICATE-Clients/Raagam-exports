@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, type RefObject } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ export function FilterBar({
   activeCount = 0,
   onReset,
   right,
+  searchRef,
 }: {
   search: string;
   onSearch: (v: string) => void;
@@ -30,6 +31,8 @@ export function FilterBar({
   onReset?: () => void;
   /** Right-aligned status text (e.g. "3 of 12 · 0 missing"). */
   right?: ReactNode;
+  /** Ref to the search input, so a parent can focus it (Ctrl+F shortcut). */
+  searchRef?: RefObject<HTMLInputElement | null>;
 }) {
   const [open, setOpen] = useState(false);
   const hasFilters = !!children;
@@ -38,6 +41,7 @@ export function FilterBar({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <Input
+          ref={searchRef}
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder={searchPlaceholder}

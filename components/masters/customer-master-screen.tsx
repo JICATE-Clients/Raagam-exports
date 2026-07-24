@@ -32,6 +32,7 @@ import { ChildGrid } from "@/components/masters/child-grid";
 import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-columns-dialog";
 import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-service";
 import { createCustomer, updateCustomer, deleteCustomer } from "@/lib/masters/customer-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   type Customer,
   type CustomerInput,
@@ -458,7 +459,7 @@ export function CustomerMasterScreen({
     startTransition(async () => {
       const res = await deleteCustomer(r.id);
       if (res.ok) {
-        success("Customer deleted.");
+        success(deletedToast("Customer", res));
         router.refresh();
       } else {
         error(res.error);
@@ -751,6 +752,7 @@ export function CustomerMasterScreen({
                     <div className="mt-6">
                       <ChildGrid<ContactRow>
                         label="Contacts"
+                        maxBodyHeight="max-h-56"
                         rows={contacts}
                         onAdd={addContact}
                         onRemove={(c) => removeContact(c.key)}
@@ -834,6 +836,7 @@ export function CustomerMasterScreen({
                   <SectionBody title="Agents" hint="Brokers / agents who represent this customer.">
                     <ChildGrid<AgentRow>
                       label="Customer Agents"
+                      maxBodyHeight="max-h-56"
                       rows={agents}
                       onAdd={() => {
                         setAgents((xs) => [...xs, { key: newKey(), agent_type_id: "", agent_id: "" }]);
@@ -986,6 +989,7 @@ export function CustomerMasterScreen({
                     <div className="mt-6">
                       <ChildGrid<MarkRow>
                         label="Marking"
+                        maxBodyHeight="max-h-56"
                         rows={markings}
                         onAdd={() => { setMarkings((xs) => [...xs, { key: newKey(), marking: "" }]); setDirty(true); }}
                         onRemove={(m) => { setMarkings((xs) => xs.filter((r) => r.key !== m.key)); setDirty(true); }}
@@ -1048,6 +1052,8 @@ function CategoryGrid({
   return (
     <ChildGrid<CatRowT>
       label={title}
+      maxBodyHeight="max-h-56"
+      forceCards
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), category_id: "" }]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
@@ -1084,6 +1090,8 @@ function VendorGrid({
   return (
     <ChildGrid<VendorRowT>
       label={title}
+      maxBodyHeight="max-h-56"
+      forceCards
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), vendor_id: "" }]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}

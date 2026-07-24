@@ -20,6 +20,7 @@ import {
   updateAccountGroup,
   deleteAccountGroup,
 } from "@/lib/masters/account-group-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   NATURE_OF_GROUP,
   type AccountGroup,
@@ -110,7 +111,7 @@ export function AccountGroupMasterScreen({
     startTransition(async () => {
       const res = await deleteAccountGroup(r.id);
       if (res.ok) {
-        success("Account group deleted.");
+        success(deletedToast("Account group", res));
         router.refresh();
       } else {
         error(res.error);

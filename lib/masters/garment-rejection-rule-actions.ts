@@ -7,10 +7,12 @@ import {
   garmentRejectionRuleInput,
   type GarmentRejectionRuleInput,
 } from "./garment-rejection-rule-types";
+import { deleteOrDeactivate } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -94,11 +96,12 @@ export async function updateGarmentRejectionRule(
   return { ok: true };
 }
 
-export async function deleteGarmentRejectionRule(id: string): Promise<Result> {
+export async function deleteGarmentRejectionRule(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("garment_rejection_rules").delete().eq("id", id); // lines cascade
-  if (error) return fail(error.message);
+  // lines cascade; if the rule itself is referenced elsewhere it deactivates instead.
+  const res = await deleteOrDeactivate(s, "garment_rejection_rules", id, "inactive");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

@@ -214,6 +214,8 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
           <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Yarn Rates (by Ends)</div>
             <div className="space-y-2 p-3">
+              {/* row area capped with internal scroll — Add button stays pinned */}
+              <div className="max-h-56 space-y-2 overflow-y-auto">
               {lines.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
                   <div className="flex items-center gap-2">
@@ -253,6 +255,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
                   </div>
                 </div>
               ))}
+              </div>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>+ Add Yarn Row</Button>
             </div>
           </div>

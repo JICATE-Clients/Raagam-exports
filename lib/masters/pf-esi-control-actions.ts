@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { pfEsiControlInput, type PfEsiControlInput } from "./pf-esi-control-types";
+import { deleteOrBlock } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -41,8 +42,9 @@ export async function updatePfEsiControl(id: string, data: PfEsiControlInput): P
 export async function deletePfEsiControl(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("pf_esi_controls").delete().eq("id", id);
-  if (error) return fail(error.message);
+  // No inactive flag — block (with a "used by X" message) when referenced.
+  const res = await deleteOrBlock(s, "pf_esi_controls", id);
+  if (!res.ok) return fail(res.error);
   rev();
   return { ok: true };
 }

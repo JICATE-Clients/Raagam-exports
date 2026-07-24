@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { vendorInput, type VendorInput } from "./vendor-types";
+import { deleteOrDeactivate } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -96,11 +98,12 @@ export async function updateVendor(id: string, data: VendorInput): Promise<Resul
   return { ok: true };
 }
 
-export async function deleteVendor(id: string): Promise<Result> {
+export async function deleteVendor(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("master_vendors").delete().eq("id", id); // addresses cascade
-  if (error) return fail(error.message);
+  // Own addresses cascade; if referenced elsewhere, deactivate instead of delete.
+  const res = await deleteOrDeactivate(s, "master_vendors", id, "inactive");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

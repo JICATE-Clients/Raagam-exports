@@ -12,11 +12,13 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { DetailSection } from "@/components/masters/detail-section";
 import {
   createHsnDetail,
   updateHsnDetail,
   deleteHsnDetail,
 } from "@/lib/masters/hsn-detail-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   HSN_DETAIL_FOR,
   hsnDetailForLabel,
@@ -120,7 +122,7 @@ export function HsnDetailMasterScreen({
     startTransition(async () => {
       const res = await deleteHsnDetail(r.id);
       if (res.ok) {
-        success("HSN detail deleted.");
+        success(deletedToast("HSN detail", res));
         router.refresh();
       } else {
         error(res.error);
@@ -258,8 +260,8 @@ export function HsnDetailMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:col-span-2">
+        <div className="space-y-4">
+          <DetailSection label="Details" cols={2}>
             <div>
               <Label htmlFor="hsn-item-class">
                 Item Class <span className="text-danger">*</span>
@@ -295,29 +297,29 @@ export function HsnDetailMasterScreen({
                 ))}
               </Select>
             </div>
-          </div>
-          <div>
-            <Label htmlFor="hsn-desc">Description</Label>
-            <Input
-              id="hsn-desc"
-              uppercase
-              value={form.description}
-              onChange={(e) => set({ description: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label htmlFor="hsn-code">HSN Code</Label>
-            <ValidatedInput
-              id="hsn-code"
-              format="hsn"
-              value={form.hsn_code}
-              onChange={(e) => set({ hsn_code: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
+            <div>
+              <Label htmlFor="hsn-desc">Description</Label>
+              <Input
+                id="hsn-desc"
+                uppercase
+                value={form.description}
+                onChange={(e) => set({ description: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="hsn-code">HSN Code</Label>
+              <ValidatedInput
+                id="hsn-code"
+                format="hsn"
+                value={form.hsn_code}
+                onChange={(e) => set({ hsn_code: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+          </DetailSection>
           {editId && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
+            <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"

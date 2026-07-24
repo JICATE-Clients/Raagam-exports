@@ -346,28 +346,28 @@ export function OutDocumentTermMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <DetailSection label="Header">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="odt-entry">Entry No</Label>
-                <Input
-                  id="odt-entry"
-                  value={editEntryNo ?? "(auto)"}
-                  disabled
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="odt-date">Date</Label>
-                <Input
-                  id="odt-date"
-                  type="date"
-                  value={form.entry_date}
-                  onChange={(e) => set({ entry_date: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+        {/* Two-column body — header fields LEFT, Description grid RIGHT. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+          <DetailSection label="Header" cols={2}>
+            <div>
+              <Label htmlFor="odt-entry">Entry No</Label>
+              <Input
+                id="odt-entry"
+                value={editEntryNo ?? "(auto)"}
+                disabled
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="odt-date">Date</Label>
+              <Input
+                id="odt-date"
+                type="date"
+                value={form.entry_date}
+                onChange={(e) => set({ entry_date: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
             <div>
               <Label htmlFor="odt-type">Type</Label>
@@ -420,10 +420,14 @@ export function OutDocumentTermMasterScreen({
               </Select>
             </div>
           </DetailSection>
+          </div>
 
+          <div className="space-y-4">
           {/* Description grid */}
           <ChildGrid<LineRow>
             label="Description"
+            maxBodyHeight="max-h-56"
+            forceCards
             rows={lines}
             onAdd={addLine}
             onRemove={(l) => removeLine(l.key)}
@@ -437,6 +441,7 @@ export function OutDocumentTermMasterScreen({
               },
             ]}
           />
+          </div>
         </div>
       </Sheet>
     </div>

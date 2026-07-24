@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { workingHourInput, type WorkingHourInput } from "./working-hour-types";
+import { deleteOrBlock } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -41,8 +42,9 @@ export async function updateWorkingHour(id: string, data: WorkingHourInput): Pro
 export async function deleteWorkingHour(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("working_hours").delete().eq("id", id);
-  if (error) return fail(error.message);
+  // No inactive flag — block (with a "used by X" message) when referenced.
+  const res = await deleteOrBlock(s, "working_hours", id);
+  if (!res.ok) return fail(res.error);
   rev();
   return { ok: true };
 }

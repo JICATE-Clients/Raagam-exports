@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { deleteOrBlock } from "./delete-guard";
 import {
   exchangeRateInput,
   type ExchangeRateInput,
@@ -11,7 +12,7 @@ import {
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -118,8 +119,8 @@ export async function updateExchangeRateEntry(
 export async function deleteExchangeRateEntry(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("exchange_rate_entries").delete().eq("id", id); // lines cascade
-  if (error) return fail(error.message);
+  const res = await deleteOrBlock(s, "exchange_rate_entries", id); // lines cascade
+  if (!res.ok) return fail(res.error);
   rev();
   return { ok: true };
 }

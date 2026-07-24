@@ -204,48 +204,56 @@ export function ProcessSequenceGroupMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <Label htmlFor="psg-name">Name <span className="text-danger">*</span></Label>
-            <Input id="psg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-            {!editId && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                The code is generated automatically from the name.
-              </p>
+        {/* Two-column body — header fields LEFT, Sequences line grid RIGHT. */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="psg-name">Name <span className="text-danger">*</span></Label>
+              <Input id="psg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+              {!editId && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The code is generated automatically from the name.
+                </p>
+              )}
+            </div>
+            {editId && (
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
             )}
           </div>
-          {editId && (
-            <label className="sm:col-span-2 flex cursor-pointer items-center gap-2">
-              <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => setForm({ ...form, inactive: e.target.checked })} />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
 
-          <div className="sm:col-span-2 rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Sequences</div>
-            <div className="space-y-2 p-3">
-              {lines.map((l, i) => (
-                <div key={l.key} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
-                  {sequences.length > 0 ? (
-                    <Select value={l.sequence_id}
-                      onChange={(e) => pickSequence(l.key, e.target.value)}
-                      className="flex-1 text-base md:text-sm">
-                      <option value="">— select sequence —</option>
-                      {sequences.map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </Select>
-                  ) : (
-                    <Input placeholder="Sequence name" uppercase value={l.sequence_name}
-                      onChange={(e) => setLineAt(l.key, { sequence_name: e.target.value })}
-                      className="flex-1 text-base md:text-sm" />
-                  )}
-                  <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
-                    onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border">
+              <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Sequences</div>
+              <div className="space-y-2 p-3">
+                {/* row area capped with internal scroll — Add button stays pinned */}
+                <div className="max-h-56 space-y-2 overflow-y-auto">
+                  {lines.map((l, i) => (
+                    <div key={l.key} className="flex items-center gap-2">
+                      <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
+                      {sequences.length > 0 ? (
+                        <Select value={l.sequence_id}
+                          onChange={(e) => pickSequence(l.key, e.target.value)}
+                          className="flex-1 text-base md:text-sm">
+                          <option value="">— select sequence —</option>
+                          {sequences.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Input placeholder="Sequence name" uppercase value={l.sequence_name}
+                          onChange={(e) => setLineAt(l.key, { sequence_name: e.target.value })}
+                          className="flex-1 text-base md:text-sm" />
+                      )}
+                      <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
+                        onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>+ Add Sequence</Button>
+                <Button type="button" variant="outline" size="sm" onClick={addLine}>+ Add Sequence</Button>
+              </div>
             </div>
           </div>
         </div>

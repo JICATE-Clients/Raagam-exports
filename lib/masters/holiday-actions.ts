@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { holidayInput, type HolidayInput } from "./holiday-types";
+import { deleteOrBlock } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -47,8 +48,9 @@ export async function updateHoliday(id: string, data: HolidayInput): Promise<Res
 export async function deleteHoliday(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("holidays").delete().eq("id", id);
-  if (error) return fail(error.message);
+  // No inactive flag on holidays — block (with a "used by X" message) when referenced.
+  const res = await deleteOrBlock(s, "holidays", id);
+  if (!res.ok) return fail(res.error);
   rev();
   return { ok: true };
 }

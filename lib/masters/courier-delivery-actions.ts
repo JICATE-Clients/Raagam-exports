@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { courierDeliveryInput, type CourierDeliveryInput } from "./courier-delivery-types";
+import { deleteOrDeactivate } from "./delete-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
 
-function fail(msg: string): Result {
+function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -97,11 +99,12 @@ export async function updateCourierDeliveryAddress(
   return { ok: true };
 }
 
-export async function deleteCourierDeliveryAddress(id: string): Promise<Result> {
+export async function deleteCourierDeliveryAddress(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("courier_delivery_addresses").delete().eq("id", id); // contacts cascade
-  if (error) return fail(error.message);
+  // Own contacts cascade; if referenced elsewhere, deactivate instead of delete.
+  const res = await deleteOrDeactivate(s, "courier_delivery_addresses", id, "inactive");
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

@@ -18,6 +18,7 @@ import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
 import { createApplicant, updateApplicant, deleteApplicant } from "@/lib/masters/applicant-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   SHIP_MODES,
   PAY_MODES,
@@ -294,7 +295,7 @@ export function ApplicantMasterScreen({
     startTransition(async () => {
       const res = await deleteApplicant(r.id);
       if (res.ok) {
-        success("Applicant deleted.");
+        success(deletedToast("Applicant", res));
         router.refresh();
       } else {
         error(res.error);
@@ -517,33 +518,34 @@ export function ApplicantMasterScreen({
 
           {section === "address" && (
             <div className="space-y-4">
-              <div>
-                <Label htmlFor="ap-street">Street</Label>
-                <Textarea
-                  id="ap-street"
-                  rows={3}
-                  value={form.street}
-                  onChange={(e) => set({ street: e.target.value })}
-                  className="text-base md:text-sm"
+              {/* dense 2-per-row address fields (organized layout) */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Label htmlFor="ap-street">Street</Label>
+                  <Textarea
+                    id="ap-street"
+                    rows={3}
+                    value={form.street}
+                    onChange={(e) => set({ street: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </div>
+                <LookupDialogPicker
+                  kind="city"
+                  label="City"
+                  options={cities}
+                  value={form.city_id || null}
+                  onChange={(id) => set({ city_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
                 />
-              </div>
-              <LookupDialogPicker
-                kind="city"
-                label="City"
-                options={cities}
-                value={form.city_id || null}
-                onChange={(id) => set({ city_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-              />
-              <LookupDialogPicker
-                kind="state"
-                label="State"
-                options={states}
-                value={form.state_id || null}
-                onChange={(id) => set({ state_id: id })}
-              />
-              <div className="grid grid-cols-2 gap-3">
+                <LookupDialogPicker
+                  kind="state"
+                  label="State"
+                  options={states}
+                  value={form.state_id || null}
+                  onChange={(id) => set({ state_id: id })}
+                />
                 <div>
                   <Label htmlFor="ap-pin">Pin</Label>
                   <ValidatedInput
@@ -563,8 +565,6 @@ export function ApplicantMasterScreen({
                     canEdit={perms.canEdit}
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="ap-landline">Land Line</Label>
                   <Input
@@ -583,26 +583,26 @@ export function ApplicantMasterScreen({
                     className="text-base md:text-sm"
                   />
                 </div>
-              </div>
-              <div>
-                <Label htmlFor="ap-email">E-Mail</Label>
-                <ValidatedInput
-                  id="ap-email"
-                  format="email"
-                  value={form.email}
-                  onChange={(e) => set({ email: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ap-web">Web site</Label>
-                <ValidatedInput
-                  id="ap-web"
-                  format="website"
-                  value={form.web_site}
-                  onChange={(e) => set({ web_site: e.target.value })}
-                  className="text-base md:text-sm"
-                />
+                <div>
+                  <Label htmlFor="ap-email">E-Mail</Label>
+                  <ValidatedInput
+                    id="ap-email"
+                    format="email"
+                    value={form.email}
+                    onChange={(e) => set({ email: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="ap-web">Web site</Label>
+                  <ValidatedInput
+                    id="ap-web"
+                    format="website"
+                    value={form.web_site}
+                    onChange={(e) => set({ web_site: e.target.value })}
+                    className="text-base md:text-sm"
+                  />
+                </div>
               </div>
 
               {/* Contact grid */}
@@ -614,6 +614,9 @@ export function ApplicantMasterScreen({
                   {contacts.length === 0 && (
                     <p className="text-xs text-muted-foreground">No contacts yet.</p>
                   )}
+                  {/* row area capped — a growing grid scrolls instead of pushing
+                      the content below (Add button stays pinned) */}
+                  <div className="max-h-56 space-y-3 overflow-y-auto">
                   {contacts.map((c, i) => (
                     <div key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                       <div className="flex items-center justify-between">
@@ -696,6 +699,7 @@ export function ApplicantMasterScreen({
                       </div>
                     </div>
                   ))}
+                  </div>
                   <Button type="button" variant="outline" size="sm" onClick={addContact}>
                     + Add contact
                   </Button>

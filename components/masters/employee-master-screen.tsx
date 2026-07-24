@@ -15,6 +15,7 @@ import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { LocationPicker } from "@/components/masters/location-picker";
 import { EmployeePicker } from "@/components/masters/employee-picker";
 import { createEmployee, updateEmployee, deleteEmployee } from "@/lib/masters/employee-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   GUARDIAN_RELATIONS,
   SPOUSE_TYPES,
@@ -353,7 +354,7 @@ export function EmployeeMasterScreen({
     startTransition(async () => {
       const res = await deleteEmployee(r.id);
       if (res.ok) {
-        success("Employee deleted.");
+        success(deletedToast("Employee", res));
         router.refresh();
       } else {
         error(res.error);
@@ -611,32 +612,34 @@ export function EmployeeMasterScreen({
             </div>
           </div>
 
-          <div className="grid grid-cols-[1fr_5rem] gap-2">
+          {/* DOB+Age pairs with Manager on one row (dense grid) */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-[1fr_5rem] gap-2">
+              <div>
+                <Label htmlFor="emp-dob">DOB</Label>
+                <Input
+                  id="emp-dob"
+                  type="date"
+                  value={form.dob}
+                  onChange={(e) => set({ dob: e.target.value })}
+                  className="text-base md:text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="emp-age">Age</Label>
+                <Input id="emp-age" value={age ?? ""} readOnly className="text-base md:text-sm" />
+              </div>
+            </div>
             <div>
-              <Label htmlFor="emp-dob">DOB</Label>
-              <Input
-                id="emp-dob"
-                type="date"
-                value={form.dob}
-                onChange={(e) => set({ dob: e.target.value })}
-                className="text-base md:text-sm"
+              <Label>Manager</Label>
+              <EmployeePicker
+                employees={managerPool}
+                value={form.manager_id || null}
+                onChange={(id) => set({ manager_id: id ?? "" })}
+                excludeId={editId}
+                compact
               />
             </div>
-            <div>
-              <Label htmlFor="emp-age">Age</Label>
-              <Input id="emp-age" value={age ?? ""} readOnly className="text-base md:text-sm" />
-            </div>
-          </div>
-
-          <div>
-            <Label>Manager</Label>
-            <EmployeePicker
-              employees={managerPool}
-              value={form.manager_id || null}
-              onChange={(id) => set({ manager_id: id ?? "" })}
-              excludeId={editId}
-              compact
-            />
           </div>
 
           {editId && (
@@ -652,210 +655,198 @@ export function EmployeeMasterScreen({
           )}
 
           {/* ---- Personal ---- */}
-          <DetailSection label="Personal">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="emp-employee-type">Employee Type</Label>
-                <Select
-                  id="emp-employee-type"
-                  value={form.employee_type}
-                  onChange={(e) => set({ employee_type: e.target.value })}
-                  className="text-base md:text-sm"
-                >
-                  {EMPLOYEE_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {EMPLOYEE_TYPE_LABELS[t]}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="emp-spouse-type">Spouse Type</Label>
-                <Select
-                  id="emp-spouse-type"
-                  value={form.spouse_type}
-                  onChange={(e) => set({ spouse_type: e.target.value })}
-                  className="text-base md:text-sm"
-                >
-                  <option value="">— None —</option>
-                  {SPOUSE_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+          <DetailSection label="Personal" cols={2}>
+            <div>
+              <Label htmlFor="emp-employee-type">Employee Type</Label>
+              <Select
+                id="emp-employee-type"
+                value={form.employee_type}
+                onChange={(e) => set({ employee_type: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                {EMPLOYEE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {EMPLOYEE_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </Select>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="emp-spouse-name">Spouse Name</Label>
-                <Input
-                  id="emp-spouse-name"
-                  uppercase
-                  value={form.spouse_name}
-                  onChange={(e) => set({ spouse_name: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-mobile">Mobile</Label>
-                <ValidatedInput
-                  id="emp-mobile"
-                  format="mobile"
-                  value={form.mobile}
-                  onChange={(e) => set({ mobile: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+            <div>
+              <Label htmlFor="emp-spouse-type">Spouse Type</Label>
+              <Select
+                id="emp-spouse-type"
+                value={form.spouse_type}
+                onChange={(e) => set({ spouse_type: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                <option value="">— None —</option>
+                {SPOUSE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="emp-father">Father Name</Label>
-                <Input
-                  id="emp-father"
-                  uppercase
-                  value={form.father_name}
-                  onChange={(e) => set({ father_name: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-mother">Mother Name</Label>
-                <Input
-                  id="emp-mother"
-                  uppercase
-                  value={form.mother_name}
-                  onChange={(e) => set({ mother_name: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+            <div>
+              <Label htmlFor="emp-spouse-name">Spouse Name</Label>
+              <Input
+                id="emp-spouse-name"
+                uppercase
+                value={form.spouse_name}
+                onChange={(e) => set({ spouse_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-mobile">Mobile</Label>
+              <ValidatedInput
+                id="emp-mobile"
+                format="mobile"
+                value={form.mobile}
+                onChange={(e) => set({ mobile: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-father">Father Name</Label>
+              <Input
+                id="emp-father"
+                uppercase
+                value={form.father_name}
+                onChange={(e) => set({ father_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-mother">Mother Name</Label>
+              <Input
+                id="emp-mother"
+                uppercase
+                value={form.mother_name}
+                onChange={(e) => set({ mother_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
           </DetailSection>
 
           {/* ---- Dates ---- */}
-          <DetailSection label="Dates">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <Label htmlFor="emp-doj">Date of Joining</Label>
-                <Input
-                  id="emp-doj"
-                  type="date"
-                  value={form.doj}
-                  onChange={(e) => set({ doj: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-doc">Date of Confirmation</Label>
-                <Input
-                  id="emp-doc"
-                  type="date"
-                  value={form.date_of_confirmation}
-                  onChange={(e) => set({ date_of_confirmation: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-dof">Date of Filing</Label>
-                <Input
-                  id="emp-dof"
-                  type="date"
-                  value={form.date_of_filing}
-                  onChange={(e) => set({ date_of_filing: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          <DetailSection label="Dates" cols={3}>
+            <div>
+              <Label htmlFor="emp-doj">Date of Joining</Label>
+              <Input
+                id="emp-doj"
+                type="date"
+                value={form.doj}
+                onChange={(e) => set({ doj: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-doc">Date of Confirmation</Label>
+              <Input
+                id="emp-doc"
+                type="date"
+                value={form.date_of_confirmation}
+                onChange={(e) => set({ date_of_confirmation: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-dof">Date of Filing</Label>
+              <Input
+                id="emp-dof"
+                type="date"
+                value={form.date_of_filing}
+                onChange={(e) => set({ date_of_filing: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
           </DetailSection>
 
           {/* ---- Statutory IDs ---- */}
-          <DetailSection label="Statutory IDs">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="emp-pf">PF No</Label>
-                <Input
-                  id="emp-pf"
-                  value={form.pf_no}
-                  onChange={(e) => set({ pf_no: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-esi">ESI No</Label>
-                <Input
-                  id="emp-esi"
-                  value={form.esi_no}
-                  onChange={(e) => set({ esi_no: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-uan">UAN</Label>
-                <Input
-                  id="emp-uan"
-                  value={form.uan}
-                  onChange={(e) => set({ uan: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-pan">PAN No</Label>
-                <Input
-                  id="emp-pan"
-                  value={form.pan_no}
-                  onChange={(e) => set({ pan_no: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-aadhar">Aadhar No</Label>
-                <Input
-                  id="emp-aadhar"
-                  value={form.aadhar_no}
-                  onChange={(e) => set({ aadhar_no: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          <DetailSection label="Statutory IDs" cols={2}>
+            <div>
+              <Label htmlFor="emp-pf">PF No</Label>
+              <Input
+                id="emp-pf"
+                value={form.pf_no}
+                onChange={(e) => set({ pf_no: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-esi">ESI No</Label>
+              <Input
+                id="emp-esi"
+                value={form.esi_no}
+                onChange={(e) => set({ esi_no: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-uan">UAN</Label>
+              <Input
+                id="emp-uan"
+                value={form.uan}
+                onChange={(e) => set({ uan: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-pan">PAN No</Label>
+              <Input
+                id="emp-pan"
+                value={form.pan_no}
+                onChange={(e) => set({ pan_no: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-aadhar">Aadhar No</Label>
+              <Input
+                id="emp-aadhar"
+                value={form.aadhar_no}
+                onChange={(e) => set({ aadhar_no: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
           </DetailSection>
 
           {/* ---- Bank Details ---- */}
-          <DetailSection label="Bank Details">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <Label htmlFor="emp-paymode">Pay Mode</Label>
-                <Select
-                  id="emp-paymode"
-                  value={form.pay_mode}
-                  onChange={(e) => set({ pay_mode: e.target.value })}
-                  className="text-base md:text-sm"
-                >
-                  {PAY_MODES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="emp-bankname">Bank Name</Label>
-                <Input
-                  id="emp-bankname"
-                  uppercase
-                  value={form.bank_name}
-                  onChange={(e) => set({ bank_name: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-bankacc">Account No</Label>
-                <Input
-                  id="emp-bankacc"
-                  value={form.bank_acc_no}
-                  onChange={(e) => set({ bank_acc_no: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
+          <DetailSection label="Bank Details" cols={3}>
+            <div>
+              <Label htmlFor="emp-paymode">Pay Mode</Label>
+              <Select
+                id="emp-paymode"
+                value={form.pay_mode}
+                onChange={(e) => set({ pay_mode: e.target.value })}
+                className="text-base md:text-sm"
+              >
+                {PAY_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="emp-bankname">Bank Name</Label>
+              <Input
+                id="emp-bankname"
+                uppercase
+                value={form.bank_name}
+                onChange={(e) => set({ bank_name: e.target.value })}
+                className="text-base md:text-sm"
+              />
+            </div>
+            <div>
+              <Label htmlFor="emp-bankacc">Account No</Label>
+              <Input
+                id="emp-bankacc"
+                value={form.bank_acc_no}
+                onChange={(e) => set({ bank_acc_no: e.target.value })}
+                className="text-base md:text-sm"
+              />
             </div>
           </DetailSection>
 
@@ -1012,41 +1003,41 @@ export function EmployeeMasterScreen({
                 </div>
               </div>
 
-              {/* Marital Status */}
-              <div>
-                <Label>Marital Status</Label>
-                <div className="mt-1 flex flex-wrap gap-4">
-                  {MARITAL_STATUSES.map((m) => (
-                    <label key={m} className="flex cursor-pointer items-center gap-1.5">
-                      <input
-                        type="radio"
-                        name="emp-marital"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.marital_status === m}
-                        onChange={() => set({ marital_status: m })}
-                      />
-                      <span className="text-sm text-foreground">{m}</span>
-                    </label>
-                  ))}
+              {/* Marital Status + Sex pair up on one row (dense grid) */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Marital Status</Label>
+                  <div className="mt-1 flex flex-wrap gap-4">
+                    {MARITAL_STATUSES.map((m) => (
+                      <label key={m} className="flex cursor-pointer items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name="emp-marital"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={form.marital_status === m}
+                          onChange={() => set({ marital_status: m })}
+                        />
+                        <span className="text-sm text-foreground">{m}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
-
-              {/* Sex */}
-              <div>
-                <Label>Sex</Label>
-                <div className="mt-1 flex flex-wrap gap-4">
-                  {SEXES.map((sx) => (
-                    <label key={sx} className="flex cursor-pointer items-center gap-1.5">
-                      <input
-                        type="radio"
-                        name="emp-sex"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.sex === sx}
-                        onChange={() => set({ sex: sx })}
-                      />
-                      <span className="text-sm text-foreground">{sx}</span>
-                    </label>
-                  ))}
+                <div>
+                  <Label>Sex</Label>
+                  <div className="mt-1 flex flex-wrap gap-4">
+                    {SEXES.map((sx) => (
+                      <label key={sx} className="flex cursor-pointer items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name="emp-sex"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={form.sex === sx}
+                          onChange={() => set({ sex: sx })}
+                        />
+                        <span className="text-sm text-foreground">{sx}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
 

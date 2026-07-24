@@ -17,6 +17,7 @@ import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { createVendor, updateVendor, deleteVendor } from "@/lib/masters/vendor-actions";
+import { deletedToast } from "@/lib/masters/delete-message";
 import {
   VENDOR_TYPES,
   VENDOR_STATUSES,
@@ -358,7 +359,7 @@ export function VendorMasterScreen({
     startTransition(async () => {
       const res = await deleteVendor(r.id);
       if (res.ok) {
-        success("Vendor deleted.");
+        success(deletedToast("Vendor", res));
         router.refresh();
       } else {
         error(res.error);

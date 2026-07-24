@@ -244,8 +244,10 @@ export function WorkTimingMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          {/* LEFT: header fields */}
+          <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Entry No</Label>
               <Input
@@ -266,7 +268,7 @@ export function WorkTimingMasterScreen({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Location</Label>
               <LocationPicker
@@ -287,8 +289,11 @@ export function WorkTimingMasterScreen({
             </div>
           </div>
 
-          {/* Shift line grid */}
-          <div className="overflow-hidden rounded-lg border border-border sm:col-span-2">
+          </div>
+
+          {/* RIGHT: shift line grid */}
+          <div className="space-y-4">
+          <div className="overflow-hidden rounded-lg border border-border">
             <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3.5 py-2.5">
               <h3 className="text-[13px] font-bold text-foreground">Shifts</h3>
               <Button type="button" variant="outline" size="sm" onClick={addLine}>
@@ -297,6 +302,9 @@ export function WorkTimingMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {lines.length === 0 && <p className="text-xs text-muted-foreground">No shifts yet.</p>}
+              {/* Row area capped with an internal scroll (ChildGrid maxBodyHeight
+                  rule) — a growing shift list never stretches the sheet. */}
+              <div className="max-h-56 space-y-3 overflow-y-auto">
               {lines.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -349,7 +357,9 @@ export function WorkTimingMasterScreen({
                   </div>
                 </div>
               ))}
+              </div>
             </div>
+          </div>
           </div>
         </div>
       </Sheet>
