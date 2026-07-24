@@ -49,10 +49,6 @@ export function NotifyPicker({
     setQuery("");
     setOpen(true);
   }
-  function confirmSelection() {
-    onChange(highlightId);
-    setOpen(false);
-  }
 
   function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -159,7 +155,11 @@ export function NotifyPicker({
                               ? (el) => el?.scrollIntoView({ block: "nearest" })
                               : undefined
                           }
-                          onClick={() => setHighlightId(n.id)}
+                          onMouseEnter={() => setHighlightId(n.id)}
+                          onClick={() => {
+                            onChange(n.id);
+                            setOpen(false);
+                          }}
                           onDoubleClick={() => {
                             onChange(n.id);
                             setOpen(false);
@@ -180,9 +180,6 @@ export function NotifyPicker({
                 <div className="flex-1" />
                 <Button type="button" variant="outline" size="md" onClick={() => setOpen(false)}>
                   Cancel
-                </Button>
-                <Button type="button" size="md" disabled={!highlightId} onClick={confirmSelection}>
-                  OK
                 </Button>
               </div>
             </div>

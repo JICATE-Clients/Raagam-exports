@@ -28,15 +28,18 @@ interface ValidatedInputProps extends InputHTMLAttributes<HTMLInputElement> {
  * server-side via the shared Zod refinements.
  */
 export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
-  ({ format, requiredMessage, onChange, onBlur, value, className, inputMode, maxLength, required, ...props }, ref) => {
+  ({ format, requiredMessage, onChange, onBlur, onKeyDown, value, className, inputMode, maxLength, required, ...props }, ref) => {
     const [touched, setTouched] = useState(false);
     const spec = format ? FORMATS[format] : undefined;
     const strVal = value == null ? "" : String(value);
-    // Empty-but-required wins over a format mismatch (there's nothing to format
-    // yet); otherwise fall back to the format check once the field has a value.
-    const requiredError =
-      required && touched && strVal.trim() === "" ? requiredMessage ?? "Required." : null;
-    const error = requiredError ?? (format && touched ? validateFormat(format, strVal) : null);
+    // LIVE validity — computed regardless of `touched`. Empty-but-required wins
+    // over a format mismatch (nothing to format yet), else the format check.
+    const liveError =
+      (required && strVal.trim() === "" ? requiredMessage ?? "Required." : null) ??
+      (format ? validateFormat(format, strVal) : null);
+    // Visible error only once the field has been touched — so the red border and
+    // message don't appear while the user is still typing the first value.
+    const shownError = touched ? liveError : null;
 
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
       if (format) {
@@ -49,6 +52,14 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
       setTouched(true);
       onBlur?.(e);
     }
+    function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+      // Pressing Enter on an invalid field must NOT advance — the shared
+      // enterAdvance guard blocks it via aria-invalid (which is live below), and
+      // we reveal the message here so the user sees why focus stayed put, even
+      // if the field hadn't been blurred yet (client 2026-07-24).
+      if (e.key === "Enter" && liveError) setTouched(true);
+      onKeyDown?.(e);
+    }
 
     return (
       <>
@@ -58,13 +69,16 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
           required={required}
           onChange={handleChange}
           onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
           inputMode={inputMode ?? spec?.inputMode}
           maxLength={maxLength ?? spec?.maxLength}
-          aria-invalid={error ? true : undefined}
-          className={cn(error && "border-danger", className)}
+          // Live, so enterAdvance blocks Enter the instant the value is invalid —
+          // before blur. Display (border/message) stays gated on `shownError`.
+          aria-invalid={liveError ? true : undefined}
+          className={cn(shownError && "border-danger", className)}
           {...props}
         />
-        {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+        {shownError && <p className="mt-1 text-xs text-danger">{shownError}</p>}
       </>
     );
   },

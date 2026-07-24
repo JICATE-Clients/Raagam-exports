@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { X, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,10 +74,6 @@ export function BankPicker({
     setOpen(false);
     setMode("list");
   }
-  function confirmSelection() {
-    if (highlight) onChange(highlight);
-    close();
-  }
 
   function startAdd() {
     setFormEditId(null);
@@ -87,9 +83,10 @@ export function BankPicker({
     setBlocked(false);
     setMode("form");
   }
-  function startModify() {
-    const b = banks.find((x) => x.id === highlight);
+  function startModify(id: string) {
+    const b = banks.find((x) => x.id === id);
     if (!b) return;
+    setHighlight(id);
     setFormEditId(b.id);
     setCode(b.code ?? "");
     setBankType(b.bank_type ?? "");
@@ -234,17 +231,35 @@ export function BankPicker({
                                   ? (el) => el?.scrollIntoView({ block: "nearest" })
                                   : undefined
                               }
-                              onClick={() => setHighlight(b.id)}
-                              onDoubleClick={() => {
+                              onClick={() => {
                                 onChange(b.id);
                                 close();
                               }}
+                              onMouseEnter={() => setHighlight(b.id)}
                               className={
-                                "cursor-pointer border-t border-border " +
+                                "group cursor-pointer border-t border-border " +
                                 (highlight === b.id ? "bg-primary/10" : "hover:bg-surface-muted")
                               }
                             >
-                              <td className="px-4 py-2">{b.name}</td>
+                              <td className="px-4 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span>{b.name}</span>
+                                  {canEdit && (
+                                    <button
+                                      type="button"
+                                      aria-label="Modify"
+                                      title="Modify"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        startModify(b.id);
+                                      }}
+                                      className="shrink-0 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-4 py-2 text-muted-foreground">{b.bank_type ?? "—"}</td>
                             </tr>
                           ))}
@@ -258,23 +273,9 @@ export function BankPicker({
                         Add
                       </Button>
                     )}
-                    {canEdit && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        disabled={!highlight}
-                        onClick={startModify}
-                      >
-                        Modify
-                      </Button>
-                    )}
                     <div className="flex-1" />
                     <Button type="button" variant="outline" size="md" onClick={close}>
                       Cancel
-                    </Button>
-                    <Button type="button" size="md" disabled={!highlight} onClick={confirmSelection}>
-                      OK
                     </Button>
                   </div>
                 </>

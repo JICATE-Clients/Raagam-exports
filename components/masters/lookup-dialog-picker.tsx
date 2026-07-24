@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { X, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,8 +86,8 @@ export function LookupDialogPicker({
     setOpen(false);
     setMode("list");
   }
-  function confirmSelection() {
-    if (highlightId) onChange(highlightId);
+  function commit(id: string) {
+    onChange(id);
     close();
   }
 
@@ -97,9 +97,10 @@ export function LookupDialogPicker({
     setName("");
     setMode("form");
   }
-  function startModify() {
-    const o = all.find((x) => x.id === highlightId);
+  function startModify(id: string) {
+    const o = all.find((x) => x.id === id);
     if (!o) return;
+    setHighlightId(id);
     setFormEditId(o.id);
     setCode(o.code ?? "");
     setName(o.name);
@@ -263,17 +264,32 @@ export function LookupDialogPicker({
                                   ? (el) => el?.scrollIntoView({ block: "nearest" })
                                   : undefined
                               }
-                              onClick={() => setHighlightId(o.id)}
-                              onDoubleClick={() => {
-                                onChange(o.id);
-                                close();
-                              }}
+                              onClick={() => commit(o.id)}
+                              onMouseEnter={() => setHighlightId(o.id)}
                               className={
-                                "cursor-pointer border-t border-border " +
+                                "group cursor-pointer border-t border-border " +
                                 (highlightId === o.id ? "bg-primary/10" : "hover:bg-surface-muted")
                               }
                             >
-                              <td className="px-4 py-2">{o.name}</td>
+                              <td className="px-4 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span>{o.name}</span>
+                                  {canEdit && (
+                                    <button
+                                      type="button"
+                                      aria-label="Modify"
+                                      title="Modify"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        startModify(o.id);
+                                      }}
+                                      className="shrink-0 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -286,23 +302,9 @@ export function LookupDialogPicker({
                         Add
                       </Button>
                     )}
-                    {canEdit && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        disabled={!highlightId}
-                        onClick={startModify}
-                      >
-                        Modify
-                      </Button>
-                    )}
                     <div className="flex-1" />
                     <Button type="button" variant="outline" size="md" onClick={close}>
                       Cancel
-                    </Button>
-                    <Button type="button" size="md" disabled={!highlightId} onClick={confirmSelection}>
-                      OK
                     </Button>
                   </div>
                 </>

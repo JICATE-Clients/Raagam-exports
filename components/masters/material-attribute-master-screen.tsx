@@ -21,10 +21,12 @@ import {
   deleteMaterialAttribute,
 } from "@/lib/masters/material-attribute-actions";
 import type { MaterialAttribute, MaterialAttributeInput } from "@/lib/masters/material-attribute-types";
-import type { Attribute } from "@/lib/masters/extras-types";
+import type { Attribute, ConfigLookup } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
+import type { Levy } from "@/lib/masters/levy-types";
+import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Uom } from "@/lib/masters/types";
-import { CategoryPicker, AttributePicker, LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-picker";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -57,12 +59,20 @@ export function MaterialAttributeMasterScreen({
   attributes,
   categories,
   units,
+  levies,
+  commodities,
+  itemClasses,
+  fabricStructures,
   perms,
 }: {
   rows: MaterialAttribute[];
   attributes: Attribute[];
   categories: Category[];
   units: Uom[];
+  levies: Levy[];
+  commodities: Commodity[];
+  itemClasses: ConfigLookup[];
+  fabricStructures: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -106,6 +116,12 @@ export function MaterialAttributeMasterScreen({
   );
   const scopedAttributeValues = useMemo(
     () => attributes.find((a) => a.id === itemClassId)?.values ?? [],
+    [attributes, itemClassId],
+  );
+  // Class CODE of the picked Item Class — drives which fields the Category
+  // quick-create mini-child renders (here always PACK/SEW → User Defined).
+  const selectedClassCode = useMemo(
+    () => attributes.find((a) => a.id === itemClassId)?.code ?? null,
     [attributes, itemClassId],
   );
 
@@ -427,9 +443,14 @@ export function MaterialAttributeMasterScreen({
                     value={categoryId}
                     onChange={setCategoryId}
                     itemClassId={itemClassId}
+                    selectedClassCode={selectedClassCode}
                     canCreate={perms.canCreate}
                     canEdit={perms.canEdit}
                     canDelete={perms.canDelete}
+                    levies={levies}
+                    commodities={commodities}
+                    itemClasses={itemClasses}
+                    fabricStructures={fabricStructures}
                   />
                   {!itemClassId && (
                     <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>

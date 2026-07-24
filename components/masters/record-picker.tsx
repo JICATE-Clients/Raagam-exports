@@ -163,7 +163,11 @@ export function RecordPicker({
                               ? (el) => el?.scrollIntoView({ block: "nearest" })
                               : undefined
                           }
-                          onClick={() => setHighlightId(o.id)}
+                          onMouseEnter={() => setHighlightId(o.id)}
+                          onClick={() => {
+                            onChange(o.id);
+                            setOpen(false);
+                          }}
                           onDoubleClick={() => {
                             onChange(o.id);
                             setOpen(false);
@@ -184,17 +188,6 @@ export function RecordPicker({
                 <div className="flex-1" />
                 <Button type="button" variant="outline" size="md" onClick={() => setOpen(false)}>
                   Cancel
-                </Button>
-                <Button
-                  type="button"
-                  size="md"
-                  disabled={!highlightId}
-                  onClick={() => {
-                    if (highlightId) onChange(highlightId);
-                    setOpen(false);
-                  }}
-                >
-                  OK
                 </Button>
               </div>
             </div>

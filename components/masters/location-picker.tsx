@@ -48,10 +48,6 @@ export function LocationPicker({
     setQuery("");
     setOpen(true);
   }
-  function confirmSelection() {
-    onChange(highlightId);
-    setOpen(false);
-  }
 
   function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -158,7 +154,11 @@ export function LocationPicker({
                               ? (el) => el?.scrollIntoView({ block: "nearest" })
                               : undefined
                           }
-                          onClick={() => setHighlightId(l.id)}
+                          onMouseEnter={() => setHighlightId(l.id)}
+                          onClick={() => {
+                            onChange(l.id);
+                            setOpen(false);
+                          }}
                           onDoubleClick={() => {
                             onChange(l.id);
                             setOpen(false);
@@ -179,9 +179,6 @@ export function LocationPicker({
                 <div className="flex-1" />
                 <Button type="button" variant="outline" size="md" onClick={() => setOpen(false)}>
                   Cancel
-                </Button>
-                <Button type="button" size="md" disabled={!highlightId} onClick={confirmSelection}>
-                  OK
                 </Button>
               </div>
             </div>

@@ -176,11 +176,14 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "material_attributes") {
-      const [maRows, categories, attributes, units] = await Promise.all([
+      const [maRows, categories, attributes, units, all, levies, commodities] = await Promise.all([
         listMaterialAttributes(),
         listCategories(),
         listAttributes(),
         listUoms(),
+        listConfigLookups(),
+        listLevies(),
+        listCommodities(),
       ]);
       screen = (
         <MaterialAttributeMasterScreen
@@ -190,6 +193,12 @@ export default async function MaterialEntityPage({
           // never the full item-class list (Fabric, Yarn, Capital Goods, …).
           attributes={attributes.filter((a) => ["PACK", "SEW"].includes(a.code ?? ""))}
           units={units}
+          // Lookups for the Category quick-create mini-child (Levy/Commodity
+          // pickers + item-class-scoped create).
+          levies={levies}
+          commodities={commodities}
+          itemClasses={all.filter((l) => l.kind === "item_class")}
+          fabricStructures={all.filter((l) => l.kind === "fabric_structure")}
           perms={perms}
         />
       );

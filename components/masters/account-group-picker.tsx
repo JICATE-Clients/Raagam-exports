@@ -56,10 +56,6 @@ export function AccountGroupPicker({
     setQuery("");
     setOpen(true);
   }
-  function confirmSelection() {
-    onChange(highlightId);
-    setOpen(false);
-  }
 
   function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -166,7 +162,11 @@ export function AccountGroupPicker({
                               ? (el) => el?.scrollIntoView({ block: "nearest" })
                               : undefined
                           }
-                          onClick={() => setHighlightId(g.id)}
+                          onMouseEnter={() => setHighlightId(g.id)}
+                          onClick={() => {
+                            onChange(g.id);
+                            setOpen(false);
+                          }}
                           onDoubleClick={() => {
                             onChange(g.id);
                             setOpen(false);
@@ -187,9 +187,6 @@ export function AccountGroupPicker({
                 <div className="flex-1" />
                 <Button type="button" variant="outline" size="md" onClick={() => setOpen(false)}>
                   Cancel
-                </Button>
-                <Button type="button" size="md" disabled={!highlightId} onClick={confirmSelection}>
-                  OK
                 </Button>
               </div>
             </div>

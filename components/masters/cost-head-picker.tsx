@@ -51,10 +51,6 @@ export function CostHeadPicker({
     setQuery("");
     setOpen(true);
   }
-  function confirmSelection() {
-    onChange(highlightId);
-    setOpen(false);
-  }
 
   function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -162,7 +158,11 @@ export function CostHeadPicker({
                               ? (el) => el?.scrollIntoView({ block: "nearest" })
                               : undefined
                           }
-                          onClick={() => setHighlightId(c.id)}
+                          onMouseEnter={() => setHighlightId(c.id)}
+                          onClick={() => {
+                            onChange(c.id);
+                            setOpen(false);
+                          }}
                           onDoubleClick={() => {
                             onChange(c.id);
                             setOpen(false);
@@ -184,9 +184,6 @@ export function CostHeadPicker({
                 <div className="flex-1" />
                 <Button type="button" variant="outline" size="md" onClick={() => setOpen(false)}>
                   Cancel
-                </Button>
-                <Button type="button" size="md" disabled={!highlightId} onClick={confirmSelection}>
-                  OK
                 </Button>
               </div>
             </div>

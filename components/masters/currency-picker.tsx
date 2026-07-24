@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { X, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -81,10 +81,6 @@ export function CurrencyPicker({
     setOpen(false);
     setMode("list");
   }
-  function confirmSelection() {
-    if (highlight) onChange(highlight);
-    close();
-  }
 
   function startAdd() {
     setFormEditCode(null);
@@ -93,9 +89,10 @@ export function CurrencyPicker({
     setSymbol("");
     setMode("form");
   }
-  function startModify() {
-    const c = all.find((x) => x.code === highlight);
+  function startModify(id: string) {
+    const c = all.find((x) => x.code === id);
     if (!c) return;
+    setHighlight(id);
     setFormEditCode(c.code);
     setCode(c.code);
     setName(c.name);
@@ -226,18 +223,36 @@ export function CurrencyPicker({
                                   ? (el) => el?.scrollIntoView({ block: "nearest" })
                                   : undefined
                               }
-                              onClick={() => setHighlight(c.code)}
-                              onDoubleClick={() => {
+                              onClick={() => {
                                 onChange(c.code);
                                 close();
                               }}
+                              onMouseEnter={() => setHighlight(c.code)}
                               className={
-                                "cursor-pointer border-t border-border " +
+                                "group cursor-pointer border-t border-border " +
                                 (highlight === c.code ? "bg-primary/10" : "hover:bg-surface-muted")
                               }
                             >
                               <td className="px-4 py-2 font-mono text-xs">{c.code}</td>
-                              <td className="px-4 py-2">{c.name}</td>
+                              <td className="px-4 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span>{c.name}</span>
+                                  {canEdit && (
+                                    <button
+                                      type="button"
+                                      aria-label="Modify"
+                                      title="Modify"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        startModify(c.code);
+                                      }}
+                                      className="shrink-0 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-4 py-2 text-muted-foreground">{c.symbol ?? "—"}</td>
                             </tr>
                           ))}
@@ -251,23 +266,9 @@ export function CurrencyPicker({
                         Add
                       </Button>
                     )}
-                    {canEdit && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        disabled={!highlight}
-                        onClick={startModify}
-                      >
-                        Modify
-                      </Button>
-                    )}
                     <div className="flex-1" />
                     <Button type="button" variant="outline" size="md" onClick={close}>
                       Cancel
-                    </Button>
-                    <Button type="button" size="md" disabled={!highlight} onClick={confirmSelection}>
-                      OK
                     </Button>
                   </div>
                 </>

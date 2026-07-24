@@ -55,10 +55,6 @@ export function EmployeePicker({
     setQuery("");
     setOpen(true);
   }
-  function confirmSelection() {
-    onChange(highlightId);
-    setOpen(false);
-  }
 
   function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -172,7 +168,11 @@ export function EmployeePicker({
                               ? (el) => el?.scrollIntoView({ block: "nearest" })
                               : undefined
                           }
-                          onClick={() => setHighlightId(e.id)}
+                          onMouseEnter={() => setHighlightId(e.id)}
+                          onClick={() => {
+                            onChange(e.id);
+                            setOpen(false);
+                          }}
                           onDoubleClick={() => {
                             onChange(e.id);
                             setOpen(false);
@@ -194,9 +194,6 @@ export function EmployeePicker({
                 <div className="flex-1" />
                 <Button type="button" variant="outline" size="md" onClick={() => setOpen(false)}>
                   Cancel
-                </Button>
-                <Button type="button" size="md" disabled={!highlightId} onClick={confirmSelection}>
-                  OK
                 </Button>
               </div>
             </div>

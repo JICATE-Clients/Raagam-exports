@@ -150,14 +150,21 @@ function DialogListPicker({
     setDraftType("");
     setMode("add");
   }
-  function startEdit() {
-    const row = rows.find((r) => r.id === highlighted);
+  function startEdit(id?: string) {
+    const targetId = id ?? highlighted;
+    const row = rows.find((r) => r.id === targetId);
     if (!row || !manage) return;
+    setHighlighted(row.id);
     const d = manage.draftOf(row);
     setDraftCode(d.code);
     setDraftName(d.name);
     setDraftType(d.typeCode ?? "");
     setMode("edit");
+  }
+  /** Arm the delete confirmation for a specific row (per-row 🗑). */
+  function startDelete(id: string) {
+    setHighlighted(id);
+    setMode("delete");
   }
 
   function saveAdd() {
@@ -234,47 +241,19 @@ function DialogListPicker({
         zIndexBase={100}
         size="sm"
         headerActions={
-          /* manage actions are compact icon buttons in the header, left of ✕
-             (planned layout 2026-07-23 — supersedes the earlier footer
-             placement). Modify/Delete arm only once a row is highlighted. */
-          mode === "list" && canManage ? (
-            <>
-              {manage!.canCreate && (
-                <button
-                  type="button"
-                  title="Add"
-                  aria-label="Add"
-                  onClick={onAddOverride ? () => onAddOverride(commit) : startAdd}
-                  className={ICON_BTN}
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              )}
-              {manage!.canEdit && (
-                <button
-                  type="button"
-                  title="Modify"
-                  aria-label="Modify"
-                  disabled={!highlighted}
-                  onClick={startEdit}
-                  className={ICON_BTN}
-                >
-                  <SquarePen className="h-4 w-4" />
-                </button>
-              )}
-              {manage!.canDelete && (
-                <button
-                  type="button"
-                  title="Delete"
-                  aria-label="Delete"
-                  disabled={!highlighted}
-                  onClick={() => setMode("delete")}
-                  className={cn(ICON_BTN, "hover:bg-danger/10 hover:text-danger")}
-                >
-                  <Trash2 className="h-[15px] w-[15px]" />
-                </button>
-              )}
-            </>
+          /* Only Add lives in the header now — single-click a row applies it
+             (client 2026-07-24, no OK step), and Modify/Delete moved to per-row
+             icons so a row can be managed without first selecting it. */
+          mode === "list" && canManage && manage!.canCreate ? (
+            <button
+              type="button"
+              title="Add"
+              aria-label="Add"
+              onClick={onAddOverride ? () => onAddOverride(commit) : startAdd}
+              className={ICON_BTN}
+            >
+              <Plus className="h-4 w-4" />
+            </button>
           ) : undefined
         }
         footer={
@@ -288,14 +267,6 @@ function DialogListPicker({
                   Clear
                 </Button>
               )}
-              <Button
-                type="button"
-                size="md"
-                disabled={!highlighted}
-                onClick={() => highlighted && commit(highlighted)}
-              >
-                OK
-              </Button>
             </>
           ) : undefined
         }
@@ -319,22 +290,55 @@ function DialogListPicker({
                   // Ref-callback identity changes with the highlight, so the
                   // newly highlighted row scrolls itself into view on ↓/↑.
                   ref={highlighted === r.id ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-                  onClick={() => setHighlighted(r.id)}
-                  onDoubleClick={() => commit(r.id)}
+                  // Single click applies the value and closes (no OK step).
+                  onClick={() => commit(r.id)}
+                  onMouseEnter={() => setHighlighted(r.id)}
                   className={cn(
                     // Card-style rows per the planned layout: always bordered,
                     // primary-tinted when highlighted.
-                    "min-h-11 cursor-pointer rounded-lg border px-4 py-3 text-sm",
+                    "group flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 py-3 text-sm",
                     highlighted === r.id
                       ? "border-primary/40 bg-primary/10"
                       : "border-border bg-surface hover:bg-surface-muted",
                   )}
                 >
-                  <div className="text-foreground">
-                    {r.label}
-                    {r.disabled ? " (inactive)" : ""}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-foreground">
+                      {r.label}
+                      {r.disabled ? " (inactive)" : ""}
+                    </div>
+                    {r.sublabel && <div className="truncate text-xs text-muted-foreground">{r.sublabel}</div>}
                   </div>
-                  {r.sublabel && <div className="text-xs text-muted-foreground">{r.sublabel}</div>}
+                  {/* Per-row manage icons — click applies the row, these edit /
+                      delete it instead (stopPropagation). */}
+                  {manage?.canEdit && (
+                    <button
+                      type="button"
+                      title="Modify"
+                      aria-label="Modify"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEdit(r.id);
+                      }}
+                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 hover:bg-surface hover:text-foreground group-hover:opacity-100"
+                    >
+                      <SquarePen className="h-4 w-4" />
+                    </button>
+                  )}
+                  {manage?.canDelete && (
+                    <button
+                      type="button"
+                      title="Delete"
+                      aria-label="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startDelete(r.id);
+                      }}
+                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
+                    >
+                      <Trash2 className="h-[15px] w-[15px]" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

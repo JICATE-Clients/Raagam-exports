@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { X, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,8 +98,8 @@ export function CommodityPicker({
     setOpen(false);
     setMode("list");
   }
-  function confirmSelection() {
-    if (highlightId) onChange(highlightId);
+  function commit(id: string) {
+    onChange(id);
     close();
   }
 
@@ -108,9 +108,14 @@ export function CommodityPicker({
     setForm(BLANK_FORM);
     setMode("form");
   }
-  function startModify() {
-    const c = all.find((x) => x.id === highlightId);
+  function startDelete(id: string) {
+    setHighlightId(id);
+    setMode("delete");
+  }
+  function startModify(id: string) {
+    const c = all.find((x) => x.id === id);
     if (!c) return;
+    setHighlightId(id);
     setFormEditId(c.id);
     setForm({
       item_class_id: c.item_class_id,
@@ -285,13 +290,10 @@ export function CommodityPicker({
                                   ? (el) => el?.scrollIntoView({ block: "nearest" })
                                   : undefined
                               }
-                              onClick={() => setHighlightId(c.id)}
-                              onDoubleClick={() => {
-                                onChange(c.id);
-                                close();
-                              }}
+                              onClick={() => commit(c.id)}
+                              onMouseEnter={() => setHighlightId(c.id)}
                               className={
-                                "cursor-pointer border-t border-border " +
+                                "group cursor-pointer border-t border-border " +
                                 (highlightId === c.id ? "bg-primary/10" : "hover:bg-surface-muted") +
                                 (c.inactive ? " opacity-60" : "")
                               }
@@ -300,8 +302,42 @@ export function CommodityPicker({
                                 {classLabel.get(c.item_class_id) ?? "—"}
                               </td>
                               <td className="px-4 py-2">
-                                {c.name ?? "—"}
-                                {c.inactive ? " (inactive)" : ""}
+                                <div className="flex items-center justify-between gap-2">
+                                  <span>
+                                    {c.name ?? "—"}
+                                    {c.inactive ? " (inactive)" : ""}
+                                  </span>
+                                  <span className="flex shrink-0 items-center gap-1">
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        aria-label="Modify"
+                                        title="Modify"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startModify(c.id);
+                                        }}
+                                        className="rounded p-1 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </button>
+                                    )}
+                                    {canDelete && (
+                                      <button
+                                        type="button"
+                                        aria-label="Delete"
+                                        title="Delete"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startDelete(c.id);
+                                        }}
+                                        className="rounded p-1 text-muted-foreground opacity-0 hover:text-danger group-hover:opacity-100"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    )}
+                                  </span>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -315,23 +351,6 @@ export function CommodityPicker({
                         Add
                       </Button>
                     )}
-                    {canEdit && (
-                      <Button type="button" variant="outline" size="md" disabled={!highlightId} onClick={startModify}>
-                        Modify
-                      </Button>
-                    )}
-                    {canDelete && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        className="text-muted-foreground hover:text-danger"
-                        disabled={!highlightId}
-                        onClick={() => setMode("delete")}
-                      >
-                        Delete
-                      </Button>
-                    )}
                     <div className="flex-1" />
                     {clearable && value && (
                       <Button type="button" variant="outline" size="md" onClick={() => onChange("")}>
@@ -340,9 +359,6 @@ export function CommodityPicker({
                     )}
                     <Button type="button" variant="outline" size="md" onClick={close}>
                       Cancel
-                    </Button>
-                    <Button type="button" size="md" disabled={!highlightId} onClick={confirmSelection}>
-                      OK
                     </Button>
                   </div>
                 </>
