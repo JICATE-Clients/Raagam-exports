@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { focusFirstField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
+import { useModalGuard } from "@/lib/reload-guard";
 
 /**
  * The COMPLEX-tier editor surface: a full-screen takeover with a left section
@@ -73,6 +74,11 @@ export function MasterFullScreen({
   const firstKey = initialSection ?? sections[0]?.key ?? "";
   const [section, setSection] = useState(firstKey);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Hold off the silent PWA auto-reload while this editor is open. Required
+  // explicitly: unlike Sheet, this overlay is a bare fixed-inset div with no
+  // role="dialog", so reload-guard's DOM scan cannot see it.
+  useModalGuard(open);
 
   // Re-open always lands on the initial section.
   useEffect(() => {

@@ -12,6 +12,10 @@ declare const self: ServiceWorkerGlobalScope;
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
+  // Do NOT remove skipWaiting: components/pwa/silent-updater.tsx detects a new
+  // build via `controllerchange`, which only fires because the new worker
+  // activates itself instead of parking in `waiting`. Drop this and updates
+  // stop applying silently — there is no UI anywhere that would reveal it.
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,

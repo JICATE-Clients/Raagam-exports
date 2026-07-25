@@ -16,6 +16,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRegisterShortcut } from "@/lib/shortcuts";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -149,6 +150,12 @@ export function SimpleMasterScreen<Row>({
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<Editing | null>(null);
+
+  // Hold off the silent PWA auto-reload while a row is being added/edited or a
+  // save is in flight. This is inline editing with no overlay at all, so
+  // reload-guard's DOM scan has nothing to see — the declaration is the only
+  // signal. One line here covers every simple master.
+  useUnsavedGuard(editing !== null || isPending);
 
   const getId = d.getId ?? ((r: Row) => (r as { id: string }).id);
   const hasStatus = d.status !== "none";

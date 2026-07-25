@@ -6,6 +6,7 @@ import { X, User, MapPin, SlidersHorizontal, Trash2, type LucideIcon } from "luc
 import { cn } from "@/lib/utils";
 import { focusFirstField } from "@/lib/focus";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
@@ -193,6 +195,13 @@ export function VendorMasterScreen({
     return () => window.clearTimeout(id);
   }, [open, section]);
   const [dirty, setDirty] = useState(false);
+
+  // Hold off the silent PWA auto-reload. Both guards are needed here: the
+  // editor at :519 is a hand-rolled `fixed inset-0` clone with no role="dialog",
+  // so reload-guard's DOM scan can't see it the way it sees a Sheet.
+  useModalGuard(open);
+  useUnsavedGuard(dirty || isPending);
+
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [addresses, setAddresses] = useState<AddressRow[]>([]);
   const keySeq = useRef(0);
@@ -818,9 +827,9 @@ export function VendorMasterScreen({
                                   <th className="w-9 px-2 py-2" />
                                 </tr>
                               </thead>
-                              <tbody>
+                              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addAddress)}>
                                 {addresses.map((a, i) => (
-                                  <tr key={a.key} className="border-t border-border align-top">
+                                  <tr data-grid-row key={a.key} className="border-t border-border align-top">
                                     <td className="px-2 py-1.5 text-center font-mono text-muted-foreground">{i + 1}</td>
                                     <td className="px-1.5 py-1.5">
                                       <Input
@@ -915,9 +924,9 @@ export function VendorMasterScreen({
                           </div>
 
                           {/* mobile: stacked cards */}
-                          <div className="space-y-3 p-3 md:hidden">
+                          <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addAddress)} className="space-y-3 p-3 md:hidden">
                             {addresses.map((a, i) => (
-                              <div key={a.key} className="space-y-2 rounded-md border border-border p-2.5">
+                              <div data-grid-row key={a.key} className="space-y-2 rounded-md border border-border p-2.5">
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs font-medium text-muted-foreground">Address #{i + 1}</span>
                                   <button

@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { orderedFocusables, focusFirstField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
+import { useModalGuard } from "@/lib/reload-guard";
 
 // Ref-counts open Sheets so a nested Sheet's cleanup doesn't clear the scroll
 // lock a still-open outer Sheet depends on (e.g. a field picker inside an
@@ -74,6 +75,10 @@ export function Sheet({
   // until mounted so the server and first client render agree (no hydration gap).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Hold off the silent PWA auto-reload while an editor is open — see
+  // lib/reload-guard.ts. One line here covers every Sheet in the app.
+  useModalGuard(open);
 
   // The dialog container of whichever variant is rendered — the boundary for
   // the focus trap and Enter-advance below.

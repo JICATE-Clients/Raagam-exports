@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { saveCustomerTcs } from "@/lib/masters/tcs-actions";
 import type { CustomerTcsRow } from "@/lib/masters/tcs-service";
 import type { Country } from "@/lib/masters/country-types";
@@ -53,6 +54,10 @@ export function TcsAssignScreen({
 
   const valueOf = (r: CustomerTcsRow) => edits.get(r.id) ?? r.tcs_applicable;
   const dirty = edits.size > 0;
+
+  // Hold off the silent PWA auto-reload while rows are edited or a save is in
+  // flight — this grid has no overlay, so the declaration is the only signal.
+  useUnsavedGuard(dirty || isPending);
 
   function setTcs(r: CustomerTcsRow, next: boolean) {
     setEdits((prev) => {

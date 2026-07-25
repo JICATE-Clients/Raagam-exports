@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { saveVendorGst, type VendorGstChange } from "@/lib/masters/vendor-gst-actions";
 import type { VendorGstRow } from "@/lib/masters/vendor-gst-service";
 import {
@@ -65,6 +66,10 @@ export function GstAssignScreen({ rows, perms }: { rows: VendorGstRow[]; perms: 
     return !!e && (e.gst_reg_status !== r.gst_reg_status || (e.gst_no ?? "") !== (r.gst_no ?? ""));
   };
   const dirty = useMemo(() => rows.filter(isDirty).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hold off the silent PWA auto-reload while rows are edited or a save is in
+  // flight — this grid has no overlay, so the declaration is the only signal.
+  useUnsavedGuard(dirty > 0 || isPending);
 
   function setEdit(id: string, patch: Partial<Edit>) {
     setEdits((prev) => {

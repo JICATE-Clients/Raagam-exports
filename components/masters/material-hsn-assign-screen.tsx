@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { saveMaterialHsn, type MaterialHsnChange } from "@/lib/masters/material-hsn-actions";
 import type { MaterialHsnRow } from "@/lib/masters/material-hsn-service";
 
@@ -64,6 +65,10 @@ export function MaterialHsnAssignScreen({
   const cur = (r: MaterialHsnRow): string | null => (edits.has(r.id) ? edits.get(r.id)! : r.hsn_id);
   const isDirty = (r: MaterialHsnRow) => edits.has(r.id) && (edits.get(r.id) ?? "") !== (r.hsn_id ?? "");
   const dirty = useMemo(() => rows.filter(isDirty).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hold off the silent PWA auto-reload while rows are edited or a save is in
+  // flight — this grid has no overlay, so the declaration is the only signal.
+  useUnsavedGuard(dirty > 0 || isPending);
 
   function setEdit(id: string, val: string | null) {
     setEdits((prev) => {

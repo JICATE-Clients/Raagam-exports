@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 
 /**
  * Autosave-to-draft for a form (checklist "Auto Save (Draft)"): while `enabled`,
@@ -34,6 +35,10 @@ export function useFormDraft<T>({
   debounceMs?: number;
 }) {
   const [hasDraft, setHasDraft] = useState(false);
+  // Live "differs from the baseline" flag. Hoisted out of the persist effect so
+  // it can also hold off the silent PWA auto-reload (lib/reload-guard.ts) —
+  // which means every consumer of this hook is protected without opting in.
+  const [isDirty, setIsDirty] = useState(false);
   // JSON of the state captured when the editor opened — the "not dirty" baseline.
   const baselineRef = useRef<string | null>(null);
   const onRestoreRef = useRef(onRestore);
@@ -59,9 +64,14 @@ export function useFormDraft<T>({
 
   // Debounced persist while dirty.
   useEffect(() => {
-    if (!enabled || baselineRef.current == null) return;
+    if (!enabled || baselineRef.current == null) {
+      setIsDirty(false);
+      return;
+    }
     const snap = JSON.stringify(value);
-    if (snap === baselineRef.current) return; // untouched — nothing to save
+    const dirty = snap !== baselineRef.current;
+    setIsDirty(dirty); // must be set before the early return below
+    if (!dirty) return; // untouched — nothing to save
     const id = window.setTimeout(() => {
       try {
         window.localStorage.setItem(storageKey, snap);
@@ -91,6 +101,8 @@ export function useFormDraft<T>({
     setHasDraft(false);
   }, [storageKey]);
 
+  useUnsavedGuard(isDirty);
+
   // discard is clear + hide the banner (semantic alias for the UI).
-  return { hasDraft, restore, discard: clear, clear };
+  return { hasDraft, isDirty, restore, discard: clear, clear };
 }

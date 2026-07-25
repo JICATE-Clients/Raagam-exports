@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -217,6 +218,11 @@ export function CustomerMasterScreen({
   const [colsOpen, setColsOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  // Hold off the silent PWA auto-reload while there's unsaved work or a save is
+  // in flight. The overlay itself is a MasterFullScreen, which already guards.
+  useUnsavedGuard(dirty || isPending);
+
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [applicantIds, setApplicantIds] = useState<string[]>([]);

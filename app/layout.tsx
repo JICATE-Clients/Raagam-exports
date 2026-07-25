@@ -3,7 +3,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
-import { UpdatePrompt } from "@/components/pwa/update-prompt";
+import { SilentUpdater } from "@/components/pwa/silent-updater";
 
 export const metadata: Metadata = {
   title: "Raagam ERP",
@@ -35,7 +35,7 @@ export default function RootLayout({
           <Providers>{children}</Providers>
         </BugReporterWrapper>
         <InstallPrompt />
-        <UpdatePrompt />
+        <SilentUpdater />
       </body>
     </html>
   );
