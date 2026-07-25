@@ -6,6 +6,7 @@ import { signOut } from "@/lib/auth/actions";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 interface Location {
@@ -29,7 +30,7 @@ export function Topbar({ locations }: { locations: Location[] }) {
         <span className="hidden text-xs text-muted-foreground sm:inline">
           Location
         </span>
-        <select
+        <Select
           value={locationId}
           onChange={(e) => setLocationId(e.target.value)}
           className="h-8 rounded-md border border-border bg-surface px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -39,7 +40,7 @@ export function Topbar({ locations }: { locations: Location[] }) {
               {l.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <div className="flex items-center gap-1">

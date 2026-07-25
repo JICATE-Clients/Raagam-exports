@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { Select } from "@/components/ui/select";
 
 interface Loc {
   id: string;
@@ -18,16 +20,26 @@ export function AnalyticsFiltersBar({
   const field =
     "h-8 rounded-md border border-border bg-surface px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+  // Controlled so the dropdown lists options for arrow-key picking (the value is
+  // submitted via GET through the Select's hidden input / native select name).
+  const [preset, setPreset] = useState(current.preset);
+  const [location, setLocation] = useState(current.location);
+
   return (
     <form method="get" className="flex flex-wrap items-end gap-2">
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">Period</span>
-        <select name="preset" defaultValue={current.preset} className={field}>
+        <Select
+          name="preset"
+          value={preset}
+          onChange={(e) => setPreset(e.target.value)}
+          className={field}
+        >
           <option value="12m">Last 12 months</option>
           <option value="year">This year</option>
           <option value="month">This month</option>
           <option value="custom">Custom…</option>
-        </select>
+        </Select>
       </label>
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">From</span>
@@ -39,14 +51,19 @@ export function AnalyticsFiltersBar({
       </label>
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">Entity</span>
-        <select name="location" defaultValue={current.location} className={field}>
+        <Select
+          name="location"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          className={field}
+        >
           <option value="">All locations</option>
           {locations.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <button
         type="submit"

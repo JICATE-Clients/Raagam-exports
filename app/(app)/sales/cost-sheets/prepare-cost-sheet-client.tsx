@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -379,7 +380,7 @@ export function PrepareCostSheetClient({
                             </td>
                             <td className="px-2 py-1.5">
                               <button type="button" onClick={() => removeItem(i)} disabled={lineItems.length === 1} className="text-xs text-muted-foreground hover:text-danger disabled:opacity-30" title="Remove line">
-                                ✕
+                                <X className="h-4 w-4 shrink-0" />
                               </button>
                             </td>
                           </tr>

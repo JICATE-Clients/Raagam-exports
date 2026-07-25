@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, SquarePen, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, SquarePen, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -220,9 +220,14 @@ function DialogListPicker({
 
   return (
     <div>
-      <Label>
-        {label} {required && <span className="text-danger">*</span>}
-      </Label>
+      {/* An empty label renders nothing at all — callers inside a grid row pass
+          label="" and an empty <Label> still contributed its line-height, so
+          picker cells sat lower than the plain inputs beside them. */}
+      {label ? (
+        <Label>
+          {label} {required && <span className="text-danger">*</span>}
+        </Label>
+      ) : null}
       <button
         type="button"
         onClick={openPicker}
@@ -231,7 +236,7 @@ function DialogListPicker({
         <span className={cn("truncate", !selected && "text-muted-foreground")}>
           {selected ? `${selected.label}${selected.disabled ? " (inactive)" : ""}` : placeholder}
         </span>
-        <span className="ml-2 shrink-0 text-muted-foreground">⌄</span>
+        <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
 
       <Sheet
@@ -933,6 +938,7 @@ export function CategoryPicker({
         <CategoryQuickCreateSheet
           open={qcOpen}
           onClose={() => setQcOpen(false)}
+          knownNames={all.map((c) => c.name ?? "")}
           onCreated={(cat) => {
             // Same optimistic flow as manage.onCreated: stub the new category
             // into the list, select it (committing also closes the picker

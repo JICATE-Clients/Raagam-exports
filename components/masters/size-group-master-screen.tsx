@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -387,7 +388,7 @@ export function SizeGroupMasterScreen({
                     onClick={() => removeChildRow(row.key)}
                     aria-label="Remove size"
                   >
-                    ✕
+                    <X className="h-4 w-4 shrink-0" />
                   </Button>
                 </div>
               ))}

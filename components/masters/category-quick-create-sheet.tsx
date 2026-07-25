@@ -24,6 +24,8 @@ import { LevyPicker } from "@/components/masters/lookup-picker";
 import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { createCategory } from "@/lib/masters/category-actions";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
   showsUserDefined,
@@ -45,6 +47,7 @@ export function CategoryQuickCreateSheet({
   commodities,
   itemClasses,
   fabricStructures,
+  knownNames,
   perms,
 }: {
   open: boolean;
@@ -59,6 +62,9 @@ export function CategoryQuickCreateSheet({
   commodities: Commodity[];
   itemClasses: ConfigLookup[];
   fabricStructures: ConfigLookup[];
+  /** Existing category names (from the picker's scoped list) — augment the
+   *  spell-suggest dictionary beyond the curated seed words. */
+  knownNames?: string[];
   perms: { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 }) {
   const { success, error } = useToast();
@@ -94,6 +100,13 @@ export function CategoryQuickCreateSheet({
     name,
     scope: { item_class_id: itemClassId || null },
     enabled: open && !!(name && itemClassId),
+  });
+
+  // Live "did you mean?" on Name — suppressed while a dup error is showing.
+  const nameSuggestions = useSpellSuggest({
+    name,
+    names: knownNames,
+    enabled: open && !!name && !dupError,
   });
 
   // made only applies to Yarn — never persist a stray value for other classes.
@@ -197,6 +210,7 @@ export function CategoryQuickCreateSheet({
             className="text-base md:text-sm"
           />
           {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+          <SpellSuggestHint suggestions={nameSuggestions} onApply={setName} />
         </div>
 
         {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only — it

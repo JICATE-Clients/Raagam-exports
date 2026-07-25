@@ -13,7 +13,10 @@ export const Input = forwardRef<
   <input
     ref={ref}
     className={cn(
-      "h-9 w-full rounded-md border border-border bg-surface px-3 text-sm",
+      // text-base on mobile stops iOS zooming the viewport on focus; text-sm on
+      // desktop keeps the dense ERP rhythm. Lives here rather than at ~595 call
+      // sites that each re-typed `className="text-base md:text-sm"`.
+      "h-9 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
       "placeholder:text-muted-foreground",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",

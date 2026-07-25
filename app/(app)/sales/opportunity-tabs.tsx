@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
@@ -874,7 +875,7 @@ function CostSheetsTab({
                                 className="text-muted-foreground hover:text-danger disabled:opacity-30 text-xs"
                                 title="Remove line"
                               >
-                                ✕
+                                <X className="h-4 w-4 shrink-0" />
                               </button>
                             </td>
                           </tr>

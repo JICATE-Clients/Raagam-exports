@@ -2,15 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  User,
-  MapPin,
-  Users,
-  Package,
-  Truck,
-  SlidersHorizontal,
-  type LucideIcon,
-} from "lucide-react";
+import { MapPin, Package, SlidersHorizontal, Truck, User, Users, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -638,7 +630,7 @@ export function CustomerMasterScreen({
                         className="grid h-4 w-4 place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger"
                         aria-label="Remove applicant"
                       >
-                        ✕
+                        <X className="h-4 w-4 shrink-0" />
                       </button>
                     </span>
                   );

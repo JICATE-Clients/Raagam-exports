@@ -85,7 +85,7 @@ function MilestoneEditRow({ milestone }: { milestone: TaMilestone }) {
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <select
+      <Select
         value={status}
         onChange={(e) => setStatus(e.target.value as MilestoneStatus)}
         className="h-7 rounded border border-border bg-surface px-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -96,7 +96,7 @@ function MilestoneEditRow({ milestone }: { milestone: TaMilestone }) {
             {s.replace("_", " ")}
           </option>
         ))}
-      </select>
+      </Select>
       <input
         type="date"
         value={actualDate}

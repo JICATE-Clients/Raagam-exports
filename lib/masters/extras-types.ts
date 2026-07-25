@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CURRENCY_RE } from "@/lib/validation/formats";
+import { CURRENCY_RE, YARN_COUNT_RE } from "@/lib/validation/formats";
 
 // ============================================================================
 // Config lookups — generic kind-discriminated material/spec masters (0218)
@@ -190,14 +190,27 @@ export const attributeInput = z.object({
   values: z.array(attributeValueInput).default([]),
 });
 export type AttributeInput = z.infer<typeof attributeInput>;
-export const lookupInput = z.object({
-  kind: z.enum(LOOKUP_KINDS),
-  code: z.string().optional().nullable(),
-  name: z.string().min(1),
-  type_code: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-  is_active: z.boolean().default(true),
-});
+export const lookupInput = z
+  .object({
+    kind: z.enum(LOOKUP_KINDS),
+    code: z.string().optional().nullable(),
+    name: z.string().min(1),
+    type_code: z.string().optional().nullable(),
+    notes: z.string().optional().nullable(),
+    is_active: z.boolean().default(true),
+  })
+  // Yarn Count values are constrained to canonical textile shapes (10'S, 2/10'S,
+  // 40 DINER); scoped to kind so every other lookup kind stays free text. Tested
+  // uppercased to mirror the server storing names in CAPS (see extras-actions).
+  .superRefine((v, ctx) => {
+    if (v.kind === "yarn_count" && !YARN_COUNT_RE.test(v.name.trim().toUpperCase())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["name"],
+        message: "Use 10'S, 2/10'S or 40 DINER",
+      });
+    }
+  });
 export type LookupInput = z.infer<typeof lookupInput>;
 
 // ============================================================================

@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ export function Combobox({
   disabled = false,
   id,
   className,
+  openOnFocus = true,
 }: {
   options: ComboboxOption[];
   value: string;
@@ -40,6 +42,13 @@ export function Combobox({
   disabled?: boolean;
   id?: string;
   className?: string;
+  /**
+   * Open the list as soon as the input is focused. Default true. Pass false for
+   * a native-select feel: focus alone leaves the list closed (so Enter can
+   * advance to the next field), and the list opens only on click / ArrowDown /
+   * typing.
+   */
+  openOnFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -77,6 +86,16 @@ export function Combobox({
     };
   }, [open, measure]);
 
+  // Keep the highlighted option scrolled into view during keyboard navigation
+  // (↑/↓) and when opening on a pre-selected value further down the list — a
+  // custom listbox must do this itself, unlike a native <select>. Without it the
+  // highlighted row (e.g. the last item, YARN) can sit clipped at the list edge.
+  useEffect(() => {
+    if (!open) return;
+    const el = listRef.current?.children[highlight] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [highlight, open]);
+
   // Close on outside click (input root OR the portaled list).
   useEffect(() => {
     if (!open) return;
@@ -100,23 +119,44 @@ export function Combobox({
     onChange(v);
     setOpen(false);
     setQuery("");
-    inputRef.current?.blur();
+    // Deliberately NO blur() here. Blurring dropped focus to <body>, so the very
+    // next Tab hit the Sheet's trap with `!inside` and got sent back to the top
+    // of the form (client 2026-07-24 #1/#5). Focus stays on the field it came
+    // from; only the list closes.
   }
 
+  /**
+   * The one keyboard contract (doc/ui/uicheck list.md):
+   *   ↓/↑    open the list when closed, move the highlight when open
+   *   Enter  pick the highlight and close — when closed, bubble so the Sheet
+   *          advances to the next field
+   *   Tab    close WITHOUT selecting, then move on (never let Tab change a
+   *          value — brushing an arrow key then tabbing must not silently
+   *          write a different value)
+   *   Esc    close the list only, never the surrounding editor
+   */
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
+      // Arrows are consumed here; without stopPropagation a combobox sitting in
+      // a grid cell would move the highlight AND jump the grid a row.
+      e.stopPropagation();
       if (!open) return openList();
-      setHighlight((h) => Math.min(h + 1, filtered.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlight((h) => Math.max(h - 1, 0));
+      setHighlight((h) =>
+        e.key === "ArrowDown" ? Math.min(h + 1, filtered.length - 1) : Math.max(h - 1, 0),
+      );
     } else if (e.key === "Enter") {
       if (open && filtered[highlight]) {
         // Don't let the Sheet's Enter-advance also fire.
         e.preventDefault();
         e.stopPropagation();
         commit(filtered[highlight].value);
+      }
+    } else if (e.key === "Tab") {
+      // Close only — no preventDefault, so the browser still moves focus.
+      if (open) {
+        setOpen(false);
+        setQuery("");
       }
     } else if (e.key === "Escape") {
       if (open) {
@@ -143,7 +183,10 @@ export function Combobox({
         disabled={disabled}
         value={shownValue}
         placeholder={selected ? selected.label : placeholder}
-        onFocus={openList}
+        onFocus={openOnFocus ? openList : undefined}
+        onClick={() => {
+          if (!open) openList();
+        }}
         onChange={(e) => {
           setQuery(e.target.value);
           setHighlight(0);
@@ -151,7 +194,7 @@ export function Combobox({
         }}
         onKeyDown={onKeyDown}
         className={cn(
-          "h-9 w-full rounded-md border border-border bg-surface px-3 pr-8 text-sm",
+          "h-9 w-full rounded-md border border-border bg-surface px-3 pr-8 text-base md:text-sm",
           "placeholder:text-muted-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -165,11 +208,11 @@ export function Combobox({
           onClick={() => commit("")}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
         >
-          ✕
+          <X className="h-4 w-4 shrink-0" />
         </button>
       ) : (
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-          ⌄
+          <ChevronDown className="h-4 w-4 shrink-0" />
         </span>
       )}
 

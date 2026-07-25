@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -86,7 +86,7 @@ export function AcHeadPicker({
           className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>{selectedLabel}</span>
-          <span className="ml-2 shrink-0 rounded border border-border px-1.5 text-xs text-muted-foreground">ⓘ</span>
+          <Info className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
         </button>
         {selected && !disabled && (
           <button
@@ -95,7 +95,7 @@ export function AcHeadPicker({
             className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-danger"
             aria-label="Clear"
           >
-            ✕
+            <X className="h-4 w-4 shrink-0" />
           </button>
         )}
       </div>

@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { AuditList } from "@/components/audit/audit-list";
+import { Select } from "@/components/ui/select";
 import { TABLE_LABELS, type RecordAuditRow } from "@/lib/record-audit/types";
 
 interface Current {
@@ -36,29 +38,44 @@ export function AuditBrowser({
   const field =
     "h-8 rounded-md border border-border bg-surface px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+  // Controlled so the dropdown lists options for arrow-key picking (the value is
+  // submitted via GET through the Select's hidden input / native select name).
+  const [table, setTable] = useState(current.table);
+  const [op, setOp] = useState(current.op);
+
   return (
     <div className="space-y-3">
       {/* Filters submit via GET so filtering is server-driven + shareable via URL */}
       <form method="get" className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Record type</span>
-          <select name="table" defaultValue={current.table} className={field}>
+          <Select
+            name="table"
+            value={table}
+            onChange={(e) => setTable(e.target.value)}
+            className={field}
+          >
             <option value="">All</option>
             {Object.entries(TABLE_LABELS).map(([k, v]) => (
               <option key={k} value={k}>
                 {v}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Action</span>
-          <select name="op" defaultValue={current.op} className={field}>
+          <Select
+            name="op"
+            value={op}
+            onChange={(e) => setOp(e.target.value)}
+            className={field}
+          >
             <option value="">All</option>
             <option value="INSERT">Created</option>
             <option value="UPDATE">Updated</option>
             <option value="DELETE">Deleted</option>
-          </select>
+          </Select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">From</span>

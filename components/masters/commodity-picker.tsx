@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { X, Pencil, Trash2 } from "lucide-react";
+import { Info, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -224,7 +224,7 @@ export function CommodityPicker({
         className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
       >
         <span className={selected ? "text-foreground" : "text-muted-foreground"}>{selectedLabel}</span>
-        <span className="ml-2 shrink-0 rounded border border-border px-1.5 text-xs text-muted-foreground">ⓘ</span>
+        <Info className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
 
       {mounted &&

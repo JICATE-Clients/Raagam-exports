@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -237,7 +238,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
                       ))}
                     </Select>
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
-                      onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+                      onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>
                   <div className="ml-8 grid grid-cols-2 gap-2">
                     <div>

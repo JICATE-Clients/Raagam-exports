@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -696,7 +697,7 @@ export function ConsigneeMasterScreen({
                           onClick={() => removeContact(c.key)}
                           aria-label="Remove contact"
                         >
-                          ✕
+                          <X className="h-4 w-4 shrink-0" />
                         </Button>
                       </div>
                       <div>
@@ -912,7 +913,7 @@ export function ConsigneeMasterScreen({
                         onClick={() => removeMarking(m.key)}
                         aria-label="Remove marking"
                       >
-                        ✕
+                        <X className="h-4 w-4 shrink-0" />
                       </Button>
                     </div>
                   ))}
@@ -997,7 +998,7 @@ export function ConsigneeMasterScreen({
                         onClick={() => removeNotifyRef(n.key)}
                         aria-label="Remove notify party"
                       >
-                        ✕
+                        <X className="h-4 w-4 shrink-0" />
                       </Button>
                     </div>
                     <div>
@@ -1014,6 +1015,7 @@ export function ConsigneeMasterScreen({
                       <Input
                         value={n.notify_id ? (notifyCountryLabel.get(n.notify_id) ?? "—") : ""}
                         readOnly
+                        tabIndex={-1}
                         placeholder="— from Notify —"
                         className="text-base md:text-sm"
                       />

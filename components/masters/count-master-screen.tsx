@@ -18,7 +18,15 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
   entityLabel: "Count",
   ioEntityKey: "counts",
   status: "active",
-  fields: [{ key: "name", label: "Name", required: true }],
+  fields: [
+    {
+      key: "name",
+      label: "Name",
+      required: true,
+      format: "yarn_count",
+      placeholder: "e.g. 10'S, 2/10'S, 40 DINER",
+    },
+  ],
   extraColumns: [
     {
       header: "Created Date",

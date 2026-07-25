@@ -627,7 +627,7 @@ export function EmployeeMasterScreen({
               </div>
               <div>
                 <Label htmlFor="emp-age">Age</Label>
-                <Input id="emp-age" value={age ?? ""} readOnly className="text-base md:text-sm" />
+                <Input id="emp-age" value={age ?? ""} readOnly tabIndex={-1} className="text-base md:text-sm" />
               </div>
             </div>
             <div>

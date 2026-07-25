@@ -1,48 +1,68 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+/** The controls that form a row's navigable axis, in DOM order. */
+const ROW_FIELDS =
+  'input:not([type="button"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea';
+
+/** Direct descendants only — a nested ChildGrid must not steal the outer one's rows. */
+function ownDescendants(scope: HTMLElement, selector: string, boundary: string): HTMLElement[] {
+  return Array.from(scope.querySelectorAll<HTMLElement>(selector)).filter(
+    (el) => el.closest(boundary) === scope,
+  );
+}
+
 /**
- * Excel-like vertical movement inside the desktop grid (checklist "Better Table
+ * Excel-like vertical movement inside a child grid (checklist "Better Table
  * Navigation"): Enter / ArrowDown move to the same column one row down; ArrowUp
  * moves up. On Enter in the last row we call `onAdd` and focus the same column
  * in the freshly-added row. Horizontal movement stays on native Tab (and the
  * Sheet's row-major Enter-advance, which this overrides via stopPropagation for
- * the keys it handles). Only fires for text-like inputs, so selects/pickers keep
- * their native Enter (e.g. opening a picker dialog).
+ * the keys it handles). Only fires for text-like inputs, so pickers keep their
+ * native Enter (e.g. opening a picker dialog).
+ *
+ * Deliberately shape-agnostic: rows are found via `data-grid-row` /
+ * `data-grid-body` rather than `<tr>`/`<td>`, and a row's "column" is the
+ * position of the control among that row's fields. It previously keyed off
+ * `closest("td")`, so it silently did nothing in card mode — which is every
+ * Material grid, since they all pass `forceCards`. That is why arrow keys
+ * appeared to work on some screens and not others (client 2026-07-24 #2).
  */
-function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => void) {
+export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => void) {
   if (e.key !== "Enter" && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
   const el = e.target;
   if (!(el instanceof HTMLInputElement)) return;
   if (/^(button|submit|reset|checkbox|radio)$/.test(el.type)) return;
-  const cell = el.closest("td");
-  const row = el.closest("tr");
-  const body = row?.parentElement;
-  if (!cell || !row || !body) return;
-  const col = cell.cellIndex;
-  const rows = Array.from(body.children) as HTMLTableRowElement[];
+  const row = el.closest<HTMLElement>("[data-grid-row]");
+  const body = row?.closest<HTMLElement>("[data-grid-body]");
+  if (!row || !body) return;
+
+  const fieldsIn = (r: HTMLElement) => ownDescendants(r, ROW_FIELDS, "[data-grid-row]");
+  const col = fieldsIn(row).indexOf(el);
+  if (col === -1) return;
+  const rows = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
   const idx = rows.indexOf(row);
 
-  const focusColIn = (tr: HTMLTableRowElement | undefined) => {
-    const target = tr?.cells[col]?.querySelector<HTMLElement>(
-      'input:not([type="button"]):not([type="hidden"]), select, textarea',
-    );
-    if (target) {
-      target.focus();
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-        const len = target.value.length;
-        try {
-          target.setSelectionRange(len, len);
-        } catch {
-          /* number/email inputs reject selection ranges */
-        }
+  const focusColIn = (target?: HTMLElement) => {
+    if (!target) return false;
+    const fields = fieldsIn(target);
+    // Fall back to the last field when a row is shorter than the current one.
+    const next = fields[col] ?? fields[fields.length - 1];
+    if (!next) return false;
+    next.focus();
+    if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) {
+      const len = next.value.length;
+      try {
+        next.setSelectionRange(len, len);
+      } catch {
+        /* number/email inputs reject selection ranges */
       }
-      return true;
     }
-    return false;
+    return true;
   };
 
   if (e.key === "ArrowUp") {
@@ -63,9 +83,8 @@ function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => void) {
     e.preventDefault();
     e.stopPropagation();
     addRow();
-    const owner = body;
     window.setTimeout(() => {
-      const fresh = Array.from(owner.children) as HTMLTableRowElement[];
+      const fresh = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
       focusColIn(fresh[fresh.length - 1]);
     }, 30);
   }
@@ -76,6 +95,9 @@ export interface ChildGridColumn<T> {
   cell: (row: T, index: number) => ReactNode;
   align?: "left" | "right" | "center";
   className?: string;
+  /** Card-mode track width, e.g. "6rem" for a percentage or "auto" to hug.
+   *  Omit to flex and take the remaining space (the picker/name column). */
+  width?: string;
 }
 
 /**
@@ -99,6 +121,8 @@ export function ChildGrid<T extends { key: string }>({
   forceCards = false,
   frameless = false,
   keyboardNav = true,
+  hideAdd = false,
+  inlineCards = false,
 }: {
   label: ReactNode;
   /** Optional trailing status next to the label, e.g. a "83% of 100%" running-total badge. */
@@ -124,6 +148,13 @@ export function ChildGrid<T extends { key: string }>({
   /** Excel-like Enter/↑/↓ vertical cell navigation on the desktop table (on by
    *  default). Set false for grids where Enter should keep its native meaning. */
   keyboardNav?: boolean;
+  /** Hide the trailing "+ Add" button — for grids capped at a fixed row count
+   *  (e.g. Single Yarn fabric = exactly one component). */
+  hideAdd?: boolean;
+  /** One flex row per record with a single shared header, honouring each
+   *  column's `width`. Use instead of `forceCards` for grids of narrow fields
+   *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
+  inlineCards?: boolean;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   return (
@@ -158,9 +189,9 @@ export function ChildGrid<T extends { key: string }>({
               <th className="w-8 border-l border-border" />
             </tr>
           </thead>
-          <tbody>
+          <tbody data-grid-body>
             {rows.map((row, i) => (
-              <tr key={row.key} className="border-b border-border last:border-0">
+              <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
                 <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
                 {columns.map((c, ci) => (
                   <td key={ci} className={cn("border-l border-border px-2 py-1.5", align[c.align ?? "left"], c.className)}>
@@ -176,7 +207,7 @@ export function ChildGrid<T extends { key: string }>({
                     onClick={() => onRemove(row)}
                     aria-label="Remove row"
                   >
-                    ✕
+                    <X className="h-4 w-4 shrink-0" />
                   </Button>
                 </td>
               </tr>
@@ -186,24 +217,93 @@ export function ChildGrid<T extends { key: string }>({
       </div>
       )}
 
-      {/* stacked row-cards — the only rendering when forceCards is set */}
-      <div className={cn("space-y-2", !forceCards && "@lg:hidden", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}>
+      {/* Inline rows — a flex "table" that survives a half-width column, where a
+          real <table> would overflow. Each column keeps its own width, so a
+          Mixing % stays a small box instead of stretching and shoving the next
+          field onto a second line (client 2026-07-24 #4). */}
+      {inlineCards ? (
+        <div
+          data-grid-body
+          className={cn("space-y-1.5", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}
+          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, onAdd) : undefined}
+        >
+          {rows.length > 0 && (
+            <div className="flex items-center gap-2 px-2 pb-0.5">
+              <span className="w-4 shrink-0" />
+              {columns.map((c, ci) => (
+                <div
+                  key={ci}
+                  className={cn(
+                    "min-w-0 text-xs font-semibold text-muted-foreground",
+                    c.width ? "shrink-0" : "flex-1",
+                    align[c.align ?? "left"],
+                  )}
+                  style={c.width ? { width: c.width } : undefined}
+                >
+                  {c.header}
+                </div>
+              ))}
+              <span className="w-8 shrink-0" />
+            </div>
+          )}
+          {rows.map((row, i) => (
+            <div
+              key={row.key}
+              data-grid-row
+              className="flex items-center gap-2 rounded-md border border-border p-1.5"
+            >
+              <span className="w-4 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
+              {columns.map((c, ci) => (
+                <div
+                  key={ci}
+                  className={cn("min-w-0", c.width ? "shrink-0" : "flex-1", c.className)}
+                  style={c.width ? { width: c.width } : undefined}
+                >
+                  {c.cell(row, i)}
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
+                onClick={() => onRemove(row)}
+                aria-label="Remove row"
+              >
+                <X className="h-4 w-4 shrink-0" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+      /* stacked row-cards — the only rendering when forceCards is set. Carries
+          the same keyboard nav as the table: these ARE the grid on every
+          Material screen (they all pass forceCards), so binding it only to the
+          table left arrow keys dead there. */
+      <div
+        data-grid-body
+        className={cn("space-y-2", !forceCards && "@lg:hidden", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}
+        onKeyDown={keyboardNav ? (e) => gridKeyNav(e, onAdd) : undefined}
+      >
         {rows.map((row, i) => (
-          <div key={row.key} className="space-y-2 rounded-lg border border-border p-2.5">
+          <div key={row.key} data-grid-row className="space-y-2 rounded-lg border border-border p-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
-              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => onRemove(row)}>
-                ✕
+              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+                <X className="h-4 w-4 shrink-0" />
               </Button>
             </div>
             {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => <div key={ci}>{c.cell(row, i)}</div>)}
           </div>
         ))}
       </div>
+      )}
 
-      <Button type="button" variant="outline" size="sm" onClick={onAdd}>
-        {addLabel}
-      </Button>
+      {!hideAdd && (
+        <Button type="button" variant="outline" size="sm" onClick={onAdd}>
+          {addLabel}
+        </Button>
+      )}
     </div>
   );
 }

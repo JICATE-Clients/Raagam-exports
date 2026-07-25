@@ -82,15 +82,15 @@ export function YarnQuickCreateSheet({
     if (!melange) setShade("");
   }
 
-  // Live NAME = Count + Category NAME + Purity in CAPS — mirrors the material
-  // screen's YARN suggestedName (user 2026-07-23: the category's own name,
-  // e.g. "cotton mixed", joins the name — not its nature "Mixed"). Mixing
-  // parts are out of scope here (no blend grid in quick-create).
+  // Live NAME = Count + Purity + Category NAME in CAPS — mirrors the material
+  // screen's YARN suggestedName (user 2026-07-24: order is count, yarn purity,
+  // then the category's own name, e.g. "cotton mixed"). Mixing parts are out of
+  // scope here (no blend grid in quick-create).
   const previewName = useMemo(() => {
     const parts = [
       countId ? counts.find((c) => c.id === countId)?.name : null,
-      selectedCategory?.name ?? null,
       purityId ? purities.find((p) => p.id === purityId)?.name : null,
+      selectedCategory?.name ?? null,
     ].filter(Boolean);
     return parts.join(" ").toUpperCase();
   }, [countId, purityId, selectedCategory, counts, purities]);

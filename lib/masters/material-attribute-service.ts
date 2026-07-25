@@ -6,10 +6,12 @@ export async function listMaterialAttributes(): Promise<MaterialAttribute[]> {
   const s = await createClient();
   const { data } = await s
     .from("material_attributes")
-    .select("*, lines:material_attribute_lines(*)")
+    .select("*, lines:material_attribute_lines(*, options:material_attribute_line_options(*))")
     .order("created_at");
   return ((data ?? []) as MaterialAttribute[]).map((m) => ({
     ...m,
-    lines: [...(m.lines ?? [])].sort((a, b) => a.sno - b.sno),
+    lines: [...(m.lines ?? [])]
+      .sort((a, b) => a.sno - b.sno)
+      .map((l) => ({ ...l, options: [...(l.options ?? [])].sort((a, b) => a.sno - b.sno) })),
   }));
 }

@@ -32,6 +32,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       className={cn(
         "inline-flex items-center justify-center font-medium transition-colors",
+        // Icons inside a button are sized and pinned by the button, never by
+        // whatever the caller passed — an unconstrained svg stretches to fill
+        // and reads as a distorted icon (client 2026-07-24 #6).
+        "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
         "disabled:pointer-events-none disabled:opacity-50",
         variants[variant],

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { X, Pencil } from "lucide-react";
+import { Info, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -187,9 +187,7 @@ export function LookupDialogPicker({
       <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
         {selectedLabel}
       </span>
-      <span className="ml-2 shrink-0 rounded border border-border px-1.5 text-xs text-muted-foreground">
-        ⓘ
-      </span>
+      <Info className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
     </button>
   );
 

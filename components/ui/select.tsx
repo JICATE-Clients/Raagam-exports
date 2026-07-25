@@ -1,21 +1,153 @@
-import { forwardRef, type SelectHTMLAttributes } from "react";
+"use client";
+
+import {
+  Children,
+  forwardRef,
+  isValidElement,
+  useEffect,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+  type SelectHTMLAttributes,
+} from "react";
 import { cn } from "@/lib/utils";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+
+/**
+ * Drop-in replacement for a native <select> (same API: <option> children,
+ * controlled `value`, `onChange` firing `e.target.value`). On a real mouse
+ * (desktop) it renders a browsable, arrow-key-navigable listbox so a keystroke
+ * OPENS and filters the list instead of instantly committing a value — the
+ * legacy-ERP "list the data, arrow-key to pick" flow. On touch it keeps the
+ * native OS picker (familiar spinner), and it stays native for SSR, `multiple`,
+ * or uncontrolled selects so nothing regresses. See components/ui/combobox.tsx
+ * for the shared list-navigation logic this adapts.
+ */
+
+const NATIVE_CLASS = cn(
+  // px-3 matches Input/Combobox — this was the lone px-2 control.
+  "h-9 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+  "disabled:cursor-not-allowed disabled:opacity-50",
+);
+
+/** Flatten the text content of an <option>'s children into a label string. */
+function optionLabel(children: ReactNode): string {
+  if (children == null || children === false || children === true) return "";
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(optionLabel).join("");
+  return "";
+}
+
+interface ParsedOptions {
+  options: ComboboxOption[];
+  placeholder?: string;
+  /** true when an explicit empty-value ("") option exists → clearing is allowed. */
+  hasEmpty: boolean;
+}
+
+/**
+ * Turn <option> children into ComboboxOption[]. A leading blank-value option
+ * (e.g. <option value="">All</option>) or a disabled first option becomes the
+ * placeholder rather than a selectable row — mirroring how a native select
+ * shows its blank first choice. Non-<option> nodes (falsy conditionals) skip.
+ */
+function parseOptions(children: ReactNode): ParsedOptions {
+  const options: ComboboxOption[] = [];
+  let placeholder: string | undefined;
+  let hasEmpty = false;
+
+  for (const child of Children.toArray(children)) {
+    if (!isValidElement(child) || child.type !== "option") continue;
+    const props = child.props as {
+      value?: string | number;
+      children?: ReactNode;
+      disabled?: boolean;
+    };
+    const label = optionLabel(props.children);
+    const value = props.value != null ? String(props.value) : label;
+
+    if (value === "") {
+      hasEmpty = true;
+      if (placeholder === undefined) placeholder = label || undefined;
+      continue;
+    }
+    if (props.disabled && options.length === 0 && placeholder === undefined) {
+      // A disabled non-blank first option is a prompt, not a real choice.
+      placeholder = label || undefined;
+      continue;
+    }
+    options.push({ value, label });
+  }
+
+  return { options, placeholder, hasEmpty };
+}
+
+/** True on a real mouse/desktop (fine pointer + hover). Touch stays on native. */
+function useEnhance(nativeOnly: boolean): boolean {
+  const [enhance, setEnhance] = useState(false);
+  useEffect(() => {
+    if (nativeOnly) return;
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      setEnhance(true);
+    }
+  }, [nativeOnly]);
+  return enhance && !nativeOnly;
+}
 
 export const Select = forwardRef<
   HTMLSelectElement,
   SelectHTMLAttributes<HTMLSelectElement>
->(({ className, children, ...props }, ref) => (
-  <select
-    ref={ref}
-    className={cn(
-      "h-9 w-full rounded-md border border-border bg-surface px-2 text-sm",
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-      "disabled:cursor-not-allowed disabled:opacity-50",
-      className,
-    )}
-    {...props}
-  >
-    {children}
-  </select>
-));
+>(({ className, children, ...props }, ref) => {
+  // Keep native for multi-select and uncontrolled (defaultValue) usage — the
+  // listbox is single-select and controlled-only.
+  const nativeOnly = Boolean(props.multiple) || props.value == null;
+  const enhance = useEnhance(nativeOnly);
+
+  const native = (
+    <select ref={ref} className={cn(NATIVE_CLASS, className)} {...props}>
+      {children}
+    </select>
+  );
+
+  // SSR + touch + first client render all render `native` (no hydration mismatch);
+  // desktop upgrades to the listbox after mount.
+  if (!enhance) return native;
+
+  const { options, placeholder, hasEmpty } = parseOptions(children);
+  // Defensive: nothing parseable → fall back to the native element.
+  if (options.length === 0) return native;
+
+  const value = props.value != null ? String(props.value) : "";
+  // Preserve a current value that isn't among the options (don't blank it).
+  const opts =
+    value && !options.some((o) => o.value === value)
+      ? [...options, { value, label: value }]
+      : options;
+
+  return (
+    <>
+      <Combobox
+        id={props.id}
+        options={opts}
+        value={value}
+        onChange={(v) =>
+          props.onChange?.({
+            target: { value: v },
+            currentTarget: { value: v },
+            preventDefault() {},
+            stopPropagation() {},
+          } as unknown as ChangeEvent<HTMLSelectElement>)
+        }
+        placeholder={placeholder ?? "Select…"}
+        clearable={hasEmpty}
+        disabled={props.disabled}
+        className={className}
+        openOnFocus={false}
+      />
+      {props.name ? <input type="hidden" name={props.name} value={value} /> : null}
+    </>
+  );
+});
 Select.displayName = "Select";

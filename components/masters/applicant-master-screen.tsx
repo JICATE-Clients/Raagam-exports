@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -631,7 +632,7 @@ export function ApplicantMasterScreen({
                           onClick={() => removeContact(c.key)}
                           aria-label="Remove contact"
                         >
-                          ✕
+                          <X className="h-4 w-4 shrink-0" />
                         </Button>
                       </div>
                       <div>

@@ -50,6 +50,8 @@ export interface Material {
   hsn_code: string | null;
   hsn_id: string | null;
   category_id: string | null;
+  /** Legacy "Type" — for SEW/PACK it is the accessory Transaction Type
+   *  (Purchased / Converted; Production filtered out in the form). */
   material_type: string | null;
   user_defined: boolean;
   specifications: string | null;
@@ -114,8 +116,11 @@ export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
  *  switch-rendered. Fabric and Yarn diverged too far (structure inheritance,
  *  nature-driven branching, %-mixing) for the generic switch — they get their
  *  own dedicated form components in the screen (0279). */
+// Form A (Button/Capital/General/Sewing/Packing): single Description field —
+// "Short Spec" dropped from the UI (0346, client "use Description only"); the
+// short_spec DB column is kept for round-trip but no longer edited here.
 export const MATERIAL_FORMS: Record<"A" | "C", MaterialForm> = {
-  A: { fields: ["category_id", "user_defined", "material_type", "specifications", "short_spec"], mixing: false },
+  A: { fields: ["category_id", "user_defined", "material_type", "specifications"], mixing: false },
   C: { fields: ["category_id", "user_defined", "material_type"], mixing: false },
 };
 
@@ -136,16 +141,19 @@ export function itemClassForm(code: string | null | undefined): MaterialFormKey 
 }
 
 // ---------------------------------------------------------------------------
-// Fabric structure → UOM auto-derivation (client walkthrough + discussion.md:
-// Circular Knit = KG; Flat Knit = Numbers + Weight, e.g. 10 collars = 1 KG;
-// Woven = Meters + KG). Structure lives on Category (0279), Material just
-// reads it. Codes match config_lookups kind `fabric_structure`, seeded from
-// the same values as the existing `styles.fabric_type` CHECK.
+// Fabric structure → default UOM (client 2026-07-24): a single default unit per
+// structure — Circular Knit = KGS, Flat Knit = KGS, Woven = MTR — applied like
+// the Yarn kg default: prefilled on the material and freely overridable. (Earlier
+// Flat = Numbers+Weight / Woven = Meters+KG dual units were dropped per the
+// client's single-unit spec.) Structure lives on Category (0279), Material just
+// reads it. Codes match config_lookups kind `fabric_structure`, seeded from the
+// same values as the existing `styles.fabric_type` CHECK. The optional
+// `secondary` stays in the shape for any future dual-unit structure.
 // ---------------------------------------------------------------------------
 export const FABRIC_STRUCTURE_UOM: Record<string, { base: string; secondary?: string }> = {
   circular: { base: "kg" },
-  flat_knit: { base: "nos", secondary: "kg" },
-  woven: { base: "mtr", secondary: "kg" },
+  flat_knit: { base: "kg" },
+  woven: { base: "mtr" },
 };
 
 // ---------------------------------------------------------------------------

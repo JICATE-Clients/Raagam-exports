@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -236,7 +237,7 @@ export function WarpLengthAllowanceMasterScreen({
                       onChange={(e) => setLineAt(l.key, { to_warp_length: e.target.value })}
                       className="flex-1 text-base md:text-sm" />
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
-                      onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+                      onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>
                   <div className="ml-8 grid grid-cols-3 gap-2">
                     <div>

@@ -6,6 +6,7 @@ import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Field, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -156,7 +157,39 @@ export function MaterialMasterScreen({
   const structureCodeById = useMemo(() => new Map(fabricStructures.map((s) => [s.id, s.code])), [fabricStructures]);
   // Lowercased keys — UOM codes are data ("kg" vs "KG" both occur); the
   // Yarn-kg default and fabric-structure UOM hints must not miss on case.
-  const unitIdByCode = useMemo(() => new Map(units.map((u) => [u.code.toLowerCase(), u.id])), [units]);
+  // Active units win a code collision, and kg/kgs are treated as synonyms both
+  // pointing at whichever kilogram unit is ACTIVE — so a deactivated "kg" never
+  // gets auto-derived (fabric hints) once the shop switches to "KGS".
+  const unitIdByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const u of units) {
+      const key = u.code.toLowerCase();
+      if (u.is_active || !m.has(key)) m.set(key, u.id);
+    }
+    const kgId = units.find((u) => u.is_active && ["kg", "kgs"].includes(u.code.toLowerCase()))?.id;
+    if (kgId) {
+      m.set("kg", kgId);
+      m.set("kgs", kgId);
+    }
+    return m;
+  }, [units]);
+  // The active kilogram unit (kg and KGS are the same unit; only one should be
+  // active). Yarn defaults to it; null when no kilogram unit is active (then no
+  // default is applied, so a deactivated unit is never prefilled).
+  const kgUnitId = useMemo(
+    () => units.find((u) => u.is_active && ["kg", "kgs"].includes(u.code.toLowerCase()))?.id ?? null,
+    [units],
+  );
+  // The active "Numbers" unit — accessories (SEW/PACK) are counted in numbers, so
+  // every UOM defaults to it (client 2026-07-24). Null when none is active.
+  const numbersUnitId = useMemo(() => {
+    const codes = ["nos", "no", "number", "numbers", "pcs", "pc", "unit", "units"];
+    return (
+      units.find((u) => u.is_active && codes.includes(u.code.toLowerCase()))?.id ??
+      units.find((u) => u.is_active && /number|^nos?$|piece/i.test(u.name))?.id ??
+      null
+    );
+  }, [units]);
   const countLabel = useMemo(() => new Map(counts.map((c) => [c.id, c.name])), [counts]);
   const purityLabel = useMemo(() => new Map(purities.map((p) => [p.id, p.name])), [purities]);
   const fabricTypeLabel = useMemo(() => new Map(fabricTypes.map((t) => [t.id, t.name])), [fabricTypes]);
@@ -202,6 +235,68 @@ export function MaterialMasterScreen({
     (((selectedCategory?.made ?? null) === "Mixed") || yarnTypeNeedsMixing);
   const fabricAttributesVisible = formKey === "FABRIC" && !form.direct_purchase;
 
+  // Yarn is always traded in KG (0279 #15). Keep every UOM defaulted to KG
+  // whenever the item class is Yarn, backfilling any that are still empty. This
+  // covers BOTH a fresh Add (class → Yarn) AND opening a legacy yarn material
+  // saved before this default (its blank UOMs prefill to KG on open). Only empty
+  // fields are filled, so a manual override always survives. formKey is a stable
+  // string and the patch never changes it, so this can't loop.
+  useEffect(() => {
+    if (formKey !== "YARN") return;
+    const kgId = kgUnitId;
+    if (!kgId) return;
+    setForm((f) => {
+      const patch: Partial<Form> = {};
+      if (!f.base_uom_id) patch.base_uom_id = kgId;
+      if (!f.stock_uom_id) patch.stock_uom_id = kgId;
+      if (!f.billing_uom_id) patch.billing_uom_id = kgId;
+      if (!f.planning_uom_id) patch.planning_uom_id = kgId;
+      if (!f.purchase_uom_id) patch.purchase_uom_id = kgId;
+      return Object.keys(patch).length ? { ...f, ...patch } : f;
+    });
+  }, [formKey, kgUnitId]);
+
+  // Accessories (Sewing/Packing) are stocked/billed/planned/purchased in Numbers.
+  // Backfill every empty UOM to the Numbers unit — same fill-blanks-only shape as
+  // the Yarn KG default, so a manual override always survives.
+  useEffect(() => {
+    if (formKey !== "A" || !["SEW", "PACK"].includes(selectedClassCode ?? "")) return;
+    const nId = numbersUnitId;
+    if (!nId) return;
+    setForm((f) => {
+      const patch: Partial<Form> = {};
+      if (!f.base_uom_id) patch.base_uom_id = nId;
+      if (!f.stock_uom_id) patch.stock_uom_id = nId;
+      if (!f.billing_uom_id) patch.billing_uom_id = nId;
+      if (!f.planning_uom_id) patch.planning_uom_id = nId;
+      if (!f.purchase_uom_id) patch.purchase_uom_id = nId;
+      return Object.keys(patch).length ? { ...f, ...patch } : f;
+    });
+  }, [formKey, selectedClassCode, numbersUnitId]);
+
+  // Fabric mirrors the Yarn default, but the unit depends on the Structure/Type
+  // (Circular/Flat = KGS, Woven = MTR, 2026-07-24). Backfill every empty UOM to
+  // that unit — covering a fresh Add AND opening a legacy fabric with blank
+  // UOMs — while any non-empty field (a manual override) survives. Switching the
+  // Type re-applies the default via handleFabricCategoryChange (which overwrites);
+  // this effect only fills blanks, so the two never fight.
+  useEffect(() => {
+    if (formKey !== "FABRIC") return;
+    const code = form.fabric_structure_id ? structureCodeById.get(form.fabric_structure_id) ?? null : null;
+    const baseId = structureUomHint(code).baseId;
+    if (!baseId) return;
+    setForm((f) => {
+      const patch: Partial<Form> = {};
+      if (!f.base_uom_id) patch.base_uom_id = baseId;
+      if (!f.stock_uom_id) patch.stock_uom_id = baseId;
+      if (!f.billing_uom_id) patch.billing_uom_id = baseId;
+      if (!f.planning_uom_id) patch.planning_uom_id = baseId;
+      if (!f.purchase_uom_id) patch.purchase_uom_id = baseId;
+      return Object.keys(patch).length ? { ...f, ...patch } : f;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formKey, form.fabric_structure_id, structureCodeById, unitIdByCode]);
+
   // ── Attribute-driven questions (SEW/PACK, 0341) ────────────────────────────
   // Every attribute_value across all item classes, by id (a line points at one).
   const attributeValueById = useMemo(
@@ -216,9 +311,17 @@ export function MaterialMasterScreen({
       ) ?? null,
     [materialAttributes, form.item_class_id, form.category_id],
   );
-  // The ordered questions to render — only for the generic (SEW/PACK/GEN) form.
+  // A category drives the attribute flow only when User Defined = No (client
+  // 2026-07-24). Yes = manual free-text name (like General); No = the system
+  // asks the configured questions and auto-generates the name.
+  const attributeDriven = formKey === "A" && selectedCategory?.user_defined === false;
+  // The attribute-driven category has no configured question set yet.
+  const attributeSetMissing = attributeDriven && !matchedAttrSet;
+  // The ordered questions to render. Each question's shape comes from its LINE
+  // (0346): Value-In-Steps → numeric range/step; otherwise the line's own value
+  // list. The attribute VALUE only supplies the question label.
   const attrQuestions = useMemo(() => {
-    if (formKey !== "A" || !matchedAttrSet) return [];
+    if (!attributeDriven || !matchedAttrSet) return [];
     return [...matchedAttrSet.lines]
       .filter((l) => !l.inactive && l.attribute_id)
       .sort((a, b) => a.sno - b.sno)
@@ -228,19 +331,27 @@ export function MaterialMasterScreen({
           lineId: l.id,
           sno: l.sno,
           label: av?.value ?? "Attribute",
-          inputType: av?.input_type ?? "numeric_range",
-          options: (av?.options ?? []).map((o) => o.value),
+          valueInSteps: l.value_in_steps,
+          options: (l.options ?? []).filter((o) => !o.blocked).map((o) => o.description),
           mandatory: l.mandatory,
           start: l.start_value,
           end: l.end_value,
           step: l.step_value,
         };
       });
-  }, [formKey, matchedAttrSet, attributeValueById]);
+  }, [attributeDriven, matchedAttrSet, attributeValueById]);
   const attrSeparator = matchedAttrSet?.name_separator ?? " ";
   const attrMandatoryMissing = attrQuestions.some((q) => q.mandatory && !(answers[q.lineId] ?? "").trim());
-  // Fabric: auto-derive UOM from Type (0279/0301 — Circular=kg, Flat
-  // Knit=numbers+weight, Woven=meters+kg). Pure lookup only — no ref access.
+  // Discrete values generated from a numeric range (e.g. GSM 100→500 step 100 →
+  // 100, 200, 300, 400, 500) — rendered as a dropdown, not a free number box.
+  const stepValues = (start: number | null, end: number | null, step: number | null): number[] => {
+    if (start == null || end == null || !step || step <= 0 || end < start) return [];
+    const out: number[] = [];
+    for (let v = start; v <= end + 1e-9 && out.length < 1000; v += step) out.push(Number(v.toFixed(4)));
+    return out;
+  };
+  // Fabric: default UOM from the Structure/Type (2026-07-24 — Circular=KGS,
+  // Flat=KGS, Woven=MTR). Single unit per structure; pure lookup, no ref access.
   function structureUomHint(code: string | null): { baseId?: string; secondaryId?: string } {
     if (!code) return {};
     const hint = FABRIC_STRUCTURE_UOM[code];
@@ -250,41 +361,31 @@ export function MaterialMasterScreen({
       secondaryId: hint.secondary ? unitIdByCode.get(hint.secondary) : undefined,
     };
   }
-  // Fabric Structure now comes from the Category (0279 #17/#18) — picking a
-  // category sets category_id, derives the fabric_structure_id off that row,
-  // and auto-fills the UOM from that structure (Circular=kg, Flat=nos+kg,
-  // Woven=mtr+kg). Top-level handler (same shape as addMix/delMix) so
-  // newKey()'s ref read stays in a spot the compiler proves is event-only —
-  // nesting it in the fabricDetails() render-helper trips react-hooks/refs.
+  // Fabric Structure comes from the Category (0279 #17/#18) — picking a category
+  // sets category_id, derives the fabric_structure_id off that row, and applies
+  // that structure's default UOM to EVERY UOM field (Circular/Flat=KGS, Woven=MTR).
+  // We overwrite here (not fill-if-empty) so switching the Type re-applies the new
+  // default; the user can still edit any UOM afterwards, and the fabric effect
+  // above only backfills blanks (e.g. opening a legacy record). Top-level handler
+  // (same shape as addMix/delMix) so it stays in an event-only spot.
   function handleFabricCategoryChange(categoryId: string) {
     const cat = categories.find((c) => c.id === categoryId) ?? null;
     const structureId = cat?.fabric_structure_id ?? "";
     const code = structureId ? structureCodeById.get(structureId) ?? null : null;
-    const { baseId, secondaryId } = structureUomHint(code);
+    const { baseId } = structureUomHint(code);
     set({
       category_id: categoryId,
       fabric_structure_id: structureId,
-      ...(baseId && !form.base_uom_id ? { base_uom_id: baseId, stock_uom_id: baseId } : {}),
+      ...(baseId
+        ? {
+            base_uom_id: baseId,
+            stock_uom_id: baseId,
+            billing_uom_id: baseId,
+            planning_uom_id: baseId,
+            purchase_uom_id: baseId,
+          }
+        : {}),
     });
-    if (baseId && secondaryId && conversions.length === 0) {
-      setConversions([{ key: newKey(), alt_qty: "", alt_uom_id: baseId, base_qty: "", base_uom_id: secondaryId }]);
-    }
-  }
-  // Fabric "Type" (Circular Knit/Flat Knit/Woven, kind fabric_structure) — a
-  // visible dropdown (client 2026-07-23, Screenshot 2071). Auto-filled when a
-  // Structure/category is picked, but user-overridable; changing it re-derives
-  // the UOM the same non-destructive way the category handler does. Top-level
-  // handler so newKey()'s ref read stays event-only (react-hooks/refs).
-  function handleFabricStructureChange(v: string) {
-    const code = v ? structureCodeById.get(v) ?? null : null;
-    const { baseId, secondaryId } = structureUomHint(code);
-    set({
-      fabric_structure_id: v,
-      ...(baseId && !form.base_uom_id ? { base_uom_id: baseId, stock_uom_id: baseId } : {}),
-    });
-    if (baseId && secondaryId && conversions.length === 0) {
-      setConversions([{ key: newKey(), alt_qty: "", alt_uom_id: baseId, base_qty: "", base_uom_id: secondaryId }]);
-    }
   }
   // Melange (yarn OR fabric type) carries a Shade (client 2026-07-23) — the
   // input only shows for Melange, so clear it when the type moves away from
@@ -297,30 +398,11 @@ export function MaterialMasterScreen({
     const isMelange = fabricTypeLabel.get(v)?.toLowerCase() === "melange";
     set({ fabric_type_id: v, ...(isMelange ? {} : { shade: "" }) });
   }
-  // Item Class change: reset the (class-scoped) Category, and default ALL of
-  // Yarn's UOMs to kg — yarn is always traded in kg (0279 #15 + client
-  // 2026-07-23 follow-up: the UOM tab must SHOW KG preselected). Only fills
-  // fields that are still unset, so a user override survives.
+  // Item Class change: reset the (class-scoped) Category. Yarn's kg UOM defaults
+  // are applied by the effect above (fires when formKey becomes YARN), so they
+  // no longer need to be duplicated here.
   function handleItemClassChange(v: string) {
-    const code = itemClasses.find((c) => c.id === v)?.code?.toUpperCase() ?? null;
-    if (code === "YARN") {
-      const kgId = unitIdByCode.get("kg");
-      set({
-        item_class_id: v,
-        category_id: "",
-        ...(kgId
-          ? {
-              ...(!form.base_uom_id ? { base_uom_id: kgId } : {}),
-              ...(!form.stock_uom_id ? { stock_uom_id: kgId } : {}),
-              ...(!form.billing_uom_id ? { billing_uom_id: kgId } : {}),
-              ...(!form.planning_uom_id ? { planning_uom_id: kgId } : {}),
-              ...(!form.purchase_uom_id ? { purchase_uom_id: kgId } : {}),
-            }
-          : {}),
-      });
-    } else {
-      set({ item_class_id: v, category_id: "" });
-    }
+    set({ item_class_id: v, category_id: "" });
   }
 
   function openAdd() {
@@ -408,6 +490,22 @@ export function MaterialMasterScreen({
       { key: newKey(), description: "", shade: "", uom_id: "", component_item_id: "", count_id: "", blend_pct: "" },
     ]);
   const setMix = (key: string, patch: Partial<MixRow>) => setMixings((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  // Mixing % must never accept more than 100% total (client 2026-07-24). Keep the
+  // raw text (so partial/decimal entry like "12." still types) unless this cell
+  // would push the blend over 100 — then cap it to the remaining budget.
+  const setMixPct = (key: string, raw: string) => {
+    const n = Number(raw);
+    if (raw.trim() === "" || Number.isNaN(n)) {
+      setMix(key, { blend_pct: raw });
+      return;
+    }
+    const others = mixings.reduce(
+      (s, r) => (r.key === key ? s : s + (numOrNull(r.blend_pct) ?? 0)),
+      0,
+    );
+    const max = Math.max(0, 100 - others);
+    setMix(key, { blend_pct: n > max ? String(max) : raw });
+  };
   const mixPctSum = mixings.reduce((sum, m) => sum + (numOrNull(m.blend_pct) ?? 0), 0);
   // Yarn-dyed fabric: the yarns are already dyed before knitting/weaving, so the
   // Attributes grid only lists WHICH yarns go in — a Mixing % doesn't apply.
@@ -421,6 +519,17 @@ export function MaterialMasterScreen({
   const isSingleYarnFabric = formKey === "FABRIC" && form.fabric_using === "Single Yarn";
   const singleYarnOverflow =
     isSingleYarnFabric && mixings.filter((m) => m.component_item_id || m.description.trim()).length > 1;
+  // The Mixing % must add up to exactly 100 to save — mirror the server's Zod
+  // refine (lib/masters/material-types.ts) client-side so an off total (over OR
+  // under 100) blocks Save with the red badge, instead of only failing on submit.
+  // Only applies where the % column is actually used: hidden for yarn-dyed and
+  // single-yarn fabric, and for yarn when the Mixing grid isn't showing.
+  const mixPctApplies =
+    !(formKey === "YARN" && !yarnMixingVisible) && !(isYarnDyedFabric || isSingleYarnFabric);
+  const mixPctSumInvalid =
+    mixPctApplies &&
+    mixings.some((m) => numOrNull(m.blend_pct) != null) &&
+    Math.abs(mixPctSum - 100) >= 0.01;
   const delMix = (key: string) => setMixings((xs) => xs.filter((r) => r.key !== key));
   const addConv = () => setConversions((xs) => [...xs, { key: newKey(), alt_qty: "", alt_uom_id: "", base_qty: "", base_uom_id: "" }]);
   const setConv = (key: string, patch: Partial<ConvRow>) => setConversions((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -518,19 +627,48 @@ export function MaterialMasterScreen({
 
   // UOM options show just the short code (client 2026-07-23 #5) — "KG",
   // not "KG — KGS".
-  const uomOptions = units.map((u) => (
-    <option key={u.id} value={u.id}>
-      {u.code}
-    </option>
-  ));
   const uomSelect = (value: string, onChange: (v: string) => void) => (
     <Select value={value} onChange={(e) => onChange(e.target.value)} className="text-base md:text-sm">
       <option value="">— None —</option>
-      {uomOptions}
+      {units
+        .filter((u) => u.is_active || u.id === value)
+        .map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.code}
+          </option>
+        ))}
     </Select>
   );
 
+  /**
+   * How wide each Classification field should be, on the 12-column track.
+   *
+   * Sized to the data, not to the grid: "User defined" is a Yes/No, Count is
+   * "40'S", Purity is a word — none of them need the half-row they used to get
+   * (client 2026-07-24 #3). Description is the only genuinely long free text.
+   * Adjust here, not at the call sites — this map is the single source of truth
+   * for the generic classes (General / SEW / PACK / CAP / Garments).
+   */
+  const DETAIL_FIELD_SIZE: Record<DetailFieldKey, FieldSize> = {
+    category_id: "md", // picker, shows a category name
+    material_type: "sm", // Purchased / Converted / Production
+    user_defined: "xs", // Yes / No
+    specifications: "lg", // free-text description
+    short_spec: "md",
+    count_id: "sm", // "40'S", "20'S/2"
+    purity_id: "sm", // one word — Combed, Carded
+    shade: "sm",
+  };
+
   function detailField(key: DetailFieldKey): ReactNode {
+    return (
+      <Field key={key} size={DETAIL_FIELD_SIZE[key]}>
+        {detailControl(key)}
+      </Field>
+    );
+  }
+
+  function detailControl(key: DetailFieldKey): ReactNode {
     switch (key) {
       case "category_id":
         return (
@@ -551,13 +689,17 @@ export function MaterialMasterScreen({
             fabricStructures={fabricStructures}
           />
         );
-      case "material_type":
+      case "material_type": {
+        // For Sewing/Packing this is the accessory "Transaction Type" — Production
+        // is removed, leaving Purchased / Converted (client 2026-07-24).
+        const isAccessory = ["SEW", "PACK"].includes(selectedClassCode ?? "");
+        const typeOptions = isAccessory ? MATERIAL_TYPES.filter((t) => t !== "Production") : MATERIAL_TYPES;
         return (
           <div key={key}>
-            <Label>Type</Label>
+            <Label>{isAccessory ? "Transaction Type" : "Type"}</Label>
             <Select value={form.material_type} onChange={(e) => set({ material_type: e.target.value })} className="text-base md:text-sm">
               <option value="">— Select —</option>
-              {MATERIAL_TYPES.map((t) => (
+              {typeOptions.map((t) => (
                 <option key={t} value={t}>
                   {t}
                 </option>
@@ -565,6 +707,7 @@ export function MaterialMasterScreen({
             </Select>
           </div>
         );
+      }
       case "user_defined":
         return (
           <div key={key}>
@@ -578,7 +721,7 @@ export function MaterialMasterScreen({
       case "specifications":
         return (
           <div key={key}>
-            <Label>Specifications</Label>
+            <Label>Description</Label>
             <Input value={form.specifications} onChange={(e) => set({ specifications: e.target.value })} className="text-base md:text-sm" />
           </div>
         );
@@ -625,18 +768,18 @@ export function MaterialMasterScreen({
     }
   }
 
-  // Live auto-name generator (0279) — Yarn: Count + Category + Purity/Mixing%;
+  // Live auto-name generator (0279) — Yarn: Count + Purity + Category/Mixing%;
   // Fabric: FABRICTYPE STRUCTURE (COMPONENTS) 100% (client 2026-07-23 #10/#12).
   // Returns null for other classes (General etc.), which stay manual. For
   // Yarn/Fabric it is written straight into the Name field via the effect below.
   const suggestedName = useMemo(() => {
     if (formKey === "YARN") {
-      // Name = Count + Category NAME + Purity (user 2026-07-23: the category's
-      // own name, e.g. "cotton mixed", joins the name — not its nature "Mixed").
+      // Name = Count + Purity + Category NAME (user 2026-07-24: order is
+      // count, yarn purity, then the category's own name, e.g. "cotton mixed").
       const parts = [
         form.count_id ? countLabel.get(form.count_id) : null,
-        selectedCategory?.name ?? null,
         form.purity_id ? purityLabel.get(form.purity_id) : null,
+        selectedCategory?.name ?? null,
       ].filter(Boolean);
       if (selectedCategory?.made === "Mixed") {
         // Mixing is optional — only rows the user has actually completed (a %
@@ -682,13 +825,15 @@ export function MaterialMasterScreen({
       }
       return head.toUpperCase() || null;
     }
-    // SEW/PACK (generic form) with a configured attribute set: join the answers.
-    if (formKey === "A" && attrQuestions.length) {
-      const parts = attrQuestions.map((q) => (answers[q.lineId] ?? "").trim()).filter(Boolean);
+    // SEW/PACK attribute-driven (User Defined = No): Category ‹sep› answers ‹sep›
+    // Description (client 2026-07-24) — e.g. "LABEL - MAIN LABEL - PRINTED - …".
+    if (attributeDriven && attrQuestions.length) {
+      const answerParts = attrQuestions.map((q) => (answers[q.lineId] ?? "").trim());
+      const parts = [selectedCategory?.name, ...answerParts, form.specifications.trim()].filter(Boolean);
       return parts.length ? parts.join(attrSeparator).toUpperCase() : null;
     }
     return null;
-  }, [formKey, form.count_id, form.purity_id, form.fabric_type_id, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
+  }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, form.specifications, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
 
   // Auto-write the generated name for Yarn/Fabric (suggestedName is null for
   // other classes, so General/etc. stay manual). Depends on suggestedName only —
@@ -697,30 +842,21 @@ export function MaterialMasterScreen({
     if (suggestedName) {
       setForm((f) => (f.name === suggestedName ? f : { ...f, name: suggestedName }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestedName]);
 
   // A category quick-created from the Fabric "Structure" picker only lands in
   // this screen's `categories` prop after router.refresh(); by then
   // handleFabricCategoryChange has already run against the stale list and found
-  // no structure to derive. Re-derive once the refreshed category resolves —
-  // but only to FILL an empty structure, never to override a manual pick (a
-  // truthy fabric_structure_id short-circuits this).
+  // no structure to derive. Re-derive the structure once the refreshed category
+  // resolves — only to FILL an empty structure, never to override a manual pick
+  // (a truthy fabric_structure_id short-circuits this). The UOM default then
+  // follows from the fabric UOM effect above (fills the blank UOMs from it).
   useEffect(() => {
     if (formKey !== "FABRIC" || !form.category_id || form.fabric_structure_id) return;
     const cat = categories.find((c) => c.id === form.category_id);
     const structureId = cat?.fabric_structure_id;
     if (!structureId) return;
-    const code = structureCodeById.get(structureId) ?? null;
-    const { baseId, secondaryId } = structureUomHint(code);
-    set({
-      fabric_structure_id: structureId,
-      ...(baseId && !form.base_uom_id ? { base_uom_id: baseId, stock_uom_id: baseId } : {}),
-    });
-    if (baseId && secondaryId && conversions.length === 0) {
-      setConversions([{ key: newKey(), alt_qty: "", alt_uom_id: baseId, base_qty: "", base_uom_id: secondaryId }]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    set({ fabric_structure_id: structureId });
   }, [categories, form.category_id, form.fabric_structure_id, formKey]);
 
   // Real-time duplicate check on Name, scoped to the selected Item Class.
@@ -770,7 +906,7 @@ export function MaterialMasterScreen({
       <ItemPicker
         label=""
         title="Component Yarn"
-        items={yarnItems}
+        items={yarnItems.filter((y) => y.is_active || y.id === m.component_item_id)}
         value={m.component_item_id}
         onChange={(v) => setMix(m.key, { component_item_id: v })}
         placeholder="— Component yarn —"
@@ -778,29 +914,25 @@ export function MaterialMasterScreen({
         canCreate={perms.canCreate}
         canEdit={perms.canEdit}
         canDelete={perms.canDelete}
-        yarnQuickCreate={{ counts, purities, yarnTypes, categories: yarnCategories, kgUnitId: unitIdByCode.get("kg") ?? null }}
+        yarnQuickCreate={{ counts, purities, yarnTypes, categories: yarnCategories, kgUnitId }}
       />
     );
 
     if (variant === "fabric") {
       // Yarn-dyed: percentages don't apply — just list the component yarns.
       // Single Yarn is implicitly 100%, so it hides the % column too, and caps
-      // the grid at one row — ChildGrid always renders its Add button, so the
-      // gate toasts instead of adding once a row exists (client 2026-07-23 #9).
+      // the grid at one row — once a row exists the "+ Add" button is hidden
+      // entirely, so only the single row shows (client 2026-07-24).
       const hidePct = isYarnDyedFabric || isSingleYarnFabric;
       return (
         <ChildGrid<MixRow>
           label="Attributes (Mixing)"
           badge={hidePct ? undefined : pctBadge}
-          maxBodyHeight="max-h-56"
-          forceCards
+          inlineCards
           frameless
           rows={mixings}
-          onAdd={
-            isSingleYarnFabric && mixings.length >= 1
-              ? () => error("Single Yarn allows only one component row.")
-              : addMix
-          }
+          onAdd={addMix}
+          hideAdd={isSingleYarnFabric && mixings.length >= 1}
           onRemove={(m) => delMix(m.key)}
           columns={[
             { header: "Yarn", cell: compCell },
@@ -810,23 +942,13 @@ export function MaterialMasterScreen({
                   {
                     header: "Mixing %",
                     align: "center" as const,
+                    width: "5rem",
                     cell: (m: MixRow) => (
-                      <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
+                      <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMixPct(m.key, e.target.value)} className="text-center" />
                     ),
                   },
                 ]),
           ]}
-          renderMobileRow={(m) => (
-            <>
-              {compCell(m)}
-              {/* fields pair up two-per-row inside cards (client 2026-07-23) */}
-              {!hidePct && (
-                <div className="grid grid-cols-2 gap-2">
-                  <Input type="number" step="0.01" placeholder="Mixing %" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" />
-                </div>
-              )}
-            </>
-          )}
         />
       );
     }
@@ -835,34 +957,16 @@ export function MaterialMasterScreen({
       <ChildGrid<MixRow>
         label="Mixing"
         badge={pctBadge}
-        maxBodyHeight="max-h-56"
-        forceCards
+        inlineCards
         rows={mixings}
         onAdd={addMix}
         onRemove={(m) => delMix(m.key)}
         addLabel="+ Add mixing row"
         columns={[
           { header: "Yarn", cell: compCell },
-          { header: "Mixing %", align: "center", cell: (m) => <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMix(m.key, { blend_pct: e.target.value })} className="text-base md:text-sm" /> },
-          { header: "Shade", cell: (m) => <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} className="text-base md:text-sm" /> },
+          { header: "Mixing %", align: "center", width: "5rem", cell: (m) => <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMixPct(m.key, e.target.value)} className="text-center" /> },
+          { header: "Shade", width: "7rem", cell: (m) => <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} /> },
         ]}
-        renderMobileRow={(m) => (
-          <>
-            {compCell(m)}
-            {/* fields pair up two-per-row inside cards (client 2026-07-23) */}
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="Mixing %"
-                value={m.blend_pct}
-                onChange={(e) => setMix(m.key, { blend_pct: e.target.value })}
-                className="text-base md:text-sm"
-              />
-              <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} className="text-base md:text-sm" />
-            </div>
-          </>
-        )}
       />
     );
   }
@@ -878,51 +982,48 @@ export function MaterialMasterScreen({
     return (
       <>
         {/* Organized fabric layout (doc/ui/New Material Fabric - Organized
-            Layout.html): Classification fields in a 2-col grid with the long
-            hints tucked into ⓘ tooltips; Mixing nests INSIDE Composition
-            (it IS the composition), never in the right column. */}
-        <DetailSection label="Classification" cols={2}>
-            <CategoryPicker
-              label="Structure"
-              categories={scopedCategories}
-              value={form.category_id}
-              onChange={handleFabricCategoryChange}
-              itemClassId={form.item_class_id}
-              selectedClassCode={selectedClassCode}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-              levies={levies}
-              commodities={commodities}
-              itemClasses={itemClasses}
-              fabricStructures={fabricStructures}
-            />
-            <div>
-              {/* Fabric "Type" — Circular Knit/Flat Knit/Woven (Screenshot 2071).
-                  Auto-filled from the picked Structure, editable as an override. */}
+            Layout.html): Classification on the 12-col track, each field sized to
+            its data, with the long hints tucked into ⓘ tooltips; Mixing nests
+            INSIDE Composition (it IS the composition), never in the right
+            column. Structure is the only long value here — Type and Fabric Type
+            are single words, so they no longer take a half row each. */}
+        <DetailSection label="Classification" cols={12}>
+            <Field size="lg">
+              <CategoryPicker
+                label="Structure"
+                categories={scopedCategories}
+                value={form.category_id}
+                onChange={handleFabricCategoryChange}
+                itemClassId={form.item_class_id}
+                selectedClassCode={selectedClassCode}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+                levies={levies}
+                commodities={commodities}
+                itemClasses={itemClasses}
+                fabricStructures={fabricStructures}
+              />
+            </Field>
+            <Field size="sm">
+              {/* Fabric "Type" — Circular Knit/Flat Knit/Woven. Derived from the
+                  picked Structure/category (which already carries its structure,
+                  set in the Category child) and shown read-only — no separate
+                  list to pick from here (user 2026-07-24). */}
               <Label htmlFor="mt-fabric-structure" className="flex items-center gap-1">
                 Type
-                <span title="Circular Knit, Flat Knit or Woven — sets the UOM (kg / nos+kg / mtr+kg)." className="cursor-help text-muted-foreground">
+                <span title="Circular Knit, Flat Knit or Woven — comes from the Structure/category and sets the default UOM (Circular/Flat = KGS, Woven = MTR)." className="cursor-help text-muted-foreground">
                   <Info className="h-3.5 w-3.5" />
                 </span>
               </Label>
-              <Select
+              <div
                 id="mt-fabric-structure"
-                value={form.fabric_structure_id}
-                onChange={(e) => handleFabricStructureChange(e.target.value)}
-                className="text-base md:text-sm"
+                className="flex h-9 items-center truncate rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground"
               >
-                <option value="">— Select —</option>
-                {fabricStructures
-                  .filter((s) => s.is_active || s.id === form.fabric_structure_id)
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-              </Select>
-            </div>
-            <div>
+                {fabricStructures.find((s) => s.id === form.fabric_structure_id)?.name ?? "— Pick a Structure —"}
+              </div>
+            </Field>
+            <Field size="sm">
               {/* Fixed 3-value classification (Solid/Yarn Dyed/Melange) — plain
                   dropdown, no Add/Modify/Delete (client 2026-07-23, Screenshot
                   2070): users must pick, never grow this list. */}
@@ -936,7 +1037,6 @@ export function MaterialMasterScreen({
                 id="mt-fabric-type"
                 value={form.fabric_type_id}
                 onChange={(e) => handleFabricTypeChange(e.target.value)}
-                className="text-base md:text-sm"
               >
                 <option value="">— Select —</option>
                 {fabricTypes
@@ -947,38 +1047,37 @@ export function MaterialMasterScreen({
                     </option>
                   ))}
               </Select>
-            </div>
+            </Field>
             {/* Melange fabric carries its shade (client 2026-07-23) */}
             {fabricTypeLabel.get(form.fabric_type_id)?.toLowerCase() === "melange" && (
-              <div>
-                <Label htmlFor="mt-fabric-shade">Shade</Label>
+              <Field label="Shade" size="sm" htmlFor="mt-fabric-shade">
                 <Input
                   id="mt-fabric-shade"
                   value={form.shade}
                   onChange={(e) => set({ shade: e.target.value })}
-                  className="text-base md:text-sm"
                 />
-              </div>
+              </Field>
             )}
         </DetailSection>
-        <DetailSection label="Composition" cols={2}>
-            <label className="flex h-9 cursor-pointer items-center gap-2 self-end">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.direct_purchase}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  set({ direct_purchase: checked });
-                  if (checked) setMixings([]);
-                }}
-              />
-              <span className="text-sm text-foreground">Direct Purchase</span>
-            </label>
+        <DetailSection label="Composition" cols={12}>
+            <Field size="sm">
+              <label className="flex h-9 cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.direct_purchase}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    set({ direct_purchase: checked });
+                    if (checked) setMixings([]);
+                  }}
+                />
+                <span className="text-sm text-foreground">Direct Purchase</span>
+              </label>
+            </Field>
             {!form.direct_purchase && (
-              <div>
-                <Label>Using</Label>
-                <Select value={form.fabric_using} onChange={(e) => set({ fabric_using: e.target.value })} className="text-base md:text-sm">
+              <Field label="Using" size="sm">
+                <Select value={form.fabric_using} onChange={(e) => set({ fabric_using: e.target.value })}>
                   <option value="">— None —</option>
                   {FABRIC_USING.map((u) => (
                     <option key={u} value={u}>
@@ -986,10 +1085,10 @@ export function MaterialMasterScreen({
                     </option>
                   ))}
                 </Select>
-              </div>
+              </Field>
             )}
             {fabricAttributesVisible && (
-              <div className="space-y-2 sm:col-span-2">
+              <div className="space-y-2 sm:col-span-12">
                 <div className="h-px bg-border" />
                 {mixingGrid("fabric")}
               </div>
@@ -1011,14 +1110,15 @@ export function MaterialMasterScreen({
     const ytName = yarnTypes.find((y) => y.id === form.yarn_type_id)?.name?.toLowerCase() ?? null;
     return (
       <>
-        <DetailSection label="Yarn Type">
-            <div>
-              <Label htmlFor="mt-yarn-type">Yarn Type</Label>
+        {/* Yarn Type and its optional Shade are both single words — they share
+            one row instead of taking a stacked column each (client 2026-07-24
+            #3). */}
+        <DetailSection label="Yarn Type" cols={12}>
+            <Field label="Yarn Type" size="md" htmlFor="mt-yarn-type">
               <Select
                 id="mt-yarn-type"
                 value={form.yarn_type_id}
                 onChange={(e) => handleYarnTypeChange(e.target.value)}
-                className="text-base md:text-sm"
               >
                 <option value="">— Select —</option>
                 {yarnTypes
@@ -1029,30 +1129,28 @@ export function MaterialMasterScreen({
                     </option>
                   ))}
               </Select>
-            </div>
+            </Field>
             {/* Melange yarn carries its shade (client 2026-07-23) */}
             {ytName === "melange" && (
-              <div>
-                <Label htmlFor="mt-yarn-shade">Shade</Label>
+              <Field label="Shade" size="sm" htmlFor="mt-yarn-shade">
                 <Input
                   id="mt-yarn-shade"
                   value={form.shade}
                   onChange={(e) => set({ shade: e.target.value })}
-                  className="text-base md:text-sm"
                 />
-              </div>
+              </Field>
             )}
         </DetailSection>
-        <DetailSection label="Classification">
-            <div>
+        {/* Count ("40'S/2"), Nature and Purity are all short values; only
+            Category carries a long name. Four fields now fit one row. */}
+        <DetailSection label="Classification" cols={12}>
+            <Field label="Count" size="sm" htmlFor="mt-yarn-count">
               {/* Plain dropdown, no Add/Modify/Delete (client 2026-07-23 #4) —
                   counts are a fixed list users pick from, never grow here. */}
-              <Label htmlFor="mt-yarn-count">Count</Label>
               <Select
                 id="mt-yarn-count"
                 value={form.count_id}
                 onChange={(e) => set({ count_id: e.target.value })}
-                className="text-base md:text-sm"
               >
                 <option value="">— Select —</option>
                 {counts
@@ -1063,38 +1161,41 @@ export function MaterialMasterScreen({
                     </option>
                   ))}
               </Select>
-            </div>
-            <CategoryPicker
-              label="Category"
-              categories={scopedCategories}
-              value={form.category_id}
-              onChange={(v) => set({ category_id: v })}
-              itemClassId={form.item_class_id}
-              selectedClassCode={selectedClassCode}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-              levies={levies}
-              commodities={commodities}
-              itemClasses={itemClasses}
-              fabricStructures={fabricStructures}
-            />
+            </Field>
+            <Field size="md">
+              <CategoryPicker
+                label="Category"
+                categories={scopedCategories}
+                value={form.category_id}
+                onChange={(v) => set({ category_id: v })}
+                itemClassId={form.item_class_id}
+                selectedClassCode={selectedClassCode}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+                levies={levies}
+                commodities={commodities}
+                itemClasses={itemClasses}
+                fabricStructures={fabricStructures}
+              />
+            </Field>
             {nature && (
-              <div>
-                <Label>Nature</Label>
-                <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
-              </div>
+              <Field label="Nature" size="xs">
+                <div className="flex h-9 items-center truncate rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
+              </Field>
             )}
-            <LookupDialogPicker
-              kind="yarn_purity"
-              label="Purity"
-              options={purities}
-              value={form.purity_id}
-              onChange={(v) => set({ purity_id: v })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-            />
+            <Field size="sm">
+              <LookupDialogPicker
+                kind="yarn_purity"
+                label="Purity"
+                options={purities}
+                value={form.purity_id}
+                onChange={(v) => set({ purity_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
+            </Field>
         </DetailSection>
         {/* Mixing grid renders full-width below the two-column body — see
             yarnMixingVisible at the render root (Screenshot 2079). */}
@@ -1109,30 +1210,20 @@ export function MaterialMasterScreen({
    *  stays in row data for legacy rows). */
   function usingItemsGrid() {
     const descCell = (u: UsingItemRow) => (
-      <ItemPicker label="" items={usingItemOptions} value={u.used_item_id} onChange={(v) => setUsingRow(u.key, { used_item_id: v })} />
+      <ItemPicker label="" items={usingItemOptions.filter((x) => x.is_active || x.id === u.used_item_id)} value={u.used_item_id} onChange={(v) => setUsingRow(u.key, { used_item_id: v })} />
     );
     return (
       <ChildGrid<UsingItemRow>
         label="Using (Items)"
-        maxBodyHeight="max-h-56"
-        forceCards
+        inlineCards
         rows={usingItems}
         onAdd={addUsingRow}
         onRemove={(u) => delUsingRow(u.key)}
         columns={[
           { header: "Item", cell: descCell },
-          { header: "Shade", cell: (u) => <Input value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" /> },
-          { header: "Uom", cell: (u) => uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v })) },
+          { header: "Shade", width: "7rem", cell: (u) => <Input value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} /> },
+          { header: "Uom", width: "5.5rem", cell: (u) => uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v })) },
         ]}
-        renderMobileRow={(u) => (
-          <>
-            {descCell(u)}
-            <div className="grid grid-cols-2 gap-2">
-              <Input placeholder="Shade" value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} className="text-base md:text-sm" />
-              {uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v }))}
-            </div>
-          </>
-        )}
       />
     );
   }
@@ -1337,7 +1428,9 @@ export function MaterialMasterScreen({
                 (formKey === "FABRIC" && !form.fabric_type_id) ||
                 (!!form.item_class_id && !form.base_uom_id) ||
                 singleYarnOverflow ||
+                mixPctSumInvalid ||
                 attrMandatoryMissing ||
+                attributeSetMissing ||
                 nameDuplicate
               }
               onClick={submit}
@@ -1352,7 +1445,10 @@ export function MaterialMasterScreen({
               (doc/ui/New Material - Planned Layout.html, 2026-07-23). The Name
               moved up from the foot of Details; its auto-generation for
               Yarn/Fabric is unchanged. */}
-          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[0.85fr_1.4fr_0.85fr]">
+          {/* Item Class is a picked name, Name is the long free text, HSN is 8
+              digits — the tracks are weighted to match, so HSN stops occupying
+              a quarter of the row (client 2026-07-24 #3). */}
+          <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)_10rem]">
             <div>
               <Label htmlFor="mt-item-class">Item Class</Label>
               <Select
@@ -1380,8 +1476,19 @@ export function MaterialMasterScreen({
                 uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
+                // Auto-generated name (Yarn/Fabric/attribute classes) → skip Tab,
+                // but stay clickable so it can still be hand-overridden. Manual
+                // classes (General) keep the name in Tab order. See global rule.
+                // Attribute-driven accessories can't be named manually (spec) —
+                // the name is fully generated from Category + attributes + Description.
+                tabIndex={suggestedName ? -1 : undefined}
+                readOnly={attributeDriven}
                 aria-invalid={nameDuplicate ? true : undefined}
-                className={cn("text-base md:text-sm", nameDuplicate && "border-danger")}
+                className={cn(
+                  "text-base md:text-sm",
+                  nameDuplicate && "border-danger",
+                  attributeDriven && "bg-surface-muted",
+                )}
               />
               {dupMessage && <p className="mt-1 text-xs text-danger">{dupMessage}</p>}
               {!editId && (
@@ -1420,42 +1527,57 @@ export function MaterialMasterScreen({
               ) : (
                 // Generic classes (General/SEW/PACK/CAP/Garments) share the
                 // same dense 2-col layout as Yarn/Fabric — global form rule.
-                <DetailSection label="Classification" cols={2}>{formDef?.fields.map((k) => detailField(k))}</DetailSection>
+                <DetailSection label="Classification" cols={12}>{formDef?.fields.map((k) => detailField(k))}</DetailSection>
               )}
-              {formKey === "A" && attrQuestions.length > 0 && (
-                <DetailSection label="Attributes" cols={2}>
-                  {attrQuestions.map((q) => (
-                    <div key={q.lineId}>
-                      <Label>
-                        {q.label}
-                        {q.mandatory && <span className="text-danger"> *</span>}
-                      </Label>
-                      {q.inputType === "option_list" ? (
-                        <Select
-                          value={answers[q.lineId] ?? ""}
-                          onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
-                          className="text-base md:text-sm"
-                        >
-                          <option value="">— Select —</option>
-                          {q.options.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Input
-                          type="number"
-                          value={answers[q.lineId] ?? ""}
-                          onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
-                          min={q.start ?? undefined}
-                          max={q.end ?? undefined}
-                          step={q.step ?? undefined}
-                          className="text-base md:text-sm"
-                        />
-                      )}
-                    </div>
-                  ))}
+              {/* 12-col track: a numeric answer is a 2-4 character box, an
+                  option list needs room for its longest option. Sizing each to
+                  its data fits 3-4 attributes per row instead of 2 wide,
+                  half-empty ones (client 2026-07-24 #3). */}
+              {attributeSetMissing && (
+                <div className="rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-6 text-center text-sm text-muted-foreground">
+                  No Material Attributes configured for this category yet. Set them up under
+                  Materials ▸ Material Attributes, then the questions appear here.
+                </div>
+              )}
+              {/* 12-col track: a numeric answer is a 2-4 character box, an
+                  option list needs room for its longest option. Sizing each to
+                  its data fits 3-4 attributes per row instead of 2 wide,
+                  half-empty ones (client 2026-07-24 #3). A Value-In-Steps line
+                  becomes a dropdown of its generated steps; a value-list line a
+                  dropdown of its own values; anything else a free number box. */}
+              {attrQuestions.length > 0 && (
+                <DetailSection label="Attributes" cols={12}>
+                  {attrQuestions.map((q) => {
+                    const steps = q.valueInSteps ? stepValues(q.start, q.end, q.step) : [];
+                    const asDropdown = q.valueInSteps ? steps.length > 0 : q.options.length > 0;
+                    const choices = q.valueInSteps ? steps.map(String) : q.options;
+                    return (
+                      <Field key={q.lineId} label={q.label} required={q.mandatory} size={asDropdown ? "md" : "sm"}>
+                        {asDropdown ? (
+                          <Select
+                            value={answers[q.lineId] ?? ""}
+                            onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
+                          >
+                            <option value="">— Select —</option>
+                            {choices.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </Select>
+                        ) : (
+                          <Input
+                            type="number"
+                            value={answers[q.lineId] ?? ""}
+                            onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
+                            min={q.start ?? undefined}
+                            max={q.end ?? undefined}
+                            step={q.step ?? undefined}
+                          />
+                        )}
+                      </Field>
+                    );
+                  })}
                 </DetailSection>
               )}
               {/* Composition grids belong on the LEFT with the class fields —
@@ -1469,49 +1591,55 @@ export function MaterialMasterScreen({
             {/* RIGHT: pure measurement for ALL classes — Units of Measure,
                 Conversions, status. Composition grids never render here. */}
             <div className="space-y-4">
-              <DetailSection label="Units of Measure" cols={3}>
-                <div>
-                  <Label>Base Uom</Label>
+              {/* Every UOM is a 2-4 character code (KG, MTR, PCS), so each gets
+                  a narrow track — five fit in two rows instead of sprawling
+                  across two wide columns (client 2026-07-24 #3). */}
+              <DetailSection label="Units of Measure" cols={12}>
+                <Field label="Base Uom" size="sm">
                   {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }))}
-                </div>
-                <div>
-                  <Label>Stock Uom</Label>
+                </Field>
+                <Field label="Stock Uom" size="sm">
                   {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }))}
-                </div>
-                <div>
-                  <Label>Billing Uom</Label>
+                </Field>
+                <Field label="Billing Uom" size="sm">
                   {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }))}
-                </div>
-                <div>
-                  <Label>Planning Uom</Label>
+                </Field>
+                <Field label="Planning Uom" size="sm">
                   {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }))}
-                </div>
-                <div>
-                  <Label>Purchase Uom</Label>
+                </Field>
+                <Field label="Purchase Uom" size="sm">
                   {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }))}
-                </div>
+                </Field>
               </DetailSection>
 
-              {/* Conversions as compact row-cards (organized layout) — the
-                  legacy wide table doesn't fit a half-width column. Row area
-                  capped, header + Add pinned (same rule as the child grids). */}
+              {/* Conversions as one inline row per record — the legacy wide
+                  table doesn't fit a half-width column, and the previous
+                  2-col card wrapped four controls onto two lines. Quantities
+                  are numeric so they get a fixed narrow track; the UOM pickers
+                  share the remaining space. */}
               <ChildGrid<ConvRow>
                 label="Alternate ↔ Base Conversions"
                 rows={conversions}
                 onAdd={addConv}
                 onRemove={(c) => delConv(c.key)}
                 addLabel="+ Add conversion"
-                forceCards
-                maxBodyHeight="max-h-56"
-                columns={[]}
-                renderMobileRow={(c) => (
-                  <div className="grid grid-cols-[1fr_1.4fr] gap-2">
-                    <Input type="number" step="0.0001" placeholder="Alt qty" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-base md:text-sm" />
-                    {uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }))}
-                    <Input type="number" step="0.0001" placeholder="Base qty" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-base md:text-sm" />
-                    {uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v }))}
-                  </div>
-                )}
+                inlineCards
+                columns={[
+                  {
+                    header: "Alt qty",
+                    align: "center",
+                    width: "4.5rem",
+                    cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-center" />,
+                  },
+                  { header: "Alt UOM", cell: (c) => uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v })) },
+                  {
+                    header: "Base qty",
+                    align: "center",
+                    width: "4.5rem",
+                    cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-center" />,
+                  },
+                  { header: "Base UOM", cell: (c) => uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v })) },
+                ]}
               />
 
               {/* Budget + Cost Rate removed from the data path (client walkthrough,

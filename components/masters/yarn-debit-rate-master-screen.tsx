@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -198,7 +199,7 @@ export function YarnDebitRateMasterScreen({
                       onChange={(e) => setLineAt(l.key, { rate_per_bundle: e.target.value })}
                       className="w-28 text-base md:text-sm" />
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
-                      onClick={() => removeLine(l.key)} aria-label="Remove">✕</Button>
+                      onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>
                 ))}
               </div>

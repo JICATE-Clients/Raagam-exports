@@ -2,7 +2,6 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +32,7 @@ import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button"
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 
+type OptionRow = { key: string; description: string; blocked: boolean };
 type LineRow = {
   key: string;
   attribute_id: string;
@@ -43,6 +43,7 @@ type LineRow = {
   step_value: string;
   mandatory: boolean;
   inactive: boolean;
+  options: OptionRow[];
 };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -82,10 +83,14 @@ export function MaterialAttributeMasterScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [itemClassId, setItemClassId] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [nameSeparator, setNameSeparator] = useState(" ");
+  // Legacy screen has no separator field — the generated item name always joins
+  // its parts with " - " (client 2026-07-25: "Label - Main Label - Printed - …").
+  const NAME_SEPARATOR = " - ";
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
+  const optSeq = useRef(0);
+  const newOptKey = () => `o${optSeq.current++}`;
 
   const classLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -165,6 +170,7 @@ export function MaterialAttributeMasterScreen({
       step_value: "",
       mandatory: false,
       inactive: false,
+      options: [],
     };
   }
 
@@ -172,7 +178,6 @@ export function MaterialAttributeMasterScreen({
     setEditId(null);
     setItemClassId("");
     setCategoryId("");
-    setNameSeparator(" ");
     setLines([blankLine()]);
     setOpen(true);
   }
@@ -180,7 +185,6 @@ export function MaterialAttributeMasterScreen({
     setEditId(r.id);
     setItemClassId(r.item_class_id ?? "");
     setCategoryId(r.category_id ?? "");
-    setNameSeparator(r.name_separator ?? " ");
     setLines(
       r.lines.length
         ? r.lines.map((l) => ({
@@ -193,6 +197,11 @@ export function MaterialAttributeMasterScreen({
             step_value: l.step_value != null ? String(l.step_value) : "",
             mandatory: l.mandatory,
             inactive: l.inactive,
+            options: (l.options ?? []).map((o) => ({
+              key: newOptKey(),
+              description: o.description,
+              blocked: o.blocked,
+            })),
           }))
         : [blankLine()],
     );
@@ -204,12 +213,36 @@ export function MaterialAttributeMasterScreen({
   const addLine = () => setLines((ls) => [...ls, blankLine()]);
   const removeLine = (key: string) => setLines((ls) => ls.filter((l) => l.key !== key));
 
+  // Per-line pre-defined value list (legacy nested grid).
+  const addOption = (lineKey: string) =>
+    setLines((ls) =>
+      ls.map((l) =>
+        l.key === lineKey
+          ? { ...l, options: [...l.options, { key: newOptKey(), description: "", blocked: false }] }
+          : l,
+      ),
+    );
+  const setOptionAt = (lineKey: string, optKey: string, patch: Partial<OptionRow>) =>
+    setLines((ls) =>
+      ls.map((l) =>
+        l.key === lineKey
+          ? { ...l, options: l.options.map((o) => (o.key === optKey ? { ...o, ...patch } : o)) }
+          : l,
+      ),
+    );
+  const removeOption = (lineKey: string, optKey: string) =>
+    setLines((ls) =>
+      ls.map((l) =>
+        l.key === lineKey ? { ...l, options: l.options.filter((o) => o.key !== optKey) } : l,
+      ),
+    );
+
   function submit() {
     startTransition(async () => {
       const payload: MaterialAttributeInput = {
         item_class_id: itemClassId || null,
         category_id: categoryId || null,
-        name_separator: nameSeparator || " ",
+        name_separator: NAME_SEPARATOR,
         lines: lines
           .filter((l) => l.attribute_id)
           .map((l, i) => ({
@@ -222,6 +255,11 @@ export function MaterialAttributeMasterScreen({
             step_value: numOrNull(l.step_value),
             mandatory: l.mandatory,
             inactive: l.inactive,
+            options: l.value_in_steps
+              ? []
+              : l.options
+                  .filter((o) => o.description.trim())
+                  .map((o, j) => ({ sno: j + 1, description: o.description.trim(), blocked: o.blocked })),
           })),
       };
       const res = editId
@@ -257,14 +295,6 @@ export function MaterialAttributeMasterScreen({
     {
       header: "Category",
       cell: (r) => <span className="text-sm">{r.category_id ? categoryName.get(r.category_id) ?? "—" : "—"}</span>,
-    },
-    {
-      header: "Category Short Name",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.category_id ? categoryShortName.get(r.category_id) ?? "—" : "—"}
-        </span>
-      ),
     },
     {
       header: "Attributes",
@@ -456,21 +486,6 @@ export function MaterialAttributeMasterScreen({
                     <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
                   )}
                 </div>
-                <div>
-                  <Label htmlFor="ma-name-separator" className="flex items-center gap-1">
-                    Name Separator
-                    <span title="Joins attribute answers into the item name (default: space)." className="cursor-help text-muted-foreground">
-                      <Info className="h-3.5 w-3.5" />
-                    </span>
-                  </Label>
-                  <Input
-                    id="ma-name-separator"
-                    value={nameSeparator}
-                    onChange={(e) => setNameSeparator(e.target.value)}
-                    maxLength={2}
-                    className="text-base md:text-sm"
-                  />
-                </div>
               </DetailSection>
             </div>
 
@@ -537,10 +552,61 @@ export function MaterialAttributeMasterScreen({
                 ))}
               </div>
             );
+            // Pre-defined value list (legacy nested grid) — shown when the line
+            // is NOT Value-In-Steps. Description-only (+ Blocked) per client.
+            const valuesCell = (l: LineRow) => (
+              <div>
+                <Label className="text-[11px] font-normal text-muted-foreground">Values</Label>
+                <div className="space-y-1.5">
+                  {l.options.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No values yet — add the pick-list the Material form will offer.
+                    </p>
+                  )}
+                  {l.options.map((o) => (
+                    <div key={o.key} className="flex items-center gap-2">
+                      <Input
+                        value={o.description}
+                        uppercase
+                        onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
+                        placeholder="e.g. MAIN LABEL"
+                        className="text-base md:text-sm"
+                      />
+                      <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={o.blocked}
+                          onChange={(e) => setOptionAt(l.key, o.key, { blocked: e.target.checked })}
+                        />
+                        <span className="text-xs text-muted-foreground">Blocked</span>
+                      </label>
+                      <Button variant="ghost" size="sm" onClick={() => removeOption(l.key, o.key)}>
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" onClick={() => addOption(l.key)}>
+                    + Add value
+                  </Button>
+                </div>
+              </div>
+            );
+            // Value-In-Steps → numeric range (Start/End/Step + Unit); otherwise the
+            // pick-list. This is the toggle from the legacy screen.
+            const specCell = (l: LineRow) =>
+              l.value_in_steps ? (
+                <>
+                  {rangeCell(l)}
+                  {unitCell(l)}
+                </>
+              ) : (
+                valuesCell(l)
+              );
             return (
               <ChildGrid<LineRow>
                 label="Attributes"
-                maxBodyHeight="max-h-56"
+                maxBodyHeight="max-h-72"
                 forceCards
                 rows={lines}
                 onAdd={addLine}
@@ -548,16 +614,14 @@ export function MaterialAttributeMasterScreen({
                 addLabel="+ Add attribute"
                 columns={[
                   { header: "Attribute", cell: attrCell },
-                  { header: "Range / Step", cell: rangeCell },
-                  { header: "Unit", cell: unitCell },
                   { header: "Flags", cell: flagsCell },
+                  { header: "Range / Values", cell: specCell },
                 ]}
                 renderMobileRow={(l) => (
                   <>
                     {attrCell(l)}
-                    {rangeCell(l)}
-                    {unitCell(l)}
                     {flagsCell(l)}
+                    {specCell(l)}
                   </>
                 )}
               />

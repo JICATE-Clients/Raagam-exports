@@ -19,7 +19,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import type { FormatKind } from "@/lib/validation/formats";
+import { validateFormat, type FormatKind } from "@/lib/validation/formats";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ types */
@@ -48,6 +48,9 @@ export type SimpleField = {
   defaultsTo?: string;
   /** Render read-only while editing an EXISTING row (e.g. immutable codes). */
   lockedOnEdit?: boolean;
+  /** Auto-generated / derived value — omit from Tab order (tabIndex=-1) so Tab
+   *  skips it. Field stays clickable/editable. Global rule for auto fields. */
+  skipTab?: boolean;
 };
 
 export type SimpleValues = Record<string, string | boolean>;
@@ -214,7 +217,9 @@ export function SimpleMasterScreen<Row>({
     !dupError &&
     d.fields.every(
       (f) => !f.required || String(editing.values[f.key] ?? "").trim().length > 0,
-    );
+    ) &&
+    // Format-constrained fields must be valid (empty passes — required-ness handled above).
+    d.fields.every((f) => !f.format || !validateFormat(f.format, String(editing.values[f.key] ?? "")));
 
   function save() {
     if (!editing || !canSave || isPending) return;
@@ -331,6 +336,8 @@ export function SimpleMasterScreen<Row>({
       className: cn("h-8 text-sm", f.widthClass),
       placeholder,
       autoFocus,
+      // Auto/derived fields drop out of Tab order but stay clickable/editable.
+      tabIndex: f.skipTab ? -1 : undefined,
       "aria-label": f.label,
     };
     // Plain text fields type in CAPS (client 2026-07-23) — no-op for digits;

@@ -21,6 +21,8 @@ import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
   showsUserDefined,
@@ -133,6 +135,15 @@ export function CategoryMasterScreen({
     enabled: !!(form.name && form.item_class_id),
   });
 
+  // Live "did you mean?" on Name — dictionary = seed fibre words + existing
+  // category names. Suppressed while a dup error is showing (red error wins).
+  const knownNames = useMemo(() => rows.map((r) => r.name ?? ""), [rows]);
+  const nameSuggestions = useSpellSuggest({
+    name: form.name ?? "",
+    names: knownNames,
+    enabled: !!form.name && !dupError,
+  });
+
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
@@ -241,10 +252,6 @@ export function CategoryMasterScreen({
       cell: (r) => <span className="text-sm">{classLabel.get(r.item_class_id) ?? "—"}</span>,
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name ?? "—"}</span> },
-    {
-      header: "Short Description",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.short_spec ?? "—"}</span>,
-    },
     {
       header: "Type",
       cell: (r) => (
@@ -502,6 +509,10 @@ export function CategoryMasterScreen({
                   <option value="no">No</option>
                   <option value="yes">Yes</option>
                 </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  No = the Material form asks this category&apos;s configured attributes and
+                  auto-generates the item name. Yes = the user types the name manually.
+                </p>
               </div>
             )}
 
@@ -560,21 +571,15 @@ export function CategoryMasterScreen({
                 className="text-base md:text-sm"
               />
               {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <SpellSuggestHint
+                suggestions={nameSuggestions}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </div>
-            {/* Short Spec removed for new entries (functional spec, 0280) — descriptive
-                data now comes from structured attributes instead. Still shown when
-                editing an existing category so historical data isn't hidden/lost. */}
-            {editId && (
-              <div>
-                <Label htmlFor="cat-spec">Short Spec</Label>
-                <Input
-                  id="cat-spec"
-                  value={form.short_spec}
-                  onChange={(e) => setForm({ ...form, short_spec: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-            )}
+            {/* Short Spec/Short Description dropped from the UI (client 2026-07-24 —
+                "use Description only"). The short_spec column is still round-tripped
+                (form state + save) so historical data isn't lost; it's just no longer
+                edited here — descriptive data comes from structured attributes now. */}
             <LevyPicker
               label="Levy Description"
               levies={levies}

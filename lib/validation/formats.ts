@@ -35,6 +35,9 @@ export const HSN_RE = /^[0-9]{4}([0-9]{2}([0-9]{2})?)?$/;
 export const GST_STATE_RE = /^(0[1-9]|[1-2][0-9]|3[0-8])$/;
 export const CURRENCY_RE = /^[A-Z]{3}$/;
 
+// Yarn count: 10'S | 2/10'S | 40 DINER (integer counts only; apostrophe-S required).
+export const YARN_COUNT_RE = /^(\d+(\/\d+)?'S|\d+ DINER)$/;
+
 /** GST rate slabs applicable in India (garment-relevant: 5 & 12). */
 export const GST_RATE_SLABS = [0, 0.25, 3, 5, 12, 18, 28] as const;
 
@@ -60,7 +63,8 @@ export type FormatKind =
   | "isd"
   | "hsn"
   | "gst_state"
-  | "currency";
+  | "currency"
+  | "yarn_count";
 
 /** How the client input should coerce keystrokes before storing/validating. */
 export type Transform = "upper" | "digits" | "none";
@@ -97,6 +101,7 @@ export const FORMATS: Record<FormatKind, FormatSpec> = {
   hsn: { re: HSN_RE, message: "HSN/SAC must be 4, 6 or 8 digits", transform: "digits", inputMode: "numeric", maxLength: 8 },
   gst_state: { re: GST_STATE_RE, message: "Enter a 2-digit GST state code (01–38)", transform: "digits", inputMode: "numeric", maxLength: 2 },
   currency: { re: CURRENCY_RE, message: "Enter a 3-letter ISO currency code (e.g. INR)", transform: "upper", inputMode: "text", maxLength: 3 },
+  yarn_count: { re: YARN_COUNT_RE, message: "Use 10'S, 2/10'S or 40 DINER", transform: "upper", inputMode: "text", maxLength: 15 },
 };
 
 /** Apply a format's keystroke transform (uppercase / digits-only). */

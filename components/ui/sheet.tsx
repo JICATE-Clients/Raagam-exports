@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { focusablesIn, enterAdvance, focusFirstField } from "@/lib/focus";
+import { orderedFocusables, enterAdvance, focusFirstField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 
 // Ref-counts open Sheets so a nested Sheet's cleanup doesn't clear the scroll
@@ -73,6 +74,13 @@ export function Sheet({
   useEffect(() => {
     onCloseRef.current = onClose;
   });
+  // The last field the user was actually on inside this sheet. If focus is ever
+  // orphaned to <body> (a dialog picker closing, a control that blurs itself),
+  // Tab resumes from here instead of restarting at the top of the form.
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
+  // Whatever was focused *before* this sheet opened — restored on close, so
+  // dismissing a nested picker returns the cursor to the trigger that opened it.
+  const openerRef = useRef<HTMLElement | null>(null);
 
   // Ctrl/⌘+S saves the open editor by activating the primary footer button.
   // Only the full-screen entity editors (size="lg") opt in — nested pickers /
@@ -99,6 +107,12 @@ export function Sheet({
 
   useEffect(() => {
     if (!open) return;
+    // Remember who opened us so the cursor can go home on close. Anything
+    // already inside this sheet is not an opener — it unmounts with us, and
+    // focusing a detached node silently sends focus to <body>.
+    const opener = document.activeElement;
+    openerRef.current =
+      opener instanceof HTMLElement && !containerRef.current?.contains(opener) ? opener : null;
     // A fresh closure per open cycle doubles as this sheet's stack identity.
     const entry = () => onCloseRef.current();
     sheetStack.push(entry);
@@ -108,19 +122,37 @@ export function Sheet({
         entry();
       } else if (e.key === "Tab") {
         // Lightweight focus trap: Tab/Shift+Tab cycle within the open sheet
-        // instead of escaping to the page behind the scrim.
+        // instead of escaping to the page behind the scrim. Region-ordered, so
+        // the cycle runs fields → footer → ✕ and never interrupts typing with
+        // the close button (client 2026-07-24 #5).
         const root = containerRef.current;
         if (!root) return;
-        const items = focusablesIn(root);
+        const items = orderedFocusables(root);
         if (!items.length) return;
         const active = document.activeElement;
         const inside = active instanceof HTMLElement && root.contains(active);
+
+        // Focus was orphaned (usually to <body>). Resume from the field the
+        // user last stood on rather than jumping to the top of the form.
+        if (!inside) {
+          const resume = lastFocusedRef.current;
+          const idx = resume ? items.indexOf(resume) : -1;
+          e.preventDefault();
+          if (idx === -1) {
+            (e.shiftKey ? items[items.length - 1] : items[0]).focus();
+          } else {
+            const next = e.shiftKey ? idx - 1 : idx + 1;
+            (items[next] ?? items[e.shiftKey ? items.length - 1 : 0]).focus();
+          }
+          return;
+        }
+
         if (e.shiftKey) {
-          if (!inside || active === items[0]) {
+          if (active === items[0]) {
             e.preventDefault();
             items[items.length - 1].focus();
           }
-        } else if (!inside || active === items[items.length - 1]) {
+        } else if (active === items[items.length - 1]) {
           e.preventDefault();
           items[0].focus();
         }
@@ -135,8 +167,22 @@ export function Sheet({
       if (i !== -1) sheetStack.splice(i, 1);
       openSheetCount = Math.max(0, openSheetCount - 1);
       if (openSheetCount === 0) document.body.style.overflow = "";
+      // Hand focus back to the opener (e.g. the picker trigger button), but only
+      // if nothing else has claimed it in the meantime.
+      const home = openerRef.current;
+      const active = document.activeElement;
+      if (home && home.isConnected && (!active || active === document.body)) {
+        home.focus();
+      }
+      lastFocusedRef.current = null;
     };
   }, [open]);
+
+  /** Remember the last real field focused inside this sheet (see the trap). */
+  const onFocusCapture = (e: React.FocusEvent<HTMLElement>) => {
+    const t = e.target;
+    if (t instanceof HTMLElement) lastFocusedRef.current = t;
+  };
 
   /** Legacy ERP Enter-moves-forward (client 2026-07-23 #7) — shared with the
    *  full-screen editor via lib/focus. */
@@ -167,13 +213,14 @@ export function Sheet({
               ref={containerRef}
               role="dialog"
               aria-modal="true"
+              onFocusCapture={onFocusCapture}
               className={cn(
                 "flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
                 open ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
               )}
             >
               {/* header */}
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3.5">
+              <div data-focus-region="header" className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3.5">
                 <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
                 <div className="flex shrink-0 items-center gap-1">
                   {headerActions}
@@ -184,17 +231,17 @@ export function Sheet({
                     aria-label="Close"
                     className="rounded-md p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
                   >
-                    ✕
+                    <X className="h-4 w-4 shrink-0" />
                   </button>
                 </div>
               </div>
               {/* content — the one scroll */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3.5" onKeyDown={onEnterAdvance}>
+              <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-5 py-3.5" onKeyDown={onEnterAdvance}>
                 {children}
               </div>
               {/* footer */}
               {footer && (
-                <div ref={footerRef} className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-surface px-5 py-3">
+                <div data-focus-region="footer" ref={footerRef} className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-surface px-5 py-3">
                   {footer}
                 </div>
               )}
@@ -209,6 +256,7 @@ export function Sheet({
             ref={containerRef}
             role="dialog"
             aria-modal="true"
+            onFocusCapture={onFocusCapture}
             style={{ zIndex: zIndexBase + 1 }}
             className={cn(
               "fixed inset-0 flex flex-col bg-surface transition-all duration-200 ease-out",
@@ -216,7 +264,7 @@ export function Sheet({
             )}
           >
             {/* header */}
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3.5 md:px-8">
+            <div data-focus-region="header" className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3.5 md:px-8">
               <h2 className="truncate text-base font-semibold text-foreground md:text-lg">{title}</h2>
               <div className="flex shrink-0 items-center gap-1">
                 {headerActions}
@@ -227,17 +275,17 @@ export function Sheet({
                   aria-label="Close"
                   className="rounded-md p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
                 >
-                  ✕
+                  <X className="h-4 w-4 shrink-0" />
                 </button>
               </div>
             </div>
             {/* content — the one scroll */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6" onKeyDown={onEnterAdvance}>
+            <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6" onKeyDown={onEnterAdvance}>
               <div className="mx-auto w-full max-w-5xl">{children}</div>
             </div>
             {/* footer */}
             {footer && (
-              <div className="shrink-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-8 md:pb-3">
+              <div data-focus-region="footer" className="shrink-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-8 md:pb-3">
                 <div ref={footerRef} className="mx-auto flex w-full max-w-5xl items-center justify-end gap-2">{footer}</div>
               </div>
             )}
@@ -250,6 +298,7 @@ export function Sheet({
           ref={containerRef}
           role="dialog"
           aria-modal="true"
+          onFocusCapture={onFocusCapture}
           style={{ zIndex: zIndexBase + 1 }}
           className={cn(
             "fixed flex flex-col bg-surface shadow-lg transition-transform duration-200 ease-out",
@@ -261,7 +310,7 @@ export function Sheet({
           )}
         >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-border md:hidden" />
-          <div className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
+          <div data-focus-region="header" className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
             <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
             <div className="flex shrink-0 items-center gap-1">
               {headerActions}
@@ -272,15 +321,15 @@ export function Sheet({
                 aria-label="Close"
                 className="rounded-md p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
               >
-                ✕
+                <X className="h-4 w-4 shrink-0" />
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto px-5 pb-4" onKeyDown={onEnterAdvance}>
+          <div data-focus-region="content" className="flex-1 overflow-y-auto px-5 pb-4" onKeyDown={onEnterAdvance}>
             {children}
           </div>
           {footer && (
-            <div ref={footerRef} className="flex shrink-0 justify-end gap-2 border-t border-border px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-4">
+            <div data-focus-region="footer" ref={footerRef} className="flex shrink-0 justify-end gap-2 border-t border-border px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-4">
               {footer}
             </div>
           )}

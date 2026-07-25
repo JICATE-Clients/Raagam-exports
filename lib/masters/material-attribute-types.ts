@@ -7,6 +7,16 @@ import { z } from "zod";
 // that Item Class) value specs (range / step / unit / mandatory / inactive).
 // ============================================================================
 
+/** A pre-defined value for an attribute line (legacy nested grid), used when the
+ *  line is NOT Value-In-Steps — the Material form picks from these descriptions. */
+export interface MaterialAttributeLineOption {
+  id: string;
+  material_attribute_line_id: string;
+  sno: number;
+  description: string;
+  blocked: boolean;
+}
+
 export interface MaterialAttributeLine {
   id: string;
   material_attribute_id: string;
@@ -19,6 +29,8 @@ export interface MaterialAttributeLine {
   step_value: number | null;
   mandatory: boolean;
   inactive: boolean;
+  /** Per-line pre-defined values (0346). Empty when the line is Value-In-Steps. */
+  options: MaterialAttributeLineOption[];
 }
 
 export interface MaterialAttribute {
@@ -34,6 +46,12 @@ export interface MaterialAttribute {
 
 const num = z.coerce.number().nullable().default(null);
 
+export const materialAttributeLineOptionInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  description: z.string().trim().min(1),
+  blocked: z.boolean().default(false),
+});
+
 export const materialAttributeLineInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   attribute_id: z.string().uuid().nullable().default(null),
@@ -44,6 +62,7 @@ export const materialAttributeLineInput = z.object({
   step_value: num,
   mandatory: z.boolean().default(false),
   inactive: z.boolean().default(false),
+  options: z.array(materialAttributeLineOptionInput).default([]),
 });
 
 export const materialAttributeInput = z.object({
