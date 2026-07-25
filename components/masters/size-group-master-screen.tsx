@@ -53,12 +53,7 @@ export function SizeGroupMasterScreen({
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) =>
-        [r.size_group_no, r.size_group_name]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q),
+      searchKey: (r) => [r.size_group_no, r.size_group_name].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },

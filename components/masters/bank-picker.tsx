@@ -209,7 +209,7 @@ export function BankPicker({
                       className="text-base md:text-sm"
                     />
                   </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-auto">
                     {filtered.length === 0 ? (
                       <p className="px-4 py-10 text-center text-sm text-muted-foreground">
                         No banks found.
@@ -253,7 +253,7 @@ export function BankPicker({
                                         e.stopPropagation();
                                         startModify(b.id);
                                       }}
-                                      className="shrink-0 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
+                                      className="shrink-0 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:text-foreground group-hover:opacity-100"
                                     >
                                       <Pencil className="h-4 w-4" />
                                     </button>

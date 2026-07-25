@@ -298,7 +298,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           {/* header fields */}
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="gaql-code">Code</Label>
               <Input
@@ -388,7 +388,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
                     </Select>
                   </div>
                   {/* qty range */}
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <Label htmlFor={`gaql-fq-${l.key}`}>From Qty</Label>
                       <Input
@@ -413,7 +413,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
                     </div>
                   </div>
                   {/* pieces + defect allowances */}
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <Label htmlFor={`gaql-np-${l.key}`}>No. of Pieces</Label>
                       <Input
@@ -437,7 +437,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
                       <Label htmlFor={`gaql-maj-${l.key}`}>Major</Label>
                       <Input

@@ -15,6 +15,15 @@
   --muted-foreground: #5b6472; /* secondary text */
   --border: #e3e6ea;
   --ring: #4f46e5;
+  /* Tint of the row the keyboard is currently inside. A PRE-MIXED literal, not
+   * color-mix(): `--ring` is itself a var(), so Lightning CSS cannot fold the
+   * mix and emits `background-color: var(--ring)` as the fallback — every
+   * focused row would render SOLID indigo on any engine without color-mix
+   * (Chrome <111, Safari <16.2, and the older Android WebViews this PWA
+   * installs into). Deliberately a slate, not the brand hue: --ring and
+   * --primary are the same colour, so a brand tint here is indistinguishable
+   * from the bg-primary/5 that already means "selected". */
+  --row-active: rgb(15 23 42 / 0.05);
 
   /* Brand */
   --primary: #4f46e5; /* indigo 600 */
@@ -42,6 +51,10 @@
   --muted-foreground: #9aa4b2;
   --border: #262b34;
   --ring: #6366f1;
+  /* Lighter and roughly triple the alpha: a 5% dark tint over #14171d is below
+   * the perceptual floor. A single mix percentage cannot serve both themes,
+   * which is the other reason this is a token rather than a color-mix(). */
+  --row-active: rgb(226 232 240 / 0.07);
 
   --primary: #6366f1;
   --primary-hover: #818cf8;
@@ -108,16 +121,86 @@ body {
 }
 
 /*
- * Dialog-picker triggers are <button>s that behave as FIELDS: Enter advances off
- * them and arrow keys land on them inside a child grid, so they are keyboard
- * destinations like any input. None of them carried the app's focus style, so
- * arrowing down a grid alternated between the branded ring on a text cell and
- * the browser's default outline on the picker beside it. One rule keeps all 16
- * in step with input.tsx / combobox.tsx / select.tsx.
+ * Reduced motion. The app animates in a handful of places — the skeleton pulse,
+ * Sheet open/close transitions, tab underlines — and none of it carries meaning,
+ * so all of it is safe to switch off for anyone who has asked the OS for less
+ * movement. Duration 0.01ms rather than 0s so transition/animation END events
+ * still fire; code that waits on one (Sheet's close handling) keeps working.
+ *
+ * `scroll-behavior: auto` is included because a `smooth` programmatic scroll is
+ * motion too, and it's the one people with vestibular sensitivity report most.
  */
-[data-field-trigger]:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--ring);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+ * ACTIVE STATE — where the keyboard is, right now.
+ *
+ * The app is driven by keyboard (Tab / Enter / ↑ / ↓ everywhere, see
+ * components/shell/keyboard-nav-provider.tsx), so the operator must always be
+ * able to see which field they are on. Two cues, per the client's call
+ * (2026-07-25): a ring on the control, and a tint on the row containing it —
+ * in a twenty-row grid the ring alone is easy to lose.
+ * ========================================================================== */
+
+/*
+ * The FLOOR — a focus ring for controls that draw none of their own: the
+ * hand-rolled <input>/<select>/<button> elements in filter bars, topbar.tsx,
+ * pagination.tsx, audit-client.tsx and analytics-filters.tsx that bypass the
+ * shared primitives, plus dialog-picker triggers (<button>s that behave as
+ * fields and are arrow-key destinations inside a grid).
+ *
+ * ## It MUST be layered, and this is not about specificity
+ *
+ * Tailwind v4 wraps every utility in `@layer utilities`. An UNLAYERED rule beats
+ * a layered one no matter how specific either is — so an unlayered floor
+ * silently overrode `focus-visible:outline-none` on input.tsx / textarea.tsx /
+ * select.tsx / combobox.tsx, which set it precisely BECAUSE they already draw a
+ * `ring-2`. Every input then painted ring + outline: a 3px band instead of 2px,
+ * and the primitives' `outline-none` became dead code that still read as intent.
+ *
+ * Sitting in `@layer base` puts the floor BELOW all utilities, so any control
+ * that expresses a focus style wins and this only fills the gap. The three
+ * places that suppress focus without replacing it are fixed at source
+ * (mobile-nav, search-palette, dropdown-menu) rather than by out-cascading them.
+ *
+ * `[tabindex]` excludes -1 to match FOCUSABLE_SELECTOR in lib/focus.ts: an
+ * auto-generated/derived field (the readOnly Age on employees) is deliberately
+ * out of the tab order and must not advertise itself as a live destination.
+ */
+@layer base {
+  :where(
+    a[href],
+    button,
+    input,
+    select,
+    textarea,
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible,
+  [data-field-trigger]:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+}
+
+/*
+ * The row the keyboard is inside. Scoped to `[data-grid-row]` — the marker
+ * ChildGrid emits and that hand-rolled grids opt into — and deliberately NOT
+ * `tbody tr`, which would hit every table in the app including the 14 picker
+ * dialogs, whose own arrow-key highlight is `bg-primary/10`. Focusing a row
+ * there would have made the highlight DIMMER, and would likewise have masked
+ * `bg-primary/5` on selected rows in data-table.tsx.
+ */
+[data-grid-row]:focus-within {
+  background-color: var(--row-active);
 }
 
 /*

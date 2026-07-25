@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -27,6 +27,7 @@ import {
 } from "./nav-search";
 import { type StoreNavLink } from "./sidebar";
 import { mastersFabSections } from "@/lib/masters/masters-nav";
+import { useOverlayFocus } from "@/lib/use-overlay-focus";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
 import type { SearchEntity, SearchResult } from "@/lib/search/types";
@@ -66,6 +67,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const pathname = usePathname();
   const user = useAppUser();
   const [open, setOpen] = useState(false);
+  const launcherRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [viewHref, setViewHref] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -126,6 +128,16 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     activeSections
       .filter((c) => isActive(pathname, c.href))
       .sort((a, b) => b.href.length - a.href.length)[0] ?? null;
+
+  // The drawer opened with focus still on the peek bar, so its search box never
+  // received the cursor and Escape did nothing (client 2026-07-25). The drawer
+  // is never unmounted — just slid off-screen and made `inert` — so the hook's
+  // deferred focus is what waits for `inert` to lift.
+  //
+  // MUST stay above the early return below: hooks cannot be called
+  // conditionally. `close` is a hoisted function declaration, so referencing it
+  // here is fine even though it is written further down.
+  useOverlayFocus(open, close, launcherRef);
 
   if (!activeModule) return null;
 
@@ -397,8 +409,12 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
           content. Tabbing off the last control of any page walked into an
           invisible drawer (client 2026-07-25). Same fix as components/ui/sheet.tsx. */}
       <div
+        ref={launcherRef}
         inert={!open}
         aria-hidden={!open}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation"
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 flex h-[82%] flex-col rounded-t-3xl bg-surface shadow-2xl transition-transform duration-300 md:hidden",
           open ? "translate-y-0" : "translate-y-full",
@@ -407,7 +423,10 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
       >
         <div className="shrink-0 px-5 pt-3">
           <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-border" />
-          <div className="flex h-11 items-center gap-2.5 rounded-xl border border-border bg-surface-muted px-3">
+          {/* The input keeps `outline-none` (an outline inside this pill would
+              look wrong), so the FRAME shows focus instead — otherwise focusing
+              the search box gives no signal at all. */}
+          <div className="flex h-11 items-center gap-2.5 rounded-xl border border-border bg-surface-muted px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-ring">
             <Search className="h-[17px] w-[17px] text-muted-foreground" />
             <input
               value={query}

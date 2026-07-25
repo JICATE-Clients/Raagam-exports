@@ -72,12 +72,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
   );
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
-    search: (r, q) =>
-      [r.prod_size_id, r.prod_cut_size, r.desc1, r.desc2, r.desc3]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
+    searchKey: (r) => [r.prod_size_id, r.prod_cut_size, r.desc1, r.desc2, r.desc3].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
       sizeFor: (r, v) => r.size_for === v,

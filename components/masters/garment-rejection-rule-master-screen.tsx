@@ -274,7 +274,7 @@ export function GarmentRejectionRuleMasterScreen({
         {/* Two-column body — header fields LEFT, Details tier grid RIGHT. */}
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
           <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label htmlFor="grr-entry">Entry No</Label>
               <Input id="grr-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -346,7 +346,7 @@ export function GarmentRejectionRuleMasterScreen({
                     onChange={(e) => setLineAt(l.key, { range_label: e.target.value })}
                     className="text-base md:text-sm"
                   />
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <Input
                       type="number"
                       placeholder="From"

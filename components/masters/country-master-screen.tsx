@@ -183,7 +183,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="co-name">
                 Name <span className="text-danger">*</span>
@@ -214,7 +214,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="co-ecgc">ECGC Code</Label>
               <Input

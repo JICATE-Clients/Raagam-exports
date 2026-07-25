@@ -135,7 +135,7 @@ export function AcHeadPicker({
                   className="text-base md:text-sm"
                 />
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-auto">
                 {filtered.length === 0 ? (
                   <p className="px-4 py-10 text-center text-sm text-muted-foreground">No accounts found.</p>
                 ) : (

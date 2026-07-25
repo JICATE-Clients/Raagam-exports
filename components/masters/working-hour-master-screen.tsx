@@ -223,7 +223,7 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label>Entry No</Label>
               <Input value={editNo != null ? `#${editNo}` : "(auto)"} readOnly disabled className="text-base md:text-sm" />
@@ -241,7 +241,7 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
           </div>
 
           {SLOTS.map(([kA, lA, kB, lB]) => (
-            <div key={kA} className="grid grid-cols-2 gap-3 sm:col-span-2">
+            <div key={kA} className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
               <div>
                 <Label htmlFor={`wh-${kA}`}>{lA}</Label>
                 <Input

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createDc } from "@/lib/purchase/grn-actions";
 import { useToast } from "@/components/ui/toast";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -218,10 +219,13 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
                   <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground" />
                 </tr>
               </thead>
-              <tbody>
+              {/* Row markers give ↓/↑ Excel-style column-wise movement across
+                  lines — see gridKeyNav in components/masters/child-grid.tsx. */}
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
                 {lines.map((l) => (
                   <tr
                     key={l.tempId}
+                    data-grid-row
                     className="border-b border-border last:border-0"
                   >
                     <td className="px-3 py-2">

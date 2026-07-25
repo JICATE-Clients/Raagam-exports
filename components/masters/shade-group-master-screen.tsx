@@ -63,12 +63,7 @@ export function ShadeGroupMasterScreen({
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) =>
-        [r.short_name, r.name]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q),
+      searchKey: (r) => [r.short_name, r.name].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },
@@ -382,7 +377,7 @@ export function ShadeGroupMasterScreen({
             <div className="space-y-4">
               <ChildGrid<ChildRow>
                 label="Shades"
-                maxBodyHeight="max-h-56"
+                pageSize={10}
                 forceCards
                 rows={childRows}
                 onAdd={addChildRow}

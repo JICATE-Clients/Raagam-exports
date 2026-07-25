@@ -142,8 +142,7 @@ export function LevyMasterScreen({
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) =>
-        [r.type, r.description, String(r.entry_no)].filter(Boolean).join(" ").toLowerCase().includes(q),
+      searchKey: (r) => [r.type, r.description, String(r.entry_no)].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
         type: (r, v) => r.type === v,

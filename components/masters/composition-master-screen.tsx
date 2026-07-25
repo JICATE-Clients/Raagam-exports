@@ -374,7 +374,7 @@ export function CompositionMasterScreen({
                     Total {fmtNumber(pctTotal)}%
                   </span>
                 }
-                maxBodyHeight="max-h-56"
+                pageSize={10}
                 forceCards
                 rows={lines}
                 onAdd={addLine}

@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PaginationBar } from "@/components/ui/pagination";
+import { usePagination } from "@/lib/use-pagination";
 import { cn } from "@/lib/utils";
 
 /**
@@ -154,7 +156,7 @@ export function ChildGrid<T extends { key: string }>({
   onRemove,
   addLabel = "+ Add row",
   renderMobileRow,
-  maxBodyHeight,
+  pageSize,
   forceCards = false,
   frameless = false,
   keyboardNav = true,
@@ -172,11 +174,10 @@ export function ChildGrid<T extends { key: string }>({
   addLabel?: string;
   /** Custom mobile-card body per row; falls back to stacking every column's cell if omitted. */
   renderMobileRow?: (row: T, index: number) => ReactNode;
-  /** Tailwind max-height class (e.g. "max-h-56") — caps the ROW area with an
-   *  internal scroll so a growing grid never pushes the content below it
-   *  (client 2026-07-23: Attributes above UOM must not displace UOM). The
-   *  label and "+ Add" button stay pinned outside the scroll. */
-  maxBodyHeight?: string;
+  /** Paginate the rows at N per page with a Prev/Next bar, instead of an inner
+   *  scrollbar (client 2026-07-25 — no scroll-in-a-box). The pager self-hides
+   *  when everything fits; "+ Add" jumps to the last page. Omit for no paging. */
+  pageSize?: number;
   /** Always render the stacked row-cards, never the wide table — for grids
    *  living inside a half-width column (Fabric organized layout 2026-07-23). */
   forceCards?: boolean;
@@ -199,6 +200,19 @@ export function ChildGrid<T extends { key: string }>({
   startIndex?: number;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
+  // Optional pagination (no inner scroll). When pageSize is unset we use a huge
+  // page so every row lands on a single page (a fixed big number, NOT rows.length
+  // — usePagination captures its size once, so a growing grid must not re-page).
+  const paginated = !!(pageSize && pageSize > 0);
+  const pg = usePagination(rows, paginated ? pageSize! : 1_000_000);
+  const offset = (pg.page - 1) * pg.pageSize;
+  const view = pg.paged;
+  // Add a row, then jump to the (new) last page so the fresh row is visible.
+  const handleAdd = () => {
+    onAdd();
+    if (paginated) pg.setPage(Number.MAX_SAFE_INTEGER);
+  };
+  const addFn = hideAdd ? NO_ADD : handleAdd;
   return (
     <div className={cn("@container space-y-3", !frameless && "rounded-lg border border-border p-3")}>
       <div className="flex items-center justify-between">
@@ -208,10 +222,10 @@ export function ChildGrid<T extends { key: string }>({
 
       {/* wide-container table */}
       {!forceCards && (
-      <div className={cn("hidden overflow-x-auto rounded-lg border border-border @lg:block", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}>
+      <div className="hidden overflow-x-auto rounded-lg border border-border @lg:block">
         <table
           className="w-full min-w-[420px] border-collapse text-sm"
-          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, hideAdd ? NO_ADD : onAdd) : undefined}
+          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
         >
           <thead>
             <tr className="border-b border-border bg-surface-muted">
@@ -232,7 +246,9 @@ export function ChildGrid<T extends { key: string }>({
             </tr>
           </thead>
           <tbody data-grid-body>
-            {rows.map((row, i) => (
+            {view.map((row, localI) => {
+              const i = offset + localI;
+              return (
               <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
                 <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
                 {columns.map((c, ci) => (
@@ -253,7 +269,8 @@ export function ChildGrid<T extends { key: string }>({
                   </Button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -266,10 +283,10 @@ export function ChildGrid<T extends { key: string }>({
       {inlineCards ? (
         <div
           data-grid-body
-          className={cn("space-y-1.5", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}
-          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, hideAdd ? NO_ADD : onAdd) : undefined}
+          className="space-y-1.5"
+          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
         >
-          {rows.length > 0 && (
+          {view.length > 0 && (
             <div className="flex items-center gap-2 px-2 pb-0.5">
               <span className="w-4 shrink-0" />
               {columns.map((c, ci) => (
@@ -288,7 +305,9 @@ export function ChildGrid<T extends { key: string }>({
               <span className="w-8 shrink-0" />
             </div>
           )}
-          {rows.map((row, i) => (
+          {view.map((row, localI) => {
+            const i = offset + localI;
+            return (
             <div
               key={row.key}
               data-grid-row
@@ -315,7 +334,8 @@ export function ChildGrid<T extends { key: string }>({
                 <X className="h-4 w-4 shrink-0" />
               </Button>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
       /* stacked row-cards — the only rendering when forceCards is set. Carries
@@ -324,10 +344,12 @@ export function ChildGrid<T extends { key: string }>({
           table left arrow keys dead there. */
       <div
         data-grid-body
-        className={cn("space-y-2", !forceCards && "@lg:hidden", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}
-        onKeyDown={keyboardNav ? (e) => gridKeyNav(e, hideAdd ? NO_ADD : onAdd) : undefined}
+        className={cn("space-y-2", !forceCards && "@lg:hidden")}
+        onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
       >
-        {rows.map((row, i) => (
+        {view.map((row, localI) => {
+          const i = offset + localI;
+          return (
           <div key={row.key} data-grid-row className="space-y-2 rounded-lg border border-border p-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
@@ -337,12 +359,23 @@ export function ChildGrid<T extends { key: string }>({
             </div>
             {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => <div key={ci}>{c.cell(row, i)}</div>)}
           </div>
-        ))}
+          );
+        })}
       </div>
       )}
 
+      {paginated && (
+        <PaginationBar
+          page={pg.page}
+          pageCount={pg.pageCount}
+          total={pg.total}
+          pageSize={pg.pageSize}
+          onPageChange={pg.setPage}
+        />
+      )}
+
       {!hideAdd && (
-        <Button type="button" variant="outline" size="sm" onClick={onAdd}>
+        <Button type="button" variant="outline" size="sm" onClick={handleAdd}>
           {addLabel}
         </Button>
       )}

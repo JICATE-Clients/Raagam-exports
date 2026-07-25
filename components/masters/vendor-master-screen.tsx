@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X, User, MapPin, SlidersHorizontal, Trash2, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { focusFirstField } from "@/lib/focus";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -182,6 +183,15 @@ export function VendorMasterScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [section, setSection] = useState<SectionKey>("identity");
+  /** Scroll pane of the editor — the boundary the shared key contract walks. */
+  const editorContentRef = useRef<HTMLDivElement>(null);
+  // Put the cursor in the first field when the editor opens, and again when the
+  // section switches (which unmounts the previously focused field).
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => focusFirstField(editorContentRef.current), 60);
+    return () => window.clearTimeout(id);
+  }, [open, section]);
   const [dirty, setDirty] = useState(false);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [addresses, setAddresses] = useState<AddressRow[]>([]);
@@ -615,8 +625,12 @@ export function VendorMasterScreen({
               })}
             </nav>
 
-            {/* content */}
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/* content — routes keys through the one shared contract (↓/↑ opens
+                a picker, else moves between fields; Enter advances). This editor
+                is a hand-rolled clone of MasterFullScreen and had copied the
+                layout but not the keyboard behaviour, so arrows and Enter did
+                nothing here (client 2026-07-25). */}
+            <div ref={editorContentRef} data-focus-scope className="min-h-0 flex-1 overflow-y-auto">
               <div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
                 {section === "identity" && (
                   <SectionBody title="Identity" hint="Who this vendor is, their category and registration details.">

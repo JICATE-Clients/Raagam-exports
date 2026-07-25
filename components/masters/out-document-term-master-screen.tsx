@@ -426,7 +426,7 @@ export function OutDocumentTermMasterScreen({
           {/* Description grid */}
           <ChildGrid<LineRow>
             label="Description"
-            maxBodyHeight="max-h-56"
+            pageSize={10}
             forceCards
             rows={lines}
             onAdd={addLine}

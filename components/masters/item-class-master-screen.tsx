@@ -42,7 +42,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) => [r.code, r.name].filter(Boolean).join(" ").toLowerCase().includes(q),
+      searchKey: (r) => [r.code, r.name].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
         attr: (r, v) => (v === "yes" ? !!r.has_attribute : v === "no" ? !r.has_attribute : true),

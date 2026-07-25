@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { FileText, Sheet, Printer, BarChart3, Table2 } from "lucide-react";
-import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { usePermission } from "@/lib/auth/permission-context";
 import { exportPdf } from "@/lib/reports/export-pdf";
 import { exportExcel } from "@/lib/reports/export-excel";
@@ -27,6 +27,10 @@ export function ReportToolbar<T>({
   hasChart: boolean;
 }) {
   const canExport = usePermission("reports", "export");
+  // Was `react-hot-toast` — the only consumer in the app, which meant report
+  // errors appeared top-right while every other message in the ERP appeared
+  // bottom-left-of-corner. One toast system now.
+  const { error } = useToast();
   const [busy, setBusy] = useState(false);
   const empty = config.rows.length === 0;
 
@@ -35,7 +39,7 @@ export function ReportToolbar<T>({
       exportPdf(config);
     } catch (err) {
       console.error(err);
-      toast.error("Could not generate PDF.");
+      error("Could not generate PDF.");
     }
   }
 
@@ -45,7 +49,7 @@ export function ReportToolbar<T>({
       await exportExcel(config);
     } catch (err) {
       console.error(err);
-      toast.error("Could not generate Excel file.");
+      error("Could not generate Excel file.");
     } finally {
       setBusy(false);
     }

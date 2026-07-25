@@ -728,7 +728,7 @@ export function ConsigneeMasterScreen({
                           compact
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <Input
                           placeholder="Land Line"
                           value={c.land_line}
@@ -930,7 +930,7 @@ export function ConsigneeMasterScreen({
                   Registration
                 </div>
                 <div className="space-y-3 p-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label>TIN No.</Label>
                       <Input
@@ -948,7 +948,7 @@ export function ConsigneeMasterScreen({
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="cn-pan">PAN No</Label>
                       <Input

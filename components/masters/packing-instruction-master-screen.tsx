@@ -53,12 +53,7 @@ export function PackingInstructionMasterScreen({
   const [form, setForm] = useState(BLANK);
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
-    search: (r, q) =>
-      [r.packing_type, r.packing_no, r.reference]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
+    searchKey: (r) => [r.packing_type, r.packing_no, r.reference].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
     },

@@ -95,12 +95,7 @@ export function ProcessMasterScreen({
     Process,
     { status: string; for: string; billingOn: string; commodity: string }
   >(rows, {
-    search: (r, q) =>
-      [r.name, r.short_description, r.billing_on, r.hsn_code]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
+    searchKey: (r) => [r.name, r.short_description, r.billing_on, r.hsn_code].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       for: (r, v) => {
@@ -593,7 +588,7 @@ export function ProcessMasterScreen({
           {form.has_sub_categories && (
             <ChildGrid<SubRow>
               label="Sub Categories"
-              maxBodyHeight="max-h-56"
+              pageSize={10}
               forceCards
               rows={subs}
               onAdd={addSub}

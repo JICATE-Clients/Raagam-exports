@@ -377,7 +377,7 @@ export function ComponentMasterScreen({
               {!form.all_coordinates && (
                 <ChildGrid<CoordinateRow>
                   label="Coordinates"
-                  maxBodyHeight="max-h-56"
+                  pageSize={10}
                   forceCards
                   rows={coordinates}
                   onAdd={addCoordinate}

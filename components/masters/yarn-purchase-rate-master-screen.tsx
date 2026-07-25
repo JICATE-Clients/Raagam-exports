@@ -174,7 +174,7 @@ export function YarnPurchaseRateMasterScreen({
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="ypr-code">Code</Label>
               <Input id="ypr-code" value={editCode ?? "(auto)"} disabled className="text-base md:text-sm" />

@@ -197,7 +197,7 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="hd-entry">Entry No</Label>
               <Input id="hd-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -279,7 +279,7 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
               />
               <span className="text-sm font-medium text-foreground">Date Range</span>
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="hd-hdate">{form.is_date_range ? "From" : "Date"}</Label>
                 <Input

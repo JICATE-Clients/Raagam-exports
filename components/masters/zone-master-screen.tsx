@@ -54,12 +54,7 @@ export function ZoneMasterScreen({
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) =>
-        [r.zone_short_name, r.zone_name]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q),
+      searchKey: (r) => [r.zone_short_name, r.zone_name].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },

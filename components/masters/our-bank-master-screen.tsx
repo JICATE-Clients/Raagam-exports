@@ -54,8 +54,7 @@ export function OurBankMasterScreen({
   });
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
-    search: (r, q) =>
-      [r.account_name, r.bank_name, r.branch_name, r.account_no].filter(Boolean).join(" ").toLowerCase().includes(q),
+    searchKey: (r) => [r.account_name, r.bank_name, r.branch_name, r.account_no].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
     },

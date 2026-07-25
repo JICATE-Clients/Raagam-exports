@@ -45,12 +45,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) =>
-        [r.code, r.name, ...r.values.map((v) => v.value)]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q),
+      searchKey: (r) => [r.code, r.name, ...r.values.map((v) => v.value)].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? !!r.is_active : v === "inactive" ? !r.is_active : true),
         attr: (r, v) => (v === "yes" ? !!r.has_attribute : v === "no" ? !r.has_attribute : true),
@@ -61,19 +56,14 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
 
   const pg = usePagination(filtered, 10);
 
-  // Editor-grid pagination (client 2026-07-25): no inner scrollbar, page through
-  // the value rows 10 at a time. Separate from `pg` (the outer item-class list).
-  const eg = usePagination(values, 10);
-
   function openEdit(r: Attribute) {
     setEditRow(r);
     setValues(r.values.map((v) => ({ key: newKey(), value: v.value })));
-    eg.setPage(1);
     setOpen(true);
   }
   function addValueRow() {
+    // ChildGrid (pageSize) handles jumping to the new last page on add.
     setValues((vs) => [...vs, { key: newKey(), value: "" }]);
-    eg.setPage(Number.MAX_SAFE_INTEGER); // clamps to the (new) last page
   }
   function setValueAt(key: string, value: string) {
     setValues((vs) => vs.map((v) => (v.key === key ? { ...v, value } : v)));
@@ -265,9 +255,10 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
           ) : (
             <div className="space-y-3 sm:col-span-2">
               <ChildGrid<ValueRow>
+                key={editRow?.id ?? "new"}
                 label="Attributes"
-                rows={eg.paged}
-                startIndex={(eg.page - 1) * eg.pageSize}
+                rows={values}
+                pageSize={10}
                 onAdd={addValueRow}
                 onRemove={(v) => removeValueRow(v.key)}
                 addLabel="+ Add attribute"
@@ -294,13 +285,6 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                     className="text-base md:text-sm"
                   />
                 )}
-              />
-              <PaginationBar
-                page={eg.page}
-                pageCount={eg.pageCount}
-                total={eg.total}
-                pageSize={eg.pageSize}
-                onPageChange={eg.setPage}
               />
             </div>
           )}

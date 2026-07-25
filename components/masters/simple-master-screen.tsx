@@ -1,7 +1,7 @@
 "use client";
 import { deletedToast } from "@/lib/masters/delete-message";
 
-import { useMemo, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -159,11 +160,11 @@ export function SimpleMasterScreen<Row>({
     [d.statusOf],
   );
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, isStale } = useMasterFilter<
     Row,
     Record<string, string>
   >(rows, {
-    search: (r, q) => d.searchText(r).toLowerCase().includes(q),
+    searchKey: d.searchText,
     filters: {
       ...(hasStatus ? { status: (r: Row, v: string) => statusOf(r) === v } : {}),
       ...Object.fromEntries((d.extraFilters ?? []).map((f) => [f.key, f.predicate])),
@@ -196,6 +197,24 @@ export function SimpleMasterScreen<Row>({
   }
 
   useCreateIntent(startAdd);
+
+  /*
+   * Global shortcuts — Ctrl+N adds, Ctrl+F focuses search. MasterListShell has
+   * registered these since the shortcuts registry landed, but this screen (the
+   * 31 highest-volume masters, and the only tier with inline row edit) never
+   * did, so the two bindings the keyboard-first flow leans on hardest were dead
+   * exactly where an operator keys all day.
+   *
+   * Ctrl+N is gated on `!editing` for the same reason the Add button carries
+   * `disabled={editing?.id === null}`: starting a second add would silently
+   * discard the row being typed.
+   */
+  const searchRef = useRef<HTMLInputElement>(null);
+  useRegisterShortcut("new", startAdd, perms.canCreate && !editing);
+  useRegisterShortcut("search", () => {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  });
 
   // Real-time duplicate check on the descriptor's unique field (mirrors the
   // on-save guard in the entity's actions; no-op when dupCheck is undeclared).
@@ -280,6 +299,11 @@ export function SimpleMasterScreen<Row>({
    */
   function onRowKeyDown(e: KeyboardEvent<HTMLElement>) {
     const t = e.target as HTMLElement;
+    // Arrow navigation comes from keyboard-nav-provider.tsx. The editing row
+    // carries `data-focus-scope`, so ↓/↑ stay within the row instead of walking
+    // the whole page — only one row is editable at a time, so "next field" is
+    // the right meaning for ↓ here. Enter-to-save below preventDefaults, which
+    // is what stops the provider from also advancing.
     const tag = t.tagName;
     const keepsOwnEnter =
       tag === "TEXTAREA" || tag === "BUTTON" || t.matches("[data-field-trigger]");
@@ -294,8 +318,15 @@ export function SimpleMasterScreen<Row>({
 
   /* ------------------------------------------------------------ cells */
 
-  function readCell(f: SimpleField, r: Row) {
-    const raw = d.fromRow(r)[f.key];
+  /**
+   * Takes the already-built values record, NOT the row: `fromRow` is a
+   * descriptor callback that allocates a fresh object, and calling it per field
+   * per row meant a 6-field × 100-row page rebuilt it 600 times on every render
+   * — i.e. on every keystroke in the search box. The mobile branch below always
+   * hoisted it; this is the desktop table catching up.
+   */
+  function readCell(f: SimpleField, values: SimpleValues) {
+    const raw = values[f.key];
     if (f.kind === "checkbox") {
       return <span className="text-sm">{raw ? "Yes" : "—"}</span>;
     }
@@ -427,6 +458,7 @@ export function SimpleMasterScreen<Row>({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <FilterBar
+          searchRef={searchRef}
           search={query}
           onSearch={(v) => {
             setQuery(v);
@@ -506,7 +538,14 @@ export function SimpleMasterScreen<Row>({
       </div>
 
       {/* ---------------- desktop table (own markup, DataTable classes) ---------------- */}
-      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block">
+      {/* Dimmed while the deferred filter catches up, so the operator is never
+          shown rows that don't match what they just typed without a cue. */}
+      <div
+        className={cn(
+          "hidden overflow-x-auto rounded-lg border border-border bg-surface transition-opacity md:block",
+          isStale && "opacity-60",
+        )}
+      >
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-surface-muted">
@@ -530,7 +569,7 @@ export function SimpleMasterScreen<Row>({
           <tbody>
             {/* add row — outside pagination, always on top */}
             {editing?.id === null && (
-              <tr className="border-b border-border bg-primary/5" onKeyDown={onRowKeyDown}>
+              <tr className="border-b border-border bg-primary/5" data-focus-scope onKeyDown={onRowKeyDown}>
                 {d.fields.map((f, i) => (
                   <td key={f.key} className="px-3 py-1.5 align-middle">
                     {editCell(f, i === 0)}
@@ -559,7 +598,7 @@ export function SimpleMasterScreen<Row>({
                 const isEditing = editing?.id === getId(r);
                 if (isEditing) {
                   return (
-                    <tr key={getId(r)} className="border-b border-border bg-primary/5 last:border-0" onKeyDown={onRowKeyDown}>
+                    <tr key={getId(r)} className="border-b border-border bg-primary/5 last:border-0" data-focus-scope onKeyDown={onRowKeyDown}>
                       {d.fields.map((f, i) => (
                         <td key={f.key} className="px-3 py-1.5 align-middle">
                           {editCell(f, i === 0)}
@@ -575,11 +614,12 @@ export function SimpleMasterScreen<Row>({
                     </tr>
                   );
                 }
+                const values = d.fromRow(r);
                 return (
                   <tr key={getId(r)} className="border-b border-border last:border-0 hover:bg-surface-muted/60">
                     {d.fields.map((f) => (
                       <td key={f.key} className="px-3 py-2 align-middle">
-                        {readCell(f, r)}
+                        {readCell(f, values)}
                       </td>
                     ))}
                     {(d.extraColumns ?? []).map((c) => (
@@ -616,7 +656,7 @@ export function SimpleMasterScreen<Row>({
       </div>
 
       {/* ---------------- mobile cards with in-place edit ---------------- */}
-      <div className="space-y-2.5 md:hidden">
+      <div className={cn("space-y-2.5 transition-opacity md:hidden", isStale && "opacity-60")}>
         {editing?.id === null && (
           <MobileEditCard
             fields={d.fields}
@@ -705,8 +745,19 @@ function MobileEditCard({
   buttons: ReactNode;
   onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 }) {
+  /*
+   * `data-focus-scope` is set HERE, not passed in. Both call sites used to pass
+   * it as a prop, but a hyphenated JSX attribute skips TypeScript's excess-prop
+   * check, so it type-checked and was then silently dropped — mobile inline edit
+   * had no focus scope at all and ↓/↑ walked the whole page instead of the card.
+   * The card is only ever rendered while editing, so the scope is unconditional.
+   */
   return (
-    <div className="space-y-3 rounded-xl border border-primary/40 bg-surface p-4" onKeyDown={onKeyDown}>
+    <div
+      data-focus-scope
+      className="space-y-3 rounded-xl border border-primary/40 bg-surface p-4"
+      onKeyDown={onKeyDown}
+    >
       {fields.map((f) => (
         <div key={f.key}>
           <Label>

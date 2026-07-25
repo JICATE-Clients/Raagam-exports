@@ -200,7 +200,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="al-id">ID</Label>
               <Input id="al-id" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -229,7 +229,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="al-seq">Sequence</Label>
               <Input

@@ -10,6 +10,7 @@ import { parseSpreadsheet, type ParsedSheet } from "@/lib/data-io/parse";
 import { coerceRow } from "@/lib/data-io/coerce";
 import { bulkImport } from "@/lib/data-io/actions";
 import type { IoEntity } from "@/lib/data-io/entities";
+import { useOverlayFocus } from "@/lib/use-overlay-focus";
 import { cn } from "@/lib/utils";
 
 interface PreviewRow {
@@ -46,8 +47,13 @@ export function ImportDialog({
   const [fileName, setFileName] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setMounted(true), []);
+
+  // Focus in on open, Escape to close, focus back to the trigger on close —
+  // none of which this hand-rolled dialog had.
+  useOverlayFocus(open, onClose, panelRef);
 
   // Reset when opened.
   useEffect(() => {
@@ -108,6 +114,7 @@ export function ImportDialog({
       <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
 
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`Import ${entity.label}`}

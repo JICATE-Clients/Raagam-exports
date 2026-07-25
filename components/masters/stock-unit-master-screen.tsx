@@ -84,8 +84,7 @@ export function StockUnitMasterScreen({
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) =>
-        [r.code, r.name, r.description].filter(Boolean).join(" ").toLowerCase().includes(q),
+      searchKey: (r) => [r.code, r.name, r.description].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? !!r.is_active : v === "inactive" ? !r.is_active : true),
       },

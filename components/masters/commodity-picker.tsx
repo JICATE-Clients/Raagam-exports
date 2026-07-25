@@ -272,7 +272,7 @@ export function CommodityPicker({
                       className="text-base md:text-sm"
                     />
                   </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-auto">
                     {filtered.length === 0 ? (
                       <p className="px-4 py-10 text-center text-sm text-muted-foreground">No commodities found.</p>
                     ) : (
@@ -319,7 +319,7 @@ export function CommodityPicker({
                                           e.stopPropagation();
                                           startModify(c.id);
                                         }}
-                                        className="rounded p-1 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
+                                        className="rounded p-1 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:text-foreground group-hover:opacity-100"
                                       >
                                         <Pencil className="h-4 w-4" />
                                       </button>
@@ -333,7 +333,7 @@ export function CommodityPicker({
                                           e.stopPropagation();
                                           startDelete(c.id);
                                         }}
-                                        className="rounded p-1 text-muted-foreground opacity-0 hover:text-danger group-hover:opacity-100"
+                                        className="rounded p-1 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:text-danger group-hover:opacity-100"
                                       >
                                         <Trash2 className="h-4 w-4" />
                                       </button>

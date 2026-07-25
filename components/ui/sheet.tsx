@@ -4,13 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  orderedFocusables,
-  enterAdvance,
-  focusFirstField,
-  arrowOpensPicker,
-  arrowNavigate,
-} from "@/lib/focus";
+import { orderedFocusables, focusFirstField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 
 // Ref-counts open Sheets so a nested Sheet's cleanup doesn't clear the scroll
@@ -222,20 +216,11 @@ export function Sheet({
     if (t instanceof HTMLElement) lastFocusedRef.current = t;
   };
 
-  /**
-   * The one form-level key contract, in priority order — shared with the
-   * full-screen editor via lib/focus so the two surfaces cannot drift:
-   *   ↓/↑ on a picker  → open its dialog
-   *   ↓/↑ otherwise    → previous / next field
-   *   Enter            → next field
-   * Controls that own a key (open list, grid, textarea, native select) consume
-   * it before any of this runs.
-   */
-  const onEnterAdvance = (e: React.KeyboardEvent) => {
-    if (arrowOpensPicker(e)) return;
-    if (arrowNavigate(e, containerRef.current)) return;
-    enterAdvance(e, containerRef.current);
-  };
+  // Field navigation (Tab / Enter / ↑ / ↓) is NOT wired here any more — it comes
+  // from components/shell/keyboard-nav-provider.tsx, which drives every surface
+  // in the app from one listener. This dialog is a `[role="dialog"]`, so the
+  // provider already treats it as the navigation boundary. What stays below is
+  // overlay-specific: the focus trap, Escape, and autofocus on open.
 
   if (!mounted) return null;
 
@@ -290,7 +275,7 @@ export function Sheet({
                 </div>
               </div>
               {/* content — the one scroll */}
-              <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-5 py-3.5" onKeyDown={onEnterAdvance}>
+              <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-5 py-3.5">
                 {children}
               </div>
               {/* footer */}
@@ -334,7 +319,7 @@ export function Sheet({
               </div>
             </div>
             {/* content — the one scroll */}
-            <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6" onKeyDown={onEnterAdvance}>
+            <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6">
               <div className="mx-auto w-full max-w-5xl">{children}</div>
             </div>
             {/* footer */}
@@ -379,7 +364,7 @@ export function Sheet({
               </button>
             </div>
           </div>
-          <div data-focus-region="content" className="flex-1 overflow-y-auto px-5 pb-4" onKeyDown={onEnterAdvance}>
+          <div data-focus-region="content" className="flex-1 overflow-y-auto px-5 pb-4">
             {children}
           </div>
           {footer && (

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { gridKeyNav } from "@/components/masters/child-grid";
 
 interface RowState {
   present: boolean;
@@ -179,13 +180,20 @@ export default function AttendanceClient({
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              {/* data-grid-body / data-grid-row give this batch-entry table
+                  Excel-style row navigation: ↓/↑ move to the same column one
+                  worker up or down, instead of walking every cell in the row.
+                  See gridKeyNav in components/masters/child-grid.tsx — the same
+                  markers ChildGrid emits, so a hand-rolled table gets identical
+                  behaviour without adopting the component. */}
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => {})}>
                 {workers.map((w) => {
                   const r = rows[w.id];
                   const otCapped = r.ot_hours > maxOtPerDay;
                   return (
                     <tr
                       key={w.id}
+                      data-grid-row
                       className="border-b border-border last:border-0 hover:bg-surface-muted/60"
                     >
                       <td className="px-3 py-1.5 align-middle">

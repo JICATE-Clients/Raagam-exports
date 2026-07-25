@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Plus, SquarePen, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { focusFirstField } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
@@ -98,6 +99,22 @@ function DialogListPicker({
   const [draftCode, setDraftCode] = useState("");
   const [draftName, setDraftName] = useState("");
   const [draftType, setDraftType] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Put the cursor back in the search box whenever we return to list mode.
+   *
+   * Sheet's own autofocus is keyed on `open`, and coming back from
+   * Add/Modify/Delete changes `mode`, not `open` — so it does not re-run. The
+   * button that had focus ("Back" / "Cancel") then unmounts and focus falls to
+   * <body>, which is OUTSIDE the list container that carries onListKeyDown, so
+   * ↑/↓/Enter went dead until the user clicked something (client 2026-07-25).
+   */
+  useEffect(() => {
+    if (!open || mode !== "list") return;
+    const id = window.setTimeout(() => focusFirstField(listRef.current), 30);
+    return () => window.clearTimeout(id);
+  }, [open, mode]);
 
   const selected = rows.find((r) => r.id === value) ?? null;
 
@@ -279,7 +296,7 @@ function DialogListPicker({
         }
       >
         {mode === "list" && (
-          <div className="space-y-2.5" onKeyDown={onListKeyDown}>
+          <div ref={listRef} className="space-y-2.5" onKeyDown={onListKeyDown}>
             <Input
               autoFocus
               value={query}
@@ -327,7 +344,7 @@ function DialogListPicker({
                         e.stopPropagation();
                         startEdit(r.id);
                       }}
-                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 hover:bg-surface hover:text-foreground group-hover:opacity-100"
+                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:bg-surface hover:text-foreground group-hover:opacity-100"
                     >
                       <SquarePen className="h-4 w-4" />
                     </button>
@@ -341,7 +358,7 @@ function DialogListPicker({
                         e.stopPropagation();
                         startDelete(r.id);
                       }}
-                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
+                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
                     >
                       <Trash2 className="h-[15px] w-[15px]" />
                     </button>

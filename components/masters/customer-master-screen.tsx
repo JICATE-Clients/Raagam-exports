@@ -744,7 +744,7 @@ export function CustomerMasterScreen({
                     <div className="mt-6">
                       <ChildGrid<ContactRow>
                         label="Contacts"
-                        maxBodyHeight="max-h-56"
+                        pageSize={10}
                         rows={contacts}
                         onAdd={addContact}
                         onRemove={(c) => removeContact(c.key)}
@@ -828,7 +828,7 @@ export function CustomerMasterScreen({
                   <SectionBody title="Agents" hint="Brokers / agents who represent this customer.">
                     <ChildGrid<AgentRow>
                       label="Customer Agents"
-                      maxBodyHeight="max-h-56"
+                      pageSize={10}
                       rows={agents}
                       onAdd={() => {
                         setAgents((xs) => [...xs, { key: newKey(), agent_type_id: "", agent_id: "" }]);
@@ -981,7 +981,7 @@ export function CustomerMasterScreen({
                     <div className="mt-6">
                       <ChildGrid<MarkRow>
                         label="Marking"
-                        maxBodyHeight="max-h-56"
+                        pageSize={10}
                         rows={markings}
                         onAdd={() => { setMarkings((xs) => [...xs, { key: newKey(), marking: "" }]); setDirty(true); }}
                         onRemove={(m) => { setMarkings((xs) => xs.filter((r) => r.key !== m.key)); setDirty(true); }}
@@ -1044,7 +1044,7 @@ function CategoryGrid({
   return (
     <ChildGrid<CatRowT>
       label={title}
-      maxBodyHeight="max-h-56"
+      pageSize={10}
       forceCards
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), category_id: "" }]); setDirty(true); }}
@@ -1082,7 +1082,7 @@ function VendorGrid({
   return (
     <ChildGrid<VendorRowT>
       label={title}
-      maxBodyHeight="max-h-56"
+      pageSize={10}
       forceCards
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), vendor_id: "" }]); setDirty(true); }}

@@ -240,7 +240,7 @@ export function MerchandisingTeamMasterScreen({
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           {editId && (
-            <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

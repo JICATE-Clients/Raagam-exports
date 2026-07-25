@@ -392,7 +392,7 @@ export function GstAssignScreen({ rows, perms }: { rows: VendorGstRow[]; perms: 
                     <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {gstSelect(r)}
                   {gstInput(r)}
                 </div>

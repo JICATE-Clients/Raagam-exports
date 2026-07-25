@@ -55,12 +55,7 @@ export function CertificationMasterScreen({
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
     {
-      search: (r, q) =>
-        [r.certification_name, r.description]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q),
+      searchKey: (r) => [r.certification_name, r.description].filter(Boolean).join(" "),
       filters: {
         status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
       },

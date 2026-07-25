@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useOverlayFocus } from "@/lib/use-overlay-focus";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -291,10 +292,24 @@ function DecisionModal({
 }) {
   const isReject = decision === "rejected";
   const reasonMissing = isReject && !reason.trim();
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // This modal is only ever rendered while open, so `true` is the open state.
+  // Without it the dialog appeared with focus still on the list behind it — and
+  // on a reject the Reason is REQUIRED, so a keyboard user had to Tab blind
+  // through the page underneath to reach the one field gating the button. It
+  // also had no Escape (client 2026-07-25).
+  useOverlayFocus(true, onCancel, panelRef);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-lg border border-border bg-surface p-5 shadow-lg">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${isReject ? "Reject" : "Approve"} amendment`}
+        className="w-full max-w-md rounded-lg border border-border bg-surface p-5 shadow-lg"
+      >
         <h2 className="text-lg font-semibold">
           {isReject ? "Reject" : "Approve"} {count > 1 ? `${count} amendments` : "amendment"}
         </h2>

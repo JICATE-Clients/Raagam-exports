@@ -180,7 +180,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="pe-entry">Entry No</Label>
               <Input id="pe-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -212,7 +212,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Employee Contribution
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="pe-emp-pf">PF %</Label>
                 <Input
@@ -245,7 +245,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Employer Contribution
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="pe-empr-pf">PF %</Label>
                 <Input

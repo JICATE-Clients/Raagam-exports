@@ -55,8 +55,7 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
   const needsKm = allowedRetreads > 0;
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
-    search: (r, q) =>
-      [r.code, r.name, r.brand, r.tyre_type, r.size].filter(Boolean).join(" ").toLowerCase().includes(q),
+    searchKey: (r) => [r.code, r.name, r.brand, r.tyre_type, r.size].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
     },

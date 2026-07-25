@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { enterAdvance, focusFirstField, arrowOpensPicker, arrowNavigate } from "@/lib/focus";
+import { focusFirstField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 
 /**
@@ -189,13 +189,9 @@ export function MasterFullScreen({
 
         <div
           className="min-h-0 flex-1 overflow-y-auto"
-          onKeyDown={(e) => {
-            // Same contract as Sheet: ↓/↑ opens a picker, else ↓/↑ moves between
-            // fields, else Enter advances.
-            if (arrowOpensPicker(e)) return;
-            if (arrowNavigate(e, contentRef.current)) return;
-            enterAdvance(e, contentRef.current);
-          }}
+          // Field navigation comes from keyboard-nav-provider.tsx; this pane is
+          // the navigation boundary because it carries data-focus-scope.
+          data-focus-scope
         >
           <div ref={contentRef} className="mx-auto max-w-3xl px-4 py-5 md:px-6">
             {active?.content}

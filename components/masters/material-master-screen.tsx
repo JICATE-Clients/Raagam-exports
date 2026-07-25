@@ -1094,7 +1094,7 @@ export function MaterialMasterScreen({
               </Field>
             )}
             {fabricAttributesVisible && (
-              <div className="space-y-2 sm:col-span-12">
+              <div className="space-y-2 @lg/section:col-span-12">
                 <div className="h-px bg-border" />
                 {mixingGrid("fabric")}
               </div>

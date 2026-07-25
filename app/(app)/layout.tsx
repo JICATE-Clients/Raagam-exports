@@ -7,6 +7,7 @@ import { Topbar } from "@/components/shell/topbar";
 import { MobileNav } from "@/components/shell/mobile-nav";
 import { SearchProvider } from "@/components/search/search-provider";
 import { ShortcutsProvider } from "@/components/shell/shortcuts-provider";
+import { KeyboardNavProvider } from "@/components/shell/keyboard-nav-provider";
 import { listStoreNavLinks } from "@/lib/stores/service";
 
 export default async function AppLayout({
@@ -29,6 +30,7 @@ export default async function AppLayout({
     <PermissionProvider user={user}>
       <SearchProvider>
         <ShortcutsProvider>
+          <KeyboardNavProvider>
           <div className="flex h-screen overflow-hidden">
             <Sidebar stores={stores} />
             <div className="flex min-w-0 flex-1 flex-col">
@@ -39,6 +41,7 @@ export default async function AppLayout({
               <MobileNav stores={stores} />
             </div>
           </div>
+          </KeyboardNavProvider>
         </ShortcutsProvider>
       </SearchProvider>
     </PermissionProvider>

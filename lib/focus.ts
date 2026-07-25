@@ -1,8 +1,22 @@
 /**
- * Shared focus helpers for the editor surfaces (Sheet, MasterFullScreen).
- * Extracted from components/ui/sheet.tsx so the full-screen editor can reuse
- * the exact same focus-trap / Enter-advance / autofocus-first behavior.
+ * Shared focus helpers. The key-handling ones are driven from ONE place —
+ * components/shell/keyboard-nav-provider.tsx — so every surface in the app gets
+ * the same contract without per-screen wiring. Sheet/MasterFullScreen still use
+ * the focus-trap and autofocus helpers directly, because those are overlay
+ * concerns rather than field navigation.
  */
+
+/**
+ * The slice of a keyboard event the navigation helpers actually read. Both a
+ * React SyntheticEvent and a native KeyboardEvent satisfy it, so the same
+ * functions serve a JSX `onKeyDown` and the global document listener.
+ */
+export type NavKeyEvent = {
+  key: string;
+  defaultPrevented: boolean;
+  target: EventTarget | null;
+  preventDefault(): void;
+};
 
 /**
  * NOTE the `:not([tabindex="-1"])` on every branch. The trailing
@@ -68,7 +82,7 @@ export function orderedFocusables(root: HTMLElement): HTMLElement[] {
  */
 const FIELD_TRIGGER = "[data-field-trigger]";
 
-export function enterAdvance(e: React.KeyboardEvent, root: HTMLElement | null) {
+export function enterAdvance(e: NavKeyEvent, root: HTMLElement | null) {
   if (e.key !== "Enter" || e.defaultPrevented) return;
   const t = e.target;
   const isTrigger = t instanceof HTMLElement && t.matches(FIELD_TRIGGER);
@@ -119,7 +133,7 @@ export function enterAdvance(e: React.KeyboardEvent, root: HTMLElement | null) {
  * `gridKeyNav`'s contract and it runs first — so this only fires on form
  * fields. Returns true when it consumed the key.
  */
-export function arrowOpensPicker(e: React.KeyboardEvent): boolean {
+export function arrowOpensPicker(e: NavKeyEvent): boolean {
   if (e.defaultPrevented) return false;
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return false;
   const t = e.target;
@@ -178,7 +192,7 @@ function ownsArrowKeys(t: HTMLElement): boolean {
  * Confined to the focused element's region, so ↓ cannot walk out of the fields
  * into Cancel/Save. Returns true when it consumed the key.
  */
-export function arrowNavigate(e: React.KeyboardEvent, root: HTMLElement | null): boolean {
+export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean {
   if (e.defaultPrevented) return false;
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return false;
   const t = e.target;

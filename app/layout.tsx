@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { Toaster } from "react-hot-toast";
 import "./globals.css";
 import { Providers } from "./providers";
 import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
@@ -37,7 +36,6 @@ export default function RootLayout({
         </BugReporterWrapper>
         <InstallPrompt />
         <UpdatePrompt />
-        <Toaster position="top-right" />
       </body>
     </html>
   );

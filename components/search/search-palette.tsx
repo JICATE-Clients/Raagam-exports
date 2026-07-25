@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useOverlayFocus } from "@/lib/use-overlay-focus";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -80,6 +81,7 @@ export function SearchPalette({
   const router = useRouter();
   const user = useAppUser();
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState("");
   const [records, setRecords] = useState<SearchResult[]>([]);
@@ -110,6 +112,13 @@ export function SearchPalette({
       return () => clearTimeout(t);
     }
   }, [isOpen]);
+
+  // Hand focus back to whatever opened the palette. ⌘K then Escape without
+  // navigating used to leave focus on <body>, so the next Tab restarted from the
+  // top of the document (client 2026-07-25). The input focus above already
+  // covers focus-IN, so this is only about the return trip; the hook's own
+  // Escape defers to the input's, which preventDefaults first.
+  useOverlayFocus(isOpen, onClose, panelRef);
 
   // Lock body scroll while open.
   useEffect(() => {
@@ -271,13 +280,16 @@ export function SearchPalette({
 
       {/* Panel */}
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Search everywhere"
         className="relative mt-[10vh] flex max-h-[70vh] w-[92%] max-w-xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
       >
-        {/* Input row */}
-        <div className="flex items-center gap-2 border-b border-border px-3">
+        {/* Input row. The input keeps `outline-none` — a ring across a
+            full-width palette row reads as noise — so the divider carries the
+            focus signal instead of nothing. */}
+        <div className="flex items-center gap-2 border-b border-border px-3 focus-within:border-primary">
           {loading ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
           ) : (

@@ -36,7 +36,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         // whatever the caller passed — an unconstrained svg stretches to fill
         // and reads as a distorted icon (client 2026-07-24 #6).
         "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+        // Focus: a plain 2px ring, no offset. `ring-offset-1` was leaving a 1px
+        // gap in Tailwind's default offset colour — WHITE — so a focused button
+        // read as 1px white + 2px indigo while a focused Input read as a solid
+        // 2px indigo. Correct-looking on a white card, wrong on any tinted
+        // surface, and broken outright once dark mode is wired (client
+        // 2026-07-25). Matches input.tsx / select.tsx / combobox.tsx exactly.
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "disabled:pointer-events-none disabled:opacity-50",
         variants[variant],
         sizes[size],

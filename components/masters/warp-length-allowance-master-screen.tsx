@@ -203,7 +203,7 @@ export function WarpLengthAllowanceMasterScreen({
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="wla-code">Code</Label>
               <Input id="wla-code" value={editCode ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -239,7 +239,7 @@ export function WarpLengthAllowanceMasterScreen({
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
                       onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>
-                  <div className="ml-8 grid grid-cols-3 gap-2">
+                  <div className="ml-8 grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
                       <Label className="text-xs">Warp Length</Label>
                       <Input type="number" value={l.warp_length} min={0}

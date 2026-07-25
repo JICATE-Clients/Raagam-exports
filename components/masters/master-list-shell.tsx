@@ -10,6 +10,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRegisterShortcut } from "@/lib/shortcuts";
+import { cn } from "@/lib/utils";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
@@ -115,11 +116,11 @@ export function MasterListShell<Row>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusOf, extraFilters]);
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, isStale } = useMasterFilter<
     Row,
     Record<string, string>
   >(rows, {
-    search: (r, q) => searchText(r).toLowerCase().includes(q),
+    searchKey: searchText,
     filters: filterConfig.filters,
     initialFilters: filterConfig.initialFilters,
   });
@@ -238,7 +239,8 @@ export function MasterListShell<Row>({
         </div>
       </div>
 
-      <div className="hidden space-y-3 md:block">
+      {/* Dimmed while the deferred filter catches up — see useMasterFilter. */}
+      <div className={cn("hidden space-y-3 transition-opacity md:block", isStale && "opacity-60")}>
         {bulkEntityKey && sel.selectedIds.length > 0 && (
           <BulkActionsBar
             entityKey={bulkEntityKey}
@@ -263,7 +265,7 @@ export function MasterListShell<Row>({
         />
       </div>
 
-      <div className="md:hidden">
+      <div className={cn("transition-opacity md:hidden", isStale && "opacity-60")}>
         <MobileCardList
           rows={pg.paged}
           getKey={getKey}

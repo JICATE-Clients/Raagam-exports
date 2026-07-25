@@ -79,6 +79,19 @@ export async function createMaterialAttribute(data: MaterialAttributeInput): Pro
   const s = await createClient();
   const { lines: _drop, ...header } = p.data;
   void _drop;
+  // One config per (Item Class + Category) — if one already exists the user must
+  // edit it, not create a duplicate (client 2026-07-25).
+  if (header.item_class_id && header.category_id) {
+    const { data: dup } = await s
+      .from("material_attributes")
+      .select("id")
+      .eq("item_class_id", header.item_class_id)
+      .eq("category_id", header.category_id)
+      .maybeSingle();
+    if (dup) {
+      return fail("A Material Attribute set already exists for this Item Class and Category — edit the existing one instead.");
+    }
+  }
   const { data: created, error } = await s
     .from("material_attributes")
     .insert(header)

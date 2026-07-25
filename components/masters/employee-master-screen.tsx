@@ -883,7 +883,7 @@ export function EmployeeMasterScreen({
                   onChange={(e) => set({ perm_addr3: e.target.value })}
                   className="text-base md:text-sm"
                 />
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <ValidatedInput
                     format="pincode"
                     placeholder="Pin"
@@ -945,7 +945,7 @@ export function EmployeeMasterScreen({
                       onChange={(e) => set({ corr_addr3: e.target.value })}
                       className="text-base md:text-sm"
                     />
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       <ValidatedInput
                         format="pincode"
                         placeholder="Pin"
@@ -982,7 +982,7 @@ export function EmployeeMasterScreen({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="emp-qual">Qualification</Label>
                   <Input
@@ -1041,7 +1041,7 @@ export function EmployeeMasterScreen({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="emp-nat">Nationality</Label>
                   <Input

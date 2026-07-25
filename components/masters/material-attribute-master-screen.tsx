@@ -132,6 +132,20 @@ export function MaterialAttributeMasterScreen({
     () => categories.filter((c) => c.item_class_id === itemClassId),
     [categories, itemClassId],
   );
+  // One config per (Item Class + Category): when adding, hide categories that
+  // already have a config so a duplicate can't be created — the user edits the
+  // existing one instead. When editing, the current category stays selectable.
+  const configuredCategoryIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      if (r.item_class_id === itemClassId && r.category_id && r.id !== editId) s.add(r.category_id);
+    }
+    return s;
+  }, [rows, itemClassId, editId]);
+  const availableCategories = useMemo(
+    () => scopedCategories.filter((c) => !configuredCategoryIds.has(c.id)),
+    [scopedCategories, configuredCategoryIds],
+  );
   const scopedAttributeValues = useMemo(
     () => attributes.find((a) => a.id === itemClassId)?.values ?? [],
     [attributes, itemClassId],
@@ -509,7 +523,7 @@ export function MaterialAttributeMasterScreen({
                   <CategoryPicker
                     label="Category"
                     required
-                    categories={scopedCategories}
+                    categories={availableCategories}
                     value={categoryId}
                     onChange={setCategoryId}
                     itemClassId={itemClassId}
@@ -524,6 +538,12 @@ export function MaterialAttributeMasterScreen({
                   />
                   {!itemClassId && (
                     <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
+                  )}
+                  {!editId && itemClassId && availableCategories.length === 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Every category for this Item Class already has a Material Attribute set —
+                      edit the existing one from the list instead.
+                    </p>
                   )}
                 </div>
               </DetailSection>
@@ -688,6 +708,7 @@ export function MaterialAttributeMasterScreen({
               <ChildGrid<LineRow>
                 label="Attributes"
                 forceCards
+                pageSize={6}
                 rows={lines}
                 onAdd={addLine}
                 onRemove={(l) => removeLine(l.key)}

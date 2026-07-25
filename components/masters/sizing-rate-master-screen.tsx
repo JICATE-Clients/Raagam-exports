@@ -185,7 +185,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="sr-code">Code</Label>
               <Input id="sr-code" value={editCode ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -195,7 +195,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
               <Input id="sr-eff" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="text-base md:text-sm" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="sr-type">Entry Type</Label>
               <Input id="sr-type" value={entryType} onChange={(e) => setEntryType(e.target.value)} className="text-base md:text-sm" />
@@ -240,7 +240,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
                       onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>
-                  <div className="ml-8 grid grid-cols-2 gap-2">
+                  <div className="ml-8 grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <Label className="text-xs">Rate (Ends &le; 10K)</Label>
                       <Input type="number" value={l.rate_ends_upto} min={0} step="0.01"

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { focusFirstField } from "@/lib/focus";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
   createDocumentNoFormat,
@@ -92,6 +93,15 @@ export function DocumentNoFormatMasterScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editNo, setEditNo] = useState<number | null>(null);
+  /** Scroll pane of the editor — the boundary the shared key contract walks. */
+  const editorContentRef = useRef<HTMLDivElement>(null);
+  // Cursor into the first field on open — this editor had no autofocus at all,
+  // so it opened with focus still on the button behind the overlay.
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => focusFirstField(editorContentRef.current), 60);
+    return () => window.clearTimeout(id);
+  }, [open]);
   const [dirty, setDirty] = useState(false);
   const [date, setDate] = useState(today());
   const [trackId, setTrackId] = useState("");
@@ -372,8 +382,11 @@ export function DocumentNoFormatMasterScreen({
             </button>
           </div>
 
-          {/* body */}
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* body — routes keys through the one shared contract (↓/↑ opens a
+              picker, else moves between fields; Enter advances). Hand-rolled
+              clone of MasterFullScreen that had copied the layout but not the
+              keyboard behaviour (client 2026-07-25). */}
+          <div ref={editorContentRef} data-focus-scope className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl space-y-5 px-4 py-5 md:px-6">
               {/* header */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

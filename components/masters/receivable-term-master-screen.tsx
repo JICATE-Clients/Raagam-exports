@@ -210,7 +210,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
         }
       >
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="rt-entry">Entry No</Label>
               <Input id="rt-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
@@ -246,7 +246,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
           {/* AT phrase — three dropdowns */}
           <div className="rounded-lg border border-border p-3 sm:col-span-2">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">AT</div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <Select
                 value={form.at_basis}
                 onChange={(e) => set({ at_basis: e.target.value as "" | AtBasis })}
