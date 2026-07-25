@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -218,9 +219,9 @@ export function WarpLengthAllowanceMasterScreen({
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Ranges</div>
             <div className="space-y-3 p-3">
               {/* row area capped with internal scroll — Add button stays pinned */}
-              <div className="max-h-56 space-y-3 overflow-y-auto">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
               {lines.map((l, i) => (
-                <div key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
+                <div data-grid-row key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
                   <div className="flex items-center gap-2">
                     <span className="w-6 shrink-0 text-center text-xs font-medium text-muted-foreground">{i + 1}</span>
                     <Select value={l.range_type}

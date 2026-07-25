@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -352,9 +353,9 @@ export function GarmentAcceptedQtyLevelMasterScreen({
               {/* row area capped with internal scroll — Add button stays pinned.
                   Taller cap than the usual max-h-56: each card is a ~5-row
                   sub-form (same reasoning as bank branches). */}
-              <div className="max-h-96 space-y-3 overflow-y-auto">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-96 space-y-3 overflow-y-auto">
               {lines.map((l, i) => (
-                <div key={l.key} className="rounded-md border border-border p-2.5 space-y-2">
+                <div data-grid-row key={l.key} className="rounded-md border border-border p-2.5 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">Row #{i + 1}</span>
                     <Button

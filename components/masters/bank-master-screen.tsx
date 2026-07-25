@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
@@ -365,9 +366,9 @@ export function BankMasterScreen({
               {/* Row area capped with an internal scroll (ChildGrid maxBodyHeight
                   rule) — taller cap than the row-grids since each branch is a
                   full sub-form card; the Add button stays pinned below. */}
-              <div className="max-h-96 space-y-3 overflow-y-auto">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addBranch)} className="max-h-96 space-y-3 overflow-y-auto">
               {branches.map((b, i) => (
-                <div key={b.key} className="space-y-2 rounded-md border border-border p-2.5">
+                <div data-grid-row key={b.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">Branch #{i + 1}</span>
                     <Button

@@ -767,9 +767,9 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addStyle)}>
                 {styles.map((r) => (
-                  <tr key={r.key} className="border-b border-border align-top last:border-0">
+                  <tr key={r.key} data-grid-row className="border-b border-border align-top last:border-0">
                     <td className="px-2 py-1">
                       <Input value={r.style_ref_no} onChange={(e) => updateStyle(r.key, { style_ref_no: e.target.value })} className="h-8 min-w-[120px]" />
                     </td>
@@ -900,12 +900,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addCombo)}>
                 {combos.map((r) => {
                   const upd = (patch: Partial<ComboRow>) =>
                     setCombos((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
                   return (
-                    <tr key={r.key} className="border-b border-border last:border-0">
+                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                       <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
@@ -939,12 +939,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addPriceDetail)}>
                 {priceDetails.map((r) => {
                   const upd = (patch: Partial<PriceDetailRow>) =>
                     setPriceDetails((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
                   return (
-                    <tr key={r.key} className="border-b border-border last:border-0">
+                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                       <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
@@ -981,12 +981,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addApprovalQty)}>
                 {approvalQtys.map((r) => {
                   const upd = (patch: Partial<ApprovalQtyRow>) =>
                     setApprovalQtys((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
                   return (
-                    <tr key={r.key} className="border-b border-border last:border-0">
+                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                       <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
@@ -1019,12 +1019,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addCountrySize)}>
                 {countrySizes.map((r) => {
                   const upd = (patch: Partial<CountrySizeRow>) =>
                     setCountrySizes((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
                   return (
-                    <tr key={r.key} className="border-b border-border last:border-0">
+                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                       <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
                       <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
@@ -1276,12 +1276,31 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     <th className="w-10" />
                   </tr>
                 </thead>
-                <tbody>
+                <tbody
+                  data-grid-body
+                  onKeyDown={(e) =>
+                    gridKeyNav(e, () =>
+                      setStylePrices((xs) => [
+                        ...xs,
+                        {
+                          key: newKey(),
+                          style_ref_no: "",
+                          style: "",
+                          price: "",
+                          csp_type: "",
+                          csp_price: "",
+                          fob_buyer_price: "",
+                          fob_selling_price: "",
+                        },
+                      ]),
+                    )
+                  }
+                >
                   {stylePrices.map((r) => {
                     const upd = (patch: Partial<StylePriceRow>) =>
                       setStylePrices((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
                     return (
-                      <tr key={r.key} className="border-b border-border last:border-0">
+                      <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                         <td className="px-2 py-1">
                           <Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" />
                         </td>
@@ -1537,9 +1556,9 @@ function ChargeBlock({
               <th className="px-2 py-1.5 text-left font-medium">Unit</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => {})}>
             {rows.map((r) => (
-              <tr key={r.key} className="border-b border-border last:border-0">
+              <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                 <td className="px-2 py-1">
                   {r.fixed ? (
                     <span className="text-sm text-foreground">{r.label}</span>
@@ -1653,9 +1672,9 @@ function DyeTable({
             <th className="w-10" />
           </tr>
         </thead>
-        <tbody>
+        <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => {})}>
           {rows.map((r) => (
-            <tr key={r.key} className="border-b border-border last:border-0">
+            <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
               <td className="px-2 py-1">
                 <Input
                   value={r.dye_type}

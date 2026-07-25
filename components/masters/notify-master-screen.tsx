@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
@@ -441,9 +442,9 @@ export function NotifyMasterScreen({
               {contacts.length === 0 && <p className="text-xs text-muted-foreground">No contacts yet.</p>}
               {/* row area capped — a growing grid scrolls instead of pushing
                   the content below (Add button stays pinned) */}
-              <div className="max-h-56 space-y-3 overflow-y-auto">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="max-h-56 space-y-3 overflow-y-auto">
               {contacts.map((c, i) => (
-                <div key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
+                <div data-grid-row key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">Contact #{i + 1}</span>
                     <Button

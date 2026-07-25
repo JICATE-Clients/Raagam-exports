@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type Column } from "@/components/ui/data-table";
@@ -304,9 +305,9 @@ export function WorkTimingMasterScreen({
               {lines.length === 0 && <p className="text-xs text-muted-foreground">No shifts yet.</p>}
               {/* Row area capped with an internal scroll (ChildGrid maxBodyHeight
                   rule) — a growing shift list never stretches the sheet. */}
-              <div className="max-h-56 space-y-3 overflow-y-auto">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
               {lines.map((l, i) => (
-                <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
+                <div data-grid-row key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">Shift #{i + 1}</span>
                     <button

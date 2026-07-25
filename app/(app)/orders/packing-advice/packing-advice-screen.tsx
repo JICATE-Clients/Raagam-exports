@@ -12,6 +12,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { RecordPicker } from "@/components/masters/record-picker";

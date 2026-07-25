@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -357,9 +358,9 @@ export function ZoneMasterScreen({
               )}
               {/* row area capped — a growing grid scrolls instead of pushing
                   the content below (Add stays pinned in the header) */}
-              <div className="max-h-56 space-y-2 overflow-y-auto">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addChildRow)} className="max-h-56 space-y-2 overflow-y-auto">
               {childRows.map((row, i) => (
-                <div key={row.key} className="flex items-center gap-2">
+                <div data-grid-row key={row.key} className="flex items-center gap-2">
                   <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                     {i + 1}
                   </span>

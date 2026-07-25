@@ -262,9 +262,10 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              {/* ↓/↑ walk a column across activity rows — gridKeyNav. */}
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setActivities((xs) => [...xs, blankRow()]))}>
                 {activities.map((r, i) => (
-                  <tr key={r.key} className="border-b border-border last:border-0">
+                  <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                     <td className="px-3 py-1 text-xs text-muted-foreground">{i + 1}</td>
                     <td className="px-3 py-1">
                       <RecordPicker

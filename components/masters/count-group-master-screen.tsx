@@ -5,6 +5,7 @@ import { deletedToast } from "@/lib/masters/delete-message";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -214,9 +215,9 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
               <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Counts</div>
               <div className="space-y-2 p-3">
                 {/* row area capped with internal scroll — Add button stays pinned */}
-                <div className="max-h-56 space-y-2 overflow-y-auto">
+                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-2 overflow-y-auto">
                   {lines.map((l, i) => (
-                    <div key={l.key} className="flex items-center gap-2">
+                    <div data-grid-row key={l.key} className="flex items-center gap-2">
                       <span className="w-6 text-center text-xs text-muted-foreground">{i + 1}</span>
                       <Select value={l.count_lookup_id ?? ""}
                         onChange={(e) => setLineAt(l.key, { count_lookup_id: e.target.value || null })}

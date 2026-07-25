@@ -9,8 +9,10 @@ import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
 import { focusFirstField } from "@/lib/focus";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import {
   createDocumentNoFormat,
   updateDocumentNoFormat,
@@ -103,6 +105,13 @@ export function DocumentNoFormatMasterScreen({
     return () => window.clearTimeout(id);
   }, [open]);
   const [dirty, setDirty] = useState(false);
+
+  // Hold off the silent PWA auto-reload. Both guards are needed here: the
+  // editor at :368 is a hand-rolled `fixed inset-0` clone with no role="dialog",
+  // so reload-guard's DOM scan can't see it the way it sees a Sheet.
+  useModalGuard(open);
+  useUnsavedGuard(dirty || isPending);
+
   const [date, setDate] = useState(today());
   const [trackId, setTrackId] = useState("");
   const [menus, setMenus] = useState<MenuRow[]>([]);
@@ -436,8 +445,15 @@ export function DocumentNoFormatMasterScreen({
                   </p>
                 )}
 
+                {/* NESTED grids: menus contain segments, and each level needs its
+                    OWN markers. Marking only the outer would make every segment
+                    field count as a column of the MENU row, so ↓ from a menu
+                    field would land mid-segment on the next menu — the failure
+                    material-attribute-master-screen hit. `ownDescendants` in
+                    child-grid.tsx scopes by nearest marker, keeping them apart. */}
+                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addMenu)}>
                 {menus.map((m, mi) => (
-                  <div key={m.key} className="rounded-lg border border-border bg-surface-muted/30">
+                  <div key={m.key} data-grid-row className="rounded-lg border border-border bg-surface-muted/30">
                     {/* menu header */}
                     <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
                       <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
@@ -512,8 +528,9 @@ export function DocumentNoFormatMasterScreen({
                           {m.segments.length === 0 && (
                             <p className="text-xs text-muted-foreground">No segments yet.</p>
                           )}
+                          <div data-grid-body onKeyDown={(e) => gridKeyNav(e, () => addSegment(m.key))}>
                           {m.segments.map((s, si) => (
-                            <div key={s.key} className="space-y-2 rounded-md border border-border p-2.5">
+                            <div key={s.key} data-grid-row className="space-y-2 rounded-md border border-border p-2.5">
                               <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-medium text-muted-foreground">
                                   Segment #{si + 1}
@@ -584,11 +601,13 @@ export function DocumentNoFormatMasterScreen({
                               />
                             </div>
                           ))}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
+                </div>
               </div>
             </div>
           </div>

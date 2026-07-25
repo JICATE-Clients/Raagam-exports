@@ -427,8 +427,16 @@ function StylesTab({
                   <Label className="text-sm font-semibold">Combos (Color/Print)</Label>
                   <Button type="button" variant="outline" size="sm" onClick={addCombo}>+ Add Combo</Button>
                 </div>
+                {/* NESTED grids. The combo rows and the size rows each need
+                    their OWN body/row markers: mark only the outer and every
+                    size input counts as a column of the combo row, so ↓ from
+                    "Order Qty" lands on the 2nd size of the next combo. That is
+                    the exact failure material-attribute-master-screen hit.
+                    `ownDescendants` in child-grid.tsx scopes by nearest marker,
+                    so the inner list stays out of the outer axis. */}
+                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addCombo)}>
                 {combos.map((c, ci) => (
-                  <div key={ci} className="mb-3 rounded border border-border p-3 space-y-2">
+                  <div key={ci} data-grid-row className="mb-3 rounded border border-border p-3 space-y-2">
                     <div className="flex gap-2 items-end">
                       <div className="flex-1"><Label>Combo</Label><Input value={c.combo} onChange={(e) => updateCombo(ci, "combo", e.target.value)} placeholder="e.g. Red/Blue" /></div>
                       <div className="w-28"><Label>Order Qty</Label><Input type="number" value={c.order_qty} onChange={(e) => updateCombo(ci, "order_qty", e.target.value)} /></div>
@@ -440,17 +448,21 @@ function StylesTab({
                         <span className="text-xs text-muted-foreground">Sizes</span>
                         <Button type="button" variant="ghost" size="sm" onClick={() => addComboSize(ci)}>+ Size</Button>
                       </div>
+                      {/* Inner grid — own markers, so ↓/↑ walk the SIZES. */}
+                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e, () => addComboSize(ci))}>
                       {c.sizes.map((s, si) => (
-                        <div key={si} className="flex gap-2 items-center mb-1">
+                        <div key={si} data-grid-row className="flex gap-2 items-center mb-1">
                           <Input className="w-24 text-xs" value={s.garment_size} onChange={(e) => updateComboSize(ci, si, "garment_size", e.target.value)} placeholder="Size" />
                           <Input className="w-20 text-xs" type="number" value={s.order_qty} onChange={(e) => updateComboSize(ci, si, "order_qty", e.target.value)} placeholder="Qty" />
                           <Input className="w-20 text-xs" type="number" value={s.expected_order_qty} onChange={(e) => updateComboSize(ci, si, "expected_order_qty", e.target.value)} placeholder="Exp" />
                           <Button type="button" variant="ghost" size="sm" className="text-red-600 text-xs" onClick={() => removeComboSize(ci, si)}>x</Button>
                         </div>
                       ))}
+                      </div>
                     </div>
                   </div>
                 ))}
+                </div>
                 {combos.length === 0 && <p className="text-xs text-muted-foreground">No combos added. Add combos for color/print quantity breakdown.</p>}
               </div>
               <div className="flex items-end">
@@ -808,13 +820,14 @@ function CostSheetsTab({
                         <th className="px-3 py-2 w-10" />
                       </tr>
                     </thead>
-                    <tbody>
+                    {/* ↓/↑ walk a column across cost line items — gridKeyNav. */}
+                    <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addItem)}>
                       {lineItems.map((item, i) => {
                         const qty = parseFloat(item.quantity) || 0;
                         const uc = parseFloat(item.unit_cost) || 0;
                         const amount = qty * uc;
                         return (
-                          <tr key={i} className="border-b border-border last:border-0">
+                          <tr key={i} data-grid-row className="border-b border-border last:border-0">
                             <td className="px-2 py-1.5">
                               <Select
                                 value={item.category}

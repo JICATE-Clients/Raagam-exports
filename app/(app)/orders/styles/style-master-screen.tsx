@@ -544,9 +544,17 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 <th className="w-10" />
               </tr>
             </thead>
-            <tbody>
+            {/* ↓/↑ walk a column across coordinate rows — gridKeyNav. */}
+            <tbody
+              data-grid-body
+              onKeyDown={(e) =>
+                gridKeyNav(e, () =>
+                  setCoords((xs) => [...xs, { key: newKey(), coordinate_id: null, mlist_no: "" }]),
+                )
+              }
+            >
               {coords.map((r) => (
-                <tr key={r.key} className="border-b border-border last:border-0">
+                <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                   <td className="px-3 py-1">
                     <LookupDialogPicker
                       kind="coordinate"
@@ -611,9 +619,28 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 <th className="w-10" />
               </tr>
             </thead>
-            <tbody>
+            {/* ↓/↑ walk a column across component rows — gridKeyNav. */}
+            <tbody
+              data-grid-body
+              onKeyDown={(e) =>
+                gridKeyNav(e, () =>
+                  setComps((xs) => [
+                    ...xs,
+                    {
+                      key: newKey(),
+                      coordinate_id: null,
+                      component_id: null,
+                      structure_id: null,
+                      comp_type: "",
+                      trims: false,
+                      trims_category_id: null,
+                    },
+                  ]),
+                )
+              }
+            >
               {comps.map((r) => (
-                <tr key={r.key} className="border-b border-border last:border-0">
+                <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                   <td className="px-2 py-1">
                     <LookupDialogPicker
                       kind="coordinate" label="Coordinate" options={coordinateOpts}
