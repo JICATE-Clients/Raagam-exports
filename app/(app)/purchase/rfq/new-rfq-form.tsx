@@ -7,6 +7,7 @@ import { createRfq } from "@/lib/purchase/po-actions";
 import type { RfqInput, RfqLineInput } from "@/lib/purchase/types";
 import type { BudgetForPicker } from "@/lib/purchase/po-service";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -152,9 +153,11 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
             <p className="mb-2 text-xs font-semibold text-muted-foreground">
               Line items
             </p>
-            <div className="space-y-2">
+            {/* ↓/↑ walk a column across RFQ lines — gridKeyNav, see
+                components/masters/child-grid.tsx. */}
+            <div className="space-y-2" data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
               {lines.map((line, idx) => (
-                <div key={idx} className="flex items-center gap-2">
+                <div key={idx} data-grid-row className="flex items-center gap-2">
                   <div className="flex-1">
                     <Input
                       placeholder="Description *"

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -443,9 +444,11 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                     <th className="w-10" />
                   </tr>
                 </thead>
-                <tbody>
+                {/* ↓/↑ walk a column across item lines — gridKeyNav, see
+                    components/masters/child-grid.tsx. 12 fields per row here. */}
+                <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setItems((xs) => [...xs, blankItem(newKey())]))}>
                   {items.map((r, i) => (
-                    <tr key={r.key} className="border-b border-border last:border-0">
+                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                       <td className="px-2 py-1 text-xs text-muted-foreground">{i + 1}</td>
                       <td className="px-2 py-1 min-w-[150px]">
                         <LookupDialogPicker

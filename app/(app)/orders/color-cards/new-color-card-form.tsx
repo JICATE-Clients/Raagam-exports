@@ -5,6 +5,7 @@ import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import { createColorCard } from "@/lib/orders/color-cards/actions";
 import { useToast } from "@/components/ui/toast";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -203,11 +204,13 @@ export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
                       <th className="w-8" />
                     </tr>
                   </thead>
-                  <tbody>
+                  {/* ↓/↑ walk a column across colour rows — gridKeyNav, see
+                      components/masters/child-grid.tsx. */}
+                  <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addColor)}>
                     {colors.map((c, i) => {
                       const swatch = HEX_RE.test(c.hex.trim()) ? c.hex.trim() : null;
                       return (
-                        <tr key={i} className="border-b border-border last:border-0">
+                        <tr key={i} data-grid-row className="border-b border-border last:border-0">
                           <td className="px-3 py-1">
                             <Input
                               placeholder="e.g. Navy"

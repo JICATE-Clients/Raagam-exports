@@ -7,6 +7,7 @@ import type { JournalEntryInput, JournalLineInput } from "@/lib/finance/types";
 import { createJournal } from "@/lib/finance/gl-actions";
 import type { GlAccountForPicker, LocationForPicker } from "@/lib/finance/gl-service";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
@@ -178,10 +179,14 @@ export function NewJournalForm({
               <span>Description</span>
               <span />
             </div>
-            <div className="space-y-1.5">
+            {/* ↓/↑ walk a column across journal lines — gridKeyNav, see
+                components/masters/child-grid.tsx. The debit/credit column walk
+                is exactly what down-arrow is for in daily finance entry. */}
+            <div className="space-y-1.5" data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
               {lines.map((line, idx) => (
                 <div
                   key={idx}
+                  data-grid-row
                   className="grid grid-cols-[1fr_6rem_6rem_1fr_auto] items-center gap-2"
                 >
                   <Select

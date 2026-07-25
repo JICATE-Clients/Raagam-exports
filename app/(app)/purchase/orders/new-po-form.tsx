@@ -12,6 +12,7 @@ import type {
 } from "@/lib/purchase/po-service";
 import type { Currency } from "@/lib/masters/types";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -283,9 +284,12 @@ export function NewPoForm({
             <p className="mb-2 text-xs font-semibold text-muted-foreground">
               Line items
             </p>
-            <div className="space-y-2">
+            {/* ↓/↑ walk a column across PO lines — gridKeyNav, see
+                components/masters/child-grid.tsx. Highest-traffic data-entry
+                screen in the app. */}
+            <div className="space-y-2" data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
               {lines.map((line, idx) => (
-                <div key={idx} className="flex items-center gap-2">
+                <div key={idx} data-grid-row className="flex items-center gap-2">
                   <div className="flex-1">
                     <Input
                       placeholder="Description *"

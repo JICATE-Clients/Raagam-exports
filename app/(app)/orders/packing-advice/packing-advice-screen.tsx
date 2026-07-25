@@ -433,9 +433,13 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              {/* Row markers give ↓/↑ Excel-style column-wise movement across
+                  carton lines — see gridKeyNav in components/masters/child-grid.tsx.
+                  Widest grid in the app, so walking a column beats tabbing 13
+                  cells to reach the same field on the next line. */}
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setLines((xs) => [...xs, blankLine()]))}>
                 {lines.map((r, i) => (
-                  <tr key={r.key} className="border-b border-border align-top last:border-0">
+                  <tr key={r.key} data-grid-row className="border-b border-border align-top last:border-0">
                     <td className="px-2 py-1 text-xs text-muted-foreground">{i + 1}</td>
                     <td className="px-2 py-1"><Input value={r.ctn_from} onChange={(e) => updateLine(r.key, { ctn_from: e.target.value })} className="h-8 w-20" /></td>
                     <td className="px-2 py-1"><Input value={r.ctn_to} onChange={(e) => updateLine(r.key, { ctn_to: e.target.value })} className="h-8 w-20" /></td>

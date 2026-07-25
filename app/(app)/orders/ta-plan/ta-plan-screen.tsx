@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -349,9 +350,12 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody>
+              {/* ↓/↑ walk a column across plan lines — gridKeyNav, see
+                  components/masters/child-grid.tsx. T&A plans are the longest
+                  row lists in the system. */}
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setLines((xs) => [...xs, blankLine()]))}>
                 {lines.map((r, i) => (
-                  <tr key={r.key} className="border-b border-border last:border-0">
+                  <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
                     <td className="px-2 py-1 text-xs text-muted-foreground">{i + 1}</td>
                     <td className="px-2 py-1">
                       <RecordPicker

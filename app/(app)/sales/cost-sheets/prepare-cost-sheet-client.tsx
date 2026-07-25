@@ -5,6 +5,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -351,12 +352,14 @@ export function PrepareCostSheetClient({
                         <th className="w-10 px-3 py-2" />
                       </tr>
                     </thead>
-                    <tbody>
+                    {/* ↓/↑ walk a column across cost lines — gridKeyNav, see
+                        components/masters/child-grid.tsx. */}
+                    <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addItem)}>
                       {lineItems.map((item, i) => {
                         const amount =
                           (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost) || 0);
                         return (
-                          <tr key={i} className="border-b border-border last:border-0">
+                          <tr key={i} data-grid-row className="border-b border-border last:border-0">
                             <td className="px-2 py-1.5">
                               <Select value={item.category} onChange={(e) => updateItem(i, "category", e.target.value)} className="h-8 text-xs">
                                 {COST_CATEGORIES.map((c) => (
