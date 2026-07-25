@@ -337,17 +337,23 @@ export function MaterialMasterScreen({
           start: l.start_value,
           end: l.end_value,
           step: l.step_value,
+          // Unit label appended to each generated step value (e.g. "50 KGS").
+          unitLabel: l.unit_id ? units.find((u) => u.id === l.unit_id)?.name ?? "" : "",
         };
       });
-  }, [attributeDriven, matchedAttrSet, attributeValueById]);
+  }, [attributeDriven, matchedAttrSet, attributeValueById, units]);
   const attrSeparator = matchedAttrSet?.name_separator ?? " ";
   const attrMandatoryMissing = attrQuestions.some((q) => q.mandatory && !(answers[q.lineId] ?? "").trim());
-  // Discrete values generated from a numeric range (e.g. GSM 100→500 step 100 →
-  // 100, 200, 300, 400, 500) — rendered as a dropdown, not a free number box.
+  // Discrete values for a Value-In-Steps line (client 2026-07-25): the START
+  // value first, then every step-multiple (step, 2×step, 3×step …) that is above
+  // start and ≤ end. e.g. (1,100,50) → 1, 50, 100 ; (1,10,2) → 1, 2, 4, 6, 8, 10.
   const stepValues = (start: number | null, end: number | null, step: number | null): number[] => {
     if (start == null || end == null || !step || step <= 0 || end < start) return [];
-    const out: number[] = [];
-    for (let v = start; v <= end + 1e-9 && out.length < 1000; v += step) out.push(Number(v.toFixed(4)));
+    const out: number[] = [Number(start.toFixed(4))];
+    for (let k = 1; k * step <= end + 1e-9 && out.length < 1000; k++) {
+      const v = Number((k * step).toFixed(4));
+      if (v > start) out.push(v);
+    }
     return out;
   };
   // Fabric: default UOM from the Structure/Type (2026-07-24 — Circular=KGS,
@@ -825,15 +831,15 @@ export function MaterialMasterScreen({
       }
       return head.toUpperCase() || null;
     }
-    // SEW/PACK attribute-driven (User Defined = No): Category ‹sep› answers ‹sep›
-    // Description (client 2026-07-24) — e.g. "LABEL - MAIN LABEL - PRINTED - …".
+    // SEW/PACK attribute-driven (User Defined = No): Category ‹sep› answers —
+    // e.g. "LABEL / MAIN / PRINTED / WOVEN / RFID" (client 2026-07-25, no description).
     if (attributeDriven && attrQuestions.length) {
       const answerParts = attrQuestions.map((q) => (answers[q.lineId] ?? "").trim());
-      const parts = [selectedCategory?.name, ...answerParts, form.specifications.trim()].filter(Boolean);
+      const parts = [selectedCategory?.name, ...answerParts].filter(Boolean);
       return parts.length ? parts.join(attrSeparator).toUpperCase() : null;
     }
     return null;
-  }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, form.specifications, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
+  }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
 
   // Auto-write the generated name for Yarn/Fabric (suggestedName is null for
   // other classes, so General/etc. stay manual). Depends on suggestedName only —
@@ -1539,45 +1545,76 @@ export function MaterialMasterScreen({
                   Materials ▸ Material Attributes, then the questions appear here.
                 </div>
               )}
-              {/* 12-col track: a numeric answer is a 2-4 character box, an
-                  option list needs room for its longest option. Sizing each to
-                  its data fits 3-4 attributes per row instead of 2 wide,
-                  half-empty ones (client 2026-07-24 #3). A Value-In-Steps line
-                  becomes a dropdown of its generated steps; a value-list line a
-                  dropdown of its own values; anything else a free number box. */}
+              {/* Legacy grid (Screenshot 132339): one row per configured
+                  attribute — # · Attribute · Value picker — replacing the old
+                  "Using Items" section for accessories. A Value-In-Steps line
+                  picks from its generated steps, a value-list line from its own
+                  values, anything else a free number box. */}
               {attrQuestions.length > 0 && (
-                <DetailSection label="Attributes" cols={12}>
-                  {attrQuestions.map((q) => {
-                    const steps = q.valueInSteps ? stepValues(q.start, q.end, q.step) : [];
-                    const asDropdown = q.valueInSteps ? steps.length > 0 : q.options.length > 0;
-                    const choices = q.valueInSteps ? steps.map(String) : q.options;
-                    return (
-                      <Field key={q.lineId} label={q.label} required={q.mandatory} size={asDropdown ? "md" : "sm"}>
-                        {asDropdown ? (
-                          <Select
-                            value={answers[q.lineId] ?? ""}
-                            onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
-                          >
-                            <option value="">— Select —</option>
-                            {choices.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <Input
-                            type="number"
-                            value={answers[q.lineId] ?? ""}
-                            onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
-                            min={q.start ?? undefined}
-                            max={q.end ?? undefined}
-                            step={q.step ?? undefined}
-                          />
-                        )}
-                      </Field>
-                    );
-                  })}
+                <DetailSection label="Attributes">
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-surface-muted">
+                          <th className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
+                          <th className="px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Attribute</th>
+                          <th className="border-l border-border px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {attrQuestions.map((q, i) => {
+                          // The line's stored value list is the source (stepped
+                          // values are generated + saved on the config screen,
+                          // blocked ones already excluded). Fall back to on-the-fly
+                          // generation only for legacy stepped configs saved before
+                          // options were stored.
+                          const fallback =
+                            q.valueInSteps && q.options.length === 0
+                              ? stepValues(q.start, q.end, q.step).map((v) =>
+                                  q.unitLabel ? `${v} ${q.unitLabel}` : String(v),
+                                )
+                              : [];
+                          const choices = q.options.length ? q.options : fallback;
+                          const asDropdown = choices.length > 0;
+                          return (
+                            <tr key={q.lineId} className="border-b border-border last:border-0">
+                              <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
+                              <td className="px-2 py-1.5">
+                                {q.label}
+                                {q.mandatory && <span className="text-danger"> *</span>}
+                              </td>
+                              <td className="border-l border-border px-2 py-1.5">
+                                {asDropdown ? (
+                                  <Select
+                                    value={answers[q.lineId] ?? ""}
+                                    onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
+                                    className="text-base md:text-sm"
+                                  >
+                                    <option value="">— Select —</option>
+                                    {choices.map((opt) => (
+                                      <option key={opt} value={opt}>
+                                        {opt}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                ) : (
+                                  <Input
+                                    type="number"
+                                    value={answers[q.lineId] ?? ""}
+                                    onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
+                                    min={q.start ?? undefined}
+                                    max={q.end ?? undefined}
+                                    step={q.step ?? undefined}
+                                    className="text-base md:text-sm"
+                                  />
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </DetailSection>
               )}
               {/* Composition grids belong on the LEFT with the class fields —
@@ -1585,7 +1622,10 @@ export function MaterialMasterScreen({
                   RIGHT = how it's measured. Fabric's grid nests in Composition
                   above; Yarn Mixing and Using (Items) render here. */}
               {yarnMixingVisible && mixingGrid("yarn")}
-              {["GEN", "PACK", "SEW"].includes(selectedClassCode ?? "") && usingItemsGrid()}
+              {/* Using (Items) is a General-item concept only. Accessories
+                  (SEW/PACK) list their configured attributes instead (client
+                  2026-07-25). */}
+              {selectedClassCode === "GEN" && usingItemsGrid()}
             </div>
 
             {/* RIGHT: pure measurement for ALL classes — Units of Measure,

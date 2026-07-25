@@ -158,6 +158,8 @@ export function BankPicker({
       <button
         type="button"
         onClick={openDialog}
+
+        data-field-trigger
         className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
       >
         <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>

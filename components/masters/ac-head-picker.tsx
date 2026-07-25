@@ -83,6 +83,8 @@ export function AcHeadPicker({
           type="button"
           disabled={disabled}
           onClick={openDialog}
+
+          data-field-trigger
           className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>{selectedLabel}</span>

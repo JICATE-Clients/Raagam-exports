@@ -116,11 +116,12 @@ export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
  *  switch-rendered. Fabric and Yarn diverged too far (structure inheritance,
  *  nature-driven branching, %-mixing) for the generic switch — they get their
  *  own dedicated form components in the screen (0279). */
-// Form A (Button/Capital/General/Sewing/Packing): single Description field —
-// "Short Spec" dropped from the UI (0346, client "use Description only"); the
-// short_spec DB column is kept for round-trip but no longer edited here.
+// Form A (Button/Capital/General/Sewing/Packing): Category + User defined +
+// Transaction Type. Description/Short-Spec dropped from the UI (client 2026-07-25 —
+// the item name comes from the attributes, not a free-text description); the
+// specifications/short_spec DB columns are kept for round-trip.
 export const MATERIAL_FORMS: Record<"A" | "C", MaterialForm> = {
-  A: { fields: ["category_id", "user_defined", "material_type", "specifications"], mixing: false },
+  A: { fields: ["category_id", "user_defined", "material_type"], mixing: false },
   C: { fields: ["category_id", "user_defined", "material_type"], mixing: false },
 };
 

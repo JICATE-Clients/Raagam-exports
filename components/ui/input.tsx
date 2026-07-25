@@ -6,7 +6,10 @@ export const Input = forwardRef<
   InputHTMLAttributes<HTMLInputElement> & {
     /** Render + store CAPITALS as the user types (master Name fields — client
      *  2026-07-23). Mutates the value before onChange so the saved data is
-     *  genuinely uppercase, not just styled. */
+     *  genuinely uppercase, AND applies `text-transform: uppercase` so values
+     *  ALREADY stored in lower/mixed case (loaded from the DB, never re-typed)
+     *  still DISPLAY in caps — the type-time transform alone can't fix those
+     *  (client 2026-07-25). Placeholder stays normal-case so hints read cleanly. */
     uppercase?: boolean;
   }
 >(({ className, uppercase, onChange, ...props }, ref) => (
@@ -20,6 +23,7 @@ export const Input = forwardRef<
       "placeholder:text-muted-foreground",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",
+      uppercase && "uppercase placeholder:normal-case",
       className,
     )}
     onChange={

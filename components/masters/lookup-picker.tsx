@@ -231,6 +231,8 @@ function DialogListPicker({
       <button
         type="button"
         onClick={openPicker}
+
+        data-field-trigger
         className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base text-foreground md:text-sm"
       >
         <span className={cn("truncate", !selected && "text-muted-foreground")}>

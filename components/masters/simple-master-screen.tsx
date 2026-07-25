@@ -262,9 +262,28 @@ export function SimpleMasterScreen<Row>({
     });
   }
 
+  /**
+   * Inline-edit row: Enter saves, Escape cancels. These rows are plain page
+   * `<tr>`s — no Sheet, so no Enter-advance — which makes Enter the ONLY
+   * keyboard save path here.
+   *
+   * Only controls with a real Enter of their own are excluded: a textarea
+   * (newline), a button (its own activation — Enter on the row's Cancel used to
+   * be swallowed and ran save() instead, so keyboard users could not cancel),
+   * and a picker trigger. Dropdowns are NOT excluded: an OPEN Combobox already
+   * stops the event itself (combobox.tsx), so only a closed one reaches here,
+   * and a closed dropdown is just a field. The older `tagName !== "SELECT"`
+   * test tried to do this but missed on desktop, where `<Select>` is an
+   * `<input role="combobox">` — so Enter saved on desktop and did nothing on
+   * touch. Excluding it outright then made Enter a dead key on Status, the last
+   * control in the row (client 2026-07-25).
+   */
   function onRowKeyDown(e: KeyboardEvent<HTMLElement>) {
-    const tag = (e.target as HTMLElement).tagName;
-    if (e.key === "Enter" && tag !== "SELECT" && tag !== "TEXTAREA") {
+    const t = e.target as HTMLElement;
+    const tag = t.tagName;
+    const keepsOwnEnter =
+      tag === "TEXTAREA" || tag === "BUTTON" || t.matches("[data-field-trigger]");
+    if (e.key === "Enter" && !keepsOwnEnter) {
       e.preventDefault();
       save();
     } else if (e.key === "Escape") {

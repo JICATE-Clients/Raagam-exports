@@ -20,12 +20,10 @@ import { saveAttributeValues } from "@/lib/masters/extras-actions";
 import { type Attribute } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
-type ValueRow = {
-  key: string;
-  value: string;
-  input_type: "option_list" | "numeric_range";
-  optionsText: string;
-};
+// An attribute value is just a NAME now — its numeric/option behaviour and value
+// list are configured per-category in the Material Attribute screen (0346), not
+// here. Type/Options columns were removed (client 2026-07-25).
+type ValueRow = { key: string; value: string };
 
 /**
  * Attribute master (doc/update.md #2-3) — the second half of the Item Class /
@@ -63,29 +61,22 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
 
   const pg = usePagination(filtered, 10);
 
+  // Editor-grid pagination (client 2026-07-25): no inner scrollbar, page through
+  // the value rows 10 at a time. Separate from `pg` (the outer item-class list).
+  const eg = usePagination(values, 10);
+
   function openEdit(r: Attribute) {
     setEditRow(r);
-    setValues(
-      r.values.map((v) => ({
-        key: newKey(),
-        value: v.value,
-        input_type: v.input_type ?? "numeric_range",
-        optionsText: (v.options ?? []).map((o) => o.value).join(", "),
-      })),
-    );
+    setValues(r.values.map((v) => ({ key: newKey(), value: v.value })));
+    eg.setPage(1);
     setOpen(true);
   }
   function addValueRow() {
-    setValues((vs) => [...vs, { key: newKey(), value: "", input_type: "numeric_range", optionsText: "" }]);
+    setValues((vs) => [...vs, { key: newKey(), value: "" }]);
+    eg.setPage(Number.MAX_SAFE_INTEGER); // clamps to the (new) last page
   }
   function setValueAt(key: string, value: string) {
     setValues((vs) => vs.map((v) => (v.key === key ? { ...v, value } : v)));
-  }
-  function setInputTypeAt(key: string, input_type: "option_list" | "numeric_range") {
-    setValues((vs) => vs.map((v) => (v.key === key ? { ...v, input_type } : v)));
-  }
-  function setOptionsTextAt(key: string, optionsText: string) {
-    setValues((vs) => vs.map((v) => (v.key === key ? { ...v, optionsText } : v)));
   }
   function removeValueRow(key: string) {
     setValues((vs) => vs.filter((v) => v.key !== key));
@@ -94,20 +85,11 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
   function submit() {
     if (!editRow) return;
     startTransition(async () => {
+      // Names only, stored in CAPS (masters convention) — input_type/options
+      // default server-side (unused by the flow).
       const payload = values
         .filter((v) => v.value.trim())
-        .map((v) => ({
-          value: v.value.trim(),
-          input_type: v.input_type,
-          options:
-            v.input_type === "option_list"
-              ? v.optionsText
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-                  .map((s) => ({ value: s }))
-              : [],
-        }));
+        .map((v) => ({ value: v.value.trim().toUpperCase() }));
       const res = await saveAttributeValues(editRow.id, payload);
       if (res.ok) {
         success("Attributes saved.");
@@ -281,11 +263,11 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
               Attribute” for this class on the Item Class screen to add values.
             </div>
           ) : (
-            <div className="sm:col-span-2">
+            <div className="space-y-3 sm:col-span-2">
               <ChildGrid<ValueRow>
                 label="Attributes"
-                maxBodyHeight="max-h-56"
-                rows={values}
+                rows={eg.paged}
+                startIndex={(eg.page - 1) * eg.pageSize}
                 onAdd={addValueRow}
                 onRemove={(v) => removeValueRow(v.key)}
                 addLabel="+ Add attribute"
@@ -295,73 +277,30 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                     cell: (v) => (
                       <Input
                         value={v.value}
+                        uppercase
                         onChange={(e) => setValueAt(v.key, e.target.value)}
                         placeholder="Attribute value"
                         className="text-base md:text-sm"
                       />
                     ),
                   },
-                  {
-                    header: "Type",
-                    cell: (v) => (
-                      <Select
-                        value={v.input_type}
-                        onChange={(e) =>
-                          setInputTypeAt(v.key, e.target.value as "option_list" | "numeric_range")
-                        }
-                        className="text-base md:text-sm"
-                      >
-                        <option value="numeric_range">Numeric range</option>
-                        <option value="option_list">Options list</option>
-                      </Select>
-                    ),
-                  },
-                  {
-                    header: "Options",
-                    cell: (v) =>
-                      v.input_type === "option_list" ? (
-                        <Input
-                          value={v.optionsText}
-                          onChange={(e) => setOptionsTextAt(v.key, e.target.value)}
-                          placeholder="e.g. Printed, Laminated"
-                          className="text-base md:text-sm"
-                        />
-                      ) : (
-                        <span className="text-sm text-muted-foreground">—</span>
-                      ),
-                  },
                 ]}
                 renderMobileRow={(v) => (
-                  <>
-                    <Input
-                      value={v.value}
-                      onChange={(e) => setValueAt(v.key, e.target.value)}
-                      placeholder="Attribute value"
-                      className="text-base md:text-sm"
-                    />
-                    {/* fields pair up two-per-row inside cards */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <Select
-                        value={v.input_type}
-                        onChange={(e) =>
-                          setInputTypeAt(v.key, e.target.value as "option_list" | "numeric_range")
-                        }
-                        className="text-base md:text-sm"
-                      >
-                        <option value="numeric_range">Numeric range</option>
-                        <option value="option_list">Options list</option>
-                      </Select>
-                      {v.input_type === "option_list" && (
-                        <Input
-                          value={v.optionsText}
-                          onChange={(e) => setOptionsTextAt(v.key, e.target.value)}
-                          placeholder="e.g. Printed, Laminated"
-                          className="text-base md:text-sm"
-                        />
-                      )}
-                    </div>
-                  </>
+                  <Input
+                    value={v.value}
+                    uppercase
+                    onChange={(e) => setValueAt(v.key, e.target.value)}
+                    placeholder="Attribute value"
+                    className="text-base md:text-sm"
+                  />
                 )}
+              />
+              <PaginationBar
+                page={eg.page}
+                pageCount={eg.pageCount}
+                total={eg.total}
+                pageSize={eg.pageSize}
+                onPageChange={eg.setPage}
               />
             </div>
           )}

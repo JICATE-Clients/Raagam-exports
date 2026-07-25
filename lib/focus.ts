@@ -36,12 +36,14 @@ export function focusablesIn(root: HTMLElement): HTMLElement[] {
  */
 const REGION_ORDER: Record<string, number> = { content: 0, footer: 1, header: 2 };
 
+/** Which region an element sits in; unmarked surfaces are all "content". */
+export function regionOf(el: HTMLElement): string {
+  return el.closest<HTMLElement>("[data-focus-region]")?.dataset.focusRegion ?? "content";
+}
+
 export function orderedFocusables(root: HTMLElement): HTMLElement[] {
   const items = focusablesIn(root);
-  const rank = (el: HTMLElement) => {
-    const region = el.closest<HTMLElement>("[data-focus-region]")?.dataset.focusRegion;
-    return REGION_ORDER[region ?? "content"] ?? 0;
-  };
+  const rank = (el: HTMLElement) => REGION_ORDER[regionOf(el)] ?? 0;
   // Stable sort keeps DOM order within each region.
   return items
     .map((el, i) => ({ el, i, r: rank(el) }))
@@ -50,15 +52,27 @@ export function orderedFocusables(root: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Legacy ERP "Enter moves forward" (client 2026-07-23 #7): Enter in an input or
- * select advances focus to the next focusable control. Textareas and buttons
- * keep their native Enter, and handlers that already consumed the key
- * (preventDefault) are left alone. `root` is the boundary the advance walks.
+ * Legacy ERP "Enter moves forward" (client 2026-07-23 #7): Enter in a field
+ * advances focus to the next focusable control. Textareas and real buttons
+ * (Save / Cancel / + Add) keep their native Enter, and handlers that already
+ * consumed the key (preventDefault) are left alone. `root` is the boundary the
+ * advance walks.
+ *
+ * `[data-field-trigger]` — a dialog-picker trigger. It is a <button> for
+ * accessibility, but to the operator it IS a field, sitting in a row of inputs
+ * and styled identically. Without this, Enter fell through to the button's
+ * native activation and OPENED the picker, so Enter meant "next field" on a
+ * text box and "open a dialog" on the picker beside it — roughly every other
+ * field on a masters form (client 2026-07-25). Enter now advances everywhere;
+ * Space and click still open the picker.
  */
+const FIELD_TRIGGER = "[data-field-trigger]";
+
 export function enterAdvance(e: React.KeyboardEvent, root: HTMLElement | null) {
   if (e.key !== "Enter" || e.defaultPrevented) return;
   const t = e.target;
-  if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement)) return;
+  const isTrigger = t instanceof HTMLElement && t.matches(FIELD_TRIGGER);
+  if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement || isTrigger)) return;
   if (t instanceof HTMLInputElement && /^(button|submit|reset)$/.test(t.type)) return;
   // Don't advance out of a field that's currently invalid (client 2026-07-24):
   // keep the user on it until the validation message clears. Fields flag this
@@ -69,9 +83,13 @@ export function enterAdvance(e: React.KeyboardEvent, root: HTMLElement | null) {
     return;
   }
   if (!root) return;
-  // Region-ordered so Enter walks the data fields, then the footer buttons —
-  // never sideways into the header's ✕.
-  const items = orderedFocusables(root);
+  // Confined to the region the cursor is already in. Enter used to walk out of
+  // the last data field and land on the footer's FIRST button — which is
+  // Cancel, not Save — so a second Enter discarded the whole form without a
+  // confirmation (client 2026-07-25). Enter now stops at the end of the fields;
+  // Ctrl+S or Tab still reaches the footer.
+  const region = regionOf(t as HTMLElement);
+  const items = orderedFocusables(root).filter((el) => regionOf(el) === region);
   const idx = items.indexOf(t);
   e.preventDefault();
   if (idx !== -1) {
@@ -88,21 +106,130 @@ export function enterAdvance(e: React.KeyboardEvent, root: HTMLElement | null) {
 }
 
 /**
+ * ↓/↑ on a dialog-picker trigger OPENS its list — the same thing ↓ does on a
+ * Combobox, so every "choose a stored value" field answers the arrow key.
+ *
+ * Without this, Count (a `<Select>`, so really a Combobox `<input>`) opened on
+ * ↓ while Category (a picker `<button>`) sat dead beside it in the same row.
+ * Marking triggers as fields fixed Enter and fixed grid arrows, but a plain
+ * form has no arrow handling at all — arrows there are purely native, and a
+ * native button ignores them (client 2026-07-25).
+ *
+ * Inside a child grid the arrows keep meaning "previous / next row" — that is
+ * `gridKeyNav`'s contract and it runs first — so this only fires on form
+ * fields. Returns true when it consumed the key.
+ */
+export function arrowOpensPicker(e: React.KeyboardEvent): boolean {
+  if (e.defaultPrevented) return false;
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return false;
+  const t = e.target;
+  if (!(t instanceof HTMLElement) || !t.matches(FIELD_TRIGGER)) return false;
+  if (t.closest("[data-grid-row]")) return false;
+  e.preventDefault();
+  t.click(); // the trigger's existing onClick opens the dialog
+  return true;
+}
+
+/**
+ * Controls that own ↑/↓ themselves, so the global navigation must not steal
+ * them. Everything NOT in this list navigates.
+ *
+ * `number` is deliberately absent: arrows natively spin a number input, and in
+ * an ERP the operator types the figure and moves on — a stray arrow silently
+ * editing a quantity is a data bug, not a feature. Navigating is both more
+ * consistent and safer. Flip this single predicate if that turns out wrong.
+ */
+function ownsArrowKeys(t: HTMLElement): boolean {
+  // A child grid: ↑/↓ move a ROW, in the same column (child-grid.tsx gridKeyNav).
+  if (t.closest("[data-grid-row]")) return true;
+  // Caret movement across lines.
+  if (t instanceof HTMLTextAreaElement) return true;
+  // A native <select> (touch/SSR) changes its VALUE on arrows.
+  if (t instanceof HTMLSelectElement) return true;
+  // A Combobox opens / browses its own list.
+  if (t.getAttribute("role") === "combobox") return true;
+  // Radios have native group semantics; the rest have segment/step semantics
+  // that would be surprising to lose.
+  if (
+    t instanceof HTMLInputElement &&
+    /^(radio|range|date|time|datetime-local|month|week)$/.test(t.type)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * THE GLOBAL ARROW CONTRACT: ↓ moves to the next field, ↑ to the previous —
+ * everywhere, on every control that does not own arrows itself.
+ *
+ * The app had no form-level arrow handling at all: arrows worked only where an
+ * individual control happened to implement them, so a dropdown responded, a
+ * picker did nothing, a text box did nothing, and a number box silently changed
+ * its value. That is why "arrow keys don't work here" kept being reported field
+ * by field (client 2026-07-25) — there was nothing to fix centrally, so each
+ * report produced another patch.
+ *
+ * Order is SEQUENTIAL (the same order Tab and Enter use), not spatial. With
+ * `DetailSection cols={12}` and mixed field widths, "the field visually below"
+ * is ambiguous and expensive to get right; "the next field" is predictable and
+ * already the order the operator learned from Tab.
+ *
+ * Confined to the focused element's region, so ↓ cannot walk out of the fields
+ * into Cancel/Save. Returns true when it consumed the key.
+ */
+export function arrowNavigate(e: React.KeyboardEvent, root: HTMLElement | null): boolean {
+  if (e.defaultPrevented) return false;
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return false;
+  const t = e.target;
+  if (!(t instanceof HTMLElement) || ownsArrowKeys(t)) return false;
+  if (!root) return false;
+
+  const region = regionOf(t);
+  const items = orderedFocusables(root).filter((el) => regionOf(el) === region);
+  const idx = items.indexOf(t);
+  if (idx === -1) return false;
+  const next = items[e.key === "ArrowDown" ? idx + 1 : idx - 1];
+  if (!next) return false;
+
+  e.preventDefault();
+  next.focus();
+  if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) {
+    const len = next.value.length;
+    try {
+      next.setSelectionRange(len, len);
+    } catch {
+      /* number/email inputs reject selection ranges */
+    }
+  }
+  return true;
+}
+
+/**
  * Focus the first "real" field inside `root` — the first text-like input,
  * select, or textarea, skipping buttons (Cancel/Save/close/icon-buttons) so an
  * editor opens with the cursor in its first data field, not on a button.
  * Returns true if something was focused.
+ *
+ * If there is no text-like field at all, fall back to the first focusable in
+ * REGION order (content before footer before header). Without the fallback this
+ * returned false and focus stayed wherever it was — outside the dialog — for
+ * any overlay whose first control is a checkbox, a picker button, or a
+ * confirm/cancel pair. That is the "the dialog opened but the keyboard does
+ * nothing" symptom (client 2026-07-25). Region order matters here: the plain
+ * DOM-first focusable would be the header's ✕.
  */
 export function focusFirstField(root: HTMLElement | null): boolean {
   if (!root) return false;
   const items = focusablesIn(root);
-  const field = items.find(
-    (el) =>
-      (el instanceof HTMLInputElement &&
-        !/^(button|submit|reset|checkbox|radio|hidden)$/.test(el.type)) ||
-      el instanceof HTMLSelectElement ||
-      el instanceof HTMLTextAreaElement,
-  );
+  const field =
+    items.find(
+      (el) =>
+        (el instanceof HTMLInputElement &&
+          !/^(button|submit|reset|checkbox|radio|hidden)$/.test(el.type)) ||
+        el instanceof HTMLSelectElement ||
+        el instanceof HTMLTextAreaElement,
+    ) ?? orderedFocusables(root)[0];
   if (field) {
     field.focus();
     // Put the caret at the end of any existing text for edit forms.

@@ -26,7 +26,7 @@ import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Uom } from "@/lib/masters/types";
 import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-picker";
-import { ChildGrid } from "@/components/masters/child-grid";
+import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 
@@ -47,6 +47,19 @@ type LineRow = {
 };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
+
+/** Preview of the values a Value-In-Steps line will offer on the Material form
+ *  (must mirror `stepValues` in material-master-screen.tsx): the start value,
+ *  then step, 2×step, 3×step … above start and ≤ end. */
+function previewSteps(start: number | null, end: number | null, step: number | null): number[] {
+  if (start == null || end == null || !step || step <= 0 || end < start) return [];
+  const out = [Number(start.toFixed(4))];
+  for (let k = 1; k * step <= end + 1e-9 && out.length < 1000; k++) {
+    const v = Number((k * step).toFixed(4));
+    if (v > start) out.push(v);
+  }
+  return out;
+}
 
 /**
  * Master-detail CRUD for the legacy "Material attributes" master: a header
@@ -84,8 +97,8 @@ export function MaterialAttributeMasterScreen({
   const [itemClassId, setItemClassId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   // Legacy screen has no separator field — the generated item name always joins
-  // its parts with " - " (client 2026-07-25: "Label - Main Label - Printed - …").
-  const NAME_SEPARATOR = " - ";
+  // its parts with " / " (client 2026-07-25, matches legacy: "LABEL / MAIN / PRINTED / …").
+  const NAME_SEPARATOR = " / ";
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
@@ -205,6 +218,9 @@ export function MaterialAttributeMasterScreen({
           }))
         : [blankLine()],
     );
+    // Stepped lines: re-derive the generated value list from the stored
+    // Start/End/Step/Unit so it shows immediately (blocked flags preserved).
+    setLines((ls) => ls.map((l) => (l.value_in_steps ? { ...l, options: genOptions(l) } : l)));
     setOpen(true);
   }
 
@@ -237,6 +253,30 @@ export function MaterialAttributeMasterScreen({
       ),
     );
 
+  // Regenerate a Value-In-Steps line's value list from Start/End/Step/Unit,
+  // preserving any per-value Blocked flags across the change (matched by
+  // description). This is what auto-fills "0 MM, 10 MM … 100 MM" (legacy 2100).
+  const genOptions = (l: LineRow): OptionRow[] => {
+    const vals = previewSteps(numOrNull(l.start_value), numOrNull(l.end_value), numOrNull(l.step_value));
+    const uname = l.unit_id ? units.find((u) => u.id === l.unit_id)?.name ?? "" : "";
+    const prevBlocked = new Map(l.options.map((o) => [o.description, o.blocked]));
+    return vals.map((v) => {
+      const description = uname ? `${v} ${uname}` : String(v);
+      return { key: newOptKey(), description, blocked: prevBlocked.get(description) ?? false };
+    });
+  };
+  // Update a line and, when it is Value-In-Steps, regenerate its value list so
+  // the rows stay in sync with the Start/End/Step/Unit fields.
+  const patchLine = (key: string, patch: Partial<LineRow>) =>
+    setLines((ls) =>
+      ls.map((l) => {
+        if (l.key !== key) return l;
+        const next = { ...l, ...patch };
+        if (next.value_in_steps) next.options = genOptions(next);
+        return next;
+      }),
+    );
+
   function submit() {
     startTransition(async () => {
       const payload: MaterialAttributeInput = {
@@ -255,11 +295,11 @@ export function MaterialAttributeMasterScreen({
             step_value: numOrNull(l.step_value),
             mandatory: l.mandatory,
             inactive: l.inactive,
-            options: l.value_in_steps
-              ? []
-              : l.options
-                  .filter((o) => o.description.trim())
-                  .map((o, j) => ({ sno: j + 1, description: o.description.trim(), blocked: o.blocked })),
+            // Persist the value list for BOTH stepped (auto-generated) and
+            // manual lines — it's the single source of the Material dropdown.
+            options: l.options
+              .filter((o) => o.description.trim())
+              .map((o, j) => ({ sno: j + 1, description: o.description.trim(), blocked: o.blocked })),
           })),
       };
       const res = editId
@@ -502,33 +542,35 @@ export function MaterialAttributeMasterScreen({
             const attrCell = (l: LineRow) => (
               <AttributePicker label="" values={scopedAttributeValues} value={l.attribute_id} onChange={(v) => setLineAt(l.key, { attribute_id: v })} />
             );
+            // Start / End / Step / Unit on ONE row (client 2026-07-25) — 2×2 on
+            // mobile, four across from sm up.
+            // Start / End / Step / Unit on ONE row — changing any of them
+            // regenerates the line's value list (patchLine).
             const rangeCell = (l: LineRow) => (
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
                 <div>
                   <Label className="text-[11px] font-normal text-muted-foreground">Start Value</Label>
-                  <Input type="number" step="0.0001" value={l.start_value} onChange={(e) => setLineAt(l.key, { start_value: e.target.value })} className="text-base md:text-sm" />
+                  <Input type="number" step="0.0001" value={l.start_value} onChange={(e) => patchLine(l.key, { start_value: e.target.value })} className="text-base md:text-sm" />
                 </div>
                 <div>
                   <Label className="text-[11px] font-normal text-muted-foreground">End Value</Label>
-                  <Input type="number" step="0.0001" value={l.end_value} onChange={(e) => setLineAt(l.key, { end_value: e.target.value })} className="text-base md:text-sm" />
+                  <Input type="number" step="0.0001" value={l.end_value} onChange={(e) => patchLine(l.key, { end_value: e.target.value })} className="text-base md:text-sm" />
                 </div>
                 <div>
                   <Label className="text-[11px] font-normal text-muted-foreground">Step Value</Label>
-                  <Input type="number" step="0.0001" value={l.step_value} onChange={(e) => setLineAt(l.key, { step_value: e.target.value })} className="text-base md:text-sm" />
+                  <Input type="number" step="0.0001" value={l.step_value} onChange={(e) => patchLine(l.key, { step_value: e.target.value })} className="text-base md:text-sm" />
                 </div>
-              </div>
-            );
-            const unitCell = (l: LineRow) => (
-              <div>
-                <Label className="text-[11px] font-normal text-muted-foreground">Unit</Label>
-                <Select value={l.unit_id} onChange={(e) => setLineAt(l.key, { unit_id: e.target.value })} className="text-base md:text-sm">
-                  <option value="">— None —</option>
-                  {units.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </Select>
+                <div>
+                  <Label className="text-[11px] font-normal text-muted-foreground">Unit</Label>
+                  <Select value={l.unit_id} onChange={(e) => patchLine(l.key, { unit_id: e.target.value })} className="text-base md:text-sm">
+                    <option value="">— None —</option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
               </div>
             );
             const flagsCell = (l: LineRow) => (
@@ -545,68 +587,106 @@ export function MaterialAttributeMasterScreen({
                       type="checkbox"
                       className="h-4 w-4 cursor-pointer accent-primary"
                       checked={l[field]}
-                      onChange={(e) => setLineAt(l.key, { [field]: e.target.checked })}
+                      // Toggling Value In Steps regenerates the value list; the
+                      // other flags don't touch it.
+                      onChange={(e) =>
+                        field === "value_in_steps"
+                          ? patchLine(l.key, { value_in_steps: e.target.checked })
+                          : setLineAt(l.key, { [field]: e.target.checked })
+                      }
                     />
                     <span className="text-sm text-foreground">{label}</span>
                   </label>
                 ))}
               </div>
             );
-            // Pre-defined value list (legacy nested grid) — shown when the line
-            // is NOT Value-In-Steps. Description-only (+ Blocked) per client.
-            const valuesCell = (l: LineRow) => (
-              <div>
-                <Label className="text-[11px] font-normal text-muted-foreground">Values</Label>
-                <div className="space-y-1.5">
-                  {l.options.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No values yet — add the pick-list the Material form will offer.
-                    </p>
-                  )}
-                  {l.options.map((o) => (
-                    <div key={o.key} className="flex items-center gap-2">
-                      <Input
-                        value={o.description}
-                        uppercase
-                        onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
-                        placeholder="e.g. MAIN LABEL"
-                        className="text-base md:text-sm"
-                      />
-                      <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={o.blocked}
-                          onChange={(e) => setOptionAt(l.key, o.key, { blocked: e.target.checked })}
-                        />
-                        <span className="text-xs text-muted-foreground">Blocked</span>
-                      </label>
-                      <Button variant="ghost" size="sm" onClick={() => removeOption(l.key, o.key)}>
-                        Remove
+            // The line's value list — the single source of the Material form's
+            // dropdown. For a Value-In-Steps line the rows are AUTO-GENERATED from
+            // Start/End/Step/Unit (Description read-only, per-row Blocked still
+            // editable, no add/remove). Otherwise they're typed manually.
+            const valuesCell = (l: LineRow) => {
+              const stepped = l.value_in_steps;
+              return (
+                <div>
+                  <Label className="text-[11px] font-normal text-muted-foreground">
+                    {stepped ? "Generated values" : "Values"}
+                  </Label>
+                  {/* Its OWN grid, not just a stack of inputs. Without these
+                      markers each value counted as a column of the outer
+                      ATTRIBUTE row, so ↓ from "End Value" landed on the second
+                      value of the next attribute line and ↓ inside the list
+                      jumped lines instead of walking values (client 2026-07-25).
+                      `ownDescendants` in child-grid.tsx scopes by nearest
+                      marker, so this also removes them from the outer row's
+                      axis. The local handler runs before the outer grid's and
+                      stops the key, so Enter on the last value adds a VALUE
+                      rather than a whole attribute line. */}
+                  <div
+                    data-grid-body
+                    className="space-y-1.5"
+                    onKeyDown={stepped ? undefined : (e) => gridKeyNav(e, () => addOption(l.key))}
+                  >
+                    {l.options.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {stepped
+                          ? "Set Start / End / Step above to generate values."
+                          : "No values yet — add the pick-list the Material form will offer."}
+                      </p>
+                    )}
+                    {l.options.map((o) => (
+                      <div key={o.key} data-grid-row className="flex items-center gap-2">
+                        {stepped ? (
+                          <span className="flex-1 rounded-md border border-border bg-surface-muted px-3 py-1.5 text-sm text-foreground">
+                            {o.description}
+                          </span>
+                        ) : (
+                          <Input
+                            value={o.description}
+                            uppercase
+                            onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
+                            placeholder="e.g. MAIN LABEL"
+                            className="text-base md:text-sm"
+                          />
+                        )}
+                        <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer accent-primary"
+                            checked={o.blocked}
+                            onChange={(e) => setOptionAt(l.key, o.key, { blocked: e.target.checked })}
+                          />
+                          <span className="text-xs text-muted-foreground">Blocked</span>
+                        </label>
+                        {!stepped && (
+                          <Button variant="ghost" size="sm" onClick={() => removeOption(l.key, o.key)}>
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                    {!stepped && (
+                      <Button variant="outline" size="sm" onClick={() => addOption(l.key)}>
+                        + Add value
                       </Button>
-                    </div>
-                  ))}
-                  <Button variant="outline" size="sm" onClick={() => addOption(l.key)}>
-                    + Add value
-                  </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-            // Value-In-Steps → numeric range (Start/End/Step + Unit); otherwise the
-            // pick-list. This is the toggle from the legacy screen.
+              );
+            };
+            // Value-In-Steps → the Start/End/Step/Unit row PLUS the generated
+            // value list; otherwise just the manual value list.
             const specCell = (l: LineRow) =>
               l.value_in_steps ? (
-                <>
+                <div className="space-y-2">
                   {rangeCell(l)}
-                  {unitCell(l)}
-                </>
+                  {valuesCell(l)}
+                </div>
               ) : (
                 valuesCell(l)
               );
             return (
               <ChildGrid<LineRow>
                 label="Attributes"
-                maxBodyHeight="max-h-72"
                 forceCards
                 rows={lines}
                 onAdd={addLine}

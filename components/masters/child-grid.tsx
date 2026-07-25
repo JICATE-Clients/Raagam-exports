@@ -5,9 +5,21 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-/** The controls that form a row's navigable axis, in DOM order. */
+/**
+ * The controls that form a row's navigable axis, in DOM order.
+ *
+ * `[data-field-trigger]` (a dialog-picker trigger) counts as a field even
+ * though it is a <button>: to the operator it IS a column. Leaving it out made
+ * Enter mean "down one row" on a text cell but "along to the next cell" on the
+ * picker beside it, and left arrow keys dead on pickers entirely — the same
+ * split this whole pass exists to remove (client 2026-07-25).
+ */
 const ROW_FIELDS =
-  'input:not([type="button"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea';
+  'input:not([type="button"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea, [data-field-trigger]';
+
+/** Enter-on-last-row must not grow a grid that has its "+ Add" hidden (a
+ *  Single-Yarn fabric is capped at exactly one component). */
+const NO_ADD = () => {};
 
 /** Direct descendants only — a nested ChildGrid must not steal the outer one's rows. */
 function ownDescendants(scope: HTMLElement, selector: string, boundary: string): HTMLElement[] {
@@ -35,8 +47,26 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
 export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => void) {
   if (e.key !== "Enter" && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
   const el = e.target;
-  if (!(el instanceof HTMLInputElement)) return;
-  if (/^(button|submit|reset|checkbox|radio)$/.test(el.type)) return;
+  if (!(el instanceof HTMLElement)) return;
+  // Text-like inputs and picker triggers navigate; native selects and textareas
+  // keep their own Enter/arrow meaning (change value / insert newline).
+  const isTrigger = el.matches("[data-field-trigger]");
+  if (!isTrigger) {
+    if (!(el instanceof HTMLInputElement)) return;
+    if (/^(button|submit|reset|checkbox|radio)$/.test(el.type)) return;
+  }
+  // Same rule the Sheet's Enter-advance follows: don't COMMIT out of a field
+  // that is currently invalid. gridKeyNav stopPropagations, so without this the
+  // validation gate was bypassed inside every grid.
+  //
+  // Enter only — deliberately NOT arrows. ValidatedInput reveals its message on
+  // Enter (validated-input.tsx), so a blocked Enter explains itself; a blocked
+  // ArrowDown would just be a dead key with no feedback, and would also kill the
+  // native caret-to-start/end that arrows do in a text input.
+  if (e.key === "Enter" && el.getAttribute("aria-invalid") === "true") {
+    e.preventDefault();
+    return;
+  }
   const row = el.closest<HTMLElement>("[data-grid-row]");
   const body = row?.closest<HTMLElement>("[data-grid-body]");
   if (!row || !body) return;
@@ -80,6 +110,13 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
     focusColIn(rows[idx + 1]);
   } else if (e.key === "Enter") {
     // Last row + Enter → add a new row and land in the same column.
+    //
+    // Only from a typed field. From a picker trigger this looped: the new row's
+    // trigger is again the last row, so a second Enter added another row, and
+    // on a picker-ONLY grid (customer Agents / Category / Vendor) Enter had no
+    // other meaning — holding it wrote a run of blank child records to the
+    // server. Enter on a last-row picker is a no-op; Space still opens it.
+    if (isTrigger) return;
     e.preventDefault();
     e.stopPropagation();
     addRow();
@@ -123,6 +160,7 @@ export function ChildGrid<T extends { key: string }>({
   keyboardNav = true,
   hideAdd = false,
   inlineCards = false,
+  startIndex = 0,
 }: {
   label: ReactNode;
   /** Optional trailing status next to the label, e.g. a "83% of 100%" running-total badge. */
@@ -155,6 +193,10 @@ export function ChildGrid<T extends { key: string }>({
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
   inlineCards?: boolean;
+  /** Offset for the displayed "#" numbers — set to the page offset when the
+   *  caller paginates `rows`, so numbering stays global (11, 12… on page 2)
+   *  instead of restarting at 1 each page. Defaults to 0. */
+  startIndex?: number;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   return (
@@ -169,7 +211,7 @@ export function ChildGrid<T extends { key: string }>({
       <div className={cn("hidden overflow-x-auto rounded-lg border border-border @lg:block", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}>
         <table
           className="w-full min-w-[420px] border-collapse text-sm"
-          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, onAdd) : undefined}
+          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, hideAdd ? NO_ADD : onAdd) : undefined}
         >
           <thead>
             <tr className="border-b border-border bg-surface-muted">
@@ -192,7 +234,7 @@ export function ChildGrid<T extends { key: string }>({
           <tbody data-grid-body>
             {rows.map((row, i) => (
               <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
-                <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{i + 1}</td>
+                <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
                 {columns.map((c, ci) => (
                   <td key={ci} className={cn("border-l border-border px-2 py-1.5", align[c.align ?? "left"], c.className)}>
                     {c.cell(row, i)}
@@ -225,7 +267,7 @@ export function ChildGrid<T extends { key: string }>({
         <div
           data-grid-body
           className={cn("space-y-1.5", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}
-          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, onAdd) : undefined}
+          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, hideAdd ? NO_ADD : onAdd) : undefined}
         >
           {rows.length > 0 && (
             <div className="flex items-center gap-2 px-2 pb-0.5">
@@ -252,7 +294,7 @@ export function ChildGrid<T extends { key: string }>({
               data-grid-row
               className="flex items-center gap-2 rounded-md border border-border p-1.5"
             >
-              <span className="w-4 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
+              <span className="w-4 shrink-0 text-center text-xs text-muted-foreground">{startIndex + i + 1}</span>
               {columns.map((c, ci) => (
                 <div
                   key={ci}
@@ -283,12 +325,12 @@ export function ChildGrid<T extends { key: string }>({
       <div
         data-grid-body
         className={cn("space-y-2", !forceCards && "@lg:hidden", maxBodyHeight && cn("overflow-y-auto", maxBodyHeight))}
-        onKeyDown={keyboardNav ? (e) => gridKeyNav(e, onAdd) : undefined}
+        onKeyDown={keyboardNav ? (e) => gridKeyNav(e, hideAdd ? NO_ADD : onAdd) : undefined}
       >
         {rows.map((row, i) => (
           <div key={row.key} data-grid-row className="space-y-2 rounded-lg border border-border p-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">#{i + 1}</span>
+              <span className="text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
               <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
                 <X className="h-4 w-4 shrink-0" />
               </Button>

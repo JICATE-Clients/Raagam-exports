@@ -4,7 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { orderedFocusables, enterAdvance, focusFirstField } from "@/lib/focus";
+import {
+  orderedFocusables,
+  enterAdvance,
+  focusFirstField,
+  arrowOpensPicker,
+  arrowNavigate,
+} from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 
 // Ref-counts open Sheets so a nested Sheet's cleanup doesn't clear the scroll
@@ -16,6 +22,19 @@ let openSheetCount = 0;
 // Escape/Tab, so one Escape closes one nested sheet at a time instead of the
 // whole stack, and the focus trap belongs to the sheet actually on top.
 const sheetStack: (() => void)[] = [];
+
+/**
+ * True when focus sits inside a modal layer that is NOT `root` — typically a
+ * dialog picker portaled to <body> from inside this sheet. Such a layer owns
+ * Escape and Tab for as long as it is up, so the sheet underneath must stand
+ * down even though it is still the topmost entry on `sheetStack`.
+ */
+function inForeignModal(root: HTMLElement | null): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return false;
+  const modal = active.closest<HTMLElement>('[role="dialog"], [aria-modal="true"]');
+  return !!modal && modal !== root && !root?.contains(modal);
+}
 
 /**
  * Responsive editor surface: a right-hand slide-over on desktop (≥md), a
@@ -90,20 +109,35 @@ export function Sheet({
   useRegisterShortcut(
     "save",
     () => {
-      const btns = footerRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])");
-      if (btns && btns.length) btns[btns.length - 1].click();
+      // The primary action is the LAST footer button by position (Cancel →
+      // Save). Deliberately not "last ENABLED button": when Save is disabled by
+      // a validation error that resolved to Cancel, so Ctrl+S silently
+      // discarded the form (client 2026-07-25). A disabled primary means the
+      // form isn't saveable — do nothing.
+      const btns = footerRef.current?.querySelectorAll<HTMLButtonElement>("button");
+      const primary = btns?.[btns.length - 1];
+      if (primary && !primary.disabled) primary.click();
     },
     open && !!footer && size !== "sm",
   );
 
-  // Autofocus the first data field when a full-screen editor opens, so the
-  // cursor is ready to type (checklist "Auto Focus"). Pickers (size="sm")
-  // already autofocus their own search box, so we skip them.
+  // Autofocus the first data field on open, so the cursor is ready to type
+  // (checklist "Auto Focus").
+  //
+  // This used to skip size="sm", on the theory that pickers autofocus their own
+  // search box. They do not: a Sheet renders its children UNCONDITIONALLY (the
+  // closed state is just opacity-0 + inert), so a child's `autoFocus` fires once
+  // at mount — while the sheet is still closed — and never again on open. Focus
+  // therefore stayed on the trigger button OUTSIDE the dialog, and since a
+  // picker binds its ↑/↓/Enter handler to the list container, none of those keys
+  // reached it: the list could only be driven with the mouse (client
+  // 2026-07-25). Portal-based pickers were unaffected because they mount their
+  // content on open, which is why this only bit the Sheet-based ones.
   useEffect(() => {
-    if (!open || size === "sm") return;
+    if (!open) return;
     const id = window.setTimeout(() => focusFirstField(containerRef.current), 60);
     return () => window.clearTimeout(id);
-  }, [open, size]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -118,13 +152,28 @@ export function Sheet({
     sheetStack.push(entry);
     const onKey = (e: KeyboardEvent) => {
       if (sheetStack[sheetStack.length - 1] !== entry) return; // only the topmost sheet responds
+      // Most dialog pickers (components/masters/*-picker.tsx) createPortal
+      // straight to <body>, so their DOM is NOT inside this sheet's container
+      // and they never join sheetStack — this listener stays "topmost" while
+      // one is open on top of us. Without this guard Escape closed the whole
+      // editor instead of the picker, and Tab moved focus through the form
+      // behind the scrim. Anything wearing its own dialog role owns its keys.
+      if (inForeignModal(containerRef.current)) return;
       if (e.key === "Escape") {
+        // A control that already consumed Escape (an open Combobox list, an
+        // open DropdownMenu) must not also close the editor. React's delegated
+        // listener runs on `document` too and fires BEFORE this one, so its
+        // preventDefault is visible here — but its stopPropagation is not, as
+        // both listeners sit on the same node.
+        if (e.defaultPrevented) return;
         entry();
       } else if (e.key === "Tab") {
-        // Lightweight focus trap: Tab/Shift+Tab cycle within the open sheet
-        // instead of escaping to the page behind the scrim. Region-ordered, so
-        // the cycle runs fields → footer → ✕ and never interrupts typing with
-        // the close button (client 2026-07-24 #5).
+        // Focus trap. We drive the WHOLE cycle rather than only guarding the
+        // two edges: the cycle is region-ordered (fields → footer → ✕) while
+        // native Tab is DOM-ordered (✕ → fields → footer), so edge-only
+        // trapping compared the wrong elements and let Tab off Save escape the
+        // dialog entirely. Owning every Tab keeps the visible order and the
+        // trap boundary as one and the same thing.
         const root = containerRef.current;
         if (!root) return;
         const items = orderedFocusables(root);
@@ -132,30 +181,19 @@ export function Sheet({
         const active = document.activeElement;
         const inside = active instanceof HTMLElement && root.contains(active);
 
-        // Focus was orphaned (usually to <body>). Resume from the field the
-        // user last stood on rather than jumping to the top of the form.
-        if (!inside) {
-          const resume = lastFocusedRef.current;
-          const idx = resume ? items.indexOf(resume) : -1;
-          e.preventDefault();
-          if (idx === -1) {
-            (e.shiftKey ? items[items.length - 1] : items[0]).focus();
-          } else {
-            const next = e.shiftKey ? idx - 1 : idx + 1;
-            (items[next] ?? items[e.shiftKey ? items.length - 1 : 0]).focus();
-          }
+        // When focus is orphaned (a picker unmounted, a control blurred
+        // itself) resume from the field the user last stood on instead of
+        // restarting at the top of the form.
+        const from = inside ? (active as HTMLElement) : lastFocusedRef.current;
+        const idx = from ? items.indexOf(from) : -1;
+
+        e.preventDefault();
+        if (idx === -1) {
+          (e.shiftKey ? items[items.length - 1] : items[0]).focus();
           return;
         }
-
-        if (e.shiftKey) {
-          if (active === items[0]) {
-            e.preventDefault();
-            items[items.length - 1].focus();
-          }
-        } else if (active === items[items.length - 1]) {
-          e.preventDefault();
-          items[0].focus();
-        }
+        const next = e.shiftKey ? idx - 1 : idx + 1;
+        items[(next + items.length) % items.length].focus();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -184,14 +222,30 @@ export function Sheet({
     if (t instanceof HTMLElement) lastFocusedRef.current = t;
   };
 
-  /** Legacy ERP Enter-moves-forward (client 2026-07-23 #7) — shared with the
-   *  full-screen editor via lib/focus. */
-  const onEnterAdvance = (e: React.KeyboardEvent) => enterAdvance(e, containerRef.current);
+  /**
+   * The one form-level key contract, in priority order — shared with the
+   * full-screen editor via lib/focus so the two surfaces cannot drift:
+   *   ↓/↑ on a picker  → open its dialog
+   *   ↓/↑ otherwise    → previous / next field
+   *   Enter            → next field
+   * Controls that own a key (open list, grid, textarea, native select) consume
+   * it before any of this runs.
+   */
+  const onEnterAdvance = (e: React.KeyboardEvent) => {
+    if (arrowOpensPicker(e)) return;
+    if (arrowNavigate(e, containerRef.current)) return;
+    enterAdvance(e, containerRef.current);
+  };
 
   if (!mounted) return null;
 
   return createPortal(
-    <div aria-hidden={!open}>
+    // `inert` (not just aria-hidden) while closed: the closed state is only
+    // opacity-0 + pointer-events-none, and `focusablesIn`'s `offsetParent`
+    // check does NOT exclude an opacity-0 element — so every field of every
+    // closed Sheet stayed in the page's tab order. Tabbing off the last control
+    // of a page walked into an invisible form.
+    <div aria-hidden={!open} inert={!open}>
       {/* scrim */}
       <div
         onClick={onClose}

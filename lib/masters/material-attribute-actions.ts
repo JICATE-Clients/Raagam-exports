@@ -38,12 +38,11 @@ function normalizeLines(data: MaterialAttributeInput) {
         mandatory: l.mandatory,
         inactive: l.inactive,
       },
-      // Value-In-Steps lines are numeric ranges — never carry a value list.
-      options: l.value_in_steps
-        ? []
-        : l.options
-            .filter((o) => o.description.trim())
-            .map((o, j) => ({ sno: j + 1, description: o.description.trim(), blocked: o.blocked })),
+      // The value list is the single source of a line's options — persisted for
+      // BOTH stepped (auto-generated on the client) and manual lines.
+      options: l.options
+        .filter((o) => o.description.trim())
+        .map((o, j) => ({ sno: j + 1, description: o.description.trim(), blocked: o.blocked })),
     }));
 }
 

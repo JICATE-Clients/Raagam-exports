@@ -108,6 +108,19 @@ body {
 }
 
 /*
+ * Dialog-picker triggers are <button>s that behave as FIELDS: Enter advances off
+ * them and arrow keys land on them inside a child grid, so they are keyboard
+ * destinations like any input. None of them carried the app's focus style, so
+ * arrowing down a grid alternated between the branded ring on a text cell and
+ * the browser's default outline on the picker beside it. One rule keeps all 16
+ * in step with input.tsx / combobox.tsx / select.tsx.
+ */
+[data-field-trigger]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+/*
  * Bug Reporter (JKKN Bug Boundary) floating button — on phones our MobileNav is
  * fixed at the bottom (~64px bar + a raised FAB). The SDK positions its trigger
  * (`.bug-reporter-floating-btn` inside `.bug-reporter-sdk`) at bottom:1rem via a

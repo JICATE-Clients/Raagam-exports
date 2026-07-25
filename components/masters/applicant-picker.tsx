@@ -87,6 +87,8 @@ export function ApplicantPicker({
       <button
         type="button"
         onClick={openDialog}
+
+        data-field-trigger
         className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-border px-3 text-sm font-medium text-primary hover:border-primary hover:bg-surface-muted"
       >
         {addLabel}
@@ -96,6 +98,8 @@ export function ApplicantPicker({
         <button
           type="button"
           onClick={openDialog}
+
+          data-field-trigger
           className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
         >
           <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>

@@ -390,8 +390,15 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
         </>
       )}
 
-      {/* Launcher */}
+      {/* Launcher. `inert` while closed: the drawer is never unmounted — it is
+          slid off-screen with translate-y-full, and a translate does NOT clear
+          offsetParent — so its search box and ~40 module/section links stayed in
+          the page's tab order and were read out by screen readers as page
+          content. Tabbing off the last control of any page walked into an
+          invisible drawer (client 2026-07-25). Same fix as components/ui/sheet.tsx. */}
       <div
+        inert={!open}
+        aria-hidden={!open}
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 flex h-[82%] flex-col rounded-t-3xl bg-surface shadow-2xl transition-transform duration-300 md:hidden",
           open ? "translate-y-0" : "translate-y-full",
