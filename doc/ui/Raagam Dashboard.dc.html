@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Raagam ERP — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --background: #f6f7f9;
+    --surface: #ffffff;
+    --surface-muted: #f1f3f5;
+    --foreground: #16181d;
+    --muted-foreground: #5b6472;
+    --border: #e3e6ea;
+    --ring: #4f46e5;
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --primary-foreground: #ffffff;
+    --accent: #0d9488;
+    --pos: #16a34a;
+    --success: #15803d; --success-soft: #dcfce7;
+    --warning: #b45309; --warning-soft: #fef3c7;
+    --danger: #b91c1c; --danger-soft: #fee2e2;
+    --info: #1d4ed8; --info-soft: #dbeafe;
+    --elev: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+    --elev-hi: 0 10px 28px rgb(16 24 40 / 0.10), 0 2px 6px rgb(16 24 40 / 0.05);
+    --smoke: linear-gradient(152deg, rgb(22 24 29 / 0.055) 0%, rgb(22 24 29 / 0.012) 34%, rgb(22 24 29 / 0) 62%), var(--surface);
+    --sheen: inset 0 1px 0 rgb(255 255 255 / 0.75);
+  }
+  .dark {
+    --background: #0b0d12;
+    --surface: #14171d;
+    --surface-muted: #1b1f27;
+    --foreground: #e7e9ee;
+    --muted-foreground: #9aa4b2;
+    --border: #262b34;
+    --ring: #6366f1;
+    --primary: #6366f1;
+    --primary-hover: #818cf8;
+    --accent: #2dd4bf;
+    --pos: #4ade80;
+    --success: #4ade80; --success-soft: #14321f;
+    --warning: #fbbf24; --warning-soft: #3a2c0a;
+    --danger: #f87171; --danger-soft: #3a1514;
+    --info: #60a5fa; --info-soft: #122648;
+    --elev: 0 1px 2px rgb(0 0 0 / 0.4);
+    --elev-hi: 0 10px 28px rgb(0 0 0 / 0.55);
+    --smoke: linear-gradient(152deg, rgb(255 255 255 / 0.075) 0%, rgb(255 255 255 / 0.02) 34%, rgb(255 255 255 / 0) 62%), var(--surface);
+    --sheen: inset 0 1px 0 rgb(255 255 255 / 0.055);
+  }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+  * { box-sizing: border-box; }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { color: var(--primary-hover); text-decoration: underline; }
+  :where(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 1px;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+  @keyframes grow { from { transform: scaleY(.001) } to { transform: none } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important }
+  }
+</style>
+<script src="https://unpkg.com/lucide@0.544.0/dist/umd/lucide.js"></script>
+</helmet>
+
+<div style="{{ shellStyle }}" data-screen-label="Dashboard">
+
+  <aside style="width:224px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface)">
+    <div style="height:56px;flex-shrink:0;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding:0 16px">
+      <div style="height:28px;width:28px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--primary);color:var(--primary-foreground);font-size:14px;font-weight:700">R</div>
+      <span style="font-size:14px;font-weight:600;letter-spacing:-0.01em">Raagam ERP</span>
+    </div>
+
+    <nav style="flex:1;display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding:8px">
+      <a href="#" style="display:flex;align-items:center;gap:10px;border-radius:6px;padding:8px 12px;font-size:14px;font-weight:500;background:color-mix(in srgb, var(--primary) 10%, transparent);color:var(--primary);text-decoration:none" style-hover="background:color-mix(in srgb, var(--primary) 20%, transparent);text-decoration:none">
+        <span data-icon="layout-dashboard" style="display:inline-flex;width:16px;height:16px;flex-shrink:0"></span>Dashboard
+      </a>
+      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="13">
+        <div style="display:flex;align-items:center;gap:2px">
+          <button type="button" style="flex:1;display:flex;align-items:center;gap:10px;border:0;background:none;border-radius:6px;padding:8px 12px;text-align:left;font:inherit;font-size:14px;font-weight:500;color:var(--muted-foreground);cursor:pointer;transition:background .12s,color .12s" style-hover="background:var(--border);color:var(--foreground)">
+            <span data-icon="{{ n.icon }}" style="display:inline-flex;width:16px;height:16px;flex-shrink:0"></span>{{ n.label }}
+          </button>
+          <button type="button" aria-label="Expand" style="height:32px;width:28px;display:flex;align-items:center;justify-content:center;border:0;background:none;border-radius:6px;color:var(--muted-foreground);cursor:pointer" style-hover="background:var(--border);color:var(--foreground)">
+            <span data-icon="chevron-right" style="display:inline-flex;width:16px;height:16px"></span>
+          </button>
+        </div>
+      </sc-for>
+    </nav>
+
+    <div style="border-top:1px solid var(--border);padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span style="font-size:11px;color:var(--muted-foreground)">v2.4 · FY 2026-27</span>
+      <button type="button" onClick="{{ toggleTheme }}" aria-label="Toggle dark mode" style="height:28px;width:28px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);background:var(--surface);border-radius:6px;color:var(--muted-foreground);cursor:pointer" style-hover="background:var(--surface-muted);color:var(--foreground)">
+        <span data-icon="{{ themeIcon }}" style="display:inline-flex;width:14px;height:14px"></span>
+      </button>
+    </div>
+  </aside>
+
+  <div style="display:flex;min-width:0;flex:1;flex-direction:column">
+
+    <header style="height:56px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border);background:var(--surface);padding:0 16px">
+      <div style="display:flex;min-width:0;align-items:center;gap:8px">
+        <sc-if value="{{ atLeastSm }}" hint-placeholder-val="{{ true }}">
+          <span style="font-size:12px;color:var(--muted-foreground)">Location</span>
+        </sc-if>
+        <select style="height:32px;min-width:0;border:1px solid var(--border);background:var(--surface);color:var(--foreground);border-radius:6px;padding:0 8px;font:inherit;font-size:12px;font-weight:500">
+          <option>Raagam Exports — Unit I (Tirupur)</option>
+          <option>Raagam Exports — Unit II (Erode)</option>
+        </select>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:4px">
+        <button type="button" onClick="{{ openPalette }}" aria-label="Search everywhere" style="{{ searchStyle }}" style-hover="background:var(--surface-muted)">
+          <span data-icon="search" style="display:inline-flex;width:16px;height:16px;flex-shrink:0"></span>
+          <sc-if value="{{ atLeastMd }}" hint-placeholder-val="{{ true }}">
+            <span style="flex:1;text-align:left;font-size:12px">Search…</span>
+          </sc-if>
+          <sc-if value="{{ atLeastMd }}" hint-placeholder-val="{{ true }}">
+            <kbd style="flex-shrink:0;border:1px solid var(--border);background:var(--surface-muted);border-radius:4px;padding:2px 6px;font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px">⌘K</kbd>
+          </sc-if>
+        </button>
+
+        <div style="position:relative">
+          <button type="button" onClick="{{ toggleBell }}" aria-label="Notifications (6 unread)" style="position:relative;height:32px;width:32px;display:flex;align-items:center;justify-content:center;border:0;background:none;border-radius:6px;color:var(--muted-foreground);cursor:pointer" style-hover="background:var(--surface-muted)">
+            <span data-icon="bell" style="display:inline-flex;width:16px;height:16px"></span>
+            <span style="position:absolute;right:-2px;top:-2px;display:flex;height:16px;min-width:16px;align-items:center;justify-content:center;border-radius:9999px;background:var(--danger);padding:0 4px;font-size:10px;font-weight:600;line-height:1;color:#fff">6</span>
+          </button>
+          <sc-if value="{{ bellOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;right:0;top:100%;z-index:30;margin-top:6px;width:340px;border:1px solid var(--border);background:var(--surface);border-radius:14px;box-shadow:var(--elev-hi);overflow:hidden">
+              <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);padding:10px 14px">
+                <span style="font-size:13px;font-weight:600">Notifications</span>
+                <button type="button" onClick="{{ markAllRead }}" style="display:flex;align-items:center;gap:6px;border:0;background:none;font:inherit;font-size:12px;color:var(--muted-foreground);cursor:pointer" style-hover="color:var(--foreground)">
+                  <span data-icon="check-check" style="display:inline-flex;width:14px;height:14px"></span>Mark all read
+                </button>
+              </div>
+              <div style="max-height:340px;overflow-y:auto">
+                <sc-for list="{{ alerts }}" as="a" hint-placeholder-count="4">
+                  <div style="{{ a.rowStyle }}">
+                    <span style="{{ a.iconWrap }}"><span data-icon="{{ a.icon }}" data-size="15" style="display:inline-flex;width:15px;height:15px"></span></span>
+                    <div style="min-width:0;flex:1">
+                      <p style="margin:0;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.title }}</p>
+                      <p style="margin:2px 0 0;font-size:12px;color:var(--muted-foreground)">{{ a.body }}</p>
+                      <p style="margin:3px 0 0;font-size:11px;color:var(--muted-foreground)">{{ a.ago }}</p>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="position:relative">
+          <button type="button" onClick="{{ toggleUser }}" style="display:flex;align-items:center;gap:8px;border:0;background:none;border-radius:6px;padding:6px 8px;font:inherit;font-size:14px;color:var(--foreground);cursor:pointer" style-hover="background:var(--surface-muted)">
+            <span style="display:flex;height:24px;width:24px;align-items:center;justify-content:center;border-radius:9999px;background:color-mix(in srgb, var(--primary) 12%, transparent);font-size:12px;font-weight:600;color:var(--primary)">K</span>
+            <sc-if value="{{ atLeastSm }}" hint-placeholder-val="{{ true }}">
+              <span style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Karthik Raman</span>
+            </sc-if>
+            <span data-icon="chevron-down" style="display:inline-flex;width:14px;height:14px;color:var(--muted-foreground)"></span>
+          </button>
+          <sc-if value="{{ userOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;right:0;top:100%;z-index:30;margin-top:6px;width:232px;border:1px solid var(--border);background:var(--surface);border-radius:12px;box-shadow:var(--elev-hi);padding:4px">
+              <div style="border-bottom:1px solid var(--border);padding:10px 12px">
+                <p style="margin:0;font-size:13px;font-weight:500">Karthik Raman</p>
+                <p style="margin:2px 0 0;font-size:12px;color:var(--muted-foreground)">karthik@raagamexports.com</p>
+                <p style="margin:6px 0 0;font-size:12px;color:var(--muted-foreground)">Managing Director</p>
+              </div>
+              <button type="button" style="display:flex;width:100%;align-items:center;gap:8px;border:0;background:none;border-radius:8px;padding:9px 12px;font:inherit;font-size:13px;color:var(--foreground);cursor:pointer" style-hover="background:var(--surface-muted)">
+                <span data-icon="log-out" style="display:inline-flex;width:16px;height:16px"></span>Sign out
+              </button>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </header>
+
+    <main style="flex:1;overflow-y:auto;padding:28px 28px 64px">
+      <div style="margin:0 auto;max-width:1440px;display:flex;flex-direction:column;gap:28px">
+
+        <section style="position:relative;overflow:hidden;display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:24px;border:1px solid var(--border);background:var(--smoke);border-radius:18px;padding:24px 26px;box-shadow:var(--elev),var(--sheen)">
+          <div style="position:absolute;top:-90px;right:-40px;width:320px;height:220px;border-radius:9999px;background:radial-gradient(circle, color-mix(in srgb, var(--primary) 12%, transparent) 0%, transparent 68%);filter:blur(26px);pointer-events:none"></div>
+          <div style="position:relative;min-width:280px">
+            <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-foreground)">Raagam Exports · FY 2026-27 · Unit I</p>
+            <h1 style="margin:10px 0 0;font-size:32px;font-weight:600;letter-spacing:-0.03em;text-wrap:pretty">{{ greeting }}, Karthik</h1>
+            <p style="margin:8px 0 0;font-size:14px;color:var(--muted-foreground)">{{ today }} · {{ clock }} · 42 open orders across 2 units</p>
+            <div style="margin-top:18px;display:flex;flex-wrap:wrap;align-items:center;gap:14px">
+              <sc-for list="{{ pulse }}" as="p" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <span style="{{ p.ring }}"><span style="{{ p.ringInner }}">{{ p.pct }}</span></span>
+                  <span style="display:flex;flex-direction:column">
+                    <span style="font-size:12px;font-weight:500">{{ p.label }}</span>
+                    <span style="font-size:11px;color:var(--muted-foreground)">{{ p.note }}</span>
+                  </span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="position:relative;display:flex;align-items:center;gap:10px">
+            <div style="display:flex;gap:2px;border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:3px;box-shadow:var(--elev)">
+              <sc-for list="{{ ranges }}" as="r" hint-placeholder-count="3">
+                <button type="button" onClick="{{ r.select }}" style="{{ r.style }}">{{ r.label }}</button>
+              </sc-for>
+            </div>
+            <button type="button" style="display:flex;align-items:center;gap:8px;height:38px;padding:0 16px;border:0;border-radius:10px;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:13px;font-weight:500;cursor:pointer;box-shadow:var(--elev);transition:background .12s" style-hover="background:var(--primary-hover)">
+              <span data-icon="plus" style="display:inline-flex;width:16px;height:16px"></span>New Order
+            </button>
+          </div>
+        </section>
+
+        <sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:28px">
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px">
+              <sc-for list="{{ skel4 }}" as="s" hint-placeholder-count="4">
+                <div style="height:158px;border:1px solid var(--border);background:var(--surface);border-radius:14px;padding:20px;box-shadow:var(--elev)">
+                  <div style="height:12px;width:52%;border-radius:6px;background:var(--surface-muted);animation:pulse 1.6s ease-in-out infinite"></div>
+                  <div style="margin-top:18px;height:30px;width:70%;border-radius:8px;background:var(--surface-muted);animation:pulse 1.6s ease-in-out infinite"></div>
+                  <div style="margin-top:26px;height:36px;width:100%;border-radius:8px;background:var(--surface-muted);animation:pulse 1.6s ease-in-out infinite"></div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px">
+              <sc-for list="{{ skel6 }}" as="s" hint-placeholder-count="6">
+                <div style="height:92px;border:1px solid var(--border);background:var(--surface);border-radius:12px;animation:pulse 1.6s ease-in-out infinite"></div>
+              </sc-for>
+            </div>
+            <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px">
+              <div style="height:300px;border:1px solid var(--border);background:var(--surface);border-radius:14px;animation:pulse 1.6s ease-in-out infinite"></div>
+              <div style="height:300px;border:1px solid var(--border);background:var(--surface);border-radius:14px;animation:pulse 1.6s ease-in-out infinite"></div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ ready }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:28px">
+
+            <div style="display:flex;align-items:center;gap:14px">
+              <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.06em;color:var(--muted-foreground)">01</span>
+              <h2 style="margin:0;font-size:13px;font-weight:600;letter-spacing:.02em">Performance</h2>
+              <span style="flex:1;height:1px;background:var(--border)"></span>
+            </div>
+
+            <section style="{{ heroGrid }}">
+              <sc-for list="{{ hero }}" as="k" hint-placeholder-count="4">
+                <div style="position:relative;min-width:0;overflow:hidden;border:1px solid var(--border);background:var(--smoke);backdrop-filter:blur(8px);border-radius:14px;padding:15px 16px;box-shadow:var(--elev),var(--sheen);transition:transform .18s ease,box-shadow .18s ease;animation:rise .32s ease both" style-hover="transform:translateY(-3px);box-shadow:var(--elev-hi),var(--sheen)">
+                  <div style="position:absolute;top:-34px;right:-28px;width:104px;height:104px;border-radius:9999px;background:{{ k.haze }};filter:blur(20px);pointer-events:none"></div>
+                  <div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px">
+                    <p style="margin:0;min-width:0;font-size:11px;font-weight:500;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ k.label }}</p>
+                    <span style="{{ k.iconWrap }}"><span data-icon="{{ k.icon }}" data-size="16" style="display:inline-flex;width:16px;height:16px"></span></span>
+                  </div>
+                  <p style="position:relative;margin:9px 0 0;font-size:24px;font-weight:600;letter-spacing:-0.02em;font-variant-numeric:tabular-nums">{{ k.value }}</p>
+                  <div style="position:relative;margin-top:10px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px">
+                    <div style="min-width:0;display:flex;flex-direction:column;gap:3px">
+                      <span style="{{ k.trendStyle }}"><span data-icon="{{ k.trendIcon }}" data-size="12" style="display:inline-flex;width:12px;height:12px"></span>{{ k.delta }}</span>
+                      <span style="font-size:10px;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ k.hint }}</span>
+                    </div>
+                    <svg viewBox="0 0 104 34" preserveAspectRatio="none" style="width:76px;height:28px;flex-shrink:0;overflow:visible" aria-hidden="true">
+                      <polygon points="{{ k.sparkArea }}" fill="{{ k.sparkFill }}"></polygon>
+                      <polyline points="{{ k.spark }}" fill="none" stroke="{{ k.sparkColor }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                      <circle cx="104" cy="{{ k.sparkEndY }}" r="2.6" fill="{{ k.sparkColor }}"></circle>
+                    </svg>
+                  </div>
+                </div>
+              </sc-for>
+            </section>
+
+            <section style="{{ miniGrid }}">
+              <sc-for list="{{ mini }}" as="m" hint-placeholder-count="6">
+                <div style="min-width:0;border:1px solid var(--border);background:var(--smoke);border-radius:12px;padding:12px 14px;box-shadow:var(--elev),var(--sheen);transition:transform .18s ease,box-shadow .18s ease" style-hover="transform:translateY(-2px);box-shadow:var(--elev-hi),var(--sheen)">
+                  <div style="display:flex;align-items:center;gap:7px;min-width:0;color:var(--muted-foreground)">
+                    <span data-icon="{{ m.icon }}" data-size="13" style="display:inline-flex;width:13px;height:13px;flex-shrink:0"></span>
+                    <span style="font-size:10px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ m.label }}</span>
+                  </div>
+                  <div style="margin-top:8px;display:flex;align-items:baseline;gap:6px">
+                    <span style="font-size:18px;font-weight:600;letter-spacing:-0.01em;font-variant-numeric:tabular-nums">{{ m.value }}</span>
+                    <span style="{{ m.deltaStyle }}">{{ m.delta }}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </section>
+
+            <div style="display:flex;align-items:center;gap:14px">
+              <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.06em;color:var(--muted-foreground)">02</span>
+              <h2 style="margin:0;font-size:13px;font-weight:600;letter-spacing:.02em">Business Analytics</h2>
+              <span style="flex:1;height:1px;background:var(--border)"></span>
+            </div>
+
+            <section style="{{ split21 }}">
+              <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+                  <div>
+                    <h2 style="margin:0;font-size:14px;font-weight:600">Monthly Sales</h2>
+                    <p style="margin:3px 0 0;font-size:12px;color:var(--muted-foreground)">Units shipped vs orders booked</p>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:14px">
+                    <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted-foreground)"><i style="width:8px;height:8px;border-radius:2px;background:var(--primary);display:inline-block"></i>Units</span>
+                    <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted-foreground)"><i style="width:8px;height:8px;border-radius:2px;background:var(--accent);display:inline-block"></i>Orders</span>
+                  </div>
+                </div>
+                <div style="padding:20px">
+                  <div style="display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:10px;height:210px">
+                    <sc-for list="{{ salesBars }}" as="b" hint-placeholder-count="12">
+                      <div onMouseEnter="{{ tipOn }}" onMouseLeave="{{ tipOff }}" data-tip="{{ b.tip }}" style="display:grid;grid-template-rows:1fr auto;gap:8px;height:100%;cursor:default;border-radius:8px;transition:background .12s" style-hover="background:var(--surface-muted)">
+                        <div style="display:flex;align-items:flex-end;justify-content:center;gap:3px">
+                          <div style="{{ b.s1 }}"></div>
+                          <div style="{{ b.s2 }}"></div>
+                        </div>
+                        <span style="text-align:center;font-size:10px;color:var(--muted-foreground)">{{ b.label }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+
+              <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+                  <h2 style="margin:0;font-size:14px;font-weight:600">Order Status</h2>
+                  <p style="margin:3px 0 0;font-size:12px;color:var(--muted-foreground)">42 open orders</p>
+                </div>
+                <div style="padding:20px;display:flex;flex-wrap:wrap;align-items:center;gap:22px">
+                  <div style="position:relative;width:132px;height:132px;flex-shrink:0;border-radius:9999px;background:conic-gradient(var(--primary) 0 38%, var(--accent) 38% 64%, var(--warning) 64% 83%, var(--info) 83% 100%)">
+                    <div style="position:absolute;inset:17px;border-radius:9999px;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center">
+                      <span style="font-size:22px;font-weight:600;font-variant-numeric:tabular-nums">42</span>
+                      <span style="font-size:10px;color:var(--muted-foreground)">orders</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:11px;flex:1 1 170px;min-width:150px">
+                    <sc-for list="{{ statusLegend }}" as="s" hint-placeholder-count="4">
+                      <div style="display:flex;align-items:center;gap:9px">
+                        <i style="{{ s.dot }}"></i>
+                        <span style="flex:1;font-size:12px;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.label }}</span>
+                        <span style="font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">{{ s.count }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section style="{{ split21 }}">
+              <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+                  <div>
+                    <h2 style="margin:0;font-size:14px;font-weight:600">Revenue Trend</h2>
+                    <p style="margin:3px 0 0;font-size:12px;color:var(--muted-foreground)">Invoiced vs received · ₹ lakh</p>
+                  </div>
+                  <span style="display:inline-flex;align-items:center;gap:6px;border-radius:9999px;background:var(--success-soft);color:var(--success);padding:4px 10px;font-size:11px;font-weight:600">+18.2% YoY</span>
+                </div>
+                <div style="padding:20px">
+                  <svg viewBox="0 0 720 220" preserveAspectRatio="none" style="width:100%;height:220px" aria-hidden="true">
+                    <line x1="0" y1="10" x2="720" y2="10" stroke="var(--border)" stroke-width="1"></line>
+                    <line x1="0" y1="72" x2="720" y2="72" stroke="var(--border)" stroke-width="1"></line>
+                    <line x1="0" y1="134" x2="720" y2="134" stroke="var(--border)" stroke-width="1"></line>
+                    <line x1="0" y1="196" x2="720" y2="196" stroke="var(--border)" stroke-width="1"></line>
+                    <polygon points="{{ revArea }}" fill="color-mix(in srgb, var(--primary) 14%, transparent)"></polygon>
+                    <polyline points="{{ revLine }}" fill="none" stroke="var(--primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                    <polyline points="{{ recLine }}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 5" stroke-linecap="round"></polyline>
+                  </svg>
+                  <div style="display:grid;grid-auto-flow:column;grid-auto-columns:1fr;margin-top:8px">
+                    <sc-for list="{{ months }}" as="m" hint-placeholder-count="12">
+                      <span style="text-align:center;font-size:10px;color:var(--muted-foreground)">{{ m }}</span>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+
+              <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+                  <h2 style="margin:0;font-size:14px;font-weight:600">Machine Utilisation</h2>
+                  <p style="margin:3px 0 0;font-size:12px;color:var(--muted-foreground)">Shift A · live</p>
+                </div>
+                <div style="padding:18px 20px;display:flex;flex-direction:column;gap:15px">
+                  <sc-for list="{{ machines }}" as="m" hint-placeholder-count="6">
+                    <div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px">
+                        <span style="font-size:12px;color:var(--foreground)">{{ m.name }}</span>
+                        <span style="font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted-foreground)">{{ m.pct }}</span>
+                      </div>
+                      <div style="height:7px;border-radius:9999px;background:var(--surface-muted);overflow:hidden">
+                        <div style="{{ m.bar }}"></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </section>
+
+            <section style="{{ triGrid }}">
+              <sc-for list="{{ smallCharts }}" as="c" hint-placeholder-count="3">
+                <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+                    <h2 style="margin:0;font-size:14px;font-weight:600">{{ c.title }}</h2>
+                    <span style="font-size:11px;color:var(--muted-foreground)">{{ c.note }}</span>
+                  </div>
+                  <div style="padding:18px 20px">
+                    <div style="display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:8px;height:132px">
+                      <sc-for list="{{ c.bars }}" as="b" hint-placeholder-count="8">
+                        <div onMouseEnter="{{ tipOn }}" onMouseLeave="{{ tipOff }}" data-tip="{{ b.tip }}" style="display:grid;grid-template-rows:1fr auto;gap:6px;height:100%;border-radius:6px;transition:background .12s" style-hover="background:var(--surface-muted)">
+                          <div style="display:flex;align-items:flex-end;justify-content:center;gap:3px">
+                            <div style="{{ b.s1 }}"></div>
+                            <div style="{{ b.s2 }}"></div>
+                          </div>
+                          <span style="text-align:center;font-size:10px;color:var(--muted-foreground)">{{ b.label }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </div>
+              </sc-for>
+            </section>
+
+            <section>
+              <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+                <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.06em;color:var(--muted-foreground)">03</span>
+                <h2 style="margin:0;font-size:13px;font-weight:600;letter-spacing:.02em">Manufacturing</h2>
+                <span style="flex:1;height:1px;background:var(--border)"></span>
+                <span style="font-size:11px;color:var(--muted-foreground)">Updated 4 min ago</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px">
+                <sc-for list="{{ stages }}" as="s" hint-placeholder-count="9">
+                  <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;padding:16px;box-shadow:var(--elev),var(--sheen);transition:transform .16s ease,box-shadow .16s ease" style-hover="transform:translateY(-2px);box-shadow:var(--elev-hi),var(--sheen)">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                      <span style="display:flex;align-items:center;gap:9px;font-size:12px;font-weight:500;color:var(--muted-foreground)">
+                        <span data-icon="{{ s.icon }}" data-size="15" style="display:inline-flex;width:15px;height:15px"></span>{{ s.name }}
+                      </span>
+                      <span style="{{ s.pill }}">{{ s.state }}</span>
+                    </div>
+                    <p style="margin:12px 0 0;font-size:22px;font-weight:600;letter-spacing:-0.015em;font-variant-numeric:tabular-nums">{{ s.value }}</p>
+                    <p style="margin:3px 0 10px;font-size:11px;color:var(--muted-foreground)">{{ s.sub }}</p>
+                    <div style="height:6px;border-radius:9999px;background:var(--surface-muted);overflow:hidden">
+                      <div style="{{ s.bar }}"></div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </section>
+
+            <div style="display:flex;align-items:center;gap:14px">
+              <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.06em;color:var(--muted-foreground)">04</span>
+              <h2 style="margin:0;font-size:13px;font-weight:600;letter-spacing:.02em">Approvals &amp; Activity</h2>
+              <span style="flex:1;height:1px;background:var(--border)"></span>
+            </div>
+
+            <section style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen);overflow:hidden">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+                <div>
+                  <h2 style="margin:0;font-size:14px;font-weight:600">Pending Approvals</h2>
+                  <p style="margin:3px 0 0;font-size:12px;color:var(--muted-foreground)">{{ pendingCount }}</p>
+                </div>
+                <a href="#" style="font-size:12px">View all →</a>
+              </div>
+              <div style="overflow-x:auto">
+                <table style="width:100%;border-collapse:collapse;min-width:860px">
+                  <thead>
+                    <tr style="background:var(--surface-muted)">
+                      <th style="text-align:left;padding:9px 20px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground)">Document</th>
+                      <th style="text-align:left;padding:9px 12px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground)">Type</th>
+                      <th style="text-align:left;padding:9px 12px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground)">Party</th>
+                      <th style="text-align:right;padding:9px 12px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground)">Value</th>
+                      <th style="text-align:left;padding:9px 12px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground)">Priority</th>
+                      <th style="text-align:left;padding:9px 12px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground)">Waiting</th>
+                      <th style="text-align:right;padding:9px 20px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground)">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <sc-for list="{{ approvals }}" as="a" hint-placeholder-count="6">
+                      <tr style="{{ a.rowStyle }}" style-hover="background:var(--surface-muted)">
+                        <td style="padding:13px 20px;font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--primary)">{{ a.ref }}</td>
+                        <td style="padding:13px 12px;font-size:13px">{{ a.type }}</td>
+                        <td style="padding:13px 12px;font-size:13px;color:var(--muted-foreground)">{{ a.party }}</td>
+                        <td style="padding:13px 12px;text-align:right;font-size:13px;font-weight:500;font-variant-numeric:tabular-nums">{{ a.value }}</td>
+                        <td style="padding:13px 12px"><span style="{{ a.pill }}">{{ a.priority }}</span></td>
+                        <td style="padding:13px 12px;font-size:12px;color:var(--muted-foreground)">{{ a.age }}</td>
+                        <td style="padding:13px 20px;text-align:right">
+                          <sc-if value="{{ a.settled }}" hint-placeholder-val="{{ false }}">
+                            <span style="{{ a.settledPill }}">{{ a.settledLabel }}</span>
+                          </sc-if>
+                          <sc-if value="{{ a.open }}" hint-placeholder-val="{{ true }}">
+                            <span style="display:inline-flex;gap:8px;justify-content:flex-end">
+                              <button type="button" onClick="{{ a.reject }}" style="height:30px;padding:0 12px;border:1px solid var(--border);background:var(--surface);border-radius:8px;font:inherit;font-size:12px;color:var(--foreground);cursor:pointer;transition:background .12s" style-hover="background:var(--danger-soft);color:var(--danger);border-color:var(--danger-soft)">Reject</button>
+                              <button type="button" onClick="{{ a.approve }}" style="height:30px;padding:0 14px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background .12s" style-hover="background:var(--primary-hover)">Approve</button>
+                            </span>
+                          </sc-if>
+                        </td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+              <sc-if value="{{ allSettled }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:44px 20px;text-align:center">
+                  <div style="margin:0 auto;display:flex;height:46px;width:46px;align-items:center;justify-content:center;border-radius:9999px;background:var(--success-soft);color:var(--success)">
+                    <span data-icon="check-check" data-size="22" style="display:inline-flex;width:22px;height:22px"></span>
+                  </div>
+                  <p style="margin:14px 0 0;font-size:14px;font-weight:500">Approval queue is clear</p>
+                  <p style="margin:5px 0 0;font-size:12px;color:var(--muted-foreground)">Every document raised today has been actioned. Nice work.</p>
+                  <button type="button" onClick="{{ resetApprovals }}" style="margin-top:16px;height:32px;padding:0 14px;border:1px solid var(--border);background:var(--surface);border-radius:8px;font:inherit;font-size:12px;color:var(--foreground);cursor:pointer" style-hover="background:var(--surface-muted)">Restore queue</button>
+                </div>
+              </sc-if>
+            </section>
+
+            <section style="{{ split43 }}">
+              <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+                  <h2 style="margin:0;font-size:14px;font-weight:600">Recent Activity</h2>
+                  <a href="#" style="font-size:12px">Audit log →</a>
+                </div>
+                <div style="padding:20px;display:flex;flex-direction:column;gap:0">
+                  <sc-for list="{{ activity }}" as="t" hint-placeholder-count="6">
+                    <div style="display:grid;grid-template-columns:26px 1fr;gap:14px">
+                      <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+                        <span style="{{ t.dot }}"></span>
+                        <span style="{{ t.line }}"></span>
+                      </div>
+                      <div style="padding-bottom:18px">
+                        <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px">
+                          <p style="margin:0;font-size:13px;font-weight:500">{{ t.title }}</p>
+                          <span style="font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--primary)">{{ t.ref }}</span>
+                        </div>
+                        <p style="margin:4px 0 0;font-size:12px;color:var(--muted-foreground)">{{ t.detail }}</p>
+                        <p style="margin:4px 0 0;font-size:11px;color:var(--muted-foreground)">{{ t.who }} · {{ t.ago }}</p>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+                  <h2 style="margin:0;font-size:14px;font-weight:600">Alerts</h2>
+                  <span style="display:inline-flex;border-radius:9999px;background:var(--danger-soft);color:var(--danger);padding:3px 9px;font-size:11px;font-weight:600">6 active</span>
+                </div>
+                <div style="display:flex;flex-direction:column">
+                  <sc-for list="{{ alerts }}" as="a" hint-placeholder-count="6">
+                    <div style="display:flex;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border)">
+                      <span style="{{ a.iconWrap }}"><span data-icon="{{ a.icon }}" data-size="15" style="display:inline-flex;width:15px;height:15px"></span></span>
+                      <div style="min-width:0;flex:1">
+                        <p style="margin:0;font-size:13px;font-weight:500">{{ a.title }}</p>
+                        <p style="margin:3px 0 0;font-size:12px;color:var(--muted-foreground)">{{ a.body }}</p>
+                      </div>
+                      <span style="flex-shrink:0;font-size:11px;color:var(--muted-foreground)">{{ a.ago }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+                <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.06em;color:var(--muted-foreground)">05</span>
+                <h2 style="margin:0;font-size:13px;font-weight:600;letter-spacing:.02em">Quick Actions</h2>
+                <span style="flex:1;height:1px;background:var(--border)"></span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">
+                <sc-for list="{{ actions }}" as="a" hint-placeholder-count="8">
+                  <button type="button" style="display:flex;align-items:center;gap:12px;border:1px solid var(--border);background:var(--smoke);border-radius:12px;padding:14px 16px;box-shadow:var(--elev),var(--sheen);font:inherit;text-align:left;color:var(--foreground);cursor:pointer;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease" style-hover="transform:translateY(-2px);box-shadow:var(--elev-hi),var(--sheen);border-color:color-mix(in srgb, var(--primary) 40%, var(--border))">
+                    <span style="{{ a.iconWrap }}"><span data-icon="{{ a.icon }}" data-size="17" style="display:inline-flex;width:17px;height:17px"></span></span>
+                    <span style="min-width:0">
+                      <span style="display:block;font-size:13px;font-weight:500">{{ a.label }}</span>
+                      <span style="display:block;margin-top:2px;font-size:11px;color:var(--muted-foreground)">{{ a.hint }}</span>
+                    </span>
+                  </button>
+                </sc-for>
+              </div>
+            </section>
+
+            <section style="{{ triGrid }}">
+              <sc-for list="{{ leaderboards }}" as="l" hint-placeholder-count="3">
+                <div style="border:1px solid var(--border);background:var(--smoke);border-radius:14px;box-shadow:var(--elev),var(--sheen)">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
+                    <h2 style="margin:0;font-size:14px;font-weight:600">{{ l.title }}</h2>
+                    <span style="font-size:11px;color:var(--muted-foreground)">{{ l.note }}</span>
+                  </div>
+                  <div style="padding:8px 20px 16px">
+                    <sc-for list="{{ l.rows }}" as="r" hint-placeholder-count="4">
+                      <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--border)">
+                        <span style="display:flex;height:24px;width:24px;flex-shrink:0;align-items:center;justify-content:center;border-radius:7px;background:var(--surface-muted);font-size:11px;font-weight:600;color:var(--muted-foreground)">{{ r.rank }}</span>
+                        <div style="min-width:0;flex:1">
+                          <p style="margin:0;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.name }}</p>
+                          <div style="margin-top:6px;height:4px;border-radius:9999px;background:var(--surface-muted);overflow:hidden">
+                            <div style="{{ r.bar }}"></div>
+                          </div>
+                        </div>
+                        <span style="flex-shrink:0;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">{{ r.value }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </section>
+
+          </div>
+        </sc-if>
+      </div>
+    </main>
+  </div>
+
+  <sc-if value="{{ tip }}" hint-placeholder-val="{{ false }}">
+    <div style="{{ tipStyle }}">{{ tipText }}</div>
+  </sc-if>
+
+  <sc-if value="{{ paletteOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closePalette }}" style="position:fixed;inset:0;z-index:50;background:rgb(9 11 15 / 0.42);display:flex;align-items:flex-start;justify-content:center;padding-top:12vh">
+      <div onClick="{{ stop }}" style="width:600px;max-width:92vw;border:1px solid var(--border);background:var(--surface);border-radius:16px;box-shadow:var(--elev-hi);overflow:hidden;animation:rise .18s ease both">
+        <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)">
+          <span data-icon="search" data-size="17" style="display:inline-flex;width:17px;height:17px;color:var(--muted-foreground)"></span>
+          <input value="{{ query }}" onChange="{{ onQuery }}" onKeyDown="{{ onPaletteKey }}" placeholder="Search orders, buyers, POs, masters…" autofocus="true" style="flex:1;border:0;outline:none;background:none;font:inherit;font-size:15px;color:var(--foreground)" />
+          <kbd style="border:1px solid var(--border);background:var(--surface-muted);border-radius:4px;padding:2px 6px;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--muted-foreground)">ESC</kbd>
+        </div>
+        <div style="max-height:56vh;overflow-y:auto;padding:8px">
+          <sc-for list="{{ results }}" as="r" hint-placeholder-count="6">
+            <div style="{{ r.style }}" onMouseEnter="{{ r.hover }}" style-hover="background:var(--surface-muted)">
+              <span data-icon="{{ r.icon }}" data-size="16" style="display:inline-flex;width:16px;height:16px;color:var(--muted-foreground)"></span>
+              <span style="flex:1;font-size:13px">{{ r.label }}</span>
+              <span style="font-size:11px;color:var(--muted-foreground)">{{ r.group }}</span>
+              <span data-icon="corner-down-left" data-size="13" style="{{ r.enterStyle }}"></span>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+            <p style="margin:0;padding:40px 12px;text-align:center;font-size:13px;color:var(--muted-foreground)">Nothing matches “{{ query }}”.</p>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1600,&quot;height&quot;:1000}}">
+const NAV = [
+  { label: "Sales", icon: "shopping-bag" },
+  { label: "Orders", icon: "clipboard-list" },
+  { label: "Purchase", icon: "package" },
+  { label: "Stores", icon: "warehouse" },
+  { label: "Production", icon: "factory" },
+  { label: "HR & Payroll", icon: "users" },
+  { label: "Logistics", icon: "ship" },
+  { label: "Finance", icon: "landmark" },
+  { label: "Integration", icon: "arrow-left-right" },
+  { label: "Reports", icon: "bar-chart-3" },
+  { label: "Analytics", icon: "line-chart" },
+  { label: "Master Data", icon: "database" },
+  { label: "Administration", icon: "shield" },
+];
+
+const MONTHS = ["Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun","Jul"];
+
+const RANGE = {
+  today: {
+    hero: [
+      { label: "Sales Today", value: "₹18.4 L", delta: "+6.2%", up: true, hint: "vs yesterday", icon: "trending-up", spark: [14,18,12,20,16,24,22,28] },
+      { label: "Revenue Booked", value: "₹22.1 L", delta: "+3.8%", up: true, hint: "invoiced today", icon: "indian-rupee", spark: [10,14,13,18,17,21,24,26] },
+      { label: "Production Progress", value: "82%", delta: "+4 pts", up: true, hint: "against day plan", icon: "factory", spark: [20,18,22,24,21,26,25,28] },
+      { label: "Pending Dispatch", value: "6", delta: "-2", up: true, hint: "cartons ready to load", icon: "truck", spark: [24,22,20,21,18,16,14,12] },
+    ],
+    mini: [
+      { label: "Today's Orders", value: "9", delta: "+3", up: true, icon: "clipboard-list" },
+      { label: "Inventory Value", value: "₹6.42 Cr", delta: "+0.4%", up: true, icon: "warehouse" },
+      { label: "Pending PRs", value: "11", delta: "+2", up: false, icon: "file-text" },
+      { label: "Pending POs", value: "7", delta: "-1", up: true, icon: "package" },
+      { label: "Low Stock Items", value: "23", delta: "+5", up: false, icon: "triangle-alert" },
+      { label: "Gross Margin", value: "24.6%", delta: "+0.3 pts", up: true, icon: "percent" },
+    ],
+  },
+  week: {
+    hero: [
+      { label: "Sales This Week", value: "₹1.12 Cr", delta: "+9.1%", up: true, hint: "vs last week", icon: "trending-up", spark: [12,16,14,20,19,24,26,30] },
+      { label: "Revenue Booked", value: "₹1.34 Cr", delta: "+7.4%", up: true, hint: "invoiced this week", icon: "indian-rupee", spark: [9,13,16,15,20,22,26,29] },
+      { label: "Production Progress", value: "79%", delta: "+2 pts", up: true, hint: "against week plan", icon: "factory", spark: [18,20,19,23,22,25,26,27] },
+      { label: "Pending Dispatch", value: "11", delta: "-4", up: true, hint: "shipments awaiting truck", icon: "truck", spark: [28,26,24,22,19,17,15,13] },
+    ],
+    mini: [
+      { label: "Orders This Week", value: "34", delta: "+6", up: true, icon: "clipboard-list" },
+      { label: "Inventory Value", value: "₹6.38 Cr", delta: "-1.1%", up: false, icon: "warehouse" },
+      { label: "Pending PRs", value: "18", delta: "+4", up: false, icon: "file-text" },
+      { label: "Pending POs", value: "12", delta: "-3", up: true, icon: "package" },
+      { label: "Low Stock Items", value: "27", delta: "+6", up: false, icon: "triangle-alert" },
+      { label: "Gross Margin", value: "24.1%", delta: "+0.6 pts", up: true, icon: "percent" },
+    ],
+  },
+  month: {
+    hero: [
+      { label: "Sales This Month", value: "₹4.82 Cr", delta: "+12.4%", up: true, hint: "vs Jun 2026", icon: "trending-up", spark: [10,14,13,18,17,22,25,31] },
+      { label: "Revenue (MTD)", value: "₹5.36 Cr", delta: "+18.2%", up: true, hint: "invoiced, 2 units", icon: "indian-rupee", spark: [8,12,15,14,19,23,27,32] },
+      { label: "Production Progress", value: "78%", delta: "+5 pts", up: true, hint: "against month plan", icon: "factory", spark: [14,17,19,18,22,24,26,29] },
+      { label: "Pending Dispatch", value: "14", delta: "-6", up: true, hint: "shipments awaiting truck", icon: "truck", spark: [30,28,27,24,22,19,17,14] },
+    ],
+    mini: [
+      { label: "Orders This Month", value: "142", delta: "+21", up: true, icon: "clipboard-list" },
+      { label: "Inventory Value", value: "₹6.41 Cr", delta: "+2.8%", up: true, icon: "warehouse" },
+      { label: "Pending PRs", value: "26", delta: "+7", up: false, icon: "file-text" },
+      { label: "Pending POs", value: "19", delta: "-4", up: true, icon: "package" },
+      { label: "Low Stock Items", value: "31", delta: "+9", up: false, icon: "triangle-alert" },
+      { label: "Profit Margin", value: "23.8%", delta: "+1.2 pts", up: true, icon: "percent" },
+    ],
+  },
+};
+
+const SALES = {
+  today: [[62,40],[71,48],[58,36],[80,54],[74,46],[88,60],[69,44],[92,66],[78,50],[85,58],[95,70],[100,74]],
+  week: [[48,34],[60,42],[55,38],[72,50],[66,44],[80,56],[62,40],[86,60],[74,48],[90,64],[82,55],[97,72]],
+  month: [[40,28],[52,36],[47,32],[64,44],[58,40],[76,52],[55,38],[84,58],[70,46],[88,62],[79,54],[100,70]],
+};
+
+const REV = {
+  today: [[34,26],[40,30],[36,29],[48,38],[44,34],[56,42],[50,38],[62,48],[58,44],[70,54],[66,50],[80,62]],
+  week: [[30,22],[38,28],[33,26],[45,34],[41,31],[52,40],[47,35],[58,44],[54,41],[66,50],[62,47],[76,58]],
+  month: [[26,18],[34,25],[30,23],[42,31],[38,28],[50,37],[44,33],[56,42],[52,39],[64,48],[59,45],[74,56]],
+};
+
+class Component extends DCLogic {
+  state = { loading: true, range: "month", prev: "month", anim: 1, sel: 0, tick: 0, dark: false, bell: false, user: false, palette: false, query: "", tip: null, settled: {}, vw: typeof window === "undefined" ? 1440 : window.innerWidth };
+
+  componentDidMount() {
+    this._resize = () => this.setState({ vw: window.innerWidth });
+    window.addEventListener("resize", this._resize);
+    this._t = setTimeout(() => this.setState({ loading: false }), 750);
+    this._key = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); this.setState({ palette: true }); }
+      if (e.key === "Escape") this.setState({ palette: false, bell: false, user: false });
+    };
+    window.addEventListener("keydown", this._key);
+    this._icons = setInterval(() => { if (this.paintIcons()) clearInterval(this._icons); }, 120);
+    this._clock = setInterval(() => this.setState({ tick: Date.now() }), 30000);
+  }
+  componentDidUpdate() { this.paintIcons(); }
+  componentWillUnmount() { clearTimeout(this._t); clearInterval(this._icons); clearInterval(this._clock); cancelAnimationFrame(this._raf); window.removeEventListener("keydown", this._key); window.removeEventListener("resize", this._resize); }
+
+  paintIcons() {
+    const L = window.lucide;
+    if (!L || !L.icons) return false;
+    const NS = "http://www.w3.org/2000/svg";
+    document.querySelectorAll("[data-icon]").forEach((el) => {
+      if (el.firstChild) return;
+      const name = el.getAttribute("data-icon");
+      if (!name) return;
+      const key = name.replace(/(^|-)([a-z0-9])/g, (m, a, b) => b.toUpperCase());
+      const node = L.icons[key] || L.icons[key.replace(/([a-z])([0-9])/, "$1$2")];
+      if (!node) return;
+      let kids = node;
+      if (Array.isArray(node) && node[0] === "svg") kids = node[2] || [];
+      const size = el.getAttribute("data-size") || "16";
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("width", size);
+      svg.setAttribute("height", size);
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("stroke", "currentColor");
+      svg.setAttribute("stroke-width", "2");
+      svg.setAttribute("stroke-linecap", "round");
+      svg.setAttribute("stroke-linejoin", "round");
+      (kids || []).forEach((c) => {
+        if (!Array.isArray(c)) return;
+        const e = document.createElementNS(NS, c[0]);
+        const attrs = c[1] || {};
+        Object.keys(attrs).forEach((k) => { if (k !== "key") e.setAttribute(k, attrs[k]); });
+        svg.appendChild(e);
+      });
+      el.appendChild(svg);
+    });
+    return true;
+  }
+
+  tween(from, to, p) {
+    if (p >= 1 || from == null) return to;
+    const re = /^([^\d]*)([\d,]+(?:\.\d+)?)(.*)$/;
+    const a = re.exec(String(from)), b = re.exec(String(to));
+    if (!a || !b) return to;
+    const na = parseFloat(a[2].replace(/,/g, "")), nb = parseFloat(b[2].replace(/,/g, ""));
+    if (isNaN(na) || isNaN(nb)) return to;
+    const dec = (b[2].split(".")[1] || "").length;
+    const e = 1 - Math.pow(1 - p, 3);
+    const v = na + (nb - na) * e;
+    return b[1] + v.toLocaleString("en-IN", { minimumFractionDigits: dec, maximumFractionDigits: dec }) + b[3];
+  }
+
+  spark(vals) {
+    const max = Math.max.apply(null, vals), min = Math.min.apply(null, vals) - 2;
+    const step = 104 / (vals.length - 1);
+    return vals.map((v, i) => (i * step).toFixed(1) + "," + (30 - ((v - min) / (max - min || 1)) * 26).toFixed(1)).join(" ");
+  }
+
+  bars(rows, colors) {
+    const max = Math.max.apply(null, rows.map((r) => Math.max(r[1][0], r[1][1] || 0)));
+    return rows.map((r) => ({
+      label: r[0],
+      tip: r[2],
+      s1: { width: "44%", maxWidth: "16px", height: (r[1][0] / max * 100).toFixed(1) + "%", background: colors[0], borderRadius: "4px 4px 2px 2px", transformOrigin: "bottom", animation: "grow .5s cubic-bezier(.2,.8,.2,1) both" },
+      s2: r[1][1] == null ? { display: "none" } : { width: "44%", maxWidth: "16px", height: (r[1][1] / max * 100).toFixed(1) + "%", background: colors[1], borderRadius: "4px 4px 2px 2px", transformOrigin: "bottom", animation: "grow .5s cubic-bezier(.2,.8,.2,1) .06s both" },
+    }));
+  }
+
+  renderVals() {
+    const s = this.state;
+    const now = new Date();
+    const d = RANGE[s.range];
+    const cur = "var(--primary)", acc = "var(--accent)";
+
+    const salesRows = SALES[s.range].map((v, i) => [MONTHS[i], v, MONTHS[i] + " · " + (v[0] * 1240).toLocaleString("en-IN") + " units · " + v[1] + " orders"]);
+
+    const rev = REV[s.range];
+    const px = (i) => (i * (720 / (rev.length - 1))).toFixed(1);
+    const py = (v) => (200 - (v / 90) * 185).toFixed(1);
+    const revLine = rev.map((r, i) => px(i) + "," + py(r[0])).join(" ");
+    const recLine = rev.map((r, i) => px(i) + "," + py(r[1])).join(" ");
+
+    const settle = (id, kind) => () => this.setState((p) => ({ settled: Object.assign({}, p.settled, { [id]: kind }) }));
+
+    const approvalRows = [
+      { id: "pr1", ref: "PR/26-27/0412", type: "Purchase Request", party: "Sri Vari Yarns", value: "₹8,42,000", priority: "High", age: "2 days" },
+      { id: "po1", ref: "PO/26-27/1188", type: "Purchase Order", party: "Kandagiri Spinning", value: "₹21,60,400", priority: "Critical", age: "4 days" },
+      { id: "grn1", ref: "GRN/26-27/0733", type: "GRN Verification", party: "Anand Processing", value: "₹4,18,750", priority: "Medium", age: "1 day" },
+      { id: "inv1", ref: "INV/26-27/0291", type: "Invoice Approval", party: "H&B Sourcing Ltd", value: "₹36,90,000", priority: "High", age: "6 hours" },
+      { id: "pr2", ref: "PR/26-27/0418", type: "Purchase Request", party: "Kumaran Trims", value: "₹1,24,300", priority: "Low", age: "3 days" },
+      { id: "po2", ref: "PO/26-27/1191", type: "Purchase Order", party: "Sakthi Dyeing", value: "₹9,75,200", priority: "Medium", age: "18 hours" },
+    ];
+    const pillFor = (p) => {
+      const map = { Critical: ["--danger-soft", "--danger"], High: ["--warning-soft", "--warning"], Medium: ["--info-soft", "--info"], Low: ["--surface-muted", "--muted-foreground"] };
+      const c = map[p] || map.Low;
+      return { display: "inline-flex", alignItems: "center", borderRadius: "9999px", padding: "3px 9px", fontSize: "11px", fontWeight: 600, background: "var(" + c[0] + ")", color: "var(" + c[1] + ")" };
+    };
+    const approvals = approvalRows.map((r) => {
+      const st = s.settled[r.id];
+      return Object.assign({}, r, {
+        pill: pillFor(r.priority),
+        rowStyle: { borderTop: "1px solid var(--border)", opacity: st ? 0.55 : 1, transition: "opacity .2s" },
+        settled: !!st,
+        open: !st,
+        settledLabel: st === "approved" ? "Approved" : "Rejected",
+        settledPill: {
+          display: "inline-flex", alignItems: "center", borderRadius: "9999px", padding: "4px 11px", fontSize: "11px", fontWeight: 600,
+          background: st === "approved" ? "var(--success-soft)" : "var(--danger-soft)",
+          color: st === "approved" ? "var(--success)" : "var(--danger)",
+        },
+        approve: settle(r.id, "approved"),
+        reject: settle(r.id, "rejected"),
+      });
+    });
+    const openCount = approvals.filter((a) => a.open).length;
+
+    const alertsRaw = [
+      { title: "Low stock — 40s combed cotton", body: "Balance 820 kg, below reorder level 1,500 kg", ago: "12 min ago", tone: "danger", icon: "triangle-alert" },
+      { title: "Production delay — Line 3", body: "Sewing output 68% of plan for order SO/26-27/0421", ago: "38 min ago", tone: "warning", icon: "clock-alert" },
+      { title: "Supplier delay — Kandagiri Spinning", body: "PO/26-27/1188 promised 22 Jul, not received", ago: "1 hr ago", tone: "warning", icon: "package-x" },
+      { title: "Machine breakdown — Compactor 2", body: "Down since 09:40, maintenance notified", ago: "3 hr ago", tone: "danger", icon: "wrench" },
+      { title: "Quality issue — Lot DY-2214", body: "Shade variation on 6 rolls, held at QC", ago: "5 hr ago", tone: "danger", icon: "badge-alert" },
+      { title: "Dispatch delay — SHP/26-27/0177", body: "Container gate-in missed cut-off at Tuticorin", ago: "Yesterday", tone: "info", icon: "truck" },
+    ];
+    const alerts = alertsRaw.map((a) => ({
+      title: a.title, body: a.body, ago: a.ago, icon: a.icon,
+      rowStyle: { display: "flex", gap: "10px", padding: "12px 14px", borderBottom: "1px solid var(--border)" },
+      iconWrap: { display: "flex", flexShrink: 0, height: "28px", width: "28px", alignItems: "center", justifyContent: "center", borderRadius: "8px", background: "var(--" + a.tone + "-soft)", color: "var(--" + a.tone + ")" },
+    }));
+
+    const stagesRaw = [
+      { name: "Running Production", icon: "factory", value: "24 lines", sub: "18 sewing · 6 finishing", state: "Live", tone: "success", pct: 86 },
+      { name: "Grey Fabric", icon: "layers", value: "42,180 m", sub: "Knitted this month", state: "On plan", tone: "success", pct: 78 },
+      { name: "Yarn Consumption", icon: "spool", value: "31,420 kg", sub: "MTD against 38,000 kg", state: "82%", tone: "info", pct: 82 },
+      { name: "Fabric Consumption", icon: "scissors", value: "38,940 m", sub: "Cut for 12 live orders", state: "74%", tone: "info", pct: 74 },
+      { name: "Dyeing", icon: "droplets", value: "16 lots", sub: "4 awaiting shade approval", state: "Delayed", tone: "warning", pct: 61 },
+      { name: "Finishing", icon: "sparkles", value: "22,600 m", sub: "Compacting + calendering", state: "On plan", tone: "success", pct: 80 },
+      { name: "Packing", icon: "package-check", value: "1,240 cartons", sub: "9 packing lists open", state: "On plan", tone: "success", pct: 88 },
+      { name: "Shipment", icon: "ship", value: "7 in transit", sub: "3 gate-in pending", state: "At risk", tone: "warning", pct: 55 },
+      { name: "Machine Efficiency", icon: "gauge", value: "91.4%", sub: "OEE across both units", state: "Good", tone: "success", pct: 91 },
+    ];
+    const stages = stagesRaw.map((g) => ({
+      name: g.name, icon: g.icon, value: g.value, sub: g.sub, state: g.state,
+      pill: { display: "inline-flex", alignItems: "center", borderRadius: "9999px", padding: "3px 8px", fontSize: "10px", fontWeight: 600, background: "var(--" + g.tone + "-soft)", color: "var(--" + g.tone + ")" },
+      bar: { height: "100%", width: g.pct + "%", borderRadius: "9999px", background: "var(--" + (g.tone === "success" ? "primary" : g.tone) + ")", transition: "width .5s ease" },
+    }));
+
+    const activityRaw = [
+      { title: "Sales order confirmed", ref: "SO/26-27/0448", detail: "H&B Sourcing · 18,000 pcs men's polo · ship 12 Sep", who: "Divya R", ago: "8 min ago", tone: "primary" },
+      { title: "Production update", ref: "JO/26-27/0912", detail: "Sewing completed 6,400 of 9,000 pcs on Line 5", who: "Suresh K", ago: "26 min ago", tone: "info" },
+      { title: "Goods received", ref: "GRN/26-27/0736", detail: "9,800 kg 30s carded yarn from Sri Vari Yarns", who: "Stores — Unit I", ago: "1 hr ago", tone: "success" },
+      { title: "Stock transfer", ref: "STN/26-27/0204", detail: "3,200 m finished fabric · Unit II → Unit I", who: "Ramesh P", ago: "2 hr ago", tone: "accent" },
+      { title: "Invoice created", ref: "INV/26-27/0292", detail: "₹36,90,000 · H&B Sourcing Ltd · 60 days credit", who: "Accounts", ago: "4 hr ago", tone: "primary" },
+      { title: "Audit log", ref: "AUD/118204", detail: "Rate amendment approved on PO/26-27/1174", who: "Karthik Raman", ago: "Yesterday", tone: "muted-foreground" },
+    ];
+    const activity = activityRaw.map((a, i) => ({
+      title: a.title, ref: a.ref, detail: a.detail, who: a.who, ago: a.ago,
+      dot: { width: "10px", height: "10px", flexShrink: 0, borderRadius: "9999px", background: "var(--" + a.tone + ")", boxShadow: "0 0 0 4px color-mix(in srgb, var(--" + a.tone + ") 14%, transparent)" },
+      line: { flex: 1, width: "1px", background: i === activityRaw.length - 1 ? "transparent" : "var(--border)" },
+    }));
+
+    const actionsRaw = [
+      { label: "Create Sales Order", hint: "Buyer, style, ship date", icon: "clipboard-list", tone: "primary" },
+      { label: "Create Purchase Request", hint: "Raise indent for stores", icon: "file-plus", tone: "info" },
+      { label: "Create Purchase Order", hint: "From approved PR", icon: "package", tone: "accent" },
+      { label: "Receive Goods", hint: "GRN against PO", icon: "truck", tone: "success" },
+      { label: "Add Customer", hint: "Buyer + GST details", icon: "user-plus", tone: "primary" },
+      { label: "Add Supplier", hint: "Vendor onboarding", icon: "building-2", tone: "info" },
+      { label: "Create Material", hint: "Yarn, fabric, trims", icon: "boxes", tone: "accent" },
+      { label: "Create Production Order", hint: "Job order + routing", icon: "factory", tone: "warning" },
+    ];
+    const iconWrap = (tone) => ({ display: "flex", height: "34px", width: "34px", flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: "10px", background: "color-mix(in srgb, var(--" + tone + ") 12%, transparent)", color: "var(--" + tone + ")" });
+    const actions = actionsRaw.map((a) => ({ label: a.label, hint: a.hint, icon: a.icon, iconWrap: iconWrap(a.tone) }));
+
+    const lb = (title, note, rows) => ({
+      title, note,
+      rows: rows.map((r, i) => ({
+        rank: i + 1, name: r[0], value: r[1],
+        bar: { height: "100%", width: r[2] + "%", borderRadius: "9999px", background: i === 0 ? "var(--primary)" : "var(--accent)" },
+      })),
+    });
+
+    return {
+      shellStyle: { display: "flex", height: "100vh", overflow: "hidden", background: "var(--background)", color: "var(--foreground)" },
+      nav: NAV,
+      months: MONTHS,
+      loading: s.loading,
+      ready: !s.loading,
+      skel4: [1, 2, 3, 4],
+      skel6: [1, 2, 3, 4, 5, 6],
+      themeIcon: s.dark ? "sun" : "moon",
+      toggleTheme: () => {
+        const dark = !s.dark;
+        document.documentElement.classList.toggle("dark", dark);
+        document.body.classList.toggle("dark", dark);
+        this.setState({ dark });
+      },
+      pulse: [
+        ["On-time delivery", "last 30 shipments", 94, "primary"],
+        ["Capacity used", "both units, shift A", 82, "accent"],
+        ["Order health", "3 orders at risk", 88, "success"],
+      ].map((p) => ({
+        label: p[0], note: p[1], pct: p[2] + "%",
+        ring: {
+          display: "flex", height: "42px", width: "42px", flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: "9999px",
+          background: "conic-gradient(var(--" + p[3] + ") 0 " + p[2] + "%, var(--surface-muted) " + p[2] + "% 100%)",
+        },
+        ringInner: {
+          display: "flex", height: "34px", width: "34px", alignItems: "center", justifyContent: "center", borderRadius: "9999px",
+          background: "var(--surface)", fontSize: "10px", fontWeight: 600, fontVariantNumeric: "tabular-nums",
+        },
+      })),
+      triGrid: {
+        display: "grid", gap: "16px",
+        gridTemplateColumns: s.vw >= 1100 ? "repeat(3,minmax(0,1fr))" : "repeat(auto-fit,minmax(300px,1fr))",
+      },
+      heroGrid: {
+        display: "grid", gap: "12px",
+        gridTemplateColumns: s.vw >= 1000 ? "repeat(4,minmax(0,1fr))" : "repeat(auto-fit,minmax(220px,1fr))",
+      },
+      miniGrid: {
+        display: "grid", gap: "10px",
+        gridTemplateColumns: s.vw >= 1000 ? "repeat(6,minmax(0,1fr))" : "repeat(auto-fit,minmax(150px,1fr))",
+      },
+      split21: s.vw >= 1120
+        ? { display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: "16px" }
+        : { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: "16px" },
+      split43: s.vw >= 1120
+        ? { display: "grid", gridTemplateColumns: "minmax(0,1.35fr) minmax(0,1fr)", gap: "16px" }
+        : { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: "16px" },
+      atLeastSm: s.vw >= 640,
+      atLeastMd: s.vw >= 768,
+      searchStyle: {
+        display: "flex", alignItems: "center", gap: "8px", height: "32px",
+        width: s.vw >= 768 ? "224px" : "auto", minWidth: 0, padding: "0 8px",
+        border: "1px solid var(--border)", background: "var(--surface)", borderRadius: "6px",
+        color: "var(--muted-foreground)", cursor: "pointer", font: "inherit",
+      },
+      bellOpen: s.bell,
+      userOpen: s.user,
+      toggleBell: () => this.setState({ bell: !s.bell, user: false }),
+      toggleUser: () => this.setState({ user: !s.user, bell: false }),
+      markAllRead: () => this.setState({ bell: false }),
+
+      greeting: now.getHours() < 12 ? "Good morning" : now.getHours() < 17 ? "Good afternoon" : "Good evening",
+      today: now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
+      clock: now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+
+      ranges: ["today", "week", "month"].map((k) => ({
+        label: k === "today" ? "Today" : k === "week" ? "Week" : "Month",
+        select: () => {
+          if (k === s.range) return;
+          this.setState({ prev: s.range, range: k, anim: 0 });
+          cancelAnimationFrame(this._raf);
+          const start = performance.now();
+          const step = (n) => {
+            const p = Math.min(1, (n - start) / 520);
+            this.setState({ anim: p });
+            if (p < 1) this._raf = requestAnimationFrame(step);
+          };
+          this._raf = requestAnimationFrame(step);
+        },
+        style: {
+          height: "32px", padding: "0 15px", border: 0, borderRadius: "8px", font: "inherit", fontSize: "12px", fontWeight: 500, cursor: "pointer",
+          background: s.range === k ? "var(--primary)" : "transparent",
+          color: s.range === k ? "var(--primary-foreground)" : "var(--muted-foreground)",
+          transition: "background .14s, color .14s",
+        },
+      })),
+
+      hero: d.hero.map((k, i) => ({
+        label: k.label, delta: k.delta, hint: k.hint, icon: k.icon,
+        value: this.tween(RANGE[s.prev].hero[i].value, k.value, s.anim),
+        iconWrap: iconWrap(k.up ? "primary" : "warning"),
+        trendIcon: k.up ? "arrow-up-right" : "arrow-down-right",
+        trendStyle: { display: "inline-flex", alignItems: "center", gap: "4px", alignSelf: "flex-start", borderRadius: "9999px", padding: "3px 9px", fontSize: "11px", fontWeight: 600, background: k.up ? "var(--success-soft)" : "var(--danger-soft)", color: k.up ? "var(--success)" : "var(--danger)" },
+        spark: this.spark(k.spark),
+        sparkArea: this.spark(k.spark) + " 104,34 0,34",
+        sparkEndY: this.spark(k.spark).split(" ").pop().split(",")[1],
+        sparkColor: k.up ? "var(--pos)" : "var(--danger)",
+        sparkFill: k.up ? "color-mix(in srgb, var(--pos) 13%, transparent)" : "color-mix(in srgb, var(--danger) 13%, transparent)",
+        haze: "radial-gradient(circle, color-mix(in srgb, var(--" + (k.up ? "pos" : "danger") + ") 20%, transparent) 0%, transparent 70%)",
+      })),
+
+      mini: d.mini.map((m, i) => ({
+        label: m.label, delta: m.delta, icon: m.icon,
+        value: this.tween(RANGE[s.prev].mini[i].value, m.value, s.anim),
+        deltaStyle: { fontSize: "11px", fontWeight: 600, color: m.up ? "var(--success)" : "var(--danger)" },
+      })),
+
+      salesBars: this.bars(salesRows, [cur, acc]),
+      revLine, recLine,
+      revArea: revLine + " 720,200 0,200",
+
+      statusLegend: [
+        { label: "In Production", count: 16, dot: { width: "9px", height: "9px", borderRadius: "3px", background: "var(--primary)", display: "inline-block" } },
+        { label: "Confirmed", count: 11, dot: { width: "9px", height: "9px", borderRadius: "3px", background: "var(--accent)", display: "inline-block" } },
+        { label: "Awaiting Approval", count: 8, dot: { width: "9px", height: "9px", borderRadius: "3px", background: "var(--warning)", display: "inline-block" } },
+        { label: "Shipped", count: 7, dot: { width: "9px", height: "9px", borderRadius: "3px", background: "var(--info)", display: "inline-block" } },
+      ],
+
+      machines: [
+        ["Knitting — Unit I", 94], ["Dyeing jets", 81], ["Compactor", 67],
+        ["Cutting", 88], ["Sewing lines", 91], ["Packing", 73],
+      ].map((m) => ({
+        name: m[0], pct: m[1] + "%",
+        bar: { height: "100%", width: m[1] + "%", borderRadius: "9999px", background: m[1] < 70 ? "var(--warning)" : "var(--primary)", transition: "width .5s ease" },
+      })),
+
+      smallCharts: [
+        { title: "Production Output", note: "pcs · last 8 weeks", bars: this.bars([["W1",[64,null],"W1 · 18,400 pcs"],["W2",[72,null],"W2 · 20,700 pcs"],["W3",[58,null],"W3 · 16,600 pcs"],["W4",[81,null],"W4 · 23,200 pcs"],["W5",[76,null],"W5 · 21,800 pcs"],["W6",[88,null],"W6 · 25,300 pcs"],["W7",[83,null],"W7 · 23,900 pcs"],["W8",[95,null],"W8 · 27,200 pcs"]], [cur, acc]) },
+        { title: "Inventory Movement", note: "in vs out · kg", bars: this.bars([["Dec",[70,52],"Dec · in 21,000 / out 15,600"],["Jan",[62,58],"Jan · in 18,600 / out 17,400"],["Feb",[78,60],"Feb · in 23,400 / out 18,000"],["Mar",[66,71],"Mar · in 19,800 / out 21,300"],["Apr",[84,64],"Apr · in 25,200 / out 19,200"],["May",[72,68],"May · in 21,600 / out 20,400"],["Jun",[90,74],"Jun · in 27,000 / out 22,200"],["Jul",[81,79],"Jul · in 24,300 / out 23,700"]], [cur, acc]) },
+        { title: "Purchase Trend", note: "PO value · ₹ lakh", bars: this.bars([["Dec",[48,null],"Dec · ₹48.2 L"],["Jan",[57,null],"Jan · ₹57.1 L"],["Feb",[52,null],"Feb · ₹52.4 L"],["Mar",[69,null],"Mar · ₹69.0 L"],["Apr",[61,null],"Apr · ₹61.3 L"],["May",[74,null],"May · ₹74.6 L"],["Jun",[68,null],"Jun · ₹68.2 L"],["Jul",[86,null],"Jul · ₹86.4 L"]], [acc, cur]) },
+      ],
+
+      stages,
+      approvals,
+      allSettled: openCount === 0,
+      pendingCount: openCount === 0 ? "Queue cleared" : openCount + " documents awaiting your action",
+      resetApprovals: () => this.setState({ settled: {} }),
+
+      activity,
+      alerts,
+      actions,
+
+      leaderboards: [
+        lb("Top Customers", "revenue ₹", [["H&B Sourcing Ltd", "₹1.84 Cr", 100], ["Nordheim Apparel", "₹1.21 Cr", 66], ["Cotton & Co, UK", "₹94.6 L", 52], ["Aurelia Retail", "₹61.2 L", 34]]),
+        lb("Best Selling Fabrics", "units", [["Single Jersey 180 GSM", "42,180 m", 100], ["Interlock 220 GSM", "31,640 m", 75], ["Pique 200 GSM", "24,900 m", 59], ["Rib 2x2 240 GSM", "18,320 m", 43]]),
+        lb("Top Suppliers", "PO value ₹", [["Kandagiri Spinning", "₹78.4 L", 100], ["Sri Vari Yarns", "₹62.1 L", 79], ["Sakthi Dyeing", "₹41.8 L", 53], ["Kumaran Trims", "₹22.6 L", 29]]),
+      ],
+
+      tip: !!s.tip,
+      tipText: s.tip ? s.tip.text : "",
+      tipStyle: s.tip ? {
+        position: "fixed", left: s.tip.x + "px", top: s.tip.y + "px", zIndex: 60, transform: "translate(-50%, -140%)",
+        pointerEvents: "none", whiteSpace: "nowrap", borderRadius: "8px", background: "var(--foreground)", color: "var(--background)",
+        padding: "6px 10px", fontSize: "11px", fontWeight: 500, boxShadow: "var(--elev-hi)",
+      } : {},
+      tipOn: (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const text = e.currentTarget.getAttribute("data-tip");
+        if (text) this.setState({ tip: { text, x: r.left + r.width / 2, y: r.top + 8 } });
+      },
+      tipOff: () => this.setState({ tip: null }),
+
+      paletteOpen: s.palette,
+      openPalette: () => this.setState({ palette: true }),
+      closePalette: () => this.setState({ palette: false, query: "" }),
+      stop: (e) => e.stopPropagation(),
+      query: s.query,
+      onQuery: (e) => this.setState({ query: e.target.value, sel: 0 }),
+      onPaletteKey: (e) => {
+        const n = this.searchResults().length;
+        if (e.key === "ArrowDown") { e.preventDefault(); this.setState({ sel: n ? (s.sel + 1) % n : 0 }); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); this.setState({ sel: n ? (s.sel - 1 + n) % n : 0 }); }
+        else if (e.key === "Enter") { e.preventDefault(); this.setState({ palette: false, query: "", sel: 0 }); }
+      },
+      results: this.searchResults().map((r, i) => ({
+        label: r.label, group: r.group, icon: r.icon,
+        hover: () => this.setState({ sel: i }),
+        style: {
+          display: "flex", alignItems: "center", gap: "12px", borderRadius: "10px", padding: "10px 12px", cursor: "default",
+          background: i === s.sel ? "var(--surface-muted)" : "transparent",
+        },
+        enterStyle: { display: i === s.sel ? "inline-flex" : "none", width: "13px", height: "13px", color: "var(--muted-foreground)" },
+      })),
+      noResults: this.searchResults().length === 0,
+    };
+  }
+
+  searchResults() {
+    const items = [
+      { label: "Garment Orders", group: "Orders", icon: "clipboard-list" },
+      { label: "Time & Action (TA)", group: "Orders", icon: "clipboard-list" },
+      { label: "Purchase Orders", group: "Purchase", icon: "package" },
+      { label: "Goods Receipts (GRN)", group: "Purchase", icon: "truck" },
+      { label: "Requisitions", group: "Stores", icon: "warehouse" },
+      { label: "Job Orders", group: "Production", icon: "factory" },
+      { label: "Shipments", group: "Logistics", icon: "ship" },
+      { label: "Receivables", group: "Finance", icon: "landmark" },
+      { label: "Shipment P&L", group: "Reports", icon: "bar-chart-3" },
+      { label: "Customer Master", group: "Master Data", icon: "database" },
+    ];
+    const q = (this.state.query || "").trim().toLowerCase();
+    if (!q) return items.slice(0, 7);
+    return items.filter((i) => (i.label + " " + i.group).toLowerCase().includes(q));
+  }
+}
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
+import { atCaretEdge } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +23,20 @@ const ROW_FIELDS =
 /** Enter-on-last-row must not grow a grid that has its "+ Add" hidden (a
  *  Single-Yarn fabric is capped at exactly one component). */
 const NO_ADD = () => {};
+
+/** Focus a cell and put the caret at the end, so typing appends rather than
+ *  overwrites. number/email inputs reject selection ranges — hence the catch. */
+function focusField(el: HTMLElement) {
+  el.focus();
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const len = el.value.length;
+    try {
+      el.setSelectionRange(len, len);
+    } catch {
+      /* number/email inputs reject selection ranges */
+    }
+  }
+}
 
 /** Direct descendants only — a nested ChildGrid must not steal the outer one's rows. */
 function ownDescendants(scope: HTMLElement, selector: string, boundary: string): HTMLElement[] {
@@ -47,7 +62,9 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
  * appeared to work on some screens and not others (client 2026-07-24 #2).
  */
 export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => void) {
-  if (e.key !== "Enter" && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const vertical = e.key === "ArrowDown" || e.key === "ArrowUp";
+  const horizontal = e.key === "ArrowLeft" || e.key === "ArrowRight";
+  if (e.key !== "Enter" && !vertical && !horizontal) return;
   const el = e.target;
   if (!(el instanceof HTMLElement)) return;
   // Text-like inputs and picker triggers navigate; native selects and textareas
@@ -69,31 +86,55 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
     e.preventDefault();
     return;
   }
-  const row = el.closest<HTMLElement>("[data-grid-row]");
-  const body = row?.closest<HTMLElement>("[data-grid-body]");
-  if (!row || !body) return;
+  // The grid this handler OWNS — not `el.closest("[data-grid-body]")`, which
+  // always resolves to the innermost. That distinction is the whole fix: when a
+  // nested grid reaches its own boundary it declines the key (no
+  // preventDefault) so the event bubbles to the parent's handler — but the
+  // parent then re-derived the SAME inner grid from the target, found the same
+  // boundary, and returned. A nested grid could never hand off to its parent
+  // (client 2026-07-25: ↓ dead-ended on the Attribute values list).
+  const body = e.currentTarget;
+  const rows = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
+  const row = rows.find((r) => r.contains(el));
+  if (!row) return;
 
   const fieldsIn = (r: HTMLElement) => ownDescendants(r, ROW_FIELDS, "[data-grid-row]");
+  // -1 means the target belongs to a NESTED grid inside this row (ownDescendants
+  // scopes by nearest marker, so a child grid's fields are correctly not ours).
+  // We still handle the key: the child has already declined it, so this is the
+  // hand-off — move a whole row and land on its first field.
   const col = fieldsIn(row).indexOf(el);
-  if (col === -1) return;
-  const rows = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
+  const fromChildGrid = col === -1;
+
+  // ←/→ move within the row; only once the caret has nowhere left to go, so
+  // typing inside a cell still works. Same rule as lib/focus.ts arrowNavigate.
+  if (horizontal) {
+    if (fromChildGrid) return;
+    const forward = e.key === "ArrowRight";
+    if (!atCaretEdge(el, forward ? "next" : "prev")) return;
+    const fields = fieldsIn(row);
+    const target = fields[forward ? col + 1 : col - 1];
+    if (!target) return;
+    e.preventDefault();
+    e.stopPropagation();
+    focusField(target);
+    return;
+  }
+
   const idx = rows.indexOf(row);
 
   const focusColIn = (target?: HTMLElement) => {
     if (!target) return false;
     const fields = fieldsIn(target);
-    // Fall back to the last field when a row is shorter than the current one.
-    const next = fields[col] ?? fields[fields.length - 1];
+    // Arriving from a nested grid has no column of its own — land on the first.
+    // Otherwise clamp to the last field when the destination row is SHORTER
+    // than this one (rows are ragged wherever a cell is conditional), rather
+    // than letting `fields[col]` come back undefined.
+    const next = fromChildGrid
+      ? fields[0]
+      : (fields[col] ?? fields[fields.length - 1]);
     if (!next) return false;
-    next.focus();
-    if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) {
-      const len = next.value.length;
-      try {
-        next.setSelectionRange(len, len);
-      } catch {
-        /* number/email inputs reject selection ranges */
-      }
-    }
+    focusField(next);
     return true;
   };
 
@@ -225,7 +266,6 @@ export function ChildGrid<T extends { key: string }>({
       <div className="hidden overflow-x-auto rounded-lg border border-border @lg:block">
         <table
           className="w-full min-w-[420px] border-collapse text-sm"
-          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
         >
           <thead>
             <tr className="border-b border-border bg-surface-muted">
@@ -245,7 +285,11 @@ export function ChildGrid<T extends { key: string }>({
               <th className="w-8 border-l border-border" />
             </tr>
           </thead>
-          <tbody data-grid-body>
+          {/* The handler must sit on the SAME element as `data-grid-body` —
+              gridKeyNav takes its grid from `e.currentTarget`. It used to be on
+              the <table>, which still worked when the grid was derived from the
+              event target, but would now resolve to a node that owns no rows. */}
+          <tbody data-grid-body onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}>
             {view.map((row, localI) => {
               const i = offset + localI;
               return (

@@ -41,6 +41,48 @@
   --danger-soft: #fee2e2;
   --info: #1d4ed8;
   --info-soft: #dbeafe;
+
+  /* Soft brand tints. PRE-MIXED literals for the same reason as --row-active
+   * above: `bg-primary/10` compiles to a `background-color: var(--primary)`
+   * FALLBACK outside `@supports (color-mix)`, so the 10%-tint icon wells on the
+   * dashboard would render SOLID indigo and swallow the indigo icon inside
+   * them. Named to match the --success-soft / --warning-soft family, which
+   * StatusPill already pairs with its full-strength counterpart. */
+  --primary-soft: #eef2ff; /* indigo 50 */
+  --accent-soft: #ccfbf1; /* teal 100 */
+
+  /* Direction green, for trend sparklines and delta chips. Deliberately NOT
+   * --success: that is the *state* green used in pills and needs to stay
+   * legible as text; this one only ever paints a 2px stroke or a fill. */
+  --pos: #16a34a;
+
+  /* Elevation, two stops: --elev at rest, --elev-hi for cards that lift on
+   * hover. Exposed as shadow-elev / shadow-elev-hi in @theme inline below. */
+  --elev:
+    0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+  --elev-hi:
+    0 10px 28px rgb(16 24 40 / 0.1), 0 2px 6px rgb(16 24 40 / 0.05);
+
+  /* Top-left wash that lifts a card off the canvas. This token is the GRADIENT
+   * ONLY — it must stay a valid `background-image` value, never a `background`
+   * shorthand. Applied as `bg-surface bg-[image:var(--smoke)]`: the arbitrary
+   * `bg-[image:…]` form compiles to `background-image`, whereas plain
+   * `bg-[var(--smoke)]` compiles to `background-color: linear-gradient(…)`,
+   * which is invalid and gets dropped — leaving the card with NO background at
+   * all. It is also why this is not registered as a `bg-smoke` theme utility:
+   * tailwind-merge classifies that as a background-*colour* and would delete
+   * the `bg-surface` sitting next to it in the same cn(). */
+  --smoke: linear-gradient(
+    152deg,
+    rgb(22 24 29 / 0.055) 0%,
+    rgb(22 24 29 / 0.012) 34%,
+    rgb(22 24 29 / 0) 62%
+  );
+
+  /* 1px inner highlight along the top edge — the cue that reads as a physical
+   * panel rather than a bordered rectangle. Composed as an inset-shadow so
+   * hover can swap the outer shadow and leave this intact. */
+  --sheen: inset 0 1px 0 rgb(255 255 255 / 0.75);
 }
 
 .dark {
@@ -70,6 +112,25 @@
   --danger-soft: #3a1514;
   --info: #60a5fa;
   --info-soft: #122648;
+
+  /* A tint is a shade in the dark — these are the 950s, not the 50s. */
+  --primary-soft: #1e1b4b;
+  --accent-soft: #042f2e;
+  --pos: #4ade80;
+
+  /* On a near-black canvas a spread shadow reads as haze, so both stops go
+   * darker and simpler than their light-mode counterparts. */
+  --elev: 0 1px 2px rgb(0 0 0 / 0.4);
+  --elev-hi: 0 10px 28px rgb(0 0 0 / 0.55);
+
+  /* Light wash instead of dark: the same top-left lift, inverted. */
+  --smoke: linear-gradient(
+    152deg,
+    rgb(255 255 255 / 0.075) 0%,
+    rgb(255 255 255 / 0.02) 34%,
+    rgb(255 255 255 / 0) 62%
+  );
+  --sheen: inset 0 1px 0 rgb(255 255 255 / 0.055);
 }
 
 @theme inline {

@@ -174,6 +174,40 @@ function ownsArrowKeys(t: HTMLElement): boolean {
 }
 
 /**
+ * Is the caret already at the edge of `el`, so a ←/→ may leave the field?
+ *
+ * ←/→ natively move the CARET, so hijacking them unconditionally would break
+ * ordinary typing. The rule is the spreadsheet one: move on only when there is
+ * nowhere left to go inside the field.
+ *
+ * `selectionStart` is only defined for text/search/url/tel/password — it is
+ * null (or throws) on number, email, date and time. That is not an edge case
+ * here: the app has ~253 `type="number"` and ~150 `type="date"` inputs. For a
+ * NUMBER, "caret unreadable" is treated as at-the-edge, because arrowing within
+ * a number is worth little and walking fields is what an operator wants. DATE
+ * never reaches this function — `ownsArrowKeys` keeps it, since ←/→ there move
+ * between day/month/year segments.
+ *
+ * A non-collapsed selection returns false: let the arrow collapse it first.
+ */
+export function atCaretEdge(el: HTMLElement, dir: "prev" | "next"): boolean {
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+    return true; // buttons, pickers, anything with no text to traverse
+  }
+  let start: number | null;
+  let end: number | null;
+  try {
+    start = el.selectionStart;
+    end = el.selectionEnd;
+  } catch {
+    return true; // number/email — caret not addressable, so treat as the edge
+  }
+  if (start === null || end === null) return true;
+  if (start !== end) return false;
+  return dir === "prev" ? start === 0 : start === el.value.length;
+}
+
+/**
  * THE GLOBAL ARROW CONTRACT: ↓ moves to the next field, ↑ to the previous —
  * everywhere, on every control that does not own arrows itself.
  *
@@ -194,16 +228,23 @@ function ownsArrowKeys(t: HTMLElement): boolean {
  */
 export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean {
   if (e.defaultPrevented) return false;
-  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return false;
+  const vertical = e.key === "ArrowDown" || e.key === "ArrowUp";
+  const horizontal = e.key === "ArrowLeft" || e.key === "ArrowRight";
+  if (!vertical && !horizontal) return false;
   const t = e.target;
   if (!(t instanceof HTMLElement) || ownsArrowKeys(t)) return false;
   if (!root) return false;
+
+  // ←/→ only leave the field once the caret has nowhere left to go, so typing
+  // and in-place corrections still work. ↑/↓ have no such conflict.
+  const forward = e.key === "ArrowDown" || e.key === "ArrowRight";
+  if (horizontal && !atCaretEdge(t, forward ? "next" : "prev")) return false;
 
   const region = regionOf(t);
   const items = orderedFocusables(root).filter((el) => regionOf(el) === region);
   const idx = items.indexOf(t);
   if (idx === -1) return false;
-  const next = items[e.key === "ArrowDown" ? idx + 1 : idx - 1];
+  const next = items[forward ? idx + 1 : idx - 1];
   if (!next) return false;
 
   e.preventDefault();
