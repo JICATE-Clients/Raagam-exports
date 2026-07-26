@@ -23,6 +23,7 @@ export function DataTable<T>({
   selectedKeys,
   onToggle,
   onToggleAll,
+  bare = false,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -35,13 +36,24 @@ export function DataTable<T>({
   selectedKeys?: Set<string>;
   onToggle?: (key: string) => void;
   onToggleAll?: () => void;
+  /**
+   * Drop the table's own border/background/radius. Use when nesting inside a
+   * `<Card>`, which already draws all three — otherwise the table's `rounded-lg`
+   * sits visibly inset inside the Card's `rounded-xl`.
+   */
+  bare?: boolean;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   const selected = selectedKeys ?? new Set<string>();
   const allSelected = rows.length > 0 && rows.every((r, i) => selected.has(getKey(r, i)));
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+    <div
+      className={cn(
+        "overflow-x-auto",
+        !bare && "rounded-lg border border-border bg-surface",
+      )}
+    >
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-surface-muted">

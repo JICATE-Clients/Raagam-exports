@@ -67,9 +67,12 @@
    * ONLY — it must stay a valid `background-image` value, never a `background`
    * shorthand. Applied as `bg-surface bg-[image:var(--smoke)]`: the arbitrary
    * `bg-[image:…]` form compiles to `background-image`, whereas plain
-   * `bg-[var(--smoke)]` compiles to `background-color: linear-gradient(…)`,
-   * which is invalid and gets dropped — leaving the card with NO background at
-   * all. It is also why this is not registered as a `bg-smoke` theme utility:
+   * the plain colour form (`bg-` + a bracketed bare var) compiles to
+   * `background-color: linear-gradient(…)`, which is invalid and gets dropped —
+   * leaving the card with NO background at all. Do not "simplify" it back; and
+   * do not write that form in a comment either, because Tailwind scans raw file
+   * text and would emit the dead rule from the prose. It is also why this is
+   * not registered as a `bg-smoke` theme utility:
    * tailwind-merge classifies that as a background-*colour* and would delete
    * the `bg-surface` sitting next to it in the same cn(). */
   --smoke: linear-gradient(
@@ -162,11 +165,65 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
 
+  --color-primary-soft: var(--primary-soft);
+  --color-accent-soft: var(--accent-soft);
+  --color-pos: var(--pos);
+
+  /* Elevation as first-class utilities: shadow-elev, hover:shadow-elev-hi,
+   * inset-shadow-sheen. `inline` is load-bearing — a non-inline @theme would
+   * emit `box-shadow: var(--shadow-elev)` and the .dark override of --elev
+   * would never reach it. Because Tailwind keeps the outer shadow and the
+   * inset shadow in separate custom properties, `hover:shadow-elev-hi` swaps
+   * only the outer one and the sheen survives the hover. */
+  --shadow-elev: var(--elev);
+  --shadow-elev-hi: var(--elev-hi);
+  --inset-shadow-sheen: var(--sheen);
+
+  /* Dashboard entrance animations (keyframes defined below). The global
+   * prefers-reduced-motion block clamps both to 0.01ms, and `both` fill means
+   * reduced-motion users land on the end state with nothing hidden — so
+   * neither needs a per-component guard. */
+  --animate-rise: rise 0.32s ease both;
+  --animate-grow: grow 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
   /* Dense radii — ERP, not a marketing site */
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
 }
+
+/* Referenced by --animate-rise / --animate-grow above. `rise` fades a card up
+ * into place; `grow` scales a chart bar out of its baseline (hence
+ * origin-bottom on every bar that uses it). */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes grow {
+  from {
+    transform: scaleY(0.001);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/*
+ * Class-based dark mode. Tailwind v4's `dark:` variant defaults to
+ * prefers-color-scheme, which would ignore the user's explicit choice in the
+ * topbar toggle. Theming here is done entirely through the `.dark` variable
+ * overrides above — there are currently ZERO `dark:` utilities in the app — so
+ * this changes nothing today. It exists so that the first `dark:` utility
+ * anyone writes follows the toggle rather than the OS.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
 
 * {
   border-color: var(--border);
@@ -321,5 +378,16 @@ body {
   }
   .bug-reporter-sdk {
     display: none !important;
+  }
+  /*
+   * Cards carry a --smoke background-image and an --elev/--sheen shadow. Most
+   * browsers drop background graphics when printing, but not all, and none
+   * drop box-shadow — a printed report or export document would come out
+   * grey-washed with ghost borders. Kill both unconditionally. `[data-card]`
+   * is the marker Card emits for exactly this purpose.
+   */
+  [data-card] {
+    background-image: none !important;
+    box-shadow: none !important;
   }
 }

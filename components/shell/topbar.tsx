@@ -6,6 +6,7 @@ import { signOut } from "@/lib/auth/actions";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +64,8 @@ export function Topbar({ locations }: { locations: Location[] }) {
             ⌘K
           </kbd>
         </button>
+
+        <ThemeToggle />
 
         <NotificationsBell />
 

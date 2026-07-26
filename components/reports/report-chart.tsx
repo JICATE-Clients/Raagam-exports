@@ -17,15 +17,43 @@ import {
 } from "recharts";
 import type { ReportConfig } from "@/lib/reports/types";
 
-/** Brand-leaning categorical palette for chart series / pie slices. */
+/**
+ * Brand-leaning categorical palette for chart series / pie slices.
+ *
+ * These are `var()` references, not hex literals, so the palette follows the
+ * theme. SVG `fill`/`stroke` resolve CSS custom properties natively and recharts
+ * passes these strings straight through to the DOM, so no plumbing is needed.
+ * With hard-coded hex the charts stayed light-mode indigo on a #14171d canvas.
+ */
 const PALETTE = [
-  "#4f46e5", // indigo (primary)
-  "#0d9488", // teal (accent)
-  "#b45309", // amber
-  "#1d4ed8", // blue
-  "#15803d", // green
-  "#b91c1c", // red
+  "var(--primary)",
+  "var(--accent)",
+  "var(--warning)",
+  "var(--info)",
+  "var(--success)",
+  "var(--danger)",
 ];
+
+/**
+ * Axis + tooltip theming. recharts defaults to `#666` ticks and a hard white
+ * tooltip, both of which disappear (or glare) in dark mode.
+ */
+const AXIS = {
+  tick: { fontSize: 11, fill: "var(--muted-foreground)" },
+  stroke: "var(--border)",
+} as const;
+
+const TOOLTIP = {
+  contentStyle: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    fontSize: 12,
+    color: "var(--foreground)",
+  },
+  labelStyle: { color: "var(--muted-foreground)" },
+  itemStyle: { color: "var(--foreground)" },
+} as const;
 
 /** Renders the report's optional chart spec via recharts. */
 export function ReportChart<T>({ config }: { config: ReportConfig<T> }) {
@@ -47,9 +75,9 @@ export function ReportChart<T>({ config }: { config: ReportConfig<T> }) {
         {chart.kind === "line" ? (
           <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-            <XAxis dataKey="category" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip />
+            <XAxis dataKey="category" {...AXIS} />
+            <YAxis {...AXIS} />
+            <Tooltip {...TOOLTIP} />
             <Legend />
             {chart.series.map((s, i) => (
               <Line
@@ -65,7 +93,7 @@ export function ReportChart<T>({ config }: { config: ReportConfig<T> }) {
           </LineChart>
         ) : chart.kind === "pie" ? (
           <PieChart>
-            <Tooltip />
+            <Tooltip {...TOOLTIP} />
             <Legend />
             <Pie
               data={data}
@@ -84,9 +112,9 @@ export function ReportChart<T>({ config }: { config: ReportConfig<T> }) {
         ) : (
           <BarChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-            <XAxis dataKey="category" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip />
+            <XAxis dataKey="category" {...AXIS} />
+            <YAxis {...AXIS} />
+            <Tooltip {...TOOLTIP} cursor={{ fill: "var(--surface-muted)" }} />
             <Legend />
             {chart.series.map((s, i) => (
               <Bar

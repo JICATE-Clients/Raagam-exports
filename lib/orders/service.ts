@@ -184,7 +184,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     { count: overdueCount },
     { count: dueThisWeekCount },
     { count: pendingAmendments },
-    { data: allOrders },
+    statusCountResults,
     { data: rawMilestones },
   ] = await Promise.all([
     supabase
@@ -206,7 +206,18 @@ export async function getDashboardData(): Promise<DashboardData> {
       .from("order_amendments")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending"),
-    supabase.from("sales_orders").select("status"),
+    // One payload-free HEAD per status. The previous form was
+    // `.select("status")` with no filter, which pulled EVERY sales order row
+    // ever created across the wire just to tally five numbers in JS — a
+    // multi-megabyte response once the order book grows, on the app's home page.
+    Promise.all(
+      ORDER_STATUSES.map((status) =>
+        supabase
+          .from("sales_orders")
+          .select("id", { count: "exact", head: true })
+          .eq("status", status),
+      ),
+    ),
     // milestones due this week + overdue: planned_date <= weekLater and not done
     supabase
       .from("ta_milestones")
@@ -219,9 +230,9 @@ export async function getDashboardData(): Promise<DashboardData> {
       .order("planned_date", { ascending: true }),
   ]);
 
-  const statusCounts: OrderStatusCount[] = ORDER_STATUSES.map((status) => ({
+  const statusCounts: OrderStatusCount[] = ORDER_STATUSES.map((status, i) => ({
     status,
-    count: (allOrders ?? []).filter((o) => o.status === status).length,
+    count: statusCountResults[i]?.count ?? 0,
   }));
 
   const milestoneRows: DashboardMilestoneRow[] = (
