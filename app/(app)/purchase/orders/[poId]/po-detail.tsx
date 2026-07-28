@@ -10,6 +10,9 @@ import {
   rejectPo,
   updatePoCommercial,
   updatePoGeneral,
+  addPoItemGroup,
+  deletePoItemGroup,
+  savePoCharges,
 } from "@/lib/purchase/po-actions";
 import type { PoLineInput } from "@/lib/purchase/types";
 import {
@@ -224,6 +227,94 @@ function LineForm({
   );
 }
 
+// ---------- Additional Charges Grid ----------
+
+function AdditionalChargesGrid({
+  charges,
+  canEdit,
+  isPending,
+  onSave,
+}: {
+  charges: { id: string; charge_type: string; label: string; rate_type: string | null; rate: number; inr_amount: number; fgn_amount: number; sort_order: number }[];
+  canEdit: boolean;
+  isPending: boolean;
+  onSave: (charges: { charge_type: "add" | "less"; label: string; rate_type?: string | null; rate?: number; inr_amount: number; fgn_amount: number; sort_order?: number }[]) => void;
+}) {
+  type ChargeRow = { charge_type: "add" | "less"; label: string; inr_amount: string; fgn_amount: string };
+  const initial: ChargeRow[] = charges.length > 0
+    ? charges.map((c) => ({ charge_type: c.charge_type as "add" | "less", label: c.label, inr_amount: String(c.inr_amount), fgn_amount: String(c.fgn_amount) }))
+    : [];
+
+  const [rows, setRows] = useState<ChargeRow[]>(initial);
+  const [dirty, setDirty] = useState(false);
+
+  function addRow(type: "add" | "less") {
+    setDirty(true);
+    setRows((p) => [...p, { charge_type: type, label: "", inr_amount: "0", fgn_amount: "0" }]);
+  }
+
+  function updateRow(idx: number, key: keyof ChargeRow, val: string) {
+    setDirty(true);
+    setRows((p) => p.map((r, i) => i === idx ? { ...r, [key]: val } : r));
+  }
+
+  function removeRow(idx: number) {
+    setDirty(true);
+    setRows((p) => p.filter((_, i) => i !== idx));
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Additional Charges</CardTitle>
+        {canEdit && (
+          <div className="flex gap-1">
+            <Button size="sm" variant="outline" onClick={() => addRow("add")}>+ Add Charge</Button>
+            <Button size="sm" variant="outline" onClick={() => addRow("less")}>+ Less Charge</Button>
+          </div>
+        )}
+      </CardHeader>
+      <CardBody>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No additional charges.</p>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((row, idx) => (
+              <div key={idx} className="flex items-center gap-2 rounded border border-border p-2">
+                <span className={`w-12 text-xs font-semibold ${row.charge_type === "add" ? "text-success" : "text-danger"}`}>
+                  {row.charge_type === "add" ? "ADD" : "LESS"}
+                </span>
+                <Input className="flex-1" placeholder="Description" value={row.label} onChange={(e) => updateRow(idx, "label", e.target.value)} disabled={!canEdit} />
+                <Input className="w-32" type="number" step="0.01" placeholder="INR" value={row.inr_amount} onChange={(e) => updateRow(idx, "inr_amount", e.target.value)} disabled={!canEdit} />
+                <Input className="w-32" type="number" step="0.01" placeholder="FGN" value={row.fgn_amount} onChange={(e) => updateRow(idx, "fgn_amount", e.target.value)} disabled={!canEdit} />
+                {canEdit && (
+                  <Button size="sm" variant="ghost" className="text-danger" onClick={() => removeRow(idx)}>X</Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {canEdit && dirty && (
+          <div className="mt-3 flex justify-end">
+            <Button size="sm" disabled={isPending} onClick={() => {
+              onSave(rows.filter((r) => r.label.trim()).map((r, i) => ({
+                charge_type: r.charge_type,
+                label: r.label.trim(),
+                inr_amount: parseFloat(r.inr_amount) || 0,
+                fgn_amount: parseFloat(r.fgn_amount) || 0,
+                sort_order: i,
+              })));
+              setDirty(false);
+            }}>
+              {isPending ? "Saving..." : "Save Charges"}
+            </Button>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
 // ---------- Commercial Tab ----------
 
 function CommercialTab({
@@ -231,11 +322,13 @@ function CommercialTab({
   canEdit,
   isPending,
   onSave,
+  onSaveCharges,
 }: {
   po: PoWithDetails;
   canEdit: boolean;
   isPending: boolean;
   onSave: (fields: Record<string, unknown>) => void;
+  onSaveCharges: (charges: { charge_type: "add" | "less"; label: string; rate_type?: string | null; rate?: number; inr_amount: number; fgn_amount: number; sort_order?: number }[]) => void;
 }) {
   const [dirty, setDirty] = useState(false);
   const [fields, setFields] = useState({
@@ -323,6 +416,14 @@ function CommercialTab({
           </Select>
         </div>
       </div>
+
+      {/* Additional Charges */}
+      <AdditionalChargesGrid
+        charges={po.additional_charges}
+        canEdit={canEdit}
+        isPending={isPending}
+        onSave={onSaveCharges}
+      />
 
       {/* Value summary */}
       <Card>
@@ -600,6 +701,39 @@ export function PoDetail({
     });
   }
 
+  function handleAddGroup() {
+    startTransition(async () => {
+      const result = await addPoItemGroup({
+        purchase_order_id: po.id,
+        sl_no: po.item_groups.length + 1,
+        sort_order: po.item_groups.length,
+      });
+      if (result.ok) success("Item group added.");
+      else toastError(result.error);
+    });
+  }
+
+  function handleDeleteGroup(groupId: string) {
+    startTransition(async () => {
+      const result = await deletePoItemGroup(groupId, po.id);
+      if (result.ok) success("Item group deleted.");
+      else toastError(result.error);
+    });
+  }
+
+  function handleSaveCharges(charges: { charge_type: "add" | "less"; label: string; rate_type?: string | null; rate?: number; inr_amount: number; fgn_amount: number; sort_order?: number }[]) {
+    startTransition(async () => {
+      const result = await savePoCharges(po.id, charges.map((c) => ({
+        purchase_order_id: po.id,
+        ...c,
+        rate: c.rate ?? 0,
+        sort_order: c.sort_order ?? 0,
+      })));
+      if (result.ok) success("Charges saved.");
+      else toastError(result.error);
+    });
+  }
+
   function handleSaveCommercial(fields: Record<string, unknown>) {
     startTransition(async () => {
       const result = await updatePoCommercial(po.id, fields as never);
@@ -731,24 +865,39 @@ export function PoDetail({
 
   const purchaseTab = (
     <div className="space-y-4">
-      {/* Item Groups summary */}
-      {po.item_groups.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Item Groups</CardTitle></CardHeader>
-          <CardBody>
+      {/* Item Groups (Band 0) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Item Groups ({po.item_groups.length})</CardTitle>
+          {canMutateLines && (
+            <Button size="sm" onClick={handleAddGroup}>+ Add Group</Button>
+          )}
+        </CardHeader>
+        <CardBody>
+          {po.item_groups.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No item groups. Lines without groups are treated as ungrouped.</p>
+          ) : (
             <div className="space-y-2">
               {po.item_groups.map((g) => (
-                <div key={g.id} className="flex items-center gap-3 rounded border border-border p-2 text-sm">
-                  <span className="font-medium">{g.group_description || g.group_no || `Group ${g.sl_no}`}</span>
-                  {g.ppm_no && <span className="text-xs text-muted-foreground">PPM: {g.ppm_no}</span>}
-                  {g.style_no && <span className="text-xs text-muted-foreground">Style: {g.style_no}</span>}
-                  {g.customer_name && <span className="text-xs text-muted-foreground">Customer: {g.customer_name}</span>}
+                <div key={g.id} className="flex items-center justify-between gap-3 rounded border border-border p-2 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="font-medium">{g.group_description || g.group_no || `Group ${g.sl_no}`}</span>
+                    {g.ppm_no && <span className="text-xs text-muted-foreground">PPM: {g.ppm_no}</span>}
+                    {g.style_no && <span className="text-xs text-muted-foreground">Style: {g.style_no}</span>}
+                    {g.customer_name && <span className="text-xs text-muted-foreground">Customer: {g.customer_name}</span>}
+                  </div>
+                  {canMutateLines && (
+                    <Button size="sm" variant="ghost" className="text-danger" disabled={isPending}
+                      onClick={() => handleDeleteGroup(g.id)}>
+                      Delete
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
-          </CardBody>
-        </Card>
-      )}
+          )}
+        </CardBody>
+      </Card>
 
       {/* Line items */}
       <Card>
@@ -955,6 +1104,7 @@ export function PoDetail({
                 canEdit={isDraft && canEdit}
                 isPending={isPending}
                 onSave={handleSaveCommercial}
+                onSaveCharges={handleSaveCharges}
               />
             ),
           },

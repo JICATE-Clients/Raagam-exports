@@ -52,6 +52,8 @@ export function NewPoForm({
   const [budgetId, setBudgetId] = useState("");
   const [locationId, setLocationId] = useState("");
   const [currencyCode, setCurrencyCode] = useState("INR");
+  const [poType, setPoType] = useState<"local" | "import">("local");
+  const [paymentTerms, setPaymentTerms] = useState("");
   const [orderDate, setOrderDate] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -138,6 +140,8 @@ export function NewPoForm({
       expected_date: expectedDate || null,
       notes: notes.trim() || null,
       lines: poLines,
+      po_type: poType,
+      payment_terms: paymentTerms.trim() || null,
     };
 
     startTransition(async () => {
@@ -233,6 +237,18 @@ export function NewPoForm({
             )}
 
             <div>
+              <Label htmlFor="po-type">PO Type</Label>
+              <Select
+                id="po-type"
+                value={poType}
+                onChange={(e) => setPoType(e.target.value as "local" | "import")}
+              >
+                <option value="local">Local</option>
+                <option value="import">Import</option>
+              </Select>
+            </div>
+
+            <div>
               <Label htmlFor="po-currency">Currency</Label>
               <Select
                 id="po-currency"
@@ -245,6 +261,16 @@ export function NewPoForm({
                   </option>
                 ))}
               </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="po-payment-terms">Payment Terms</Label>
+              <Input
+                id="po-payment-terms"
+                placeholder="e.g. 30 days net"
+                value={paymentTerms}
+                onChange={(e) => setPaymentTerms(e.target.value)}
+              />
             </div>
 
             <div>
