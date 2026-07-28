@@ -61,12 +61,23 @@ export function DetailSection({
   return (
     <div
       className={cn(
-        "@container/section space-y-2.5 rounded-lg border border-border p-3",
+        // The `@2xl/editor:` classes here and below are compact density: a
+        // section's own chrome (padding + header + the gap under it) costs real
+        // vertical space before a single field renders, and on a laptop-height
+        // form that is screen spent on borders. Compact trims it on the wide
+        // editor surfaces. This element declares `@container/section` AND
+        // queries the ancestor `@container/editor` — a container can do both.
+        //
+        // Tightened one step across the board (client 2026-07-28). Only the
+        // VERTICAL rhythm moved; `gap-x-3` below is deliberately untouched,
+        // because that gutter is what stops two adjacent controls on the 12-col
+        // track from reading as one control.
+        "@container/section space-y-2 @2xl/editor:space-y-1.5 rounded-lg border border-border p-2.5 @2xl/editor:p-2",
         span === 2 && "@4xl/sections:col-span-2",
         className,
       )}
     >
-      <div className="flex min-h-5 items-center justify-between gap-2">
+      <div className="flex min-h-5 @2xl/editor:min-h-4 items-center justify-between gap-2">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </div>
@@ -74,7 +85,7 @@ export function DetailSection({
       </div>
       <div
         className={cn(
-          "grid gap-x-3 gap-y-2.5",
+          "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5",
           cols === 2 && "sm:grid-cols-2",
           cols === 3 && "sm:grid-cols-2 lg:grid-cols-3",
           cols === 12 && "@lg/section:grid-cols-12",

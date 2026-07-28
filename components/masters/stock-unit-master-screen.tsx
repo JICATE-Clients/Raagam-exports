@@ -332,11 +332,6 @@ export function StockUnitMasterScreen({
                 className="text-base md:text-sm"
               />
               {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-              {!editId && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The code is generated automatically from the name.
-                </p>
-              )}
             </div>
             <div>
               <Label htmlFor="su-dp">Decimal Places</Label>

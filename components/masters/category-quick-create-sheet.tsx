@@ -133,6 +133,10 @@ export function CategoryQuickCreateSheet({
         status_monitoring_type: null,
         user_defined: showUserDefined ? userDefined : false,
         inactive: false,
+        // Sub Categories are defined on the full Category master, not in this
+        // quick-create mini-child (0349) — a new category starts with none.
+        has_sub_categories: false,
+        sub_categories: [],
       };
       const res = await createCategory(payload);
       if (!res.ok) {
@@ -161,6 +165,8 @@ export function CategoryQuickCreateSheet({
         status_monitoring_type: null,
         user_defined: showUserDefined ? userDefined : false,
         inactive: false,
+        has_sub_categories: false,
+        sub_categories: [],
         created_by: null,
         created_by_name: null,
         created_at: "",

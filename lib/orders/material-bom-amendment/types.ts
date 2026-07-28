@@ -25,6 +25,11 @@ export interface MbaItem {
   purchase_uom_id: string | null;
   consumption_uom_id: string | null;
   alternate_uom_id: string | null;
+  /** Which pack size this line buys, e.g. the 2,500 m cone rather than the
+   *  5,000 m one (0348). It cannot live on the material: items.purchase_uom_id
+   *  holds a single UOM ("Cone") and cannot tell two cone sizes apart, so the
+   *  choice belongs to the BOM line. Drives Purchase Qty on the calc tab. */
+  uom_conversion_id: string | null;
   combination: string | null;
   moq: number | null;
   quantity_nos: number | null;
@@ -70,6 +75,7 @@ export const mbaItemInput = z.object({
   purchase_uom_id: uuidN,
   consumption_uom_id: uuidN,
   alternate_uom_id: uuidN,
+  uom_conversion_id: uuidN,
   combination: nullableText,
   moq: numN,
   quantity_nos: numN,
@@ -99,7 +105,15 @@ export function mbaStatusText(is_draft: boolean): string {
   return is_draft ? "Draft" : "Recorded";
 }
 
-/** One read-only row of the "Calculated Quantities" tab. */
+/** One read-only row of the "Calculated Quantities" tab.
+ *
+ *  Two figures, because they answer different questions:
+ *    calc_qty     — order qty × per-piece consumption, in the CONSUMPTION unit
+ *                   (200,000 m of thread). What production will actually use.
+ *    purchase_qty — the same requirement expressed in the unit the supplier
+ *                   sells and bills in (80 cones). What the buyer orders.
+ *  purchase_qty is null when the line has no pack selected — the ~90% of
+ *  materials bought in the unit they are consumed in. */
 export type CalculatedQtyRow = {
   sno: number;
   category: string;
@@ -108,5 +122,7 @@ export type CalculatedQtyRow = {
   size: string;
   uom: string;
   calc_qty: number | null;
+  purchase_qty: number | null;
+  purchase_uom: string;
   order_qty: number;
 };

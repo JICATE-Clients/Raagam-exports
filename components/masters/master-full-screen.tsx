@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { focusFirstField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
-import { useModalGuard } from "@/lib/reload-guard";
+import { useModalGuard, confirmDiscard, hasOpenModalInDom } from "@/lib/reload-guard";
 
 /**
  * The COMPLEX-tier editor surface: a full-screen takeover with a left section
@@ -17,8 +17,14 @@ import { useModalGuard } from "@/lib/reload-guard";
  *
  * Deliberately NOT portaled and fixed at z-[80]: nested picker Sheets keep
  * their default zIndexBase=90 and stack above it, exactly as customer/vendor
- * already rely on. No Escape-to-close — closing a dirty 30-field form must be
- * an explicit ✕ / Cancel.
+ * already rely on.
+ *
+ * Escape closes this surface. It deliberately did NOT, on the grounds that
+ * "closing a dirty 30-field form must be an explicit ✕ / Cancel" — a sound
+ * objection to an Escape that discarded work silently, which is the only kind
+ * that existed at the time. Escape now asks first (`confirmDiscard`), so the
+ * objection is answered rather than overruled, and Escape can mean the same
+ * thing here as everywhere else in the app (client 2026-07-27).
  */
 export type FullScreenSection = {
   key: string;
@@ -102,6 +108,31 @@ export function MasterFullScreen({
     },
     open,
   );
+
+  // Latest onClose behind a stable ref, so the listener registered on open
+  // doesn't capture a stale closure when the caller re-renders.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  // Escape closes the editor, asking first when there is unsaved work.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      // Anything modal ABOVE us owns Escape: nested picker Sheets stack over
+      // this surface by design (see the zIndex note in the header comment), and
+      // they are portaled to <body>, so they are not inside our subtree and
+      // cannot shield us by containment alone. One Escape must close the picker,
+      // not the whole 30-field form behind it.
+      if (hasOpenModalInDom()) return;
+      if (!confirmDiscard()) return;
+      onCloseRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
 
   // Lock body scroll behind the overlay (same behavior the customer editor had).
   useEffect(() => {
@@ -199,7 +230,18 @@ export function MasterFullScreen({
           // the navigation boundary because it carries data-focus-scope.
           data-focus-scope
         >
-          <div ref={contentRef} className="mx-auto max-w-3xl px-4 py-5 md:px-6">
+          {/* max-w-3xl (768px) used to cap this pane, which made the whole layout
+              contract unreachable here: SectionGrid only goes 2-up at @4xl = 896px,
+              so a rail editor was locked into ONE narrow column by construction and
+              a 51-field master had no choice but to scroll. 1180px matches
+              doc/ui/LAYOUT.md §1. The rail beside this costs 228px, so at a
+              1366-wide laptop the cap is not even reached (1366 − 228 − 48 padding
+              = ~1090px of content); it only bites on wide monitors, where it stops
+              fields stretching to absurd widths.
+
+              `@container/editor` is the density container — see the twin comment in
+              components/ui/sheet.tsx. */}
+          <div ref={contentRef} className="@container/editor mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6">
             {active?.content}
           </div>
         </div>
@@ -242,8 +284,16 @@ export function SectionBody({
 }) {
   return (
     <div>
-      <h2 className="text-[15px] font-bold tracking-tight text-foreground">{title}</h2>
-      <p className="mb-4 mt-0.5 text-[12.5px] text-muted-foreground">{hint}</p>
+      {/* Title and hint stack on mobile but sit on ONE line in a desktop editor:
+          54px of heading chrome (20 title + 2 + 16 hint + 16 margin) became ~32px.
+          Worth it because under the section rail this heading is the most
+          redundant thing on screen — the rail already names the active section
+          two inches to the left — yet dropping it outright would cost the hint,
+          which is the only place a section explains itself. */}
+      <div className="mb-4 @2xl/editor:mb-3 @2xl/editor:flex @2xl/editor:items-baseline @2xl/editor:gap-2">
+        <h2 className="text-[15px] font-bold tracking-tight text-foreground @2xl/editor:shrink-0">{title}</h2>
+        <p className="mt-0.5 text-[12.5px] text-muted-foreground @2xl/editor:mt-0 @2xl/editor:truncate">{hint}</p>
+      </div>
       {children}
     </div>
   );

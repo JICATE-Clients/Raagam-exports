@@ -130,9 +130,9 @@ export function Combobox({
    *   ↓/↑    open the list when closed, move the highlight when open
    *   Enter  pick the highlight and close — when closed, bubble so the Sheet
    *          advances to the next field
-   *   Tab    close WITHOUT selecting, then move on (never let Tab change a
-   *          value — brushing an arrow key then tabbing must not silently
-   *          write a different value)
+   *   Tab    when closed, OPEN the list (handled by the keyboard-nav provider);
+   *          when open, do nothing — the list holds the keyboard until Enter
+   *          picks or Esc closes. Tab never changes a value either way.
    *   Esc    close the list only, never the surrounding editor
    */
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -153,11 +153,19 @@ export function Combobox({
         commit(filtered[highlight].value);
       }
     } else if (e.key === "Tab") {
-      // Close only — no preventDefault, so the browser still moves focus.
-      if (open) {
-        setOpen(false);
-        setQuery("");
-      }
+      // Deliberately NOT handled here. An open list owns Tab — it does nothing
+      // while the list is up, so the operator cannot tab past a dropdown without
+      // seeing it (client 2026-07-27) — but that belongs to `tabOpensList` in
+      // the keyboard-nav provider, which is also the thing that OPENS the list
+      // on the second Tab.
+      //
+      // Consuming Tab here would hide the key from the provider (it bails on
+      // `defaultPrevented`), so the provider could never record that this field
+      // has already shown its list. The next Tab after Escape would re-open it,
+      // and the operator would be stuck on the field forever.
+      //
+      // Tab used to close-and-move-on here, guarding "Tab must never change a
+      // value". That rule is untouched: doing nothing cannot write a value.
     } else if (e.key === "Escape") {
       if (open) {
         e.preventDefault();
@@ -194,7 +202,11 @@ export function Combobox({
         }}
         onKeyDown={onKeyDown}
         className={cn(
-          "h-9 w-full rounded-md border border-border bg-surface px-3 pr-8 text-base md:text-sm",
+          // @2xl/editor:h-8 — compact density. This is the control a desktop
+          // <Select> actually renders (select.tsx upgrades to Combobox on a fine
+          // pointer), so missing it here would leave every dropdown 4px taller
+          // than the inputs beside it. See components/ui/input.tsx.
+          "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 pr-8 text-base md:text-sm",
           "placeholder:text-muted-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",

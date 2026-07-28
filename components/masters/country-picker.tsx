@@ -16,6 +16,7 @@ import {
   type CountryGroup,
   type CountryInput,
 } from "@/lib/masters/country-types";
+import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
 
 type FormState = {
   code: string;
@@ -196,7 +197,7 @@ export function CountryPicker({
         onClick={openDialog}
 
         data-field-trigger
-        className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+        className={PICKER_TRIGGER_CLASS}
       >
         <span className={selected ? "text-foreground" : "text-muted-foreground"}>
           {selectedLabel}

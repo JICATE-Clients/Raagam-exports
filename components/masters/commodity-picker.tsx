@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { createCommodity, updateCommodity, deleteCommodity } from "@/lib/masters/commodity-actions";
 import type { Commodity, CommodityInput } from "@/lib/masters/commodity-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
 
 type FormState = { item_class_id: string; short_name: string; name: string; inactive: boolean };
 const BLANK_FORM: FormState = { item_class_id: "", short_name: "", name: "", inactive: false };
@@ -223,7 +224,7 @@ export function CommodityPicker({
         onClick={openDialog}
 
         data-field-trigger
-        className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+        className={PICKER_TRIGGER_CLASS}
       >
         <span className={selected ? "text-foreground" : "text-muted-foreground"}>{selectedLabel}</span>
         <Info className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />

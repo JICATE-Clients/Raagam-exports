@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { createBank, updateBank } from "@/lib/masters/bank-actions";
 import { BANK_TYPES, type Bank, type BankInput, type BankType } from "@/lib/masters/bank-types";
+import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
 
 /**
  * The legacy blue ⓘ Bank popup, over the `banks` master (master-detail): a
@@ -160,7 +161,7 @@ export function BankPicker({
         onClick={openDialog}
 
         data-field-trigger
-        className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+        className={PICKER_TRIGGER_CLASS}
       >
         <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
           {selectedLabel}

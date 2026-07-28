@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
+    "build:check": "node scripts/build-check.mjs",
     "start": "next start",
     "gen:icons": "node scripts/generate-pwa-icons.mjs",
     "lint": "eslint"

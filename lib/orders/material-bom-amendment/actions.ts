@@ -35,6 +35,7 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
       purchase_uom_id: c.purchase_uom_id ?? null,
       consumption_uom_id: c.consumption_uom_id ?? null,
       alternate_uom_id: c.alternate_uom_id ?? null,
+      uom_conversion_id: c.uom_conversion_id ?? null,
       combination: clean(c.combination),
       moq: c.moq ?? null,
       quantity_nos: c.quantity_nos ?? null,
@@ -50,6 +51,7 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
         c.purchase_uom_id ||
         c.consumption_uom_id ||
         c.alternate_uom_id ||
+        c.uom_conversion_id ||
         c.combination ||
         c.moq != null ||
         c.quantity_nos != null,

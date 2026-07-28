@@ -16,6 +16,8 @@ export type NavKeyEvent = {
   defaultPrevented: boolean;
   target: EventTarget | null;
   preventDefault(): void;
+  /** Only `tabOpensList` reads this — Shift+Tab must always walk backwards. */
+  shiftKey?: boolean;
 };
 
 /**
@@ -141,6 +143,80 @@ export function arrowOpensPicker(e: NavKeyEvent): boolean {
   if (t.closest("[data-grid-row]")) return false;
   e.preventDefault();
   t.click(); // the trigger's existing onClick opens the dialog
+  // Count this the same as a Tab-opened list, so dismissing it with Escape
+  // leaves Tab free to move on instead of re-opening what the operator just
+  // closed. See `openedFor`.
+  openedFor = t;
+  return true;
+}
+
+/** Fields whose value comes from stored data, so Tab has a list to show. */
+const LIST_FIELD = '[data-field-trigger], [role="combobox"]';
+
+/**
+ * The field whose list Tab last opened, so the NEXT Tab on it moves on instead
+ * of re-opening.
+ *
+ * Without this the contract is a trap with no way out. Escape closes a list but
+ * leaves the cursor on the field (deliberately — Escape must not silently move
+ * the operator), so the following Tab would find a closed list and open it
+ * again, forever. The operator could never get past a picker without choosing
+ * something, which is precisely the "no accidental value" rule inverted into a
+ * cage.
+ *
+ * Cleared as soon as Tab lands on a different field, so coming back to this one
+ * later opens its list again as normal.
+ */
+let openedFor: HTMLElement | null = null;
+
+/**
+ * TAB OPENS THE LIST. Tab moves to the next field; pressing it AGAIN on a field
+ * backed by stored data drops that field's list open instead of moving on.
+ *
+ * This is the legacy RP-Software model the operators already have in their
+ * fingers (client 2026-07-27): Tab-Tab-↓↓-Enter picks a customer without ever
+ * reaching for the mouse, and without having to know a special shortcut.
+ *
+ * "The SECOND Tab" needs no state tracking, which is worth spelling out because
+ * it looks like it should. The keydown that MOVES focus onto the field is
+ * dispatched while the previous field is still focused — so by the time a
+ * keydown arrives with the picker itself as target, the operator has pressed Tab
+ * twice. First press lands, second press opens, for free.
+ *
+ * Shift+Tab is excluded: walking backwards out of a form must never stop to open
+ * something. Returns true when it consumed the key.
+ */
+export function tabOpensList(e: NavKeyEvent): boolean {
+  if (e.key !== "Tab") return false;
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return false;
+  // Tab moved on to some other field — this one is no longer "the field we just
+  // opened", so a later visit gets a fresh list. Checked before the Shift+Tab
+  // bail-out on purpose: backing out of a field and returning to it must arm it
+  // again, otherwise Shift+Tab silently leaves a picker that no longer opens.
+  if (openedFor && openedFor !== t) openedFor = null;
+  if (e.shiftKey || e.defaultPrevented || !t.matches(LIST_FIELD)) return false;
+
+  // Already open → the list owns the keyboard now (Enter picks, Esc closes), so
+  // Tab does nothing at all. This is what stops an operator tabbing straight
+  // past a picker without seeing it. Dialog pickers move focus INTO their
+  // dialog when they open, so an open one is never the target here; the inline
+  // Combobox keeps focus on its input, so it is the case this actually serves —
+  // including when it opened itself on focus rather than on Tab.
+  if (t.getAttribute("aria-expanded") === "true") {
+    openedFor = t;
+    e.preventDefault();
+    return true;
+  }
+  // We already showed this field's list and the operator dismissed it. Let Tab
+  // do its ordinary job now.
+  if (openedFor === t) {
+    openedFor = null;
+    return false;
+  }
+  openedFor = t;
+  e.preventDefault();
+  t.click(); // same path a mouse takes: opens the dialog / drops the list
   return true;
 }
 
@@ -207,9 +283,105 @@ export function atCaretEdge(el: HTMLElement, dir: "prev" | "next"): boolean {
   return dir === "prev" ? start === 0 : start === el.value.length;
 }
 
+/** A focusable plus the geometry the spatial walk needs. */
+type FieldBox = {
+  el: HTMLElement;
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  cx: number;
+  cy: number;
+};
+
+function boxOf(el: HTMLElement): FieldBox | null {
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return null; // rendered but not laid out
+  return {
+    el,
+    top: r.top,
+    bottom: r.bottom,
+    left: r.left,
+    right: r.right,
+    cx: r.left + r.width / 2,
+    cy: r.top + r.height / 2,
+  };
+}
+
 /**
- * THE GLOBAL ARROW CONTRACT: ↓ moves to the next field, ↑ to the previous —
- * everywhere, on every control that does not own arrows itself.
+ * How many px of vertical span two controls share. Positive means they sit on
+ * the same visual row.
+ *
+ * This is the whole trick behind spatial navigation on a `DetailSection
+ * cols={12}` form. Fields in one visual row do NOT share a pixel-exact `top` —
+ * a Combobox is `h-8` next to an `h-9` Input, a picker trigger carries a label
+ * above it — so grouping rows by `top` equality finds nothing. Overlap is
+ * robust to all of that: two controls that look side by side always overlap
+ * vertically, and two on different rows never do.
+ */
+function rowOverlap(a: FieldBox, b: FieldBox): number {
+  return Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+}
+
+/** Overlap below this is treated as "different row" (sub-pixel layout noise). */
+const SAME_ROW_PX = 4;
+/** Two rows whose centres are within this are treated as the same row. */
+const ROW_SLACK_PX = 8;
+
+/**
+ * The field the operator would say is directly above / below / left / right of
+ * `el`, found from on-screen geometry rather than DOM order.
+ *
+ * ↓ must land on the box BELOW, not "the next field" — on a three-column form
+ * those are different controls, and sequential order silently made ↓ a synonym
+ * for → (client 2026-07-27). Vertical moves pick the nearest row and then the
+ * candidate whose horizontal centre is closest, so ↓↓ down a column stays in
+ * that column. Horizontal moves stay inside the current row.
+ *
+ * Returns null when there is nothing in that direction — a ragged last row, the
+ * top row, the end of a line — and the caller falls back to sequential order so
+ * focus is never stranded.
+ */
+export function spatialNeighbour(
+  el: HTMLElement,
+  dir: "up" | "down" | "left" | "right",
+  items: HTMLElement[],
+): HTMLElement | null {
+  const from = boxOf(el);
+  if (!from) return null;
+  const boxes = items
+    .filter((c) => c !== el)
+    .map(boxOf)
+    .filter((b): b is FieldBox => b !== null);
+  if (!boxes.length) return null;
+
+  if (dir === "left" || dir === "right") {
+    const forward = dir === "right";
+    const row = boxes
+      .filter((b) => rowOverlap(from, b) > SAME_ROW_PX)
+      .filter((b) => (forward ? b.left >= from.right - SAME_ROW_PX : b.right <= from.left + SAME_ROW_PX));
+    if (!row.length) return null;
+    // Nearest first: the neighbour, not the far end of the row.
+    row.sort((a, b) => (forward ? a.left - b.left : b.right - a.right));
+    return row[0].el;
+  }
+
+  const down = dir === "down";
+  const offRow = boxes
+    .filter((b) => rowOverlap(from, b) <= SAME_ROW_PX)
+    .filter((b) => (down ? b.cy > from.cy : b.cy < from.cy));
+  if (!offRow.length) return null;
+  // The nearest row in that direction, then the closest field within it.
+  const nearest = Math.min(...offRow.map((b) => Math.abs(b.cy - from.cy)));
+  const band = offRow.filter((b) => Math.abs(b.cy - from.cy) <= nearest + ROW_SLACK_PX);
+  band.sort((a, b) => Math.abs(a.cx - from.cx) - Math.abs(b.cx - from.cx));
+  return band[0].el;
+}
+
+/**
+ * THE GLOBAL ARROW CONTRACT: ↓/↑ move to the field above / below, ←/→ to the
+ * field left / right — everywhere, on every control that does not own arrows
+ * itself.
  *
  * The app had no form-level arrow handling at all: arrows worked only where an
  * individual control happened to implement them, so a dropdown responded, a
@@ -218,10 +390,13 @@ export function atCaretEdge(el: HTMLElement, dir: "prev" | "next"): boolean {
  * by field (client 2026-07-25) — there was nothing to fix centrally, so each
  * report produced another patch.
  *
- * Order is SEQUENTIAL (the same order Tab and Enter use), not spatial. With
- * `DetailSection cols={12}` and mixed field widths, "the field visually below"
- * is ambiguous and expensive to get right; "the next field" is predictable and
- * already the order the operator learned from Tab.
+ * Order is SPATIAL — what the operator sees, not DOM order. It was sequential
+ * (the order Tab and Enter use) on the theory that "the field visually below"
+ * was too ambiguous to compute on a 12-column grid. In practice that made ↓ and
+ * → do the same thing on every multi-column form, which is not the model the
+ * operators already have from the legacy screens (client 2026-07-27).
+ * `spatialNeighbour` resolves the ambiguity by row-OVERLAP, and sequential order
+ * remains the fallback whenever geometry finds nothing.
  *
  * Confined to the focused element's region, so ↓ cannot walk out of the fields
  * into Cancel/Save. Returns true when it consumed the key.
@@ -244,7 +419,15 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
   const items = orderedFocusables(root).filter((el) => regionOf(el) === region);
   const idx = items.indexOf(t);
   if (idx === -1) return false;
-  const next = items[forward ? idx + 1 : idx - 1];
+  const dir =
+    e.key === "ArrowDown"
+      ? "down"
+      : e.key === "ArrowUp"
+        ? "up"
+        : e.key === "ArrowRight"
+          ? "right"
+          : "left";
+  const next = spatialNeighbour(t, dir, items) ?? items[forward ? idx + 1 : idx - 1];
   if (!next) return false;
 
   e.preventDefault();

@@ -2,7 +2,10 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -100,6 +103,24 @@ export function MaterialAttributeMasterScreen({
   // its parts with " / " (client 2026-07-25, matches legacy: "LABEL / MAIN / PRINTED / …").
   const NAME_SEPARATOR = " / ";
   const [lines, setLines] = useState<LineRow[]>([]);
+  /**
+   * Which attribute line is open for editing — at most one at a time.
+   *
+   * A line ticked "Value In Steps" grows by a Start/End/Step/Unit row PLUS a
+   * generated value list, so a screen with a few filled-in attributes pushed
+   * "+ Add attribute" below the fold and the user had to scroll to the bottom
+   * to add the next one (client 2026-07-27). Collapsing every line except the
+   * one being worked on keeps that button in reach no matter how many
+   * attributes the category ends up with.
+   *
+   * This is NOT the accordion `doc/ui/LAYOUT.md` §4 forbids — that rule is
+   * about hiding SECTIONS of one record, where the user needs most of the
+   * content at once. These are repeating line items, and §6 already says a row
+   * this wide (picker + 3 flags + 4 range fields + an N-row value list) should
+   * stop being inlined and get its own editor. A summary row that expands in
+   * place is the lighter version of that.
+   */
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
   const optSeq = useRef(0);
@@ -151,7 +172,8 @@ export function MaterialAttributeMasterScreen({
     [attributes, itemClassId],
   );
   // Class CODE of the picked Item Class — drives which fields the Category
-  // quick-create mini-child renders (here always PACK/SEW → User Defined).
+  // quick-create mini-child renders. Always PACK/SEW: the page filters
+  // `attributes` through isAccessoryClass before this screen sees them.
   const selectedClassCode = useMemo(
     () => attributes.find((a) => a.id === itemClassId)?.code ?? null,
     [attributes, itemClassId],
@@ -205,14 +227,16 @@ export function MaterialAttributeMasterScreen({
     setEditId(null);
     setItemClassId("");
     setCategoryId("");
-    setLines([blankLine()]);
+    const first = blankLine();
+    setLines([first]);
+    setExpandedKey(first.key);
     setOpen(true);
   }
   function openEdit(r: MaterialAttribute) {
     setEditId(r.id);
     setItemClassId(r.item_class_id ?? "");
     setCategoryId(r.category_id ?? "");
-    setLines(
+    const built: LineRow[] =
       r.lines.length
         ? r.lines.map((l) => ({
             key: newKey(),
@@ -230,18 +254,32 @@ export function MaterialAttributeMasterScreen({
               blocked: o.blocked,
             })),
           }))
-        : [blankLine()],
-    );
+        : [blankLine()];
+    setLines(built);
     // Stepped lines: re-derive the generated value list from the stored
     // Start/End/Step/Unit so it shows immediately (blocked flags preserved).
     setLines((ls) => ls.map((l) => (l.value_in_steps ? { ...l, options: genOptions(l) } : l)));
+    // Open the first line: on an existing record the user is usually here to
+    // change one attribute, and a fully collapsed list gives no clue that the
+    // rows expand at all.
+    setExpandedKey(built[0]?.key ?? null);
     setOpen(true);
   }
 
   const setLineAt = (key: string, patch: Partial<LineRow>) =>
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
-  const addLine = () => setLines((ls) => [...ls, blankLine()]);
-  const removeLine = (key: string) => setLines((ls) => ls.filter((l) => l.key !== key));
+  /** Adding always opens the new line and closes whatever was open — this is
+   *  the "move on to the next attribute" step, and the finished one folds away
+   *  behind its summary. */
+  const addLine = () => {
+    const next = blankLine();
+    setLines((ls) => [...ls, next]);
+    setExpandedKey(next.key);
+  };
+  const removeLine = (key: string) => {
+    setLines((ls) => ls.filter((l) => l.key !== key));
+    setExpandedKey((k) => (k === key ? null : k));
+  };
 
   // Per-line pre-defined value list (legacy nested grid).
   const addOption = (lineKey: string) =>
@@ -267,17 +305,22 @@ export function MaterialAttributeMasterScreen({
       ),
     );
 
-  // Regenerate a Value-In-Steps line's value list from Start/End/Step/Unit,
-  // preserving any per-value Blocked flags across the change (matched by
-  // description). This is what auto-fills "0 MM, 10 MM … 100 MM" (legacy 2100).
+  // Regenerate a Value-In-Steps line's value list from Start/End/Step/Unit.
+  // This is what auto-fills "0 MM, 10 MM … 100 MM" (legacy 2100).
+  //
+  // Generated values are never individually blocked — narrow Start/End/Step
+  // instead. This used to carry blocked flags across a regen by matching on the
+  // description string, which meant changing the Unit rewrote every description
+  // ("10" → "10 MM") and silently cleared every flag the user had set. With the
+  // per-value box gone for stepped lines, that whole failure mode goes with it.
   const genOptions = (l: LineRow): OptionRow[] => {
     const vals = previewSteps(numOrNull(l.start_value), numOrNull(l.end_value), numOrNull(l.step_value));
     const uname = l.unit_id ? units.find((u) => u.id === l.unit_id)?.name ?? "" : "";
-    const prevBlocked = new Map(l.options.map((o) => [o.description, o.blocked]));
-    return vals.map((v) => {
-      const description = uname ? `${v} ${uname}` : String(v);
-      return { key: newOptKey(), description, blocked: prevBlocked.get(description) ?? false };
-    });
+    return vals.map((v) => ({
+      key: newOptKey(),
+      description: uname ? `${v} ${uname}` : String(v),
+      blocked: false,
+    }));
   };
   // Update a line and, when it is Value-In-Steps, regenerate its value list so
   // the rows stay in sync with the Start/End/Step/Unit fields.
@@ -492,66 +535,73 @@ export function MaterialAttributeMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          {/* Two-column body — header fields LEFT, attribute-lines grid RIGHT
-              (Material form design). Stacks on mobile via grid-cols-1. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-            {/* LEFT: header fields */}
-            <div className="space-y-4">
-              <DetailSection label="Header" cols={2}>
-                <div>
-                  <Label htmlFor="ma-item-class">
-                    Item Class <span className="text-danger">*</span>
-                  </Label>
-                  <Select
-                    id="ma-item-class"
-                    value={itemClassId}
-                    onChange={(e) => changeItemClass(e.target.value)}
-                    className="text-base md:text-sm"
-                  >
-                    <option value="">— Select —</option>
-                    {attributes
-                      .filter((c) => c.is_active || c.id === itemClassId)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </Select>
-                </div>
-                <div>
-                  <CategoryPicker
-                    label="Category"
-                    required
-                    categories={availableCategories}
-                    value={categoryId}
-                    onChange={setCategoryId}
-                    itemClassId={itemClassId}
-                    selectedClassCode={selectedClassCode}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                    canDelete={perms.canDelete}
-                    levies={levies}
-                    commodities={commodities}
-                    itemClasses={itemClasses}
-                    fabricStructures={fabricStructures}
-                  />
-                  {!itemClassId && (
-                    <p className="mt-1 text-xs text-muted-foreground">Pick an Item Class first.</p>
-                  )}
-                  {!editId && itemClassId && availableCategories.length === 0 && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Every category for this Item Class already has a Material Attribute set —
-                      edit the existing one from the list instead.
-                    </p>
-                  )}
-                </div>
-              </DetailSection>
-            </div>
+        <div className="space-y-3">
+          {/* Single column, header ABOVE the attributes (client 2026-07-27).
+              This used to be `lg:grid-cols-2` with the header on the left and
+              the attribute lines on the right — but the header holds exactly
+              two fields, so the left half was empty for the entire height of
+              the attributes panel while the panel itself was squeezed into
+              ~570px and every line wrapped. Stacking gives the lines the full
+              1180px, which is what lets the picker and the three flags share
+              one row instead of three. */}
+          <DetailSection label="Header" cols={12}>
+            <Field
+              label="Item Class"
+              required
+              size="md"
+              htmlFor="ma-item-class"
+              hint="Sewing and Packing only"
+            >
+              <Select
+                id="ma-item-class"
+                value={itemClassId}
+                onChange={(e) => changeItemClass(e.target.value)}
+              >
+                <option value="">— Select —</option>
+                {/* `attributes` arrives pre-filtered to accessory classes by the
+                    page (see the isAccessoryClass filter there) — this only
+                    drops inactive rows. */}
+                {attributes
+                  .filter((c) => c.is_active || c.id === itemClassId)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+            <Field size="md">
+              <CategoryPicker
+                label="Category"
+                required
+                categories={availableCategories}
+                value={categoryId}
+                onChange={setCategoryId}
+                itemClassId={itemClassId}
+                selectedClassCode={selectedClassCode}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+                levies={levies}
+                commodities={commodities}
+                itemClasses={itemClasses}
+                fabricStructures={fabricStructures}
+              />
+              {!itemClassId && (
+                <p className="mt-0.5 text-xs text-muted-foreground">Pick an Item Class first.</p>
+              )}
+              {!editId && itemClassId && availableCategories.length === 0 && (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Every category for this Item Class already has a Material Attribute set —
+                  edit the existing one from the list instead.
+                </p>
+              )}
+            </Field>
+          </DetailSection>
 
-            {/* RIGHT: attribute lines — meaningless until an Item Class scopes the
-                pickable values, so keep the placeholder gate here */}
-            <div className="space-y-4">
+          {/* Attribute lines — meaningless until an Item Class scopes the
+              pickable values, so keep the placeholder gate here */}
+          <div className="space-y-4">
           {!itemClassId ? (
             <div className="rounded-lg border border-dashed border-border bg-surface-muted/50 px-4 py-12 text-center text-sm text-muted-foreground">
               Select an Item Class above to add its attribute lines.
@@ -622,8 +672,10 @@ export function MaterialAttributeMasterScreen({
             );
             // The line's value list — the single source of the Material form's
             // dropdown. For a Value-In-Steps line the rows are AUTO-GENERATED from
-            // Start/End/Step/Unit (Description read-only, per-row Blocked still
-            // editable, no add/remove). Otherwise they're typed manually.
+            // Start/End/Step/Unit and are fully read-only — narrow the range to
+            // exclude a value. Otherwise they're typed manually and removed with
+            // Remove. Neither kind has a per-value Blocked box any more
+            // (client 2026-07-28); every configured value is offered.
             const valuesCell = (l: LineRow) => {
               const stepped = l.value_in_steps;
               return (
@@ -668,15 +720,22 @@ export function MaterialAttributeMasterScreen({
                             className="text-base md:text-sm"
                           />
                         )}
-                        <label className="flex shrink-0 cursor-pointer items-center gap-1.5">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 cursor-pointer accent-primary"
-                            checked={o.blocked}
-                            onChange={(e) => setOptionAt(l.key, o.key, { blocked: e.target.checked })}
-                          />
-                          <span className="text-xs text-muted-foreground">Blocked</span>
-                        </label>
+                        {/* No per-value Blocked box. It went from stepped rows
+                            first — a stepped line's values are derived from
+                            Start/End/Step, so the way to exclude one is to narrow
+                            the range (client 2026-07-27) — and the same argument
+                            finishes it for manual lists: the way to exclude a
+                            value you typed is to Remove it. Between that and the
+                            line-level Blocked, a third control that half-hides a
+                            single value earned nothing (client 2026-07-28).
+
+                            `options.blocked` is deliberately still in the row
+                            type, the payload and the DB (migration 0346): the UI
+                            is hidden, the column round-trips, so a value blocked
+                            before this change stays blocked rather than being
+                            silently re-offered. Its one reader is the
+                            `filter((o) => !o.blocked)` in material-master-screen.tsx,
+                            which now simply never filters anything out. */}
                         {!stepped && (
                           <Button variant="ghost" size="sm" onClick={() => removeOption(l.key, o.key)}>
                             Remove
@@ -704,6 +763,17 @@ export function MaterialAttributeMasterScreen({
               ) : (
                 valuesCell(l)
               );
+            /** One-line stand-in for a collapsed attribute: what it is, how it
+             *  behaves, and how many values it will offer. Enough to recognise
+             *  the line without opening it. */
+            const summaryOf = (l: LineRow) => {
+              const bits: string[] = [];
+              if (l.value_in_steps) bits.push("Steps");
+              if (l.mandatory) bits.push("Mandatory");
+              if (l.inactive) bits.push("Blocked");
+              bits.push(l.options.length === 1 ? "1 value" : `${l.options.length} values`);
+              return bits.join(" · ");
+            };
             return (
               <ChildGrid<LineRow>
                 label="Attributes"
@@ -718,19 +788,59 @@ export function MaterialAttributeMasterScreen({
                   { header: "Flags", cell: flagsCell },
                   { header: "Range / Values", cell: specCell },
                 ]}
-                renderMobileRow={(l) => (
-                  <>
-                    {attrCell(l)}
-                    {flagsCell(l)}
-                    {specCell(l)}
-                  </>
-                )}
+                renderMobileRow={(l) => {
+                  const isOpen = expandedKey === l.key;
+                  const name = attrValueLabel.get(l.attribute_id) ?? "";
+                  return (
+                    <div className="space-y-2">
+                      {/* The line's own header doubles as the expand control.
+                          A <button> rather than a click handler on a div so it
+                          is reachable by keyboard and announced as a control. */}
+                      <button
+                        type="button"
+                        onClick={() => setExpandedKey(isOpen ? null : l.key)}
+                        aria-expanded={isOpen}
+                        className="flex w-full items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-surface-muted"
+                      >
+                        {isOpen ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span
+                          className={cn(
+                            "truncate text-sm font-medium",
+                            name ? "text-foreground" : "text-muted-foreground",
+                          )}
+                        >
+                          {name || "— No attribute picked —"}
+                        </span>
+                        {!isOpen && (
+                          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                            {summaryOf(l)}
+                          </span>
+                        )}
+                      </button>
+
+                      {isOpen && (
+                        <>
+                          {/* Picker and flags share one row — only possible now
+                              the panel is full width. */}
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            <div className="min-w-[14rem] flex-1">{attrCell(l)}</div>
+                            <div className="shrink-0">{flagsCell(l)}</div>
+                          </div>
+                          {specCell(l)}
+                        </>
+                      )}
+                    </div>
+                  );
+                }}
               />
             );
           })()}
           </div>
           )}
-            </div>
           </div>
         </div>
       </Sheet>

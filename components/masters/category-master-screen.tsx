@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid } from "@/components/masters/child-grid";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
@@ -26,6 +27,7 @@ import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
   showsUserDefined,
+  showsSubCategories,
   type Category,
   type CategoryInput,
   type MadeType,
@@ -55,7 +57,13 @@ const BLANK = {
   status_monitoring_type: "",
   user_defined: false,
   inactive: false,
+  has_sub_categories: false,
 };
+
+/** A Sub Category row being edited. `id` is null for a row the user just added;
+ *  carrying the real id back lets updateCategory reconcile instead of
+ *  re-creating rows that materials point at (0349). */
+type SubRow = { key: string; id: string | null; name: string };
 
 /**
  * Rich CRUD for the legacy "Category" master. Item Class/Levy/Commodity are
@@ -125,6 +133,27 @@ export function CategoryMasterScreen({
   );
   const showUserDefined = showsUserDefined(selectedClassCode);
   const showFabricStructure = selectedClassCode === "FABRIC";
+  const showSubCategories = showsSubCategories(selectedClassCode);
+
+  // Sub Categories child grid (General only, 0349).
+  const [subs, setSubs] = useState<SubRow[]>([]);
+  const subKeySeq = useRef(0);
+  const newKey = () => `s${subKeySeq.current++}`;
+  const addSub = () => setSubs((xs) => [...xs, { key: newKey(), id: null, name: "" }]);
+  const setSubAt = (key: string, patch: Partial<SubRow>) =>
+    setSubs((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const removeSub = (key: string) => setSubs((xs) => xs.filter((r) => r.key !== key));
+  /** Turning it ON seeds a first row so the revealed grid isn't an empty box;
+   *  OFF clears them so nothing invisible is sent (the server mirrors this in
+   *  normalizeSubCategories). Same shape as toggleHasSubs on the Process master. */
+  const toggleSubCategories = (checked: boolean) => {
+    setForm((f) => ({ ...f, has_sub_categories: checked }));
+    if (checked) {
+      if (subs.length === 0) addSub();
+    } else {
+      setSubs([]);
+    }
+  };
 
   // Real-time duplicate check on Name, scoped to the selected Item Class.
   const dupError = useDuplicateCheck({
@@ -176,6 +205,7 @@ export function CategoryMasterScreen({
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
+    setSubs([]);
     setOpen(true);
   }
   function openEdit(r: Category) {
@@ -198,7 +228,9 @@ export function CategoryMasterScreen({
       status_monitoring_type: r.status_monitoring_type ?? "",
       user_defined: r.user_defined,
       inactive: r.inactive,
+      has_sub_categories: r.has_sub_categories,
     });
+    setSubs((r.sub_categories ?? []).map((c) => ({ key: newKey(), id: c.id, name: c.name })));
     setOpen(true);
   }
 
@@ -222,6 +254,10 @@ export function CategoryMasterScreen({
         status_monitoring_type: form.status_monitoring_type.trim() || null,
         user_defined: form.user_defined,
         inactive: form.inactive,
+        has_sub_categories: showSubCategories && form.has_sub_categories,
+        sub_categories: subs
+          .filter((c) => c.name.trim())
+          .map((c, i) => ({ id: c.id, sno: i + 1, name: c.name.trim() })),
       };
       const res = editId ? await updateCategory(editId, payload) : await createCategory(payload);
       if (res.ok) {
@@ -509,10 +545,6 @@ export function CategoryMasterScreen({
                   <option value="no">No</option>
                   <option value="yes">Yes</option>
                 </Select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  No = the Material form asks this category&apos;s configured attributes and
-                  auto-generates the item name. Yes = the user types the name manually.
-                </p>
               </div>
             )}
 
@@ -554,6 +586,48 @@ export function CategoryMasterScreen({
                       </option>
                     ))}
                 </Select>
+              </div>
+            )}
+            {/* General stores buy by category-then-type — ELECTRICAL ▸ LIGHTS /
+                FANS / SWITCHES — so annual spend can be read both per type and
+                as a category total (0349). Off by default: a category with no
+                second level hides the Material form's Sub Category field
+                entirely, so nothing is forced on categories that don't need it. */}
+            {showSubCategories && (
+              <label className="flex h-9 cursor-pointer items-center gap-2 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.has_sub_categories}
+                  onChange={(e) => toggleSubCategories(e.target.checked)}
+                />
+                <span className="text-sm text-foreground">Has Sub Categories</span>
+              </label>
+            )}
+            {showSubCategories && form.has_sub_categories && (
+              <div className="sm:col-span-2">
+                <ChildGrid<SubRow>
+                  label="Sub Categories"
+                  rows={subs}
+                  onAdd={addSub}
+                  onRemove={(r) => removeSub(r.key)}
+                  addLabel="+ Add sub category"
+                  inlineCards
+                  frameless
+                  columns={[
+                    {
+                      header: "Name",
+                      cell: (r) => (
+                        <Input
+                          value={r.name}
+                          uppercase
+                          placeholder="e.g. LIGHTS"
+                          onChange={(e) => setSubAt(r.key, { name: e.target.value })}
+                        />
+                      ),
+                    },
+                  ]}
+                />
               </div>
             )}
           </DetailSection>

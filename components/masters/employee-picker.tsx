@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { EmployeeRef } from "@/lib/masters/employee-types";
+import { PICKER_TRIGGER_CLASS, PICKER_CLEAR_CLASS } from "@/components/masters/picker-classes";
 
 /**
  * Select-only ⓘ picker over the `employees` master — used for the Manager
@@ -94,7 +95,7 @@ export function EmployeePicker({
           onClick={openDialog}
 
           data-field-trigger
-          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+          className={PICKER_TRIGGER_CLASS}
         >
           <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
             {selectedLabel}
@@ -105,7 +106,7 @@ export function EmployeePicker({
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-danger"
+            className={PICKER_CLEAR_CLASS}
             aria-label="Clear"
           >
             <X className="h-4 w-4 shrink-0" />

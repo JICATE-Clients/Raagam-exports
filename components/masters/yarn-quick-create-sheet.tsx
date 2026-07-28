@@ -115,6 +115,7 @@ export function YarnQuickCreateSheet({
         hsn_code: null,
         hsn_id: null,
         category_id: categoryId || null,
+        sub_category_id: null, // General-only concept (0349); this sheet is Yarn.
         material_type: null,
         user_defined: false,
         specifications: null,
@@ -127,6 +128,10 @@ export function YarnQuickCreateSheet({
         fabric_using: null,
         yarn_type_id: yarnTypeId || null,
         direct_purchase: false,
+        // Quick-create is KG for every slot (below), so there is nothing to
+        // convert. The full Materials master is where a yarn that needs an
+        // alternative purchase unit gets one.
+        has_alternate_uom: false,
         base_uom_id: uom,
         stock_uom_id: uom,
         billing_uom_id: uom,
@@ -288,9 +293,6 @@ export function YarnQuickCreateSheet({
             )}
           </div>
           {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-          <p className="mt-1 text-xs text-muted-foreground">
-            The code is generated automatically from the name. UOMs default to kg.
-          </p>
         </div>
       </div>
     </Sheet>

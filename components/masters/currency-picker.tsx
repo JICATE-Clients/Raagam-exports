@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 import { createCurrency, updateCurrency } from "@/lib/masters/extras-actions";
 import type { Currency } from "@/lib/masters/types";
+import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
 
 /**
  * The legacy blue ⓘ Currency popup, over the existing `currencies` master
@@ -151,7 +152,7 @@ export function CurrencyPicker({
         onClick={openDialog}
 
         data-field-trigger
-        className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+        className={PICKER_TRIGGER_CLASS}
       >
         <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
           {selectedLabel}

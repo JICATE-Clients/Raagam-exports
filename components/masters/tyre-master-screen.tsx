@@ -293,11 +293,6 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
                 className="text-base md:text-sm"
               />
               {dupNameError && <p className="mt-1 text-xs text-danger">{dupNameError}</p>}
-              {!editId && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The code is generated automatically from the name.
-                </p>
-              )}
             </div>
           </DetailSection>
 

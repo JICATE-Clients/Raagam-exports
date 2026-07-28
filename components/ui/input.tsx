@@ -19,7 +19,13 @@ export const Input = forwardRef<
       // text-base on mobile stops iOS zooming the viewport on focus; text-sm on
       // desktop keeps the dense ERP rhythm. Lives here rather than at ~595 call
       // sites that each re-typed `className="text-base md:text-sm"`.
-      "h-9 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+      // `@2xl/editor:h-8` is the compact density height (doc/ui/LAYOUT.md).
+      // Container query, not `md:`, so a control inside a ~440px nested picker
+      // dialog — or on a phone — keeps the full 36px touch target. The editor
+      // content wrappers in sheet.tsx / master-full-screen.tsx declare the
+      // container. Keep this in step with select.tsx, combobox.tsx and
+      // masters/picker-classes.ts or fields stop lining up.
+      "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
       "placeholder:text-muted-foreground",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",

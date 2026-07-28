@@ -31,6 +31,8 @@ import {
   FABRIC_USING,
   FABRIC_STRUCTURE_UOM,
   itemClassForm,
+  isAccessoryClass,
+  usesNumbersUom,
   type Material,
   type MaterialInput,
   type DetailFieldKey,
@@ -38,7 +40,7 @@ import {
 } from "@/lib/masters/material-types";
 import type { ConfigLookup, Attribute, AttributeValue } from "@/lib/masters/extras-types";
 import type { MaterialAttribute } from "@/lib/masters/material-attribute-types";
-import type { Category } from "@/lib/masters/category-types";
+import { showsSubCategories, type Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Uom } from "@/lib/masters/types";
@@ -65,8 +67,8 @@ const BLANK = {
   hsn_code: "",
   hsn_id: "",
   category_id: "",
+  sub_category_id: "",
   material_type: "",
-  user_defined: false,
   specifications: "",
   short_spec: "",
   count_id: "",
@@ -77,6 +79,7 @@ const BLANK = {
   fabric_using: "",
   yarn_type_id: "",
   direct_purchase: false,
+  has_alternate_uom: false,
   base_uom_id: "",
   stock_uom_id: "",
   billing_uom_id: "",
@@ -151,9 +154,6 @@ export function MaterialMasterScreen({
   // the Component Yarn picker's full quick-create sheet, which always creates
   // inside the Yarn class regardless of the class being edited.
   const yarnCategories = useMemo(() => categories.filter((c) => c.item_class_id === yarnClassId), [categories, yarnClassId]);
-  // Every other Material (any item class) — General's "Using (Items)" grid can
-  // reference anything, just not the record currently being edited.
-  const usingItemOptions = useMemo(() => rows.filter((r) => r.id !== editId), [rows, editId]);
   const structureCodeById = useMemo(() => new Map(fabricStructures.map((s) => [s.id, s.code])), [fabricStructures]);
   // Lowercased keys — UOM codes are data ("kg" vs "KG" both occur); the
   // Yarn-kg default and fabric-structure UOM hints must not miss on case.
@@ -218,6 +218,18 @@ export function MaterialMasterScreen({
   const formKey: MaterialFormKey = itemClassForm(selectedClassCode);
   const formDef = formKey === "A" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
   const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
+  // Sub Category (0349) — General only, and only when the picked Category
+  // actually defines a second level. A category with none hides the field
+  // entirely, so this can never become a dead end the way the attribute flow
+  // did for General: no sub-categories defined ⇒ nothing to answer.
+  const subCategoryOptions =
+    showsSubCategories(selectedClassCode) && selectedCategory?.has_sub_categories
+      ? (selectedCategory.sub_categories ?? [])
+      : [];
+  const subCategoryVisible = subCategoryOptions.length > 0;
+  // Required once the field is on screen — an unattributed material is exactly
+  // the hole the category/sub-category split exists to close (client 2026-07-28).
+  const subCategoryMissing = subCategoryVisible && !form.sub_category_id;
   // Child grids are wide tables — they render full-width BELOW the two-column
   // body (Screenshot 2079), so their visibility gates live here rather than
   // inside the per-class detail sections. Yarn Mixing shows for a Mixed-nature
@@ -256,11 +268,17 @@ export function MaterialMasterScreen({
     });
   }, [formKey, kgUnitId]);
 
-  // Accessories (Sewing/Packing) are stocked/billed/planned/purchased in Numbers.
-  // Backfill every empty UOM to the Numbers unit — same fill-blanks-only shape as
-  // the Yarn KG default, so a manual override always survives.
+  // Counted classes are stocked/billed/planned/purchased in Numbers: accessories
+  // (Sewing/Packing), and Garments, which are handled as pieces (client
+  // 2026-07-28). Backfill every empty UOM to the Numbers unit — same
+  // fill-blanks-only shape as the Yarn KG default, so a manual override always
+  // survives.
+  //
+  // Guarded by `usesNumbersUom`, NOT `isAccessoryClass`: adding "GAR" to the
+  // accessory set would also switch on the attribute-driven naming flow and hand
+  // Garments a question grid and a read-only auto-composed Name.
   useEffect(() => {
-    if (formKey !== "A" || !["SEW", "PACK"].includes(selectedClassCode ?? "")) return;
+    if (!usesNumbersUom(selectedClassCode)) return;
     const nId = numbersUnitId;
     if (!nId) return;
     setForm((f) => {
@@ -272,7 +290,7 @@ export function MaterialMasterScreen({
       if (!f.purchase_uom_id) patch.purchase_uom_id = nId;
       return Object.keys(patch).length ? { ...f, ...patch } : f;
     });
-  }, [formKey, selectedClassCode, numbersUnitId]);
+  }, [selectedClassCode, numbersUnitId]);
 
   // Fabric mirrors the Yarn default, but the unit depends on the Structure/Type
   // (Circular/Flat = KGS, Woven = MTR, 2026-07-24). Backfill every empty UOM to
@@ -314,7 +332,7 @@ export function MaterialMasterScreen({
   // A category drives the attribute flow only when User Defined = No (client
   // 2026-07-24). Yes = manual free-text name (like General); No = the system
   // asks the configured questions and auto-generates the name.
-  const attributeDriven = formKey === "A" && selectedCategory?.user_defined === false;
+  const attributeDriven = isAccessoryClass(selectedClassCode) && selectedCategory?.user_defined === false;
   // The attribute-driven category has no configured question set yet.
   const attributeSetMissing = attributeDriven && !matchedAttrSet;
   // The ordered questions to render. Each question's shape comes from its LINE
@@ -408,7 +426,7 @@ export function MaterialMasterScreen({
   // are applied by the effect above (fires when formKey becomes YARN), so they
   // no longer need to be duplicated here.
   function handleItemClassChange(v: string) {
-    set({ item_class_id: v, category_id: "" });
+    set({ item_class_id: v, category_id: "", sub_category_id: "" });
   }
 
   function openAdd() {
@@ -431,8 +449,8 @@ export function MaterialMasterScreen({
       hsn_code: r.hsn_code ?? "",
       hsn_id: r.hsn_id ?? "",
       category_id: r.category_id ?? "",
+      sub_category_id: r.sub_category_id ?? "",
       material_type: r.material_type ?? "",
-      user_defined: r.user_defined,
       specifications: r.specifications ?? "",
       short_spec: r.short_spec ?? "",
       count_id: r.count_id ?? "",
@@ -443,6 +461,7 @@ export function MaterialMasterScreen({
       fabric_using: r.fabric_using ?? "",
       yarn_type_id: r.yarn_type_id ?? "",
       direct_purchase: r.direct_purchase,
+      has_alternate_uom: r.has_alternate_uom,
       base_uom_id: r.base_uom_id ?? "",
       stock_uom_id: r.stock_uom_id ?? "",
       billing_uom_id: r.billing_uom_id ?? "",
@@ -540,9 +559,22 @@ export function MaterialMasterScreen({
   const addConv = () => setConversions((xs) => [...xs, { key: newKey(), alt_qty: "", alt_uom_id: "", base_qty: "", base_uom_id: "" }]);
   const setConv = (key: string, patch: Partial<ConvRow>) => setConversions((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const delConv = (key: string) => setConversions((xs) => xs.filter((r) => r.key !== key));
-  const addUsingRow = () => setUsingItems((xs) => [...xs, { key: newKey(), used_item_id: "", description: "", shade: "", uom_id: "" }]);
-  const setUsingRow = (key: string, patch: Partial<UsingItemRow>) => setUsingItems((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  const delUsingRow = (key: string) => setUsingItems((xs) => xs.filter((r) => r.key !== key));
+  /** Alternative UOM declares that this material is bought in a different unit
+   *  than it is consumed in. ON seeds a first conversion row so the revealed
+   *  grid isn't an empty box the user has to click "+ Add" to use; OFF clears
+   *  the rows so nothing invisible is carried to the server (which enforces the
+   *  same rule in normConversions). Mirrors toggleHasSubs in
+   *  process-master-screen.tsx. */
+  const toggleAltUom = (checked: boolean) => {
+    set({ has_alternate_uom: checked });
+    if (checked) {
+      if (conversions.length === 0) addConv();
+    } else {
+      setConversions([]);
+    }
+  };
+  // No add/edit/remove handlers: the Using (Items) grid is gone from the form.
+  // `usingItems` is still loaded and saved so legacy rows round-trip untouched.
 
   function submit() {
     startTransition(async () => {
@@ -556,8 +588,13 @@ export function MaterialMasterScreen({
         hsn_code: form.hsn_code || null,
         hsn_id: form.hsn_id || null,
         category_id: form.category_id || null,
+        // Only ever sent when the field is actually on screen — otherwise a
+        // stale pick would survive a category change that hid the field.
+        sub_category_id: (subCategoryVisible && form.sub_category_id) || null,
         material_type: form.material_type || null,
-        user_defined: form.user_defined,
+        // Mirrors the Category rather than being edited here; the server
+        // re-derives it authoritatively, so this is only a best-effort value.
+        user_defined: selectedCategory?.user_defined ?? false,
         specifications: form.specifications || null,
         short_spec: form.short_spec || null,
         count_id: form.count_id || null,
@@ -568,6 +605,7 @@ export function MaterialMasterScreen({
         fabric_using: form.fabric_using || null,
         yarn_type_id: form.yarn_type_id || null,
         direct_purchase: form.direct_purchase,
+        has_alternate_uom: form.has_alternate_uom,
         base_uom_id: form.base_uom_id || null,
         stock_uom_id: form.stock_uom_id || null,
         billing_uom_id: form.billing_uom_id || null,
@@ -654,11 +692,18 @@ export function MaterialMasterScreen({
    * (client 2026-07-24 #3). Description is the only genuinely long free text.
    * Adjust here, not at the call sites — this map is the single source of truth
    * for the generic classes (General / SEW / PACK / CAP / Garments).
+   *
+   * THE SPANS OF ONE ROW MUST SUM TO 12. A General material shows Category, Sub
+   * Category, User defined and Type; at 4+4+3+3 = 14 they overflowed the track
+   * and Type wrapped onto a row of its own, with the empty rest of that row
+   * under it (client 2026-07-28). Sizing each to what it actually holds lands on
+   * exactly 12. Widen one of these and something else has to give.
    */
   const DETAIL_FIELD_SIZE: Record<DetailFieldKey, FieldSize> = {
-    category_id: "md", // picker, shows a category name
-    material_type: "sm", // Purchased / Converted / Production
-    user_defined: "xs", // Yes / No
+    category_id: "md", // 4 — picker, holds the longest value of the four
+    sub_category_id: "sm", // 3 — second level under the category, General only
+    material_type: "sm", // 3 — Purchased / Converted / Production
+    user_defined: "xs", // 2 — read-only, renders just the word "Yes"/"No"
     specifications: "lg", // free-text description
     short_spec: "md",
     count_id: "sm", // "40'S", "20'S/2"
@@ -683,7 +728,10 @@ export function MaterialMasterScreen({
             label="Category"
             categories={scopedCategories}
             value={form.category_id}
-            onChange={(v) => set({ category_id: v })}
+            // A sub-category belongs to one category — changing the category
+            // must drop the old pick, or the material keeps a sub-category from
+            // a category it is no longer in.
+            onChange={(v) => set({ category_id: v, sub_category_id: "" })}
             itemClassId={form.item_class_id}
             selectedClassCode={selectedClassCode}
             canCreate={perms.canCreate}
@@ -698,7 +746,7 @@ export function MaterialMasterScreen({
       case "material_type": {
         // For Sewing/Packing this is the accessory "Transaction Type" — Production
         // is removed, leaving Purchased / Converted (client 2026-07-24).
-        const isAccessory = ["SEW", "PACK"].includes(selectedClassCode ?? "");
+        const isAccessory = isAccessoryClass(selectedClassCode);
         const typeOptions = isAccessory ? MATERIAL_TYPES.filter((t) => t !== "Production") : MATERIAL_TYPES;
         return (
           <div key={key}>
@@ -714,16 +762,48 @@ export function MaterialMasterScreen({
           </div>
         );
       }
-      case "user_defined":
+      case "sub_category_id":
+        // Only rendered when the Category defines sub-categories (see the
+        // fields filter on the Classification section), so there is no empty
+        // or disabled state to handle here.
         return (
           <div key={key}>
-            <Label>User defined</Label>
-            <Select value={form.user_defined ? "yes" : "no"} onChange={(e) => set({ user_defined: e.target.value === "yes" })} className="text-base md:text-sm">
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
+            <Label htmlFor="mt-sub-category">
+              Sub Category <span className="text-danger">*</span>
+            </Label>
+            <Select
+              id="mt-sub-category"
+              value={form.sub_category_id}
+              onChange={(e) => set({ sub_category_id: e.target.value })}
+              className="text-base md:text-sm"
+            >
+              <option value="">— Select —</option>
+              {subCategoryOptions.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.name}
+                </option>
+              ))}
             </Select>
           </div>
         );
+      case "user_defined": {
+        // Defined once on the Category and only meaningful there — it is what
+        // flips `attributeDriven` between a manual free-text name and the
+        // configured attribute questions. The material's own items.user_defined
+        // column drives nothing, so re-asking it here let the user set a value
+        // that contradicted the Category with no effect (client 2026-07-27).
+        // Shown read-only instead, so it still explains WHY the Attributes grid
+        // appeared and the Name went read-only.
+        const cat = selectedCategory;
+        return (
+          <div key={key}>
+            <Label>User defined</Label>
+            <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-foreground">
+              {cat ? (cat.user_defined ? "Yes" : "No") : "—"}
+            </div>
+          </div>
+        );
+      }
       case "specifications":
         return (
           <div key={key}>
@@ -1209,30 +1289,12 @@ export function MaterialMasterScreen({
     );
   }
 
-  /** "Using (Items)" — General item class only: which other items (any item
-   *  class) this material uses, plus Shade/UOM per line (0304). Rows link a
-   *  real Item via `ItemPicker` only — no free-text Description (user
-   *  2026-07-23, same rule as the Attributes/Mixing grids; `description`
-   *  stays in row data for legacy rows). */
-  function usingItemsGrid() {
-    const descCell = (u: UsingItemRow) => (
-      <ItemPicker label="" items={usingItemOptions.filter((x) => x.is_active || x.id === u.used_item_id)} value={u.used_item_id} onChange={(v) => setUsingRow(u.key, { used_item_id: v })} />
-    );
-    return (
-      <ChildGrid<UsingItemRow>
-        label="Using (Items)"
-        inlineCards
-        rows={usingItems}
-        onAdd={addUsingRow}
-        onRemove={(u) => delUsingRow(u.key)}
-        columns={[
-          { header: "Item", cell: descCell },
-          { header: "Shade", width: "7rem", cell: (u) => <Input value={u.shade} onChange={(e) => setUsingRow(u.key, { shade: e.target.value })} /> },
-          { header: "Uom", width: "5.5rem", cell: (u) => uomSelect(u.uom_id, (v) => setUsingRow(u.key, { uom_id: v })) },
-        ]}
-      />
-    );
-  }
+  /* "Using (Items)" (0304) was a General-only grid listing which other items a
+     material uses. Dropped from the form — General doesn't have that concept
+     (client 2026-07-28). Per the minimal-forms rule the DB side is untouched:
+     `material_using_items` still exists and `usingItems` still round-trips
+     through load and save, so any legacy rows survive an edit rather than being
+     silently deleted. Re-rendering it is a one-line change if that reverses. */
 
   const uomCell = (id: string | null) => <span className="text-xs text-muted-foreground">{id ? unitCodeById.get(id) ?? "—" : "—"}</span>;
 
@@ -1437,6 +1499,7 @@ export function MaterialMasterScreen({
                 mixPctSumInvalid ||
                 attrMandatoryMissing ||
                 attributeSetMissing ||
+                subCategoryMissing ||
                 nameDuplicate
               }
               onClick={submit}
@@ -1497,11 +1560,6 @@ export function MaterialMasterScreen({
                 )}
               />
               {dupMessage && <p className="mt-1 text-xs text-danger">{dupMessage}</p>}
-              {!editId && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The code is generated automatically from the name.
-                </p>
-              )}
             </div>
             <LookupDialogPicker
               kind="hsn_code"
@@ -1533,7 +1591,14 @@ export function MaterialMasterScreen({
               ) : (
                 // Generic classes (General/SEW/PACK/CAP/Garments) share the
                 // same dense 2-col layout as Yarn/Fabric — global form rule.
-                <DetailSection label="Classification" cols={12}>{formDef?.fields.map((k) => detailField(k))}</DetailSection>
+                // Sub Category is in form A's field list but only belongs on
+                // screen for a General category that defines one, so it is
+                // filtered here rather than splitting the registry in two.
+                <DetailSection label="Classification" cols={12}>
+                  {formDef?.fields
+                    .filter((k) => k !== "sub_category_id" || subCategoryVisible)
+                    .map((k) => detailField(k))}
+                </DetailSection>
               )}
               {/* 12-col track: a numeric answer is a 2-4 character box, an
                   option list needs room for its longest option. Sizing each to
@@ -1625,7 +1690,6 @@ export function MaterialMasterScreen({
               {/* Using (Items) is a General-item concept only. Accessories
                   (SEW/PACK) list their configured attributes instead (client
                   2026-07-25). */}
-              {selectedClassCode === "GEN" && usingItemsGrid()}
             </div>
 
             {/* RIGHT: pure measurement for ALL classes — Units of Measure,
@@ -1638,18 +1702,38 @@ export function MaterialMasterScreen({
                 <Field label="Base Uom" size="sm">
                   {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }))}
                 </Field>
-                <Field label="Stock Uom" size="sm">
-                  {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }))}
+                {/* ~90% of materials are consumed and purchased in the same unit
+                    (a label is Numbers everywhere), so the other four slots and
+                    the conversions grid stay out of the way until the material
+                    says it needs them. Thread (metres → cones) and buttons
+                    (numbers → gross) are the cases that tick this. */}
+                <Field label="&nbsp;" size="md">
+                  <label className="flex h-9 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.has_alternate_uom}
+                      onChange={(e) => toggleAltUom(e.target.checked)}
+                    />
+                    <span className="text-sm text-foreground">Alternative UOM</span>
+                  </label>
                 </Field>
-                <Field label="Billing Uom" size="sm">
-                  {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }))}
-                </Field>
-                <Field label="Planning Uom" size="sm">
-                  {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }))}
-                </Field>
-                <Field label="Purchase Uom" size="sm">
-                  {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }))}
-                </Field>
+                {form.has_alternate_uom && (
+                  <>
+                    <Field label="Stock Uom" size="sm">
+                      {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }))}
+                    </Field>
+                    <Field label="Billing Uom" size="sm">
+                      {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }))}
+                    </Field>
+                    <Field label="Planning Uom" size="sm">
+                      {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }))}
+                    </Field>
+                    <Field label="Purchase Uom" size="sm">
+                      {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }))}
+                    </Field>
+                  </>
+                )}
               </DetailSection>
 
               {/* Conversions as one inline row per record — the legacy wide
@@ -1657,6 +1741,7 @@ export function MaterialMasterScreen({
                   2-col card wrapped four controls onto two lines. Quantities
                   are numeric so they get a fixed narrow track; the UOM pickers
                   share the remaining space. */}
+              {form.has_alternate_uom && (
               <ChildGrid<ConvRow>
                 label="Alternate ↔ Base Conversions"
                 rows={conversions}
@@ -1681,6 +1766,7 @@ export function MaterialMasterScreen({
                   { header: "Base UOM", cell: (c) => uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v })) },
                 ]}
               />
+              )}
 
               {/* Budget + Cost Rate removed from the data path (client walkthrough,
                   0279) — no longer edited or written from this screen. The DB

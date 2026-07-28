@@ -57,8 +57,9 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
  * Deliberately shape-agnostic: rows are found via `data-grid-row` /
  * `data-grid-body` rather than `<tr>`/`<td>`, and a row's "column" is the
  * position of the control among that row's fields. It previously keyed off
- * `closest("td")`, so it silently did nothing in card mode — which is every
- * Material grid, since they all pass `forceCards`. That is why arrow keys
+ * `closest("td")`, so it silently did nothing outside the table — which is
+ * every Material grid, since none of them render one (they pass `inlineCards`;
+ * they passed `forceCards` when this was written). That is why arrow keys
  * appeared to work on some screens and not others (client 2026-07-24 #2).
  */
 export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => void) {
@@ -254,6 +255,29 @@ export function ChildGrid<T extends { key: string }>({
     if (paginated) pg.setPage(Number.MAX_SAFE_INTEGER);
   };
   const addFn = hideAdd ? NO_ADD : handleAdd;
+  /**
+   * Three layouts, ONE choice.
+   *
+   * `forceCards` and `inlineCards` arrived at different times as independent
+   * booleans, which made a nonsense combination representable: a caller could
+   * ask for the inline rows AND leave the responsive table switched on. The
+   * table is only `hidden` BELOW `@lg` (512px of this grid's own inline size),
+   * so nothing looked wrong in a narrow column — but at ≥512px both rendered
+   * and every row appeared twice, once as a `#`-numbered table row and once as
+   * an inline row beneath it. All four Material grids hit exactly that (they
+   * were migrated `forceCards` → `inlineCards` and this gate was never
+   * updated); it only became visible when the editor surface widened to 1180px
+   * and pushed their container past the threshold.
+   *
+   * Deriving one mode makes that state unrepresentable rather than merely
+   * unused. The props stay as they are — they are the public API across ~32
+   * screens — but nothing downstream reads them directly any more.
+   */
+  const mode: "inline" | "cards" | "responsive" = inlineCards
+    ? "inline"
+    : forceCards
+      ? "cards"
+      : "responsive";
   return (
     <div className={cn("@container space-y-3", !frameless && "rounded-lg border border-border p-3")}>
       <div className="flex items-center justify-between">
@@ -261,8 +285,9 @@ export function ChildGrid<T extends { key: string }>({
         {badge}
       </div>
 
-      {/* wide-container table */}
-      {!forceCards && (
+      {/* wide-container table — only in `responsive` mode. The inline layout is
+          a REPLACEMENT for this, not a companion to it. */}
+      {mode === "responsive" && (
       <div className="hidden overflow-x-auto rounded-lg border border-border @lg:block">
         <table
           className="w-full min-w-[420px] border-collapse text-sm"
@@ -324,7 +349,7 @@ export function ChildGrid<T extends { key: string }>({
           real <table> would overflow. Each column keeps its own width, so a
           Mixing % stays a small box instead of stretching and shoving the next
           field onto a second line (client 2026-07-24 #4). */}
-      {inlineCards ? (
+      {mode === "inline" ? (
         <div
           data-grid-body
           className="space-y-1.5"
@@ -382,13 +407,14 @@ export function ChildGrid<T extends { key: string }>({
           })}
         </div>
       ) : (
-      /* stacked row-cards — the only rendering when forceCards is set. Carries
-          the same keyboard nav as the table: these ARE the grid on every
-          Material screen (they all pass forceCards), so binding it only to the
-          table left arrow keys dead there. */
+      /* stacked row-cards — the whole grid in `cards` mode, and the narrow half
+          of `responsive` mode (hence `@lg:hidden`, the partner to the table's
+          `hidden @lg:block`). Carries the same keyboard nav as the table:
+          where these ARE the grid, binding nav only to the table left arrow
+          keys dead. */
       <div
         data-grid-body
-        className={cn("space-y-2", !forceCards && "@lg:hidden")}
+        className={cn("space-y-2", mode === "responsive" && "@lg:hidden")}
         onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
       >
         {view.map((row, localI) => {

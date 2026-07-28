@@ -13,6 +13,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -29,6 +30,7 @@ import {
   type MaterialBomAmendment,
 } from "@/lib/orders/material-bom-amendment/types";
 import type { MbaFormData } from "@/lib/orders/material-bom-amendment/service";
+import { describeConversion, isUsableConversion, toPurchaseQty } from "@/lib/uom/convert";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type Tab = "items" | "processes" | "calc";
@@ -52,6 +54,8 @@ type ItemRow = {
   purchase_uom_id: string | null;
   consumption_uom_id: string | null;
   alternate_uom_id: string | null;
+  /** The pack size this line buys (0348) — see MbaItem.uom_conversion_id. */
+  uom_conversion_id: string | null;
   combination: string;
   moq: string;
   quantity_nos: string;
@@ -83,6 +87,7 @@ const blankItem = (key: string): ItemRow => ({
   purchase_uom_id: null,
   consumption_uom_id: null,
   alternate_uom_id: null,
+  uom_conversion_id: null,
   combination: "",
   moq: "",
   quantity_nos: "",
@@ -104,6 +109,13 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const [procs, setProcs] = useState<ProcRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // This editor is an inline mode on the page, not a Sheet / MasterFullScreen,
+  // so nothing registers it with the reload guard automatically — a silent
+  // auto-update would wipe a half-entered amendment. Treat the editor being
+  // open as dirty (simple-master-screen.tsx does the same with `editing`), and
+  // include isPending so a reload can't land mid-save and lose the toast.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   const materialCategories = useMemo(
     () => data.lookups.filter((l) => l.kind === "material_category"),
@@ -165,6 +177,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
         purchase_uom_id: c.purchase_uom_id,
         consumption_uom_id: c.consumption_uom_id,
         alternate_uom_id: c.alternate_uom_id,
+        uom_conversion_id: c.uom_conversion_id,
         combination: c.combination ?? "",
         moq: c.moq != null ? String(c.moq) : "",
         quantity_nos: c.quantity_nos != null ? String(c.quantity_nos) : "",
@@ -193,6 +206,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
         purchase_uom_id: c.purchase_uom_id,
         consumption_uom_id: c.consumption_uom_id,
         alternate_uom_id: c.alternate_uom_id,
+        uom_conversion_id: c.uom_conversion_id,
         combination: c.combination || null,
         moq: c.moq ? Number(c.moq) : null,
         quantity_nos: c.quantity_nos ? Number(c.quantity_nos) : null,
@@ -322,16 +336,44 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const uomName = (id: string | null) =>
     data.uoms.find((u) => u.id === id)?.name ?? "—";
 
+  /** Pack sizes defined on a material, for that BOM line's pack picker. Empty
+   *  means the material has no conversions — the ~90% bought in the unit they
+   *  are consumed in, or one whose master hasn't been filled in yet. */
+  const packsFor = (itemId: string | null) =>
+    itemId
+      ? data.conversions.filter((c) => c.item_id === itemId && isUsableConversion(c))
+      : [];
+  const packById = (id: string | null) =>
+    id ? (data.conversions.find((c) => c.id === id) ?? null) : null;
+  /** Decimals the purchase quantity may carry. `decimal_places_allowed` (0309),
+   *  not `decimal_places` (0224) — the latter is 0 on every row in the live DB
+   *  and would round 16.67 Gross to 17, the round-up the client rejected. */
+  const uomDecimals = (id: string | null) =>
+    data.uoms.find((u) => u.id === id)?.decimal_places_allowed ?? 2;
+
   const calcRows = items
     .filter((r) => r.item_id || r.category_id || r.quantity_nos)
     .map((r, i) => {
       const per = r.quantity_nos ? Number(r.quantity_nos) : null;
+      // Base requirement: what production consumes. 1,000 pcs × 200 m = 200,000 m.
+      const totalBase = per != null ? per * orderQty : null;
+      // Purchase requirement: the same thing in the unit the supplier bills in.
+      // 200,000 m ÷ 2,500 m/cone = 80 cones. Null when no pack is selected, so
+      // lines that never needed a conversion read "—" rather than a wrong number.
+      const pack = packById(r.uom_conversion_id);
       return {
         sno: i + 1,
         category: catName(r.category_id),
         description: itemName(r.item_id),
+        process: "—",
+        size: "—",
         uom: uomName(r.consumption_uom_id ?? r.purchase_uom_id),
-        calc_qty: per != null ? per * orderQty : null,
+        calc_qty: totalBase,
+        purchase_qty:
+          pack && totalBase != null
+            ? toPurchaseQty(totalBase, pack, uomDecimals(pack.alt_uom_id))
+            : null,
+        purchase_uom: pack ? uomName(pack.alt_uom_id) : "—",
         order_qty: orderQty,
       };
     });
@@ -438,6 +480,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                     <th className="px-2 py-1.5 text-left font-medium">Purchase Uom</th>
                     <th className="px-2 py-1.5 text-left font-medium">Consumption Uom</th>
                     <th className="px-2 py-1.5 text-left font-medium">Alternate Uom</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Purchase Pack</th>
                     <th className="px-2 py-1.5 text-left font-medium">Combination</th>
                     <th className="px-2 py-1.5 text-right font-medium">MOQ</th>
                     <th className="px-2 py-1.5 text-right font-medium">Qty</th>
@@ -543,6 +586,39 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                           compact
                         />
                       </td>
+                      {/* Purchase pack — which cone/gross size this line buys.
+                          Options come from the material's own conversions, so an
+                          empty list is the signal to go define them on the
+                          Materials master rather than a dead control. */}
+                      <td className="px-2 py-1 min-w-[170px]">
+                        {(() => {
+                          const packs = packsFor(r.item_id);
+                          return (
+                            <Select
+                              className="h-8"
+                              value={r.uom_conversion_id ?? ""}
+                              disabled={packs.length === 0}
+                              title={
+                                packs.length === 0
+                                  ? "No conversions defined on this material — add them under Materials ▸ Units of Measure."
+                                  : undefined
+                              }
+                              onChange={(e) =>
+                                updItem(r.key, { uom_conversion_id: e.target.value || null })
+                              }
+                            >
+                              <option value="">
+                                {packs.length === 0 ? "No conversions" : "Same as consumption"}
+                              </option>
+                              {packs.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {describeConversion(c, uomName)}
+                                </option>
+                              ))}
+                            </Select>
+                          );
+                        })()}
+                      </td>
                       <td className="px-2 py-1 min-w-[120px]">
                         <Input
                           value={r.combination}
@@ -624,7 +700,8 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
           <CardBody>
             <p className="mb-3 text-xs text-muted-foreground">
               Provisional calculation — Calc Qty = per-piece Qty × order qty
-              {selectedOrder ? ` (${fmtNumber(orderQty)})` : " (select an order)"}.
+              {selectedOrder ? ` (${fmtNumber(orderQty)})` : " (select an order)"};
+              Purchase Qty = Calc Qty ÷ the selected Purchase Pack.
               Process / Size mapping pending the legacy formula.
             </p>
             <div className="overflow-x-auto">
@@ -638,13 +715,15 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                     <th className="px-3 py-1.5 text-left font-medium">Size</th>
                     <th className="px-3 py-1.5 text-left font-medium">Uom</th>
                     <th className="px-3 py-1.5 text-right font-medium">Calc Qty</th>
+                    <th className="px-3 py-1.5 text-right font-medium">Purchase Qty</th>
+                    <th className="px-3 py-1.5 text-left font-medium">Purchase Uom</th>
                     <th className="px-3 py-1.5 text-right font-medium">Order Qty</th>
                   </tr>
                 </thead>
                 <tbody>
                   {calcRows.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      <td colSpan={10} className="px-3 py-8 text-center text-sm text-muted-foreground">
                         Add items with a quantity to see calculated requirements.
                       </td>
                     </tr>
@@ -660,6 +739,10 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                         <td className="px-3 py-1.5 text-right tabular-nums">
                           {r.calc_qty != null ? fmtNumber(r.calc_qty) : "—"}
                         </td>
+                        <td className="px-3 py-1.5 text-right font-medium tabular-nums">
+                          {r.purchase_qty != null ? fmtNumber(r.purchase_qty) : "—"}
+                        </td>
+                        <td className="px-3 py-1.5">{r.purchase_uom}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
                           {fmtNumber(r.order_qty)}
                         </td>

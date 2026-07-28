@@ -21,6 +21,7 @@ import type { ConfigLookup, LookupKind, AttributeValue } from "@/lib/masters/ext
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Category } from "@/lib/masters/category-types";
+import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
 
 // ============================================================================
 // Shared "stored-data" picker: mirrors the legacy ⓘ lookup popup — click the
@@ -250,7 +251,9 @@ function DialogListPicker({
         onClick={openPicker}
 
         data-field-trigger
-        className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base text-foreground md:text-sm"
+        // This one had drifted: it was missing the `hover:border-primary`
+        // affordance every other picker has. Sharing the class restores it.
+        className={cn(PICKER_TRIGGER_CLASS, "text-foreground")}
       >
         <span className={cn("truncate", !selected && "text-muted-foreground")}>
           {selected ? `${selected.label}${selected.disabled ? " (inactive)" : ""}` : placeholder}
@@ -850,6 +853,8 @@ export function CategoryPicker({
               status_monitoring_type: null,
               user_defined: false,
               inactive: false,
+              has_sub_categories: false,
+              sub_categories: [],
             }),
           onUpdate: (id, d) => {
             const existing = byId.get(id);
@@ -871,6 +876,16 @@ export function CategoryPicker({
               status_monitoring_type: existing?.status_monitoring_type ?? null,
               user_defined: existing?.user_defined ?? false,
               inactive: existing?.inactive ?? false,
+              // This is a RENAME-only path, but updateCategory reconciles the
+              // sub-category grid from whatever it is handed — sending [] here
+              // would silently delete every sub-category on a rename. Pass the
+              // stored rows straight back through, ids included (0349).
+              has_sub_categories: existing?.has_sub_categories ?? false,
+              sub_categories: (existing?.sub_categories ?? []).map((c) => ({
+                id: c.id,
+                sno: c.sno,
+                name: c.name,
+              })),
             });
           },
           onDelete: (id) => deleteCategory(id),
@@ -896,6 +911,8 @@ export function CategoryPicker({
                 status_monitoring_type: null,
                 user_defined: false,
                 inactive: false,
+                has_sub_categories: false,
+                sub_categories: [],
                 created_by: null,
                 created_by_name: null,
                 created_at: "",

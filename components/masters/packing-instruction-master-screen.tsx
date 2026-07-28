@@ -292,11 +292,6 @@ export function PackingInstructionMasterScreen({
                 className="text-base md:text-sm"
               />
               {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-              {!editId && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The packing no. is generated automatically from the packing type.
-                </p>
-              )}
             </div>
             <div>
               <Label htmlFor="pi-newold">New / Old</Label>

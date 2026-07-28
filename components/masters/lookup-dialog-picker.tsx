@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup, LookupKind } from "@/lib/masters/extras-types";
+import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
 
 /**
  * The legacy green ⊕ / blue ⓘ lookup popup, generalized over a `config_lookups`
@@ -184,7 +185,7 @@ export function LookupDialogPicker({
       onClick={openDialog}
 
       data-field-trigger
-      className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+      className={PICKER_TRIGGER_CLASS}
     >
       <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
         {selectedLabel}
@@ -211,6 +212,17 @@ export function LookupDialogPicker({
               role="dialog"
               aria-modal="true"
               aria-label={`Select ${label}`}
+              // Escape closes the LIST, never the editor behind it. It unwinds
+              // one layer at a time: from the inline Add/Modify form back to the
+              // list, and only then out of the picker — so Escape never discards
+              // a half-typed new entry AND the picker in one press.
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (mode === "form") setMode("list");
+                else close();
+              }}
               className="relative mt-[8vh] flex max-h-[80vh] w-[94%] max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-3">

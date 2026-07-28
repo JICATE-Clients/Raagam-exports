@@ -6,6 +6,7 @@ import { Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PICKER_TRIGGER_CLASS, PICKER_CLEAR_CLASS } from "@/components/masters/picker-classes";
 
 export type PickerItem = { id: string; code: string | null; name: string };
 
@@ -90,7 +91,7 @@ export function RecordPicker({
           onClick={openDialog}
 
           data-field-trigger
-          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-surface px-3 text-left text-base md:text-sm hover:border-primary"
+          className={PICKER_TRIGGER_CLASS}
         >
           <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
             {selectedLabel}
@@ -101,7 +102,7 @@ export function RecordPicker({
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-danger"
+            className={PICKER_CLEAR_CLASS}
             aria-label="Clear"
           >
             <X className="h-4 w-4 shrink-0" />
@@ -118,6 +119,16 @@ export function RecordPicker({
               role="dialog"
               aria-modal="true"
               aria-label={`Select ${label}`}
+              // Escape closes the LIST, never the editor behind it. Bound on the
+              // dialog rather than the search box so it still works once focus
+              // has moved on to Cancel. preventDefault is the signal the
+              // surface-level Escape handlers read to stand down.
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+              }}
               className="relative mt-[8vh] flex max-h-[80vh] w-[94%] max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-3">

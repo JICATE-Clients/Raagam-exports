@@ -122,6 +122,7 @@ import { SizingRateMasterScreen } from "@/components/masters/sizing-rate-master-
 import { WarpLengthAllowanceMasterScreen } from "@/components/masters/warp-length-allowance-master-screen";
 import { ProcessSequenceMasterScreen } from "@/components/masters/process-sequence-master-screen";
 import { ProcessSequenceGroupMasterScreen } from "@/components/masters/process-sequence-group-master-screen";
+import { isAccessoryClass } from "@/lib/masters/material-types";
 
 export default async function MaterialEntityPage({
   params,
@@ -191,7 +192,9 @@ export default async function MaterialEntityPage({
           categories={categories}
           // Material Attribute only ever applies to Pack & Sew accessories —
           // never the full item-class list (Fabric, Yarn, Capital Goods, …).
-          attributes={attributes.filter((a) => ["PACK", "SEW"].includes(a.code ?? ""))}
+          // Same predicate the material form uses to decide whether to ASK the
+          // questions, so the two can never drift apart.
+          attributes={attributes.filter((a) => isAccessoryClass(a.code))}
           units={units}
           // Lookups for the Category quick-create mini-child (Levy/Commodity
           // pickers + item-class-scoped create).

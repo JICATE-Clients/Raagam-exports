@@ -210,11 +210,6 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
             <div>
               <Label htmlFor="ps-name">Name <span className="text-danger">*</span></Label>
               <Input id="ps-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
-              {!editId && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The code is generated automatically from the name.
-                </p>
-              )}
             </div>
             <div>
               <Label htmlFor="ps-ict">Item Class Type <span className="text-danger">*</span></Label>

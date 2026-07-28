@@ -76,7 +76,31 @@ export function isBusy(): boolean {
 }
 
 /**
- * Block the auto-reload while this component is mounted and `dirty` is true.
+ * Half-typed work, counted separately from `busyCount`.
+ *
+ * `isBusy()` cannot answer "would closing this lose anything?" — an open but
+ * untouched picker makes the page busy without making it dirty, and Escape must
+ * not interrogate the operator about a form they have not edited. So Escape
+ * asks THIS question instead (see `components/ui/sheet.tsx`).
+ *
+ * A count rather than a per-surface flag, on purpose: `useUnsavedGuard` is
+ * already called on every screen that tracks edits, so routing dirtiness
+ * through it means Escape-confirm lights up everywhere with no call-site
+ * changes. The imprecision — a dirty form underneath a clean dialog reads as
+ * dirty — costs nothing in practice, because every overlay that owns Escape
+ * (the pickers, Combobox, DropdownMenu) consumes the key before it reaches a
+ * surface-level handler.
+ */
+let dirtyCount = 0;
+
+/** True while any mounted screen has declared unsaved work. */
+export function isDirty(): boolean {
+  return dirtyCount > 0;
+}
+
+/**
+ * Block the auto-reload while this component is mounted and `dirty` is true,
+ * and mark the page as holding unsaved work so Escape asks before discarding.
  *
  * The idiom is `useUnsavedGuard(dirty || isPending)` — a reload landing
  * mid-server-action loses the success toast and leaves the user unsure whether
@@ -85,8 +109,27 @@ export function isBusy(): boolean {
 export function useUnsavedGuard(dirty: boolean): void {
   useEffect(() => {
     if (!dirty) return;
-    return acquireBusy();
+    dirtyCount += 1;
+    const release = acquireBusy();
+    return () => {
+      dirtyCount = Math.max(0, dirtyCount - 1);
+      release();
+    };
   }, [dirty]);
+}
+
+/**
+ * The one question Escape asks before throwing away an editor. Returns true when
+ * it is safe to close.
+ *
+ * `useModalGuard` deliberately does NOT feed this: an open overlay is not the
+ * same thing as edited data, and confirming on every Escape would train the
+ * operator to dismiss the prompt without reading it.
+ */
+export function confirmDiscard(): boolean {
+  if (!isDirty()) return true;
+  if (typeof window === "undefined") return true;
+  return window.confirm("Discard unsaved changes?");
 }
 
 /**

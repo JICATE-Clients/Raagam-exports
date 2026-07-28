@@ -44,8 +44,23 @@ function toHeader(d: MaterialInput) {
   void _ch;
   void _br;
   void _bru;
+  // Alternative UOM off ⇒ the material uses ONE unit for everything, so every
+  // downstream slot points at the base unit. Mirroring the flag server-side (as
+  // normalizeSubCategories does for processes) means the hidden fields can never
+  // hold stale values from before the toggle was switched off, and downstream
+  // readers of stock_uom_id / purchase_uom_id keep resolving instead of hitting
+  // nulls. The client hides these fields; it does not get to decide the data.
+  const uom = d.has_alternate_uom
+    ? {}
+    : {
+        stock_uom_id: d.base_uom_id,
+        billing_uom_id: d.base_uom_id,
+        planning_uom_id: d.base_uom_id,
+        purchase_uom_id: d.base_uom_id,
+      };
   return {
     ...rest,
+    ...uom,
     name: (d.name?.trim() || d.code.trim()).toUpperCase() as string, // Name falls back to Short Name; stored in CAPS (client 2026-07-23)
     hsn_code: d.hsn_code?.trim() || null,
     material_type: d.material_type?.trim() || null,
@@ -78,7 +93,59 @@ async function resolveItemClassCode(s: Awaited<ReturnType<typeof createClient>>,
   const { data } = await s.from("config_lookups").select("code").eq("id", itemClassId).maybeSingle();
   return data?.code?.toUpperCase() ?? null;
 }
+
+/** A sub-category belongs to exactly one category, and the client picks both.
+ *  Verified server-side so a stale form (category changed in another tab, or a
+ *  crafted payload) can't file a material under ELECTRICAL ▸ a sub-category of
+ *  STATIONERY — which would quietly corrupt the spend report the split exists
+ *  to produce. Returns an error message, or null when the pairing is fine. */
+async function checkSubCategory(
+  s: Awaited<ReturnType<typeof createClient>>,
+  categoryId: string | null,
+  subCategoryId: string | null,
+): Promise<string | null> {
+  if (!subCategoryId) return null;
+  const { data } = await s
+    .from("category_sub_categories")
+    .select("category_id")
+    .eq("id", subCategoryId)
+    .maybeSingle();
+  if (!data) return "That sub-category no longer exists. Pick another.";
+  if (data.category_id !== categoryId) {
+    return "That sub-category belongs to a different category. Re-pick it after changing the Category.";
+  }
+  return null;
+}
+
+/** The Category owns "User Defined" — it is what decides whether a material is
+ *  named freely or from the configured attribute questions. The material only
+ *  mirrors it. Resolved server-side (not trusted from the client, same as the
+ *  item class above) so items.user_defined can never end up contradicting the
+ *  category that actually drives the flow. */
+async function resolveCategoryUserDefined(
+  s: Awaited<ReturnType<typeof createClient>>,
+  categoryId: string | null,
+): Promise<boolean> {
+  if (!categoryId) return false;
+  const { data } = await s.from("categories").select("user_defined").eq("id", categoryId).maybeSingle();
+  return data?.user_defined ?? false;
+}
+/** The 0348 unique index on (item_id, alt_qty, alt_uom_id, base_qty, base_uom_id)
+ *  fires when a material is given the same pack twice. Postgres phrases that as
+ *  `duplicate key value violates unique constraint "uq_…"`, which tells a
+ *  planner nothing — say what they actually did instead. */
+function conversionSaveError(e: { code?: string; message: string }): string {
+  if (e.code === "23505") {
+    return "This material already has a conversion with the same quantities and units. Edit the existing line instead of adding a second identical one.";
+  }
+  return e.message;
+}
+
 function normConversions(d: MaterialInput) {
+  // Flag off ⇒ no conversions, whatever the client sent. updateMaterial deletes
+  // the child rows before re-inserting, so returning [] here is what actually
+  // clears a material that used to have conversions and no longer should.
+  if (!d.has_alternate_uom) return [];
   return d.conversions
     .filter((c) => c.alt_uom_id || c.base_uom_id || c.alt_qty != null || c.base_qty != null)
     .map((c, i) => ({
@@ -128,6 +195,9 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
     );
   }
   const header = toHeader(p.data);
+  header.user_defined = await resolveCategoryUserDefined(s, p.data.category_id);
+  const subErr = await checkSubCategory(s, p.data.category_id, p.data.sub_category_id);
+  if (subErr) return fail(subErr);
   if (classCode === "YARN") {
     const dup = await findDuplicateYarn(p.data.item_class_id as string, p.data.count_id, p.data.category_id, p.data.purity_id);
     if (dup) return fail(`A yarn with this Count/Category/Purity already exists: "${dup.name}". Select it instead of creating a duplicate.`);
@@ -175,7 +245,7 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
   const cv = normConversions(p.data);
   if (cv.length) {
     const { error: e } = await s.from("material_uom_conversions").insert(cv.map((r) => ({ ...r, item_id: created.id })));
-    if (e) return fail(e.message);
+    if (e) return fail(conversionSaveError(e));
   }
   const ui = normUsingItems(p.data);
   if (ui.length) {
@@ -198,6 +268,9 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   const s = await createClient();
   const classCode = await resolveItemClassCode(s, p.data.item_class_id);
   const header: Partial<ReturnType<typeof toHeader>> = toHeader(p.data);
+  header.user_defined = await resolveCategoryUserDefined(s, p.data.category_id);
+  const subErr = await checkSubCategory(s, p.data.category_id, p.data.sub_category_id);
+  if (subErr) return fail(subErr);
   if (classCode === "YARN") {
     const dup = await findDuplicateYarn(p.data.item_class_id as string, p.data.count_id, p.data.category_id, p.data.purity_id, id);
     if (dup) return fail(`A yarn with this Count/Category/Purity already exists: "${dup.name}". Select it instead of creating a duplicate.`);
@@ -259,7 +332,7 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   const cv = normConversions(p.data);
   if (cv.length) {
     const { error: e } = await s.from("material_uom_conversions").insert(cv.map((r) => ({ ...r, item_id: id })));
-    if (e) return fail(e.message);
+    if (e) return fail(conversionSaveError(e));
   }
   const ui = normUsingItems(p.data);
   if (ui.length) {

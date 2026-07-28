@@ -322,11 +322,6 @@ export function SizeGroupMasterScreen({
                 placeholder="Size group name"
                 className="text-base md:text-sm"
               />
-              {!editId && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The group no. is generated automatically from the name.
-                </p>
-              )}
             </div>
           </DetailSection>
 

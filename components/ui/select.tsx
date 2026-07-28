@@ -26,7 +26,8 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 
 const NATIVE_CLASS = cn(
   // px-3 matches Input/Combobox — this was the lone px-2 control.
-  "h-9 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+  // @2xl/editor:h-8 — compact density; see the note in components/ui/input.tsx.
+  "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
   "disabled:cursor-not-allowed disabled:opacity-50",
 );

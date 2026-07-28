@@ -640,7 +640,7 @@ export function VendorMasterScreen({
                 layout but not the keyboard behaviour, so arrows and Enter did
                 nothing here (client 2026-07-25). */}
             <div ref={editorContentRef} data-focus-scope className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-3xl px-4 py-5 md:px-6">
+              <div className="@container/editor mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6">
                 {section === "identity" && (
                   <SectionBody title="Identity" hint="Who this vendor is, their category and registration details.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

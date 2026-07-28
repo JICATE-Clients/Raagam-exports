@@ -8,6 +8,16 @@ import { z } from "zod";
 export const MADE_TYPES = ["Natural", "Manmade", "Mixed"] as const;
 export type MadeType = (typeof MADE_TYPES)[number];
 
+/** A second classification level under a Category (0349) — e.g. ELECTRICAL ▸
+ *  LIGHTS / FANS / SWITCHES. Exists so General spend can be reported both in
+ *  detail and as a category total. */
+export interface CategorySubCategory {
+  id: string;
+  category_id: string;
+  sno: number;
+  name: string;
+}
+
 export interface Category {
   id: string;
   item_class_id: string;
@@ -36,12 +46,27 @@ export interface Category {
    *  Only shown on the form for USER_DEFINED_CLASS_CODES item classes. */
   user_defined: boolean;
   inactive: boolean;
+  /** Reveals the Sub Categories grid. When false the category has no second
+   *  level and the Material form hides its Sub Category field entirely. */
+  has_sub_categories: boolean;
+  sub_categories: CategorySubCategory[];
   /** Who entered the record — joined in category-service, not a raw column read. */
   created_by: string | null;
   created_by_name: string | null;
   created_at: string;
   updated_at: string;
 }
+
+/** `id` is carried back on save so updateCategory can RECONCILE rather than
+ *  delete-and-reinsert. Every other child grid in this codebase replaces its
+ *  rows wholesale, which is fine when nothing points at them — but
+ *  items.sub_category_id does, so regenerating ids on every category save
+ *  would break the link on every material in that category. Null = a new row. */
+export const categorySubCategoryInput = z.object({
+  id: z.string().uuid().nullable().default(null),
+  sno: z.coerce.number().int().nonnegative().default(0),
+  name: z.string().trim().min(1, "Sub Category name is required"),
+});
 
 export const categoryInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
@@ -61,6 +86,8 @@ export const categoryInput = z.object({
   status_monitoring_type: z.string().nullable().default(null),
   user_defined: z.boolean().default(false),
   inactive: z.boolean().default(false),
+  has_sub_categories: z.boolean().default(false),
+  sub_categories: z.array(categorySubCategoryInput).default([]),
 });
 export type CategoryInput = z.infer<typeof categoryInput>;
 
@@ -69,4 +96,16 @@ export type CategoryInput = z.infer<typeof categoryInput>;
 export const USER_DEFINED_CLASS_CODES = new Set(["CAP", "GEN", "SEW", "PACK", "GAR"]);
 export function showsUserDefined(code: string | null | undefined): boolean {
   return !!code && USER_DEFINED_CLASS_CODES.has(code.toUpperCase());
+}
+
+/** Item classes whose Categories can carry a second level (0349). General
+ *  stores buy by category-then-type — Electrical ▸ Lights/Fans/Switches — and
+ *  need both the detail and the roll-up for annual spend reporting.
+ *
+ *  General only for now (client 2026-07-28). Capital Goods was in the original
+ *  spec and is the obvious next addition: add "CAP" here and both the Category
+ *  grid and the Material field follow, no other change. */
+export const SUB_CATEGORY_CLASS_CODES = new Set(["GEN"]);
+export function showsSubCategories(code: string | null | undefined): boolean {
+  return !!code && SUB_CATEGORY_CLASS_CODES.has(code.toUpperCase());
 }

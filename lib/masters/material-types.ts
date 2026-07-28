@@ -50,6 +50,10 @@ export interface Material {
   hsn_code: string | null;
   hsn_id: string | null;
   category_id: string | null;
+  /** Second classification level under the Category — General only (0349).
+   *  e.g. Category ELECTRICAL ▸ Sub Category LIGHTS. Null when the category
+   *  defines no sub-categories, which is the normal case for every other class. */
+  sub_category_id: string | null;
   /** Legacy "Type" — for SEW/PACK it is the accessory Transaction Type
    *  (Purchased / Converted; Production filtered out in the form). */
   material_type: string | null;
@@ -75,6 +79,12 @@ export interface Material {
   /** Fabric bought finished from a vendor — skips the yarn-composition
    *  requirement entirely (functional spec, 0280). Fabric only. */
   direct_purchase: boolean;
+  /** This material is bought in a different unit than it is consumed in —
+   *  thread consumed in metres but purchased in cones, buttons consumed in
+   *  numbers but purchased in gross (0348). ~90% of materials are false, and
+   *  for those the four slots below all equal `base_uom_id` and `conversions`
+   *  is empty (the server enforces both). */
+  has_alternate_uom: boolean;
   base_uom_id: string | null;
   stock_uom_id: string | null;
   billing_uom_id: string | null;
@@ -96,6 +106,7 @@ export interface Material {
 // ---------------------------------------------------------------------------
 export type DetailFieldKey =
   | "category_id"
+  | "sub_category_id"
   | "material_type"
   | "user_defined"
   | "specifications"
@@ -120,9 +131,21 @@ export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
 // Transaction Type. Description/Short-Spec dropped from the UI (client 2026-07-25 —
 // the item name comes from the attributes, not a free-text description); the
 // specifications/short_spec DB columns are kept for round-trip.
+// `sub_category_id` sits right after the Category it hangs off. It is General-only
+// AND only when that Category actually defines sub-categories, so the screen
+// filters it out of this list rather than the registry carrying two variants of
+// form A (see the fields.filter at the Classification section).
+// Form C (Garments) is deliberately SHORTER than A. A garment is identified by
+// its category and its name and nothing else — the client asked for "Category
+// Name and Item Name", with none of the consumption/conversion modelling that
+// sewing thread or buttons need, and no Transaction Type (client 2026-07-28).
+// `user_defined` stays only because it is READ-ONLY here: it is inherited from
+// the Category and shown to explain itself (see the `user_defined` case in
+// material-master-screen.tsx). The items.material_type column is untouched and
+// still round-trips — it is simply no longer asked for on this form.
 export const MATERIAL_FORMS: Record<"A" | "C", MaterialForm> = {
-  A: { fields: ["category_id", "user_defined", "material_type"], mixing: false },
-  C: { fields: ["category_id", "user_defined", "material_type"], mixing: false },
+  A: { fields: ["category_id", "sub_category_id", "user_defined", "material_type"], mixing: false },
+  C: { fields: ["category_id", "user_defined"], mixing: false },
 };
 
 export type MaterialFormKey = "A" | "FABRIC" | "YARN" | "C";
@@ -139,6 +162,35 @@ export function itemClassForm(code: string | null | undefined): MaterialFormKey 
     default:
       return "A";
   }
+}
+
+/** Sewing and Packing are the accessory classes: their materials are named from
+ *  the Material Attribute questions configured per (Item Class + Category), and
+ *  their "Type" is a Transaction Type (Purchased/Converted, no Production).
+ *
+ *  Do NOT infer this from `itemClassForm() === "A"`. Form A is the *default*
+ *  bucket above, so General and Capital Goods land in it too — and that is
+ *  exactly how they picked up an attribute flow they have no config for, which
+ *  disabled their Save and made their Name read-only, leaving no way to create
+ *  one at all (client 2026-07-28). `formKey === "A"` means "not Fabric/Yarn/
+ *  Garments", never "is an accessory". */
+export const ACCESSORY_CLASS_CODES = new Set(["SEW", "PACK"]);
+export function isAccessoryClass(code: string | null | undefined): boolean {
+  return !!code && ACCESSORY_CLASS_CODES.has(code.toUpperCase());
+}
+
+/** Classes counted in whole units, so every UOM prefills to Numbers: accessories
+ *  are counted, and garments are handled as pieces (client 2026-07-28).
+ *
+ *  Deliberately a SEPARATE set from ACCESSORY_CLASS_CODES rather than adding
+ *  "GAR" to it. That set does double duty — it also switches on the
+ *  attribute-driven naming flow — so widening it to reach the UOM default would
+ *  silently hand Garments the Material Attribute question grid and a read-only
+ *  auto-composed Name, which is the exact opposite of what Garments is for. Two
+ *  meanings, two sets. */
+export const NUMBERS_UOM_CLASS_CODES = new Set(["SEW", "PACK", "GAR"]);
+export function usesNumbersUom(code: string | null | undefined): boolean {
+  return !!code && NUMBERS_UOM_CLASS_CODES.has(code.toUpperCase());
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +255,7 @@ export const materialInput = z.object({
   hsn_code: nullableFormat(HSN_RE, "HSN/SAC must be 4, 6 or 8 digits"),
   hsn_id: uuidN,
   category_id: uuidN,
+  sub_category_id: uuidN,
   material_type: z.string().optional().nullable(),
   user_defined: z.boolean().default(false),
   specifications: z.string().optional().nullable(),
@@ -215,6 +268,7 @@ export const materialInput = z.object({
   fabric_using: z.string().optional().nullable(),
   yarn_type_id: uuidN,
   direct_purchase: z.boolean().default(false),
+  has_alternate_uom: z.boolean().default(false),
   base_uom_id: uuidN,
   stock_uom_id: uuidN,
   billing_uom_id: uuidN,

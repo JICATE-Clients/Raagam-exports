@@ -396,7 +396,7 @@ export function DocumentNoFormatMasterScreen({
               clone of MasterFullScreen that had copied the layout but not the
               keyboard behaviour (client 2026-07-25). */}
           <div ref={editorContentRef} data-focus-scope className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-5 px-4 py-5 md:px-6">
+            <div className="@container/editor mx-auto w-full max-w-[1180px] space-y-5 px-4 py-5 md:px-6">
               {/* header */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>

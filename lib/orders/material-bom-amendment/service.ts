@@ -47,6 +47,27 @@ async function getAcceptedOrdersForBom(): Promise<AcceptedOrderRow[]> {
 /** A row normalized to {id, code, name} for a RecordPicker. */
 export type PickerRow = { id: string; code: string | null; name: string };
 
+/** A material's pack size, e.g. "1 Cone = 2,500 MTR" (0348). Fetched flat for
+ *  every material and filtered client-side by item_id, so changing the item on
+ *  a BOM line re-populates the pack picker without a round trip. */
+export type MbaConversionRow = {
+  id: string;
+  item_id: string;
+  alt_qty: number | null;
+  alt_uom_id: string | null;
+  base_qty: number | null;
+  base_uom_id: string | null;
+};
+
+async function getConversionRows(): Promise<MbaConversionRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("material_uom_conversions")
+    .select("id, item_id, alt_qty, alt_uom_id, base_qty, base_uom_id")
+    .order("sno");
+  return (data ?? []) as MbaConversionRow[];
+}
+
 /** All amendments with embedded order + customer + child grids. */
 export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[]> {
   const s = await createClient();
@@ -72,6 +93,23 @@ async function pickerRows(table: string): Promise<PickerRow[]> {
   return (data ?? []) as PickerRow[];
 }
 
+/** UOM plus its decimal precision, needed to render a purchase quantity.
+ *
+ *  NB `decimal_places_allowed` (0309, defaults 2), NOT `decimal_places` (0224,
+ *  defaults 0 and is 0 for every row in the live DB). The client chose exact
+ *  decimals over rounding up to whole packs — 16.67 Gross, not 17 — and
+ *  `decimal_places` would silently reinstate the round-up on every unit. */
+export type UomRow = PickerRow & { decimal_places_allowed: number | null };
+
+async function getUomRows(): Promise<UomRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("uoms")
+    .select("id, code, name, decimal_places_allowed")
+    .order("name");
+  return (data ?? []) as UomRow[];
+}
+
 async function getVendorRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
@@ -87,19 +125,21 @@ export type MbaFormData = {
   customers: Customer[];
   items: PickerRow[];
   vendors: PickerRow[];
-  uoms: PickerRow[];
+  uoms: UomRow[];
+  conversions: MbaConversionRow[];
   lookups: ConfigLookup[];
 };
 
 /** Every picker option list the amendment editor needs, fetched in parallel. */
 export async function getMbaFormData(): Promise<MbaFormData> {
-  const [orders, customers, items, vendors, uoms, lookups] = await Promise.all([
+  const [orders, customers, items, vendors, uoms, conversions, lookups] = await Promise.all([
     getAcceptedOrdersForBom(),
     listCustomers(),
     pickerRows("items"),
     getVendorRows(),
-    pickerRows("uoms"),
+    getUomRows(),
+    getConversionRows(),
     listConfigLookups(),
   ]);
-  return { orders, customers, items, vendors, uoms, lookups };
+  return { orders, customers, items, vendors, uoms, conversions, lookups };
 }

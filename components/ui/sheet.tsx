@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { orderedFocusables, focusFirstField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
-import { useModalGuard } from "@/lib/reload-guard";
+import { useModalGuard, confirmDiscard } from "@/lib/reload-guard";
 
 // Ref-counts open Sheets so a nested Sheet's cleanup doesn't clear the scroll
 // lock a still-open outer Sheet depends on (e.g. a field picker inside an
@@ -165,8 +165,14 @@ export function Sheet({
         // preventDefault is visible here — but its stopPropagation is not, as
         // both listeners sit on the same node.
         if (e.defaultPrevented) return;
+        if (!confirmDiscard()) return;
         entry();
       } else if (e.key === "Tab") {
+        // Same rule as Escape above, and for the same reason: the keyboard-nav
+        // provider turns a second Tab on a picker into "open its list" and marks
+        // the key handled. Without this the trap would then ALSO advance focus,
+        // so the list opened and the cursor immediately left it.
+        if (e.defaultPrevented) return;
         // Focus trap. We drive the WHOLE cycle rather than only guarding the
         // two edges: the cycle is region-ordered (fields → footer → ✕) while
         // native Tab is DOM-ordered (✕ → fields → footer), so edge-only
@@ -325,12 +331,25 @@ export function Sheet({
             </div>
             {/* content — the one scroll */}
             <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6">
-              <div className="mx-auto w-full max-w-5xl">{children}</div>
+              {/* `@container/editor` is the density container: the compact control
+                  sizes in input/select/combobox/label and the tighter gaps in
+                  DetailSection all key off `@2xl/editor:`. Being a CONTAINER query
+                  and not a `md:` breakpoint is what keeps compact desktop-only for
+                  free — this wrapper is ~1180px in a full-screen editor but only
+                  ~440px inside a nested picker at the same viewport, and mobile
+                  never reaches the 672px threshold, so touch targets stay 36px.
+                  1180px matches doc/ui/LAYOUT.md §1 and the signed-off mockups in
+                  doc/ui/New Material Fabric - Organized Layout.html; at max-w-5xl
+                  (1024px) it was already above SectionGrid's 896px 2-up threshold,
+                  but the mockup's two ~560px columns need the extra 156px. */}
+              <div className="@container/editor mx-auto w-full max-w-[1180px]">{children}</div>
             </div>
             {/* footer */}
             {footer && (
               <div data-focus-region="footer" className="shrink-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-8 md:pb-3">
-                <div ref={footerRef} className="mx-auto flex w-full max-w-5xl items-center justify-end gap-2">{footer}</div>
+                {/* same cap as the content above, so Save/Cancel stay aligned with
+                    the right edge of the form rather than the viewport. */}
+                <div ref={footerRef} className="mx-auto flex w-full max-w-[1180px] items-center justify-end gap-2">{footer}</div>
               </div>
             )}
           </div>

@@ -21,6 +21,25 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
+  // Where the build output goes. Overridable so a VERIFICATION build can be sent
+  // somewhere the running dev server isn't reading from.
+  //
+  // `next dev` and `next build` both default to `.next`, and running a build
+  // while dev is up silently corrupts the dev server's view of the app — it
+  // keeps serving, but from half-overwritten artifacts, so the browser shows
+  // stale code that no longer matches any file on disk. That cost a full
+  // debugging round trip on 2026-07-27: a fixed component kept rendering its old
+  // output and looked like an unfixed bug.
+  //
+  // It is worse here than in a stock Next app because the two commands use
+  // DIFFERENT BUNDLERS — `dev` runs on Turbopack (see `turbopack: {}` below),
+  // while `build` is pinned to `--webpack` for Serwist. So the collision mixes
+  // webpack production output into a Turbopack dev directory.
+  //
+  // `npm run build` is untouched and still writes `.next`. Use
+  // `npm run build:check` (scripts/build-check.mjs) to type/compile-check while
+  // someone is using the app.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // NOTE: cacheComponents (PPR) is intentionally OFF for now. The Raagam ERP is
   // almost entirely per-user, per-role dynamic data behind auth, so the strict
   // Suspense discipline PPR requires adds friction without payoff at this stage.
