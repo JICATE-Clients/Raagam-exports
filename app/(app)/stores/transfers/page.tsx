@@ -1,10 +1,12 @@
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
+import { listStoreNavLinks, getItems } from "@/lib/stores/service";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { TransferForm } from "./transfer-form";
 
 type TransferRow = {
   id: string;
@@ -40,7 +42,12 @@ async function listTransfers(): Promise<TransferRow[]> {
 
 export default async function TransfersPage() {
   await requirePermission("stores", "view");
-  const transfers = await listTransfers();
+  const [transfers, stores, items, canCreate] = await Promise.all([
+    listTransfers(),
+    listStoreNavLinks(),
+    getItems(),
+    can("stores", "create"),
+  ]);
 
   const columns: Column<TransferRow>[] = [
     {
@@ -79,6 +86,7 @@ export default async function TransfersPage() {
       <PageHeader
         title="Material Transfers"
         description="Transfer materials between stores"
+        actions={canCreate ? <TransferForm stores={stores} items={items} /> : undefined}
       />
       <Card>
         <CardHeader><CardTitle>Recent Transfers</CardTitle></CardHeader>

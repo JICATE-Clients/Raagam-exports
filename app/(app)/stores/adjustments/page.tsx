@@ -1,10 +1,12 @@
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
+import { listStoreNavLinks, getItems } from "@/lib/stores/service";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { AdjustmentForm } from "./adjustment-form";
 
 type AdjustmentRow = {
   id: string;
@@ -38,7 +40,12 @@ async function listAdjustments(): Promise<AdjustmentRow[]> {
 
 export default async function AdjustmentsPage() {
   await requirePermission("stores", "view");
-  const adjustments = await listAdjustments();
+  const [adjustments, stores, items, canCreate] = await Promise.all([
+    listAdjustments(),
+    listStoreNavLinks(),
+    getItems(),
+    can("stores", "create"),
+  ]);
 
   const columns: Column<AdjustmentRow>[] = [
     {
@@ -77,6 +84,7 @@ export default async function AdjustmentsPage() {
       <PageHeader
         title="Stock Adjustments"
         description="Record stock adjustments (damage, audit corrections, etc.)"
+        actions={canCreate ? <AdjustmentForm stores={stores} items={items} /> : undefined}
       />
       <Card>
         <CardHeader><CardTitle>Recent Adjustments</CardTitle></CardHeader>

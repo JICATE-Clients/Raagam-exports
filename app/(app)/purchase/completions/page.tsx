@@ -1,4 +1,5 @@
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
+import { CompletionForm } from "./completion-form";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -26,7 +27,10 @@ async function listCompletions(): Promise<CompletionRow[]> {
 
 export default async function PoCompletionsPage() {
   await requirePermission("materials_purchase", "view");
-  const completions = await listCompletions();
+  const [completions, canCreate] = await Promise.all([
+    listCompletions(),
+    can("materials_purchase", "create"),
+  ]);
 
   const columns: Column<CompletionRow>[] = [
     {
@@ -65,7 +69,8 @@ export default async function PoCompletionsPage() {
     <div className="space-y-4">
       <PageHeader
         title="PO Completions"
-        description="Mark purchase orders as completed — no more receipts expected"
+        description="Mark purchase orders as completed -- no more receipts expected"
+        actions={canCreate ? <CompletionForm /> : undefined}
       />
 
       <Card>

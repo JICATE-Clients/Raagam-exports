@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
+import { PcActions } from "./pc-actions";
 import { getPriceConfirmation } from "@/lib/purchase/price-confirmation-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -35,7 +36,11 @@ export default async function PriceConfirmationDetailPage({
   await requirePermission("materials_purchase", "view");
   const { pcId } = await params;
 
-  const pc = await getPriceConfirmation(pcId);
+  const [pc, canEdit, canApprove] = await Promise.all([
+    getPriceConfirmation(pcId),
+    can("materials_purchase", "edit"),
+    can("materials_purchase", "approve"),
+  ]);
   if (!pc) notFound();
 
   const itemColumns: Column<PriceConfirmationItem>[] = [
@@ -160,6 +165,13 @@ export default async function PriceConfirmationDetailPage({
             getKey={(r) => r.id}
             empty="No items added yet."
           />
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
+        <CardBody>
+          <PcActions pcId={pc.id} status={pc.status} canEdit={canEdit} canApprove={canApprove} />
         </CardBody>
       </Card>
 

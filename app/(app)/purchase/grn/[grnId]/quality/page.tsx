@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
+import { GanForm } from "./gan-form";
 import { listGanChecks } from "@/lib/purchase/gan-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -36,7 +37,10 @@ export default async function GanQualityPage({
   await requirePermission("materials_purchase", "view");
   const { grnId } = await params;
 
-  const checks = await listGanChecks(grnId);
+  const [checks, canCreate] = await Promise.all([
+    listGanChecks(grnId),
+    can("materials_purchase", "create"),
+  ]);
 
   const columns: Column<GanQualityCheck>[] = [
     {
@@ -84,12 +88,15 @@ export default async function GanQualityPage({
         title="Quality Checks (GAN)"
         description="Detailed quality parameter inspections for this GRN"
         actions={
-          <Link
-            href={`/purchase/grn/${grnId}`}
-            className="text-sm text-primary hover:underline"
-          >
-            Back to GRN
-          </Link>
+          <div className="flex items-center gap-3">
+            {canCreate && <GanForm grnId={grnId} />}
+            <Link
+              href={`/purchase/grn/${grnId}`}
+              className="text-sm text-primary hover:underline"
+            >
+              Back to GRN
+            </Link>
+          </div>
         }
       />
 

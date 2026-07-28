@@ -5,8 +5,9 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
-import { fmtDate, fmtNumber, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import Link from "next/link";
+import { IndentApprovalActions } from "./indent-approval-actions";
 
 type IndentRow = {
   id: string;
@@ -101,6 +102,11 @@ export default async function IndentApprovalPage() {
           {fmtDate(r.created_at)}
         </span>
       ),
+    },
+    {
+      header: "",
+      align: "right",
+      cell: (r) => <IndentApprovalActions indentId={r.id} status={r.status} />,
     },
   ];
 

@@ -1,5 +1,7 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import { listPriceConfirmations } from "@/lib/purchase/price-confirmation-service";
+import { getVendorsForPicker } from "@/lib/purchase/po-service";
+import { PriceConfirmationForm } from "./price-confirmation-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
@@ -29,7 +31,11 @@ function pcStatusTone(status: PcStatus): StatusTone {
 
 export default async function PriceConfirmationsPage() {
   await requirePermission("materials_purchase", "view");
-  const pcs = await listPriceConfirmations();
+  const [pcs, vendors, canCreate] = await Promise.all([
+    listPriceConfirmations(),
+    getVendorsForPicker(),
+    can("materials_purchase", "create"),
+  ]);
 
   const columns: Column<PcWithVendor>[] = [
     {
@@ -87,6 +93,7 @@ export default async function PriceConfirmationsPage() {
       <PageHeader
         title="Price Confirmations"
         description="Confirm vendor rates before creating purchase orders"
+        actions={canCreate ? <PriceConfirmationForm vendors={vendors} /> : undefined}
       />
 
       <DataTable

@@ -1,5 +1,7 @@
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
+import { listStoreNavLinks, getItems } from "@/lib/stores/service";
+import { InterdeptForm } from "./interdept-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -38,7 +40,12 @@ async function listInterdeptDeliveries(): Promise<InterdeptRow[]> {
 
 export default async function InterdeptPage() {
   await requirePermission("stores", "view");
-  const deliveries = await listInterdeptDeliveries();
+  const [deliveries, stores, items, canCreate] = await Promise.all([
+    listInterdeptDeliveries(),
+    listStoreNavLinks(),
+    getItems(),
+    can("stores", "create"),
+  ]);
 
   const columns: Column<InterdeptRow>[] = [
     {
@@ -76,6 +83,7 @@ export default async function InterdeptPage() {
       <PageHeader
         title="Inter-department Deliveries"
         description="Material transfers between departments"
+        actions={canCreate ? <InterdeptForm stores={stores} items={items} /> : undefined}
       />
       <Card>
         <CardHeader><CardTitle>Deliveries</CardTitle></CardHeader>

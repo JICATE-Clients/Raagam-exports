@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import { requirePermission } from "@/lib/auth/server";
+import { requirePermission, can } from "@/lib/auth/server";
 import { getProcessOrder } from "@/lib/stores/process-service";
+import { ProcessOrderActions } from "./process-order-actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
@@ -31,7 +32,10 @@ export default async function ProcessOrderDetailPage({
   await requirePermission("stores", "view");
   const { orderId } = await params;
 
-  const order = await getProcessOrder(orderId);
+  const [order, canEdit] = await Promise.all([
+    getProcessOrder(orderId),
+    can("stores", "edit"),
+  ]);
   if (!order) notFound();
 
   const lineColumns: Column<ProcessOrderLine>[] = [
@@ -123,6 +127,13 @@ export default async function ProcessOrderDetailPage({
             getKey={(r) => r.id}
             empty="No line items."
           />
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
+        <CardBody>
+          <ProcessOrderActions orderId={order.id} status={order.status} canEdit={canEdit} />
         </CardBody>
       </Card>
     </div>

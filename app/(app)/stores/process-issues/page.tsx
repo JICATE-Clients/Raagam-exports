@@ -1,5 +1,7 @@
-import { requirePermission } from "@/lib/auth/server";
-import { listProcessIssues } from "@/lib/stores/process-service";
+import { requirePermission, can } from "@/lib/auth/server";
+import { listProcessIssues, listProcessOrders } from "@/lib/stores/process-service";
+import { listStoreNavLinks, getItems } from "@/lib/stores/service";
+import { ProcessIssueForm } from "./process-issue-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
@@ -9,7 +11,13 @@ import type { ProcessMaterialIssue } from "@/lib/stores/process-types";
 
 export default async function ProcessIssuesPage() {
   await requirePermission("stores", "view");
-  const issues = await listProcessIssues();
+  const [issues, procOrders, stores, items, canCreate] = await Promise.all([
+    listProcessIssues(),
+    listProcessOrders(),
+    listStoreNavLinks(),
+    getItems(),
+    can("stores", "create"),
+  ]);
 
   const columns: Column<ProcessMaterialIssue>[] = [
     {
@@ -39,6 +47,7 @@ export default async function ProcessIssuesPage() {
       <PageHeader
         title="Process Material Issues"
         description="Issue materials from store to external processors"
+        actions={canCreate ? <ProcessIssueForm processOrders={procOrders.map((o) => ({ id: o.id, code: o.code }))} stores={stores} items={items} /> : undefined}
       />
       <DataTable columns={columns} rows={issues} getKey={(r) => r.id} empty="No process issues yet." />
     </div>

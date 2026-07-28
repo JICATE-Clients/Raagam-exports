@@ -1,5 +1,7 @@
-import { requirePermission } from "@/lib/auth/server";
-import { listProcessReceipts } from "@/lib/stores/process-service";
+import { requirePermission, can } from "@/lib/auth/server";
+import { listProcessReceipts, listProcessOrders } from "@/lib/stores/process-service";
+import { listStoreNavLinks, getItems } from "@/lib/stores/service";
+import { ProcessReceiptForm } from "./process-receipt-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
@@ -9,7 +11,13 @@ import type { ProcessMaterialReceipt } from "@/lib/stores/process-types";
 
 export default async function ProcessReceiptsPage() {
   await requirePermission("stores", "view");
-  const receipts = await listProcessReceipts();
+  const [receipts, procOrders, stores, items, canCreate] = await Promise.all([
+    listProcessReceipts(),
+    listProcessOrders(),
+    listStoreNavLinks(),
+    getItems(),
+    can("stores", "create"),
+  ]);
 
   const columns: Column<ProcessMaterialReceipt>[] = [
     {
@@ -39,6 +47,7 @@ export default async function ProcessReceiptsPage() {
       <PageHeader
         title="Process Material Receipts"
         description="Receive processed materials back from vendors"
+        actions={canCreate ? <ProcessReceiptForm processOrders={procOrders.map((o) => ({ id: o.id, code: o.code }))} stores={stores} items={items} /> : undefined}
       />
       <DataTable columns={columns} rows={receipts} getKey={(r) => r.id} empty="No process receipts yet." />
     </div>
