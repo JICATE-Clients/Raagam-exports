@@ -8,6 +8,8 @@ import {
   submitPo,
   approvePo,
   rejectPo,
+  updatePoCommercial,
+  updatePoGeneral,
 } from "@/lib/purchase/po-actions";
 import type { PoLineInput } from "@/lib/purchase/types";
 import {
@@ -27,9 +29,11 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { Tabs } from "@/components/ui/tabs";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import type { PoLineItem, PoStatus } from "@/lib/purchase/types";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 
 function poStatusTone(status: PoStatus): StatusTone {
   switch (status) {
@@ -139,7 +143,7 @@ function LineForm({
               value={form.item_id}
               onChange={(e) => setForm((f) => ({ ...f, item_id: e.target.value }))}
             >
-              <option value="">— None —</option>
+              <option value="">-- None --</option>
               {items.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.name}
@@ -168,7 +172,7 @@ function LineForm({
               value={form.uom_id}
               onChange={(e) => setForm((f) => ({ ...f, uom_id: e.target.value }))}
             >
-              <option value="">— None —</option>
+              <option value="">-- None --</option>
               {uoms.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name} ({u.code})
@@ -213,9 +217,277 @@ function LineForm({
           disabled={isPending || !form.description.trim()}
           onClick={onSave}
         >
-          {isPending ? "Saving…" : isAdd ? "Add" : "Save"}
+          {isPending ? "Saving..." : isAdd ? "Add" : "Save"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ---------- Commercial Tab ----------
+
+function CommercialTab({
+  po,
+  canEdit,
+  isPending,
+  onSave,
+}: {
+  po: PoWithDetails;
+  canEdit: boolean;
+  isPending: boolean;
+  onSave: (fields: Record<string, unknown>) => void;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const [fields, setFields] = useState({
+    po_type: po.po_type ?? "local",
+    exchange_rate: String(po.exchange_rate ?? ""),
+    foreign_currency_code: po.foreign_currency_code ?? "",
+    payment_terms: po.payment_terms ?? "",
+    ship_mode: po.ship_mode ?? "",
+    ship_type: po.ship_type ?? "",
+    pay_mode: po.pay_mode ?? "",
+    place_of_delivery: po.place_of_delivery ?? "",
+    invoice_send_to: po.invoice_send_to ?? "",
+    vat_against: po.vat_against ?? "",
+    duty_against: po.duty_against ?? "",
+    freight_type: po.freight_type ?? "",
+  });
+
+  useUnsavedGuard(dirty || isPending);
+
+  function set(key: string, val: string) {
+    setDirty(true);
+    setFields((f) => ({ ...f, [key]: val }));
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div>
+          <Label>PO Type</Label>
+          <Select value={fields.po_type} onChange={(e) => set("po_type", e.target.value)} disabled={!canEdit}>
+            <option value="local">Local</option>
+            <option value="import">Import</option>
+          </Select>
+        </div>
+        {fields.po_type === "import" && (
+          <>
+            <div>
+              <Label>Foreign Currency</Label>
+              <Input value={fields.foreign_currency_code} onChange={(e) => set("foreign_currency_code", e.target.value)} disabled={!canEdit} placeholder="e.g. USD" />
+            </div>
+            <div>
+              <Label>Exchange Rate</Label>
+              <Input type="number" step="0.0001" value={fields.exchange_rate} onChange={(e) => set("exchange_rate", e.target.value)} disabled={!canEdit} />
+            </div>
+          </>
+        )}
+        <div>
+          <Label>Payment Terms</Label>
+          <Input value={fields.payment_terms} onChange={(e) => set("payment_terms", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Pay Mode</Label>
+          <Input value={fields.pay_mode} onChange={(e) => set("pay_mode", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Ship Mode</Label>
+          <Input value={fields.ship_mode} onChange={(e) => set("ship_mode", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Ship Type</Label>
+          <Input value={fields.ship_type} onChange={(e) => set("ship_type", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Place of Delivery</Label>
+          <Input value={fields.place_of_delivery} onChange={(e) => set("place_of_delivery", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Invoice Send To</Label>
+          <Input value={fields.invoice_send_to} onChange={(e) => set("invoice_send_to", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>VAT/GST Against</Label>
+          <Input value={fields.vat_against} onChange={(e) => set("vat_against", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Duty Against</Label>
+          <Input value={fields.duty_against} onChange={(e) => set("duty_against", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Freight Type</Label>
+          <Select value={fields.freight_type} onChange={(e) => set("freight_type", e.target.value)} disabled={!canEdit}>
+            <option value="">-- None --</option>
+            <option value="itemwise">Itemwise</option>
+            <option value="consolidated">Consolidated</option>
+          </Select>
+        </div>
+      </div>
+
+      {/* Value summary */}
+      <Card>
+        <CardHeader><CardTitle>Value Summary</CardTitle></CardHeader>
+        <CardBody>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-4">
+            <div>
+              <span className="text-xs text-muted-foreground">Basic (INR)</span>
+              <p className="tabular-nums font-medium">{fmtMoney(po.basic_inr)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Freight</span>
+              <p className="tabular-nums font-medium">{fmtMoney(po.freight_inr)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Insurance</span>
+              <p className="tabular-nums font-medium">{fmtMoney(po.insurance_inr)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">GST/VAT</span>
+              <p className="tabular-nums font-medium">{fmtMoney(po.vat_inr)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Discount</span>
+              <p className="tabular-nums font-medium">{fmtMoney(po.discount_inr)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Duty</span>
+              <p className="tabular-nums font-medium">{fmtMoney(po.duty_inr)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Net (INR)</span>
+              <p className="tabular-nums font-semibold text-primary">{fmtMoney(po.net_inr)}</p>
+            </div>
+            {po.po_type === "import" && (
+              <div>
+                <span className="text-xs text-muted-foreground">Net (FGN)</span>
+                <p className="tabular-nums font-semibold">{fmtMoney(po.net_fgn, po.foreign_currency_code)}</p>
+              </div>
+            )}
+          </div>
+        </CardBody>
+      </Card>
+
+      {canEdit && dirty && (
+        <div className="flex justify-end">
+          <Button
+            disabled={isPending}
+            onClick={() => {
+              const payload: Record<string, unknown> = {
+                po_type: fields.po_type,
+                payment_terms: fields.payment_terms || null,
+                ship_mode: fields.ship_mode || null,
+                ship_type: fields.ship_type || null,
+                pay_mode: fields.pay_mode || null,
+                place_of_delivery: fields.place_of_delivery || null,
+                invoice_send_to: fields.invoice_send_to || null,
+                vat_against: fields.vat_against || null,
+                duty_against: fields.duty_against || null,
+                freight_type: fields.freight_type || null,
+              };
+              if (fields.po_type === "import") {
+                payload.foreign_currency_code = fields.foreign_currency_code || null;
+                payload.exchange_rate = parseFloat(fields.exchange_rate) || null;
+              }
+              onSave(payload);
+              setDirty(false);
+            }}
+          >
+            {isPending ? "Saving..." : "Save Commercial"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- General Tab ----------
+
+function GeneralTab({
+  po,
+  canEdit,
+  isPending,
+  onSave,
+}: {
+  po: PoWithDetails;
+  canEdit: boolean;
+  isPending: boolean;
+  onSave: (fields: Record<string, unknown>) => void;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const [fields, setFields] = useState({
+    quality_requirements: po.quality_requirements ?? "",
+    bank_guarantee: po.bank_guarantee ?? "",
+    warranty_terms: po.warranty_terms ?? "",
+    delivery_instructions: po.delivery_instructions ?? "",
+    insurance_details: po.insurance_details ?? "",
+    port_of_shipment: po.port_of_shipment ?? "",
+    transport_name: po.transport_name ?? "",
+    transport_details: po.transport_details ?? "",
+  });
+
+  useUnsavedGuard(dirty || isPending);
+
+  function set(key: string, val: string) {
+    setDirty(true);
+    setFields((f) => ({ ...f, [key]: val }));
+  }
+
+  const textareaFields = [
+    { key: "quality_requirements", label: "Quality Requirements" },
+    { key: "bank_guarantee", label: "Bank Guarantee" },
+    { key: "warranty_terms", label: "Warranty / Guarantee" },
+    { key: "delivery_instructions", label: "Delivery Instructions" },
+    { key: "insurance_details", label: "Insurance Details" },
+  ] as const;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div>
+          <Label>Port of Shipment</Label>
+          <Input value={fields.port_of_shipment} onChange={(e) => set("port_of_shipment", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Transport Name</Label>
+          <Input value={fields.transport_name} onChange={(e) => set("transport_name", e.target.value)} disabled={!canEdit} />
+        </div>
+        <div>
+          <Label>Transport Details</Label>
+          <Input value={fields.transport_details} onChange={(e) => set("transport_details", e.target.value)} disabled={!canEdit} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {textareaFields.map(({ key, label }) => (
+          <div key={key}>
+            <Label>{label}</Label>
+            <Textarea
+              rows={3}
+              value={fields[key]}
+              onChange={(e) => set(key, e.target.value)}
+              disabled={!canEdit}
+            />
+          </div>
+        ))}
+      </div>
+
+      {canEdit && dirty && (
+        <div className="flex justify-end">
+          <Button
+            disabled={isPending}
+            onClick={() => {
+              const payload: Record<string, unknown> = {};
+              for (const [k, v] of Object.entries(fields)) {
+                payload[k] = v.trim() || null;
+              }
+              onSave(payload);
+              setDirty(false);
+            }}
+          >
+            {isPending ? "Saving..." : "Save General"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -240,7 +512,6 @@ export function PoDetail({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
 
-  // null = closed, "add" = new line, string = line id being edited
   const [formMode, setFormMode] = useState<"add" | string | null>(null);
   const [form, setForm] = useState<LineFields>(emptyLine());
   const [rejectNote, setRejectNote] = useState("");
@@ -295,33 +566,24 @@ export function PoDetail({
   function handleDelete(lineId: string) {
     startTransition(async () => {
       const result = await deletePoLine(lineId, po.id);
-      if (result.ok) {
-        success("Line deleted.");
-      } else {
-        toastError(result.error);
-      }
+      if (result.ok) success("Line deleted.");
+      else toastError(result.error);
     });
   }
 
   function handleSubmit() {
     startTransition(async () => {
       const result = await submitPo(po.id);
-      if (result.ok) {
-        success("Submitted for approval.");
-      } else {
-        toastError(result.error);
-      }
+      if (result.ok) success("Submitted for approval.");
+      else toastError(result.error);
     });
   }
 
   function handleApprove() {
     startTransition(async () => {
       const result = await approvePo(po.id);
-      if (result.ok) {
-        success("Purchase order approved.");
-      } else {
-        toastError(result.error);
-      }
+      if (result.ok) success("Purchase order approved.");
+      else toastError(result.error);
     });
   }
 
@@ -335,6 +597,22 @@ export function PoDetail({
       } else {
         toastError(result.error);
       }
+    });
+  }
+
+  function handleSaveCommercial(fields: Record<string, unknown>) {
+    startTransition(async () => {
+      const result = await updatePoCommercial(po.id, fields as never);
+      if (result.ok) success("Commercial details saved.");
+      else toastError(result.error);
+    });
+  }
+
+  function handleSaveGeneral(fields: Record<string, unknown>) {
+    startTransition(async () => {
+      const result = await updatePoGeneral(po.id, fields as never);
+      if (result.ok) success("General details saved.");
+      else toastError(result.error);
     });
   }
 
@@ -358,7 +636,7 @@ export function PoDetail({
       header: "UOM",
       cell: (r) => (
         <span className="text-xs text-muted-foreground">
-          {r.uom_id ? (uomMap[r.uom_id] ?? "—") : "—"}
+          {r.uom_id ? (uomMap[r.uom_id] ?? "--") : "--"}
         </span>
       ),
     },
@@ -449,62 +727,33 @@ export function PoDetail({
       : []),
   ];
 
-  return (
+  // ---------- Purchase Tab content ----------
+
+  const purchaseTab = (
     <div className="space-y-4">
-      {/* Header summary */}
-      <Card>
-        <CardBody>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
-            <div>
-              <dt className="text-xs text-muted-foreground">Vendor</dt>
-              <dd className="font-medium">{po.vendor_name ?? "—"}</dd>
+      {/* Item Groups summary */}
+      {po.item_groups.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Item Groups</CardTitle></CardHeader>
+          <CardBody>
+            <div className="space-y-2">
+              {po.item_groups.map((g) => (
+                <div key={g.id} className="flex items-center gap-3 rounded border border-border p-2 text-sm">
+                  <span className="font-medium">{g.group_description || g.group_no || `Group ${g.sl_no}`}</span>
+                  {g.ppm_no && <span className="text-xs text-muted-foreground">PPM: {g.ppm_no}</span>}
+                  {g.style_no && <span className="text-xs text-muted-foreground">Style: {g.style_no}</span>}
+                  {g.customer_name && <span className="text-xs text-muted-foreground">Customer: {g.customer_name}</span>}
+                </div>
+              ))}
             </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Status</dt>
-              <dd>
-                <StatusPill tone={poStatusTone(po.status)}>
-                  {PO_STATUS_LABELS[po.status]}
-                </StatusPill>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Order date</dt>
-              <dd>{fmtDate(po.order_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Expected</dt>
-              <dd>{fmtDate(po.expected_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Total</dt>
-              <dd className="tabular-nums font-semibold">
-                {fmtMoney(po.total_amount, po.currency_code)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Currency</dt>
-              <dd>{po.currency_code ?? "—"}</dd>
-            </div>
-            {po.approved_at && (
-              <div>
-                <dt className="text-xs text-muted-foreground">Approved</dt>
-                <dd>{fmtDate(po.approved_at)}</dd>
-              </div>
-            )}
-            {po.notes && (
-              <div className="col-span-2 md:col-span-4">
-                <dt className="text-xs text-muted-foreground">Notes</dt>
-                <dd className="whitespace-pre-wrap text-sm">{po.notes}</dd>
-              </div>
-            )}
-          </dl>
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      )}
 
       {/* Line items */}
       <Card>
         <CardHeader>
-          <CardTitle>Line items ({po.lines.length})</CardTitle>
+          <CardTitle>Line Items ({po.lines.length})</CardTitle>
           {canMutateLines && formMode !== "add" && (
             <Button size="sm" onClick={openAdd}>
               + Add line
@@ -541,34 +790,56 @@ export function PoDetail({
         </CardBody>
       </Card>
 
-      {/* Approval workflow */}
+      {/* Total */}
+      <div className="flex justify-end">
+        <div className="text-right">
+          <p className="text-xs text-muted-foreground">Total Amount</p>
+          <p className="tabular-nums text-lg font-bold">
+            {fmtMoney(po.total_amount, po.currency_code)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ---------- Approvals Tab content ----------
+
+  const approvalsTab = (
+    <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle>Actions</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Workflow</CardTitle></CardHeader>
         <CardBody>
-          <div className="flex flex-wrap items-center gap-2">
+          <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+            <div>
+              <dt className="text-xs text-muted-foreground">Status</dt>
+              <dd><StatusPill tone={poStatusTone(po.status)}>{PO_STATUS_LABELS[po.status]}</StatusPill></dd>
+            </div>
+            {po.approved_at && (
+              <div>
+                <dt className="text-xs text-muted-foreground">Approved</dt>
+                <dd>{fmtDate(po.approved_at)}</dd>
+              </div>
+            )}
+            {po.reference && (
+              <div>
+                <dt className="text-xs text-muted-foreground">Reference</dt>
+                <dd>{po.reference}</dd>
+              </div>
+            )}
+          </dl>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             {isDraft && canEdit && (
-              <Button
-                variant="outline"
-                disabled={isPending}
-                onClick={handleSubmit}
-              >
+              <Button variant="outline" disabled={isPending} onClick={handleSubmit}>
                 Submit for approval
               </Button>
             )}
 
             {isPendingApproval && canApprove && (
               <>
-                <Button disabled={isPending} onClick={handleApprove}>
-                  Approve
-                </Button>
+                <Button disabled={isPending} onClick={handleApprove}>Approve</Button>
                 {!showRejectForm && (
-                  <Button
-                    variant="danger"
-                    disabled={isPending}
-                    onClick={() => setShowRejectForm(true)}
-                  >
+                  <Button variant="danger" disabled={isPending} onClick={() => setShowRejectForm(true)}>
                     Reject
                   </Button>
                 )}
@@ -599,34 +870,109 @@ export function PoDetail({
               <Label>Rejection note (optional)</Label>
               <Textarea
                 rows={2}
-                placeholder="Reason for rejection…"
+                placeholder="Reason for rejection..."
                 value={rejectNote}
                 onChange={(e) => setRejectNote(e.target.value)}
               />
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowRejectForm(false);
-                    setRejectNote("");
-                  }}
-                >
+                <Button variant="outline" size="sm" onClick={() => { setShowRejectForm(false); setRejectNote(""); }}>
                   Cancel
                 </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  disabled={isPending}
-                  onClick={handleReject}
-                >
-                  {isPending ? "Rejecting…" : "Confirm reject"}
+                <Button variant="danger" size="sm" disabled={isPending} onClick={handleReject}>
+                  {isPending ? "Rejecting..." : "Confirm reject"}
                 </Button>
               </div>
             </div>
           )}
         </CardBody>
       </Card>
+
+      {po.notes && (
+        <Card>
+          <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
+          <CardBody>
+            <p className="whitespace-pre-wrap text-sm">{po.notes}</p>
+          </CardBody>
+        </Card>
+      )}
+    </div>
+  );
+
+  // ---------- render with tabs ----------
+
+  return (
+    <div className="space-y-4">
+      {/* Header summary */}
+      <Card>
+        <CardBody>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+            <div>
+              <dt className="text-xs text-muted-foreground">Vendor</dt>
+              <dd className="font-medium">{po.vendor_name ?? "--"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Type</dt>
+              <dd className="font-medium capitalize">{po.po_type ?? "local"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Order date</dt>
+              <dd>{fmtDate(po.order_date)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Expected</dt>
+              <dd>{fmtDate(po.expected_date)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Total</dt>
+              <dd className="tabular-nums font-semibold">
+                {fmtMoney(po.total_amount, po.currency_code)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Currency</dt>
+              <dd>{po.currency_code ?? "--"}</dd>
+            </div>
+            {po.agent_id && (
+              <div>
+                <dt className="text-xs text-muted-foreground">Agent Commission</dt>
+                <dd className="tabular-nums">{fmtMoney(po.agent_commission_amount)}</dd>
+              </div>
+            )}
+          </dl>
+        </CardBody>
+      </Card>
+
+      {/* Tabs */}
+      <Tabs
+        items={[
+          { key: "purchase", label: "Purchase", content: purchaseTab },
+          {
+            key: "commercial",
+            label: "Commercial",
+            content: (
+              <CommercialTab
+                po={po}
+                canEdit={isDraft && canEdit}
+                isPending={isPending}
+                onSave={handleSaveCommercial}
+              />
+            ),
+          },
+          {
+            key: "general",
+            label: "General",
+            content: (
+              <GeneralTab
+                po={po}
+                canEdit={isDraft && canEdit}
+                isPending={isPending}
+                onSave={handleSaveGeneral}
+              />
+            ),
+          },
+          { key: "approvals", label: "Approvals", content: approvalsTab },
+        ]}
+      />
     </div>
   );
 }

@@ -10,6 +10,11 @@ import {
   rfqQuoteInput,
   purchaseOrderInput,
   poLineInput,
+  poItemGroupInput,
+  poSizeDeliveryInput,
+  poDeliverySizeInput,
+  poItemSizeDeliveryInput,
+  poAdditionalChargeInput,
   lineAmount,
 } from "@/lib/purchase/types";
 import type {
@@ -18,6 +23,11 @@ import type {
   RfqQuoteInput,
   PurchaseOrderInput,
   PoLineInput,
+  PoItemGroupInput,
+  PoSizeDeliveryInput,
+  PoDeliverySizeInput,
+  PoItemSizeDeliveryInput,
+  PoAdditionalChargeInput,
 } from "@/lib/purchase/types";
 import { getBudgetLines } from "./po-service";
 import type { BudgetLineRow } from "./po-service";
@@ -441,5 +451,249 @@ export async function rejectPo(
   });
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders");
+  return { ok: true };
+}
+
+// ---------- PO item groups (Band 0) ----------
+
+export async function addPoItemGroup(
+  data: PoItemGroupInput,
+): Promise<{ ok: true; groupId: string } | ErrResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const parsed = poItemGroupInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("po_item_groups")
+    .insert(parsed.data)
+    .select("id")
+    .single();
+  if (error || !row) return { ok: false, error: error?.message ?? "Failed" };
+
+  revalidatePurchase(`/purchase/orders/${data.purchase_order_id}`);
+  return { ok: true, groupId: row.id };
+}
+
+export async function deletePoItemGroup(
+  groupId: string,
+  poId: string,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "delete"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("po_item_groups")
+    .delete()
+    .eq("id", groupId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+// ---------- PO size deliveries (Band 2) ----------
+
+export async function addPoSizeDelivery(
+  poId: string,
+  data: PoSizeDeliveryInput,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const parsed = poSizeDeliveryInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("po_size_deliveries")
+    .insert(parsed.data);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+export async function deletePoSizeDelivery(
+  id: string,
+  poId: string,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "delete"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("po_size_deliveries")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+// ---------- PO delivery sizes (Band 3) ----------
+
+export async function addPoDeliverySize(
+  poId: string,
+  data: PoDeliverySizeInput,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const parsed = poDeliverySizeInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("po_delivery_sizes")
+    .insert(parsed.data);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+export async function deletePoDeliverySize(
+  id: string,
+  poId: string,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "delete"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("po_delivery_sizes")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+// ---------- PO item size deliveries (Band 4) ----------
+
+export async function addPoItemSizeDelivery(
+  poId: string,
+  data: PoItemSizeDeliveryInput,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const parsed = poItemSizeDeliveryInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("po_item_size_deliveries")
+    .insert(parsed.data);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+export async function deletePoItemSizeDelivery(
+  id: string,
+  poId: string,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "delete"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("po_item_size_deliveries")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+// ---------- PO additional charges ----------
+
+export async function savePoCharges(
+  poId: string,
+  charges: PoAdditionalChargeInput[],
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+
+  // delete existing then re-insert
+  const { error: delErr } = await supabase
+    .from("po_additional_charges")
+    .delete()
+    .eq("purchase_order_id", poId);
+  if (delErr) return { ok: false, error: delErr.message };
+
+  if (charges.length > 0) {
+    const valid = charges
+      .map((c, i) => {
+        const r = poAdditionalChargeInput.safeParse({
+          ...c,
+          purchase_order_id: poId,
+          sort_order: c.sort_order ?? i,
+        });
+        return r.success ? r.data : null;
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+    if (valid.length > 0) {
+      const { error: insErr } = await supabase
+        .from("po_additional_charges")
+        .insert(valid);
+      if (insErr) return { ok: false, error: insErr.message };
+    }
+  }
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+// ---------- PO commercial update ----------
+
+export async function updatePoCommercial(
+  poId: string,
+  fields: Partial<PurchaseOrderInput>,
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("purchase_orders")
+    .update(fields)
+    .eq("id", poId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+// ---------- PO general/logistics update ----------
+
+export async function updatePoGeneral(
+  poId: string,
+  fields: {
+    quality_requirements?: string | null;
+    bank_guarantee?: string | null;
+    warranty_terms?: string | null;
+    delivery_instructions?: string | null;
+    insurance_details?: string | null;
+    port_of_shipment?: string | null;
+    transport_name?: string | null;
+    transport_details?: string | null;
+  },
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("purchase_orders")
+    .update(fields)
+    .eq("id", poId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePurchase(`/purchase/orders/${poId}`);
   return { ok: true };
 }

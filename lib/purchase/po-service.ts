@@ -7,6 +7,11 @@ import type {
   RfqQuote,
   PurchaseOrder,
   PoLineItem,
+  PoItemGroup,
+  PoSizeDelivery,
+  PoDeliverySize,
+  PoItemSizeDelivery,
+  PoAdditionalCharge,
 } from "@/lib/purchase/types";
 import type { Currency, Item, Uom } from "@/lib/masters/types";
 
@@ -33,7 +38,11 @@ export type RfqWithDetails = Rfq & {
   quotes: RfqQuoteWithVendor[];
 };
 export type PoWithVendor = PurchaseOrder & { vendor_name: string | null };
-export type PoWithDetails = PoWithVendor & { lines: PoLineItem[] };
+export type PoWithDetails = PoWithVendor & {
+  lines: PoLineItem[];
+  item_groups: PoItemGroup[];
+  additional_charges: PoAdditionalCharge[];
+};
 
 // ---------- vendors ----------
 
@@ -151,11 +160,24 @@ export async function getPurchaseOrder(
     .maybeSingle();
   if (!po) return null;
 
-  const { data: lines } = await supabase
-    .from("po_line_items")
-    .select("*")
-    .eq("purchase_order_id", id)
-    .order("sort_order");
+  const [{ data: lines }, { data: groups }, { data: charges }] =
+    await Promise.all([
+      supabase
+        .from("po_line_items")
+        .select("*")
+        .eq("purchase_order_id", id)
+        .order("sort_order"),
+      supabase
+        .from("po_item_groups")
+        .select("*")
+        .eq("purchase_order_id", id)
+        .order("sort_order"),
+      supabase
+        .from("po_additional_charges")
+        .select("*")
+        .eq("purchase_order_id", id)
+        .order("sort_order"),
+    ]);
 
   const poRow = po as Record<string, unknown>;
   const vendor = poRow.vendors as { name: string } | null;
@@ -166,7 +188,47 @@ export async function getPurchaseOrder(
     ...(poRest as unknown as PurchaseOrder),
     vendor_name: vendor?.name ?? null,
     lines: (lines ?? []) as PoLineItem[],
+    item_groups: (groups ?? []) as PoItemGroup[],
+    additional_charges: (charges ?? []) as PoAdditionalCharge[],
   };
+}
+
+// ---------- PO hierarchy queries ----------
+
+export async function getPoSizeDeliveries(
+  lineItemId: string,
+): Promise<PoSizeDelivery[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("po_size_deliveries")
+    .select("*")
+    .eq("po_line_item_id", lineItemId)
+    .order("sort_order");
+  return (data ?? []) as PoSizeDelivery[];
+}
+
+export async function getPoDeliverySizes(
+  sizeDeliveryId: string,
+): Promise<PoDeliverySize[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("po_delivery_sizes")
+    .select("*")
+    .eq("po_size_delivery_id", sizeDeliveryId)
+    .order("sort_order");
+  return (data ?? []) as PoDeliverySize[];
+}
+
+export async function getPoItemSizeDeliveries(
+  lineItemId: string,
+): Promise<PoItemSizeDelivery[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("po_item_size_deliveries")
+    .select("*")
+    .eq("po_line_item_id", lineItemId)
+    .order("sort_order");
+  return (data ?? []) as PoItemSizeDelivery[];
 }
 
 // ---------- shared pickers ----------

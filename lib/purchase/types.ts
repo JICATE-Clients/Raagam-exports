@@ -45,6 +45,15 @@ export type QcStatus = (typeof QC_STATUSES)[number];
 export const DC_STATUSES = ["issued", "partially_returned", "closed"] as const;
 export type DcStatus = (typeof DC_STATUSES)[number];
 
+export const PO_TYPES = ["local", "import"] as const;
+export type PoType = (typeof PO_TYPES)[number];
+
+export const FREIGHT_TYPES = ["itemwise", "consolidated"] as const;
+export type FreightType = (typeof FREIGHT_TYPES)[number];
+
+export const CHARGE_TYPES = ["add", "less"] as const;
+export type ChargeType = (typeof CHARGE_TYPES)[number];
+
 // ---------- interfaces ----------
 export interface Vendor {
   id: string;
@@ -113,6 +122,59 @@ export interface PurchaseOrder {
   approved_at: string | null;
   created_at: string;
   updated_at: string;
+  // --- enriched fields (0350) ---
+  po_type: PoType;
+  exchange_rate: number | null;
+  foreign_currency_code: string | null;
+  foreign_total_amount: number;
+  // commercial
+  payment_terms: string | null;
+  ship_mode: string | null;
+  ship_type: string | null;
+  pay_mode: string | null;
+  place_of_delivery: string | null;
+  invoice_send_to: string | null;
+  vat_against: string | null;
+  duty_against: string | null;
+  // freight
+  freight_type: FreightType | null;
+  freight_inr: number;
+  freight_fgn: number;
+  // insurance
+  insurance_inr: number;
+  insurance_fgn: number;
+  // value summary INR
+  basic_inr: number;
+  discount_inr: number;
+  duty_inr: number;
+  vat_inr: number;
+  cess_inr: number;
+  gross_inr: number;
+  net_inr: number;
+  round_off_inr: number;
+  // value summary FGN
+  basic_fgn: number;
+  discount_fgn: number;
+  duty_fgn: number;
+  vat_fgn: number;
+  cess_fgn: number;
+  gross_fgn: number;
+  net_fgn: number;
+  round_off_fgn: number;
+  // agent
+  agent_id: string | null;
+  agent_commission_rate: number;
+  agent_commission_amount: number;
+  // general / logistics
+  quality_requirements: string | null;
+  bank_guarantee: string | null;
+  warranty_terms: string | null;
+  delivery_instructions: string | null;
+  insurance_details: string | null;
+  port_of_shipment: string | null;
+  transport_name: string | null;
+  transport_details: string | null;
+  reference: string | null;
 }
 
 export interface PoLineItem {
@@ -126,6 +188,107 @@ export interface PoLineItem {
   amount: number;
   received_qty: number;
   sort_order: number;
+  // --- enriched fields (0350) ---
+  item_group_id: string | null;
+  item_class: string | null;
+  category: string | null;
+  is_size_wise: boolean;
+  is_colorwise: boolean;
+  has_multiple_deliveries: boolean;
+  quote_no: string | null;
+  quote_reference: string | null;
+  billing_uom_id: string | null;
+  weight_per_uom: number | null;
+  rolls: number;
+  meters: number;
+  weight: number;
+  net_rate: number;
+  is_foc: boolean;
+  delivery_date: string | null;
+}
+
+// ---------- Band 0: Item Groups ----------
+export interface PoItemGroup {
+  id: string;
+  purchase_order_id: string;
+  sl_no: number;
+  ppm_no: string | null;
+  group_no: string | null;
+  group_description: string | null;
+  customer_name: string | null;
+  style_no: string | null;
+  style_description: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------- Band 2: Size Deliveries ----------
+export interface PoSizeDelivery {
+  id: string;
+  po_line_item_id: string;
+  delivery_date: string | null;
+  rolls: number;
+  quantity: number;
+  meters: number;
+  weight: number;
+  rate: number;
+  net_rate: number;
+  po_value: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------- Band 3: Delivery Sizes ----------
+export interface PoDeliverySize {
+  id: string;
+  po_size_delivery_id: string;
+  bom_size: string | null;
+  item_size: string | null;
+  rolls: number;
+  quantity: number;
+  weight: number;
+  rate: number;
+  net_rate: number;
+  po_value: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------- Band 4: Item Size Deliveries (alternate) ----------
+export interface PoItemSizeDelivery {
+  id: string;
+  po_line_item_id: string;
+  bom_size: string | null;
+  item_size: string | null;
+  stitch_length: number | null;
+  loop_length: number | null;
+  rolls: number;
+  quantity: number;
+  weight: number;
+  rate: number;
+  net_rate: number;
+  po_value: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------- Additional Charges ----------
+export interface PoAdditionalCharge {
+  id: string;
+  purchase_order_id: string;
+  charge_type: ChargeType;
+  label: string;
+  rate_type: string | null;
+  rate: number;
+  inr_amount: number;
+  fgn_amount: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Grn {
@@ -227,8 +390,94 @@ export const poLineInput = z.object({
   uom_id: z.string().uuid().optional().nullable(),
   unit_price: z.coerce.number().nonnegative().default(0),
   sort_order: z.coerce.number().int().default(0),
+  // enriched fields (all optional — DB column defaults handle missing values)
+  item_group_id: z.string().uuid().optional().nullable(),
+  item_class: z.string().optional().nullable(),
+  category: z.string().optional().nullable(),
+  is_size_wise: z.boolean().optional(),
+  is_colorwise: z.boolean().optional(),
+  has_multiple_deliveries: z.boolean().optional(),
+  quote_no: z.string().optional().nullable(),
+  quote_reference: z.string().optional().nullable(),
+  billing_uom_id: z.string().uuid().optional().nullable(),
+  weight_per_uom: z.coerce.number().optional().nullable(),
+  rolls: z.coerce.number().int().optional(),
+  meters: z.coerce.number().nonnegative().optional(),
+  weight: z.coerce.number().nonnegative().optional(),
+  net_rate: z.coerce.number().nonnegative().optional(),
+  is_foc: z.boolean().optional(),
+  delivery_date: z.string().optional().nullable(),
 });
 export type PoLineInput = z.infer<typeof poLineInput>;
+
+export const poItemGroupInput = z.object({
+  purchase_order_id: z.string().uuid(),
+  sl_no: z.coerce.number().int().default(0),
+  ppm_no: z.string().optional().nullable(),
+  group_no: z.string().optional().nullable(),
+  group_description: z.string().optional().nullable(),
+  customer_name: z.string().optional().nullable(),
+  style_no: z.string().optional().nullable(),
+  style_description: z.string().optional().nullable(),
+  sort_order: z.coerce.number().int().default(0),
+});
+export type PoItemGroupInput = z.infer<typeof poItemGroupInput>;
+
+export const poSizeDeliveryInput = z.object({
+  po_line_item_id: z.string().uuid(),
+  delivery_date: z.string().optional().nullable(),
+  rolls: z.coerce.number().int().default(0),
+  quantity: z.coerce.number().nonnegative().default(0),
+  meters: z.coerce.number().nonnegative().default(0),
+  weight: z.coerce.number().nonnegative().default(0),
+  rate: z.coerce.number().nonnegative().default(0),
+  net_rate: z.coerce.number().nonnegative().default(0),
+  po_value: z.coerce.number().nonnegative().default(0),
+  sort_order: z.coerce.number().int().default(0),
+});
+export type PoSizeDeliveryInput = z.infer<typeof poSizeDeliveryInput>;
+
+export const poDeliverySizeInput = z.object({
+  po_size_delivery_id: z.string().uuid(),
+  bom_size: z.string().optional().nullable(),
+  item_size: z.string().optional().nullable(),
+  rolls: z.coerce.number().int().default(0),
+  quantity: z.coerce.number().nonnegative().default(0),
+  weight: z.coerce.number().nonnegative().default(0),
+  rate: z.coerce.number().nonnegative().default(0),
+  net_rate: z.coerce.number().nonnegative().default(0),
+  po_value: z.coerce.number().nonnegative().default(0),
+  sort_order: z.coerce.number().int().default(0),
+});
+export type PoDeliverySizeInput = z.infer<typeof poDeliverySizeInput>;
+
+export const poItemSizeDeliveryInput = z.object({
+  po_line_item_id: z.string().uuid(),
+  bom_size: z.string().optional().nullable(),
+  item_size: z.string().optional().nullable(),
+  stitch_length: z.coerce.number().optional().nullable(),
+  loop_length: z.coerce.number().optional().nullable(),
+  rolls: z.coerce.number().int().default(0),
+  quantity: z.coerce.number().nonnegative().default(0),
+  weight: z.coerce.number().nonnegative().default(0),
+  rate: z.coerce.number().nonnegative().default(0),
+  net_rate: z.coerce.number().nonnegative().default(0),
+  po_value: z.coerce.number().nonnegative().default(0),
+  sort_order: z.coerce.number().int().default(0),
+});
+export type PoItemSizeDeliveryInput = z.infer<typeof poItemSizeDeliveryInput>;
+
+export const poAdditionalChargeInput = z.object({
+  purchase_order_id: z.string().uuid(),
+  charge_type: z.enum(CHARGE_TYPES),
+  label: z.string().min(1),
+  rate_type: z.string().optional().nullable(),
+  rate: z.coerce.number().nonnegative().default(0),
+  inr_amount: z.coerce.number().default(0),
+  fgn_amount: z.coerce.number().default(0),
+  sort_order: z.coerce.number().int().default(0),
+});
+export type PoAdditionalChargeInput = z.infer<typeof poAdditionalChargeInput>;
 
 export const purchaseOrderInput = z.object({
   vendor_id: z.string().uuid(),
@@ -240,6 +489,31 @@ export const purchaseOrderInput = z.object({
   expected_date: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   lines: z.array(poLineInput).default([]),
+  // enriched fields (all optional — DB column defaults handle missing values)
+  po_type: z.enum(PO_TYPES).optional(),
+  exchange_rate: z.coerce.number().optional().nullable(),
+  foreign_currency_code: z.string().optional().nullable(),
+  payment_terms: z.string().optional().nullable(),
+  ship_mode: z.string().optional().nullable(),
+  ship_type: z.string().optional().nullable(),
+  pay_mode: z.string().optional().nullable(),
+  place_of_delivery: z.string().optional().nullable(),
+  invoice_send_to: z.string().optional().nullable(),
+  vat_against: z.string().optional().nullable(),
+  duty_against: z.string().optional().nullable(),
+  freight_type: z.enum(FREIGHT_TYPES).optional().nullable(),
+  agent_id: z.string().uuid().optional().nullable(),
+  agent_commission_rate: z.coerce.number().nonnegative().optional(),
+  reference: z.string().optional().nullable(),
+  // general / logistics
+  quality_requirements: z.string().optional().nullable(),
+  bank_guarantee: z.string().optional().nullable(),
+  warranty_terms: z.string().optional().nullable(),
+  delivery_instructions: z.string().optional().nullable(),
+  insurance_details: z.string().optional().nullable(),
+  port_of_shipment: z.string().optional().nullable(),
+  transport_name: z.string().optional().nullable(),
+  transport_details: z.string().optional().nullable(),
 });
 export type PurchaseOrderInput = z.infer<typeof purchaseOrderInput>;
 
@@ -320,4 +594,36 @@ export function dcLineBalance(
   line: Pick<DcLineItem, "sent_qty" | "returned_qty">,
 ): number {
   return Math.max(0, line.sent_qty - line.returned_qty);
+}
+
+/** Calculate net rate after discount/additions. */
+export function calcNetRate(
+  rate: number,
+  discountPct: number = 0,
+  addCharges: number = 0,
+  lessCharges: number = 0,
+): number {
+  return rate * (1 - discountPct / 100) + addCharges - lessCharges;
+}
+
+/** Convert amount at exchange rate. */
+export function calcForeignAmount(inrAmount: number, exchangeRate: number): number {
+  if (!exchangeRate || exchangeRate === 0) return 0;
+  return inrAmount / exchangeRate;
+}
+
+/** Sum charges by type. */
+export function sumCharges(
+  charges: Pick<PoAdditionalCharge, "charge_type" | "inr_amount" | "fgn_amount">[],
+  type: ChargeType,
+): { inr: number; fgn: number } {
+  return charges
+    .filter((c) => c.charge_type === type)
+    .reduce(
+      (acc, c) => ({
+        inr: acc.inr + (c.inr_amount || 0),
+        fgn: acc.fgn + (c.fgn_amount || 0),
+      }),
+      { inr: 0, fgn: 0 },
+    );
 }
