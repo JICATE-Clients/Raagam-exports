@@ -448,14 +448,14 @@ export type PoItemGroupInput = z.infer<typeof poItemGroupInput>;
 export const poSizeDeliveryInput = z.object({
   po_line_item_id: z.string().uuid(),
   delivery_date: z.string().optional().nullable(),
-  rolls: z.coerce.number().int().default(0),
-  quantity: z.coerce.number().nonnegative().default(0),
-  meters: z.coerce.number().nonnegative().default(0),
-  weight: z.coerce.number().nonnegative().default(0),
-  rate: z.coerce.number().nonnegative().default(0),
-  net_rate: z.coerce.number().nonnegative().default(0),
-  po_value: z.coerce.number().nonnegative().default(0),
-  sort_order: z.coerce.number().int().default(0),
+  rolls: z.coerce.number().int().optional(),
+  quantity: z.coerce.number().nonnegative().optional(),
+  meters: z.coerce.number().nonnegative().optional(),
+  weight: z.coerce.number().nonnegative().optional(),
+  rate: z.coerce.number().nonnegative().optional(),
+  net_rate: z.coerce.number().nonnegative().optional(),
+  po_value: z.coerce.number().nonnegative().optional(),
+  sort_order: z.coerce.number().int().optional(),
 });
 export type PoSizeDeliveryInput = z.infer<typeof poSizeDeliveryInput>;
 
@@ -463,13 +463,13 @@ export const poDeliverySizeInput = z.object({
   po_size_delivery_id: z.string().uuid(),
   bom_size: z.string().optional().nullable(),
   item_size: z.string().optional().nullable(),
-  rolls: z.coerce.number().int().default(0),
-  quantity: z.coerce.number().nonnegative().default(0),
-  weight: z.coerce.number().nonnegative().default(0),
-  rate: z.coerce.number().nonnegative().default(0),
-  net_rate: z.coerce.number().nonnegative().default(0),
-  po_value: z.coerce.number().nonnegative().default(0),
-  sort_order: z.coerce.number().int().default(0),
+  rolls: z.coerce.number().int().optional(),
+  quantity: z.coerce.number().nonnegative().optional(),
+  weight: z.coerce.number().nonnegative().optional(),
+  rate: z.coerce.number().nonnegative().optional(),
+  net_rate: z.coerce.number().nonnegative().optional(),
+  po_value: z.coerce.number().nonnegative().optional(),
+  sort_order: z.coerce.number().int().optional(),
 });
 export type PoDeliverySizeInput = z.infer<typeof poDeliverySizeInput>;
 
@@ -479,13 +479,13 @@ export const poItemSizeDeliveryInput = z.object({
   item_size: z.string().optional().nullable(),
   stitch_length: z.coerce.number().optional().nullable(),
   loop_length: z.coerce.number().optional().nullable(),
-  rolls: z.coerce.number().int().default(0),
-  quantity: z.coerce.number().nonnegative().default(0),
-  weight: z.coerce.number().nonnegative().default(0),
-  rate: z.coerce.number().nonnegative().default(0),
-  net_rate: z.coerce.number().nonnegative().default(0),
-  po_value: z.coerce.number().nonnegative().default(0),
-  sort_order: z.coerce.number().int().default(0),
+  rolls: z.coerce.number().int().optional(),
+  quantity: z.coerce.number().nonnegative().optional(),
+  weight: z.coerce.number().nonnegative().optional(),
+  rate: z.coerce.number().nonnegative().optional(),
+  net_rate: z.coerce.number().nonnegative().optional(),
+  po_value: z.coerce.number().nonnegative().optional(),
+  sort_order: z.coerce.number().int().optional(),
 });
 export type PoItemSizeDeliveryInput = z.infer<typeof poItemSizeDeliveryInput>;
 

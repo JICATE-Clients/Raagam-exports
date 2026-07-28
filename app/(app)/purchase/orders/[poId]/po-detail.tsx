@@ -37,6 +37,7 @@ import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import type { PoLineItem, PoStatus } from "@/lib/purchase/types";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { PoDeliveryEditor } from "./po-delivery-editor";
 
 function poStatusTone(status: PoStatus): StatusTone {
   switch (status) {
@@ -617,6 +618,7 @@ export function PoDetail({
   const [form, setForm] = useState<LineFields>(emptyLine());
   const [rejectNote, setRejectNote] = useState("");
   const [showRejectForm, setShowRejectForm] = useState(false);
+  const [expandedLines, setExpandedLines] = useState<Set<string>>(new Set());
 
   const isDraft = po.status === "draft";
   const isPendingApproval = po.status === "pending_approval";
@@ -831,6 +833,20 @@ export function PoDetail({
             align: "right" as const,
             cell: (r: PoLineItem) => (
               <div className="flex items-center justify-end gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setExpandedLines((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(r.id)) next.delete(r.id);
+                      else next.add(r.id);
+                      return next;
+                    });
+                  }}
+                >
+                  {expandedLines.has(r.id) ? "Hide" : "Deliveries"}
+                </Button>
                 {canMutateLines && (
                   <Button
                     size="sm"
@@ -916,6 +932,23 @@ export function PoDetail({
             getKey={(r) => r.id}
             empty="No lines yet. Add one to get started."
           />
+
+          {/* Expanded delivery editors for each line */}
+          {po.lines
+            .filter((l) => expandedLines.has(l.id))
+            .map((l) => (
+              <div key={`del-${l.id}`} className="ml-4">
+                <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                  Delivery schedule for: {l.description}
+                </p>
+                <PoDeliveryEditor
+                  lineItemId={l.id}
+                  poId={po.id}
+                  isSizeWise={l.is_size_wise ?? false}
+                  canEdit={canMutateLines}
+                />
+              </div>
+            ))}
 
           {formMode !== null && (
             <LineForm
