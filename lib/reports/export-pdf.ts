@@ -10,7 +10,8 @@ import autoTable from "jspdf-autotable";
 import { reportFilename, reportMatrix, type ReportConfig } from "./types";
 
 export function exportPdf<T>(config: ReportConfig<T>): void {
-  const { headers, rows } = reportMatrix(config);
+  // PDF is a display target → apply each column's display formatter.
+  const { headers, rows } = reportMatrix(config, { formatted: true });
 
   // Landscape suits wide ERP tables; A4 default.
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });

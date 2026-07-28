@@ -10,6 +10,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 import { focusFirstField } from "@/lib/focus";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { gridKeyNav } from "@/components/masters/child-grid";
@@ -220,6 +221,18 @@ export function DocumentNoFormatMasterScreen({
     );
     touch();
   }
+
+  // Ctrl/⌘+S and Enter both save through here. This editor is a hand-rolled
+  // `fixed inset-0` clone rather than a Sheet, so it gets neither for free — and
+  // `submitSurface` cannot find its footer either, since the footer sits outside
+  // the `data-focus-scope` pane. Registering is what makes Enter save at all.
+  useRegisterShortcut(
+    "save",
+    () => {
+      if (!isPending && date) submit(false);
+    },
+    open,
+  );
 
   function submit(asDraft: boolean) {
     startTransition(async () => {

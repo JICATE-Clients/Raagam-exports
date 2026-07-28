@@ -800,3 +800,41 @@ editor (enquiry/style/type/status/qty/unit/delivery/customer-ref/courier/notes) 
 3. **Sample workflow = requested → in_progress → sent → approved/rejected** 🟢 — status editable directly
    in the editor (no separate dispatch action); `dispatched_at`/`courier_ref` retained. *Confirm the
    status set + whether "sent" should auto-stamp a dispatch date.*
+
+---
+
+## Reports ▸ Item reporting foundation (`/reports/item-movement` · `item-ledger` · `purchase-vs-receipt`)
+
+Built the item fact model that makes "purchased / consumed per item, type, category" answerable.
+Migration **0351** adds `txn_date`, `uom_id`, `rate`, `value`, `location_id` to `stock_ledger` (all
+nullable), plus `resolve_item_rate()` and a BEFORE INSERT stamp trigger so all eight existing posting
+call sites keep working and still produce complete rows. Migration **0352** adds the
+`report_item_movements` / `report_item_dimensions` views and three SECURITY DEFINER RPCs
+(`report_item_summary`, `report_item_ledger`, `report_item_stock_as_of`), gated on `reports:view`
+exactly like `0042_analytics.sql`. Conventions live in the **`raagam-report-data`** skill; the field
+registry is `lib/reports/registry.ts`, enforced by `scripts/audit_reports.py`.
+
+Verified against live data: fact-view quantities reconcile exactly with raw `stock_ledger`
+(158,597 in / 53,604 out), `opening + in − out = closing` holds with 0 violations, and the as-of
+replay matches `stock_balances` with 0 mismatches.
+
+1. **Rate priority chain is a business decision** 🔴 — `resolve_item_rate()` values a consumption at
+   (1) last actual PO `unit_price`, then (2) `yarn_purchase_rate_items.rate`, then (3)
+   `items.budget_rate`. The priority integers are isolated in the function so they can be reordered in
+   one place. *Confirm this is how the client wants consumption valued — it drives every consumption
+   value figure in the ERP.* 74 of 150 existing ledger rows resolve to no rate at all and so report a
+   correct quantity but no value; the Item Movement Ledger shows that count as a KPI.
+2. **`grn_line_items` has no `item_id`** 🔴 — the material is reachable only via `po_line_item_id`.
+   **Every GRN line in the live database currently has a null `po_line_item_id`**, so GRN-vs-ledger
+   reconciliation is structurally empty. This is the highest-value schema fix outstanding. *Confirm
+   GRN should always be raised against a PO line, or the column must be added.*
+3. **Historic `txn_date` is a proxy** 🟡 — pre-0351 rows were backfilled from `created_at::date`
+   because the document date was never captured. Figures for past periods are as good as the posting
+   dates were, no better.
+4. **Off-book movement is reported but flagged, not hidden** 🟡 — BOM amendments (planned) and
+   delivery challans (processor in/out) appear with `posts_to_ledger = false`. Production, despatch,
+   packing and shipment carry no `item_id` at all and are declared `status: "gap"` in
+   `REPORT_SOURCES`. *Confirm the client accepts that consumption-in-production and finished-goods
+   dispatch are not yet reportable.*
+5. **Grouping past item level drops the UOM** 🟢 — a category total would otherwise sum kilograms and
+   metres. Item-level groupings keep the UOM; coarser axes should be read on the value measures.

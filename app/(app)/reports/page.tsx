@@ -1,21 +1,15 @@
 import Link from "next/link";
-import { TrendingUp, FileText, Sheet, Printer, BarChart3 } from "lucide-react";
+import { FileText, Sheet, Printer, BarChart3 } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody } from "@/components/ui/card";
+import { REPORTS, reportHref } from "@/lib/reports/catalog";
 
 /**
  * Reports landing. Each report is a page that renders a shared `<ReportView>` with
- * PDF / Excel / Print / chart affordances. Add new reports here + in nav.ts.
+ * PDF / Excel / Print / chart affordances. Add new reports to `lib/reports/catalog.ts`
+ * — this grid and the nav both read from it, so they cannot drift apart.
  */
-const reports = [
-  {
-    href: "/reports/shipment-pnl",
-    label: "Shipment P&L",
-    desc: "Profitability by shipment — revenue vs. total cost",
-    icon: TrendingUp,
-  },
-];
 
 export default async function ReportsPage() {
   await requirePermission("reports", "view");
@@ -43,10 +37,10 @@ export default async function ReportsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {reports.map((r) => {
+        {REPORTS.map((r) => {
           const Icon = r.icon;
           return (
-            <Link key={r.href} href={r.href} className="block">
+            <Link key={r.slug} href={reportHref(r)} className="block">
               <Card className="h-full transition-colors hover:border-primary">
                 <CardBody className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -56,7 +50,9 @@ export default async function ReportsPage() {
                     <h2 className="text-sm font-semibold text-foreground">
                       {r.label}
                     </h2>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{r.desc}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {r.description}
+                    </p>
                   </div>
                 </CardBody>
               </Card>

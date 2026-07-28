@@ -53,9 +53,9 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
       onBlur?.(e);
     }
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-      // Pressing Enter on an invalid field must NOT advance — the shared
-      // enterAdvance guard blocks it via aria-invalid (which is live below), and
-      // we reveal the message here so the user sees why focus stayed put, even
+      // Pressing Enter on an invalid field must NOT save — the shared
+      // enterSaves guard blocks it via aria-invalid (which is live below), and
+      // we reveal the message here so the user sees why nothing happened, even
       // if the field hadn't been blurred yet (client 2026-07-24).
       if (e.key === "Enter" && liveError) setTouched(true);
       onKeyDown?.(e);
@@ -72,7 +72,7 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
           onKeyDown={handleKeyDown}
           inputMode={inputMode ?? spec?.inputMode}
           maxLength={maxLength ?? spec?.maxLength}
-          // Live, so enterAdvance blocks Enter the instant the value is invalid —
+          // Live, so enterSaves blocks Enter the instant the value is invalid —
           // before blur. Display (border/message) stays gated on `shownError`.
           aria-invalid={liveError ? true : undefined}
           className={cn(shownError && "border-danger", className)}

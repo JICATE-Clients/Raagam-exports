@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -182,80 +183,76 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-            <div>
-              <Label htmlFor="co-name">
-                Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="co-name"
-                uppercase
-                value={form.name}
-                onChange={(e) => set({ name: e.target.value })}
-                required
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="co-group">Country Group</Label>
-              <Select
-                id="co-group"
-                value={form.country_group}
-                onChange={(e) => set({ country_group: e.target.value as "" | CountryGroup })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {COUNTRY_GROUPS.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-            <div>
-              <Label htmlFor="co-ecgc">ECGC Code</Label>
-              <Input
-                id="co-ecgc"
-                value={form.ecgc_code}
-                onChange={(e) => set({ ecgc_code: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="co-isd">ISD Code</Label>
-              <ValidatedInput
-                id="co-isd"
-                format="isd"
-                value={form.isd_code}
-                onChange={(e) => set({ isd_code: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </div>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer accent-primary"
-              checked={form.default_country}
-              onChange={(e) => set({ default_country: e.target.checked })}
+        {/* Five fields — under the 7 that would call for grouping (LAYOUT.md §4),
+            so one flat section. Sizes track the data: a country Name is free
+            text, the two codes are 2-4 characters and must not inherit the same
+            box. */}
+        <DetailSection label="Details" cols={12}>
+          <Field label="Name" size="lg" required htmlFor="co-name">
+            <Input
+              id="co-name"
+              uppercase
+              value={form.name}
+              onChange={(e) => set({ name: e.target.value })}
+              required
             />
-            <span className="text-sm text-foreground">Default Country</span>
-          </label>
-          {editId && (
+          </Field>
+          <Field label="Country Group" size="md" htmlFor="co-group">
+            <Select
+              id="co-group"
+              value={form.country_group}
+              onChange={(e) => set({ country_group: e.target.value as "" | CountryGroup })}
+            >
+              <option value="">— Select —</option>
+              {COUNTRY_GROUPS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="ECGC Code" size="xs" htmlFor="co-ecgc">
+            <Input
+              id="co-ecgc"
+              value={form.ecgc_code}
+              onChange={(e) => set({ ecgc_code: e.target.value })}
+            />
+          </Field>
+          <Field label="ISD Code" size="xs" htmlFor="co-isd">
+            <ValidatedInput
+              id="co-isd"
+              format="isd"
+              value={form.isd_code}
+              onChange={(e) => set({ isd_code: e.target.value })}
+            />
+          </Field>
+          {/* Each flag gets its own cell rather than a hand-rolled flex row, so
+              the checkboxes sit on the same 12-col track as everything else. */}
+          <Field size="md">
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
+                checked={form.default_country}
+                onChange={(e) => set({ default_country: e.target.checked })}
               />
-              <span className="text-sm text-foreground">Inactive</span>
+              <span className="text-sm text-foreground">Default Country</span>
             </label>
+          </Field>
+          {editId && (
+            <Field size="md">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
+            </Field>
           )}
-        </div>
+        </DetailSection>
       </Sheet>
     </div>
   );

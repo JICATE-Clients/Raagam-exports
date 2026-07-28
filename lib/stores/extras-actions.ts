@@ -54,6 +54,12 @@ interface LedgerRow {
   reference_type: string;
   reference_id: string;
   note?: string | null;
+  /**
+   * The source document's own date (opening_date / required_date / return_date /
+   * receipt_date). Without it the stamp trigger falls back to today, and a
+   * back-dated document lands in the wrong reporting period.
+   */
+  txn_date?: string | null;
 }
 
 /** Batch-insert ledger rows (>0 only). Atomic — the balance trigger rolls back
@@ -119,7 +125,7 @@ export async function deleteOpeningLine(id: string, docId: string): Promise<R> {
 export async function postOpeningStock(docId: string): Promise<R> {
   await guard("edit");
   const s = await createClient();
-  const { data: doc } = await s.from("opening_stocks").select("status, store_id").eq("id", docId).maybeSingle();
+  const { data: doc } = await s.from("opening_stocks").select("status, store_id, opening_date").eq("id", docId).maybeSingle();
   if (!doc || doc.status !== "draft") return bad("Only a draft opening stock can be posted");
   const { data: lines } = await s.from("opening_stock_lines").select("item_id, quantity").eq("opening_stock_id", docId);
   const rows = ((lines ?? []) as { item_id: string; quantity: number }[]).map((l) => ({
@@ -129,6 +135,7 @@ export async function postOpeningStock(docId: string): Promise<R> {
     quantity: l.quantity ?? 0,
     reference_type: "opening_stock",
     reference_id: docId,
+    txn_date: (doc.opening_date as string | null) ?? null,
   }));
   const err = await postLedger(rows);
   if (err) return err;
@@ -248,7 +255,7 @@ export async function rejectMrs(id: string): Promise<R> {
 export async function issueMrs(id: string): Promise<R> {
   await guard("edit");
   const s = await createClient();
-  const { data: doc } = await s.from("material_requisitions").select("status, store_id").eq("id", id).maybeSingle();
+  const { data: doc } = await s.from("material_requisitions").select("status, store_id, required_date").eq("id", id).maybeSingle();
   if (!doc || doc.status !== "approved") return bad("Only an approved requisition can be issued");
   const { data: lines } = await s
     .from("material_requisition_lines")
@@ -263,6 +270,7 @@ export async function issueMrs(id: string): Promise<R> {
       quantity: l.requested_qty ?? 0,
       reference_type: "material_requisition",
       reference_id: id,
+      txn_date: (doc.required_date as string | null) ?? null,
     })),
   );
   if (err) return err;
@@ -348,7 +356,7 @@ export async function deleteVrtLine(id: string, docId: string): Promise<R> {
 export async function postVendorReturn(docId: string): Promise<R> {
   await guard("edit");
   const s = await createClient();
-  const { data: doc } = await s.from("vendor_returns").select("status, store_id").eq("id", docId).maybeSingle();
+  const { data: doc } = await s.from("vendor_returns").select("status, store_id, return_date").eq("id", docId).maybeSingle();
   if (!doc || doc.status !== "draft") return bad("Only a draft return can be posted");
   const { data: lines } = await s.from("vendor_return_lines").select("item_id, return_qty").eq("vendor_return_id", docId);
   const err = await postLedger(
@@ -359,6 +367,7 @@ export async function postVendorReturn(docId: string): Promise<R> {
       quantity: l.return_qty ?? 0,
       reference_type: "vendor_return",
       reference_id: docId,
+      txn_date: (doc.return_date as string | null) ?? null,
     })),
   );
   if (err) return err;
@@ -373,7 +382,7 @@ export async function postVendorReturn(docId: string): Promise<R> {
 export async function recordReplacement(docId: string): Promise<R> {
   await guard("edit");
   const s = await createClient();
-  const { data: doc } = await s.from("vendor_returns").select("status, store_id").eq("id", docId).maybeSingle();
+  const { data: doc } = await s.from("vendor_returns").select("status, store_id, return_date").eq("id", docId).maybeSingle();
   if (!doc || doc.status !== "returned") return bad("Replacement can only be recorded on a returned document");
   const { data: lines } = await s.from("vendor_return_lines").select("item_id, replacement_qty").eq("vendor_return_id", docId);
   const err = await postLedger(
@@ -384,6 +393,7 @@ export async function recordReplacement(docId: string): Promise<R> {
       quantity: l.replacement_qty ?? 0,
       reference_type: "vendor_return_replacement",
       reference_id: docId,
+      txn_date: (doc.return_date as string | null) ?? null,
     })),
   );
   if (err) return err;
@@ -475,7 +485,7 @@ export async function deleteCspLine(id: string, docId: string): Promise<R> {
 export async function postCspReceipt(docId: string): Promise<R> {
   await guard("edit");
   const s = await createClient();
-  const { data: doc } = await s.from("csp_receipts").select("status, store_id").eq("id", docId).maybeSingle();
+  const { data: doc } = await s.from("csp_receipts").select("status, store_id, receipt_date").eq("id", docId).maybeSingle();
   if (!doc || doc.status !== "draft") return bad("Only a draft CSP receipt can be posted");
   const { data: lines } = await s.from("csp_receipt_lines").select("item_id, quantity").eq("csp_receipt_id", docId);
   const err = await postLedger(
@@ -486,6 +496,7 @@ export async function postCspReceipt(docId: string): Promise<R> {
       quantity: l.quantity ?? 0,
       reference_type: "csp_receipt",
       reference_id: docId,
+      txn_date: (doc.receipt_date as string | null) ?? null,
     })),
   );
   if (err) return err;

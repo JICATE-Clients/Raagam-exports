@@ -126,22 +126,30 @@ export function Combobox({
   }
 
   /**
-   * The one keyboard contract (doc/ui/uicheck list.md):
-   *   ↓/↑    open the list when closed, move the highlight when open
-   *   Enter  pick the highlight and close — when closed, bubble so the Sheet
-   *          advances to the next field
-   *   Tab    when closed, OPEN the list (handled by the keyboard-nav provider);
-   *          when open, do nothing — the list holds the keyboard until Enter
-   *          picks or Esc closes. Tab never changes a value either way.
+   * The one keyboard contract (.claude/skills/raagam-keyboard-contract):
+   *   ↓      open the list when closed, move the highlight down when open
+   *   ↑      move the highlight up when open; when CLOSED, bubble untouched so
+   *          the keyboard-nav provider moves to the field above. ↑ must not be a
+   *          second way to open a list, or a dropdown becomes a one-way door.
+   *   Enter  pick the highlight and close — when closed, bubble so the provider
+   *          saves the record
+   *   Tab    close the list without choosing, and let focus move on. Never
+   *          preventDefault: the move itself belongs to native order or to
+   *          Sheet's focus trap.
    *   Esc    close the list only, never the surrounding editor
    */
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
+      if (!open) {
+        if (e.key === "ArrowUp") return; // bubbles: "the field above"
+        e.preventDefault();
+        e.stopPropagation();
+        return openList();
+      }
       // Arrows are consumed here; without stopPropagation a combobox sitting in
       // a grid cell would move the highlight AND jump the grid a row.
+      e.preventDefault();
       e.stopPropagation();
-      if (!open) return openList();
       setHighlight((h) =>
         e.key === "ArrowDown" ? Math.min(h + 1, filtered.length - 1) : Math.max(h - 1, 0),
       );
@@ -153,19 +161,18 @@ export function Combobox({
         commit(filtered[highlight].value);
       }
     } else if (e.key === "Tab") {
-      // Deliberately NOT handled here. An open list owns Tab — it does nothing
-      // while the list is up, so the operator cannot tab past a dropdown without
-      // seeing it (client 2026-07-27) — but that belongs to `tabOpensList` in
-      // the keyboard-nav provider, which is also the thing that OPENS the list
-      // on the second Tab.
+      // Tab moves on, always (client 2026-07-28). It used to be swallowed while
+      // the list was open, so an operator could not tab past a dropdown without
+      // seeing it; that rule went away with "a second Tab opens the list", and
+      // Tab is now purely movement.
       //
-      // Consuming Tab here would hide the key from the provider (it bails on
-      // `defaultPrevented`), so the provider could never record that this field
-      // has already shown its list. The next Tab after Escape would re-open it,
-      // and the operator would be stuck on the field forever.
-      //
-      // Tab used to close-and-move-on here, guarding "Tab must never change a
-      // value". That rule is untouched: doing nothing cannot write a value.
+      // Close WITHOUT committing — "Tab never changes a value" is the rule that
+      // survived — and deliberately do NOT preventDefault, or focus would stay
+      // put: the move itself belongs to native tab order, or to Sheet's trap.
+      if (open) {
+        setOpen(false);
+        setQuery("");
+      }
     } else if (e.key === "Escape") {
       if (open) {
         e.preventDefault();

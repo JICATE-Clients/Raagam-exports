@@ -32,7 +32,10 @@ function normalizeAddresses(data: VendorInput): AddressRow[] {
       country_id: a.country_id ?? null,
       pin: clean(a.pin),
       land_line: clean(a.land_line),
-      fax: clean(a.fax),
+      mobile: clean(a.mobile),
+      // clean() collapses "" → null, which is exactly the stored convention:
+      // an explicit-but-empty WhatsApp box means "same as mobile".
+      whatsapp: clean(a.whatsapp),
       email_id: clean(a.email_id),
     }))
     .filter(
@@ -44,7 +47,8 @@ function normalizeAddresses(data: VendorInput): AddressRow[] {
         a.country_id ||
         a.pin ||
         a.land_line ||
-        a.fax ||
+        a.mobile ||
+        a.whatsapp ||
         a.email_id,
     )
     .map((a, i) => ({ ...a, sno: i + 1 }));

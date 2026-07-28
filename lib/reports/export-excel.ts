@@ -39,7 +39,12 @@ export async function exportExcel<T>(config: ReportConfig<T>): Promise<void> {
   config.columns.forEach((c, i) => {
     const column = sheet.getColumn(i + 1);
     column.width = Math.max(12, c.header.length + 2);
-    if (c.isNumeric) column.alignment = { horizontal: "right" };
+    if (c.isNumeric) {
+      column.alignment = { horizontal: "right" };
+      // Thousands separators + up to 3 dp to match numeric(14,3) quantities.
+      // The cell still holds a real number, so SUM/sort keep working.
+      column.numFmt = "#,##0.###";
+    }
   });
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 

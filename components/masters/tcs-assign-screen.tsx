@@ -9,6 +9,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 import { saveCustomerTcs } from "@/lib/masters/tcs-actions";
 import type { CustomerTcsRow } from "@/lib/masters/tcs-service";
 import type { Country } from "@/lib/masters/country-types";
@@ -67,6 +68,13 @@ export function TcsAssignScreen({
       return m;
     });
   }
+
+  // Ctrl/⌘+S and Enter both save through here. This screen is neither a Sheet
+  // nor a MasterFullScreen, so it inherits neither; and `submitSurface` cannot
+  // reach its Save button by DOM, so registering is what makes Enter save.
+  useRegisterShortcut("save", () => {
+    if (dirty && !isPending) save();
+  });
 
   function save() {
     startTransition(async () => {

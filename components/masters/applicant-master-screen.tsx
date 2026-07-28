@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
+import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
@@ -48,7 +49,9 @@ type HeaderForm = {
   pin: string;
   address_country_id: string;
   land_line: string;
-  fax: string;
+  mobile: string;
+  /** null = "same as mobile" (tick on). "" = tick off, nothing typed yet. */
+  whatsapp: string | null;
   email: string;
   web_site: string;
   // General
@@ -75,7 +78,8 @@ const BLANK: HeaderForm = {
   pin: "",
   address_country_id: "",
   land_line: "",
-  fax: "",
+  mobile: "",
+  whatsapp: null,
   email: "",
   web_site: "",
   currency_1: "",
@@ -150,6 +154,7 @@ export function ApplicantMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const isdOf = useIsdLookup(countries);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -202,7 +207,9 @@ export function ApplicantMasterScreen({
       pin: r.pin ?? "",
       address_country_id: r.address_country_id ?? "",
       land_line: r.land_line ?? "",
-      fax: r.fax ?? "",
+      mobile: r.mobile ?? "",
+      // NOT `?? ""` — a stored NULL is the "same as mobile" state.
+      whatsapp: r.whatsapp,
       email: r.email ?? "",
       web_site: r.web_site ?? "",
       currency_1: r.currency_1 ?? "",
@@ -258,7 +265,9 @@ export function ApplicantMasterScreen({
         pin: form.pin.trim() || null,
         address_country_id: form.address_country_id || null,
         land_line: form.land_line.trim() || null,
-        fax: form.fax.trim() || null,
+        mobile: form.mobile.trim() || null,
+        // "" collapses to null — an empty WhatsApp box means "same as mobile".
+        whatsapp: form.whatsapp?.trim() || null,
         email: form.email.trim() || null,
         web_site: form.web_site.trim() || null,
         currency_1: form.currency_1 || null,
@@ -576,15 +585,14 @@ export function ApplicantMasterScreen({
                     className="text-base md:text-sm"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="ap-fax">Fax</Label>
-                  <Input
-                    id="ap-fax"
-                    value={form.fax}
-                    onChange={(e) => set({ fax: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
+                <MobileWhatsAppFields
+                  idPrefix="ap"
+                  mobile={form.mobile}
+                  whatsapp={form.whatsapp}
+                  isdCode={isdOf.get(form.address_country_id) ?? null}
+                  onMobileChange={(v) => set({ mobile: v })}
+                  onWhatsAppChange={(v) => set({ whatsapp: v })}
+                />
                 <div>
                   <Label htmlFor="ap-email">E-Mail</Label>
                   <ValidatedInput

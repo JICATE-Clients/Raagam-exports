@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
-import { focusFirstField } from "@/lib/focus";
+import { focusFirstField, focusField } from "@/lib/focus";
 
 /**
  * The three things every modal owes the keyboard: focus moves INTO it on open,
@@ -59,7 +59,7 @@ export function useOverlayFocus(
       // overlay would steal the cursor from whatever opened next.
       const active = document.activeElement;
       if (home && home.isConnected && (!active || active === document.body)) {
-        home.focus();
+        focusField(home); // caret at the end when the opener is a text field
       }
     };
   }, [open, panelRef]);

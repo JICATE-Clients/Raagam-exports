@@ -20,6 +20,13 @@ export interface ReportColumn<T> {
   value: (row: T) => string | number;
   /** Right-align + tabular-nums on screen and number-format in Excel. */
   isNumeric?: boolean;
+  /**
+   * Display formatter for screen + PDF only. Excel deliberately receives the RAW
+   * `value()` so it can sum and sort — which is exactly why formatting belongs
+   * here and NOT inside `value()`. A numeric column whose `value()` returns
+   * `fmtMoney(...)` ships text to Excel and silently breaks every SUM in it.
+   */
+  format?: (value: string | number) => string;
 }
 
 export type ReportChartKind = "bar" | "line" | "pie";
@@ -56,13 +63,25 @@ export function reportFilename(title: string, ext: string): string {
   return `${stem}.${ext}`;
 }
 
-/** Flatten config rows into a header array + matrix of cell values (shared by exporters). */
-export function reportMatrix<T>(config: ReportConfig<T>): {
+/**
+ * Flatten config rows into a header array + matrix of cell values (shared by
+ * exporters). Pass `{ formatted: true }` for display targets (PDF); leave it off
+ * for Excel so numerics stay real numbers.
+ */
+export function reportMatrix<T>(
+  config: ReportConfig<T>,
+  opts: { formatted?: boolean } = {},
+): {
   headers: string[];
   rows: (string | number)[][];
 } {
   return {
     headers: config.columns.map((c) => c.header),
-    rows: config.rows.map((row) => config.columns.map((c) => c.value(row))),
+    rows: config.rows.map((row) =>
+      config.columns.map((c) => {
+        const v = c.value(row);
+        return opts.formatted && c.format ? c.format(v) : v;
+      }),
+    ),
   };
 }

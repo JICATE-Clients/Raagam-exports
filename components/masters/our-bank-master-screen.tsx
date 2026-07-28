@@ -4,7 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -253,89 +255,80 @@ export function OurBankMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          <DetailSection label="Details" cols={2}>
-            <div>
-              <Label htmlFor="ob-account-no">Account No</Label>
-              <Input
-                id="ob-account-no"
-                value={form.account_no}
-                onChange={(e) => setForm({ ...form, account_no: e.target.value })}
-                className="text-base md:text-sm"
-              />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-            </div>
-            <div>
-              <Label htmlFor="ob-account-name">Account Name</Label>
-              <Input
-                id="ob-account-name"
-                uppercase
-                value={form.account_name}
-                onChange={(e) => setForm({ ...form, account_name: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="ob-bank-name">Bank Name</Label>
-              <Input
-                id="ob-bank-name"
-                uppercase
-                value={form.bank_name}
-                onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="ob-branch-name">Branch Name</Label>
-              <Input
-                id="ob-branch-name"
-                uppercase
-                value={form.branch_name}
-                onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="ob-swift">Swift Code</Label>
-              <Input
-                id="ob-swift"
-                value={form.swift_code}
-                onChange={(e) => setForm({ ...form, swift_code: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="ob-ifsc">IFSC Code</Label>
-              <Input
-                id="ob-ifsc"
-                value={form.ifsc_code}
-                onChange={(e) => setForm({ ...form, ifsc_code: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label htmlFor="ob-address">Address</Label>
-              <Input
-                id="ob-address"
-                value={form.address}
-                onChange={(e) => setForm({ ...form, address: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </DetailSection>
-
+        {/* Seven fields — one titled section (LAYOUT.md §4), on the 12-col track
+            so the two 11-character codes stop claiming half a row each. Legacy
+            field order preserved. */}
+        <DetailSection label="Details" cols={12}>
+          <Field label="Account No" size="sm" htmlFor="ob-account-no">
+            <ValidatedInput
+              id="ob-account-no"
+              format="account"
+              value={form.account_no}
+              onChange={(e) => setForm({ ...form, account_no: e.target.value })}
+            />
+            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+          </Field>
+          <Field label="Account Name" size="lg" htmlFor="ob-account-name">
+            <Input
+              id="ob-account-name"
+              uppercase
+              value={form.account_name}
+              onChange={(e) => setForm({ ...form, account_name: e.target.value })}
+            />
+          </Field>
+          <Field label="Bank Name" size="lg" htmlFor="ob-bank-name">
+            <Input
+              id="ob-bank-name"
+              uppercase
+              value={form.bank_name}
+              onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
+            />
+          </Field>
+          <Field label="Branch Name" size="lg" htmlFor="ob-branch-name">
+            <Input
+              id="ob-branch-name"
+              uppercase
+              value={form.branch_name}
+              onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
+            />
+          </Field>
+          <Field label="Swift Code" size="sm" htmlFor="ob-swift">
+            <ValidatedInput
+              id="ob-swift"
+              format="swift"
+              value={form.swift_code}
+              onChange={(e) => setForm({ ...form, swift_code: e.target.value })}
+            />
+          </Field>
+          <Field label="IFSC Code" size="sm" htmlFor="ob-ifsc">
+            <ValidatedInput
+              id="ob-ifsc"
+              format="ifsc"
+              value={form.ifsc_code}
+              onChange={(e) => setForm({ ...form, ifsc_code: e.target.value })}
+            />
+          </Field>
+          <Field label="Address" size="full" htmlFor="ob-address">
+            <Input
+              id="ob-address"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+            />
+          </Field>
           {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
+            <Field size="md">
+              <label className="flex h-8 cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
+            </Field>
           )}
-        </div>
+        </DetailSection>
       </Sheet>
     </div>
   );

@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { nullableFormat, EMAIL_RE, WEBSITE_RE } from "@/lib/validation/formats";
+import { nullableFormat, EMAIL_RE, WEBSITE_RE, PHONE_INTL_RE } from "@/lib/validation/formats";
+
+const PHONE_MSG = "Enter a valid phone number (7–15 digits, optional +country code)";
 
 // ============================================================================
 // Courier Delivery Addresses — master-detail (0252). Legacy EDP2 "Courier
@@ -34,7 +36,9 @@ export interface CourierDeliveryAddress {
   pin: string | null;
   address_country_id: string | null;
   land_line: string | null;
-  fax: string | null;
+  mobile: string | null;
+  /** NULL = same as `mobile` — resolve via effectiveWhatsApp(), never read directly. */
+  whatsapp: string | null;
   email: string | null;
   web_site: string | null;
   created_at: string;
@@ -68,7 +72,8 @@ export const courierDeliveryInput = z.object({
   pin: nullableText,
   address_country_id: uuidN,
   land_line: nullableText,
-  fax: nullableText,
+  mobile: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
+  whatsapp: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   contacts: z.array(courierDeliveryContactInput).default([]),

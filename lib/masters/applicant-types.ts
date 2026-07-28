@@ -6,7 +6,10 @@ import {
   MOBILE_IN_RE,
   EMAIL_RE,
   WEBSITE_RE,
+  PHONE_INTL_RE,
 } from "@/lib/validation/formats";
+
+const PHONE_MSG = "Enter a valid phone number (7–15 digits, optional +country code)";
 
 // ============================================================================
 // Applicants — master-detail (0238 header/Address · 0241 General). Legacy EDP2
@@ -57,7 +60,9 @@ export interface Applicant {
   pin: string | null;
   address_country_id: string | null;
   land_line: string | null;
-  fax: string | null;
+  mobile: string | null;
+  /** NULL = same as `mobile` — resolve via effectiveWhatsApp(), never read directly. */
+  whatsapp: string | null;
   email: string | null;
   web_site: string | null;
   // General tab (0241)
@@ -105,7 +110,8 @@ export const applicantInput = z.object({
   pin: nullableFormat(PINCODE_IN_RE, "Enter a 6-digit PIN code"),
   address_country_id: uuidN,
   land_line: nullableText,
-  fax: nullableText,
+  mobile: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
+  whatsapp: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   // General tab (0241)

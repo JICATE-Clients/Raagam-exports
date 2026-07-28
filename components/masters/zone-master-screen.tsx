@@ -1,12 +1,13 @@
 "use client";
 
-import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -307,87 +308,67 @@ export function ZoneMasterScreen({
           </>
         }
       >
-        <div className="space-y-4">
-          {/* Two-column body — fields LEFT, Areas grid RIGHT. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-            {/* LEFT: zone name + status (single-field column is intentionally short) */}
-            <div className="space-y-4">
-          <DetailSection label="Details">
-            <div>
-              <Label htmlFor="zn-name">
-                Zone Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="zn-name"
-                uppercase
-                value={form.zone_name}
-                onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
-                required
-                className="text-base md:text-sm"
-              />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-            </div>
-          </DetailSection>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
-            </div>
-
-            {/* RIGHT: areas grid */}
-            <div className="space-y-4">
-          {/* child grid: areas */}
-          <div className="rounded-lg border border-border">
-            <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-              <span className="text-sm font-medium">Areas</span>
-              <Button variant="ghost" size="sm" onClick={addChildRow}>
-                + Add
-              </Button>
-            </div>
-            <div className="space-y-2 p-3">
-              {childRows.length === 0 && (
-                <p className="text-xs text-muted-foreground">No areas yet.</p>
+        {/* Fields LEFT, Areas grid RIGHT. The split is meaningful (identity vs
+            its line items), so these are SectionColumns, not auto-placed
+            sections — see LAYOUT.md §1. */}
+        <SectionGrid>
+          <SectionColumn>
+            <DetailSection label="Details" cols={12}>
+              <Field label="Zone Name" size="lg" required htmlFor="zn-name">
+                <Input
+                  id="zn-name"
+                  uppercase
+                  value={form.zone_name}
+                  onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
+                  required
+                />
+                {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              </Field>
+              {editId && (
+                <Field size="md">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.inactive}
+                      onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                    />
+                    <span className="text-sm text-foreground">Inactive</span>
+                  </label>
+                </Field>
               )}
-              {/* row area capped — a growing grid scrolls instead of pushing
-                  the content below (Add stays pinned in the header) */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addChildRow)} className="max-h-56 space-y-2 overflow-y-auto">
-              {childRows.map((row, i) => (
-                <div data-grid-row key={row.key} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {i + 1}
-                  </span>
-                  <Input
-                    value={row.area_name}
-                    onChange={(e) => updateChild(row.key, e.target.value)}
-                    placeholder="Area name"
-                    className="flex-1 text-base md:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => removeChildRow(row.key)}
-                    aria-label="Remove area"
-                  >
-                    <X className="h-4 w-4 shrink-0" />
-                  </Button>
-                </div>
-              ))}
-              </div>
-            </div>
-          </div>
-            </div>
-          </div>
-        </div>
+            </DetailSection>
+          </SectionColumn>
+          <SectionColumn>
+            {/* Was a hand-rolled row list: its own header band, its own `#`
+                column, its own remove button and a `max-h-56` inner scroller —
+                i.e. ChildGrid, reimplemented and 3px out of step with it. One
+                field per row, so `inlineCards`; `pageSize` replaces the
+                scroll-in-a-box (client 2026-07-25). Keyboard nav comes with the
+                component, so the local gridKeyNav wiring goes too. */}
+            <ChildGrid<{ key: string; area_name: string }>
+              label="Areas"
+              rows={childRows}
+              onAdd={addChildRow}
+              onRemove={(row) => removeChildRow(row.key)}
+              addLabel="+ Add area"
+              inlineCards
+              pageSize={8}
+              columns={[
+                {
+                  header: "Area",
+                  cell: (row) => (
+                    <Input
+                      value={row.area_name}
+                      onChange={(e) => updateChild(row.key, e.target.value)}
+                      placeholder="Area name"
+                    />
+                  ),
+                },
+              ]}
+            />
+          </SectionColumn>
+        </SectionGrid>
       </Sheet>
     </div>
   );

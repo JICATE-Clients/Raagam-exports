@@ -1,11 +1,12 @@
 "use client";
 
-import { X } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
+import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -321,99 +322,83 @@ export function CertificationMasterScreen({
           </>
         }
       >
-        {/* Two-column body — header fields LEFT, Validity Periods grid RIGHT. */}
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-          <div className="space-y-4">
-          <DetailSection label="Details">
-            <div>
-              <Label htmlFor="cert-name">
-                Certification Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                id="cert-name"
-                uppercase
-                value={form.certification_name}
-                onChange={(e) => setForm({ ...form, certification_name: e.target.value })}
-                required
-                className="text-base md:text-sm"
-              />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-            </div>
-            <div>
-              <Label htmlFor="cert-desc">Description</Label>
-              <Textarea
-                id="cert-desc"
-                rows={3}
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-          </DetailSection>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
-          </div>
-
-          <div className="space-y-4">
-          {/* child grid: validity periods */}
-          <div className="rounded-lg border border-border">
-            <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-              <span className="text-sm font-medium">Validity Periods</span>
-              <Button variant="ghost" size="sm" onClick={addChildRow}>
-                + Add
-              </Button>
-            </div>
-            <div className="space-y-2 p-3">
-              {childRows.length === 0 && (
-                <p className="text-xs text-muted-foreground">No validity periods yet.</p>
+        {/* Header fields LEFT, Validity Periods grid RIGHT — a meaningful split,
+            so SectionColumns rather than auto-placement (LAYOUT.md §1). */}
+        <SectionGrid>
+          <SectionColumn>
+            <DetailSection label="Details" cols={12}>
+              <Field label="Certification Name" size="full" required htmlFor="cert-name">
+                <Input
+                  id="cert-name"
+                  uppercase
+                  value={form.certification_name}
+                  onChange={(e) => setForm({ ...form, certification_name: e.target.value })}
+                  required
+                />
+                {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              </Field>
+              <Field label="Description" size="full" htmlFor="cert-desc">
+                <Textarea
+                  id="cert-desc"
+                  rows={3}
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                />
+              </Field>
+              {editId && (
+                <Field size="md">
+                  <label className="flex h-8 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.inactive}
+                      onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                    />
+                    <span className="text-sm text-foreground">Inactive</span>
+                  </label>
+                </Field>
               )}
-              {/* row area capped with internal scroll — header + Add stay pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addChildRow)} className="max-h-56 space-y-2 overflow-y-auto">
-              {childRows.map((row, i) => (
-                <div data-grid-row key={row.key} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {i + 1}
-                  </span>
-                  <Input
-                    type="date"
-                    value={row.valid_from}
-                    onChange={(e) => updateChild(row.key, "valid_from", e.target.value)}
-                    className="flex-1 text-base md:text-sm"
-                  />
-                  <span className="text-xs text-muted-foreground">to</span>
-                  <Input
-                    type="date"
-                    value={row.valid_to}
-                    onChange={(e) => updateChild(row.key, "valid_to", e.target.value)}
-                    className="flex-1 text-base md:text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => removeChildRow(row.key)}
-                    aria-label="Remove validity"
-                  >
-                    <X className="h-4 w-4 shrink-0" />
-                  </Button>
-                </div>
-              ))}
-              </div>
-            </div>
-          </div>
-          </div>
-        </div>
+            </DetailSection>
+          </SectionColumn>
+          <SectionColumn>
+            {/* Was a hand-rolled row list reimplementing ChildGrid — its own
+                header band, `#` column, remove button and a `max-h-56` inner
+                scroller. Two date fields per row, so the default inline table
+                mode; `pageSize` replaces the scroll-in-a-box (client
+                2026-07-25). Keyboard nav comes with the component. */}
+            <ChildGrid<{ key: string; valid_from: string; valid_to: string }>
+              label="Validity Periods"
+              rows={childRows}
+              onAdd={addChildRow}
+              onRemove={(row) => removeChildRow(row.key)}
+              addLabel="+ Add validity"
+              inlineCards
+              pageSize={8}
+              columns={[
+                {
+                  header: "Valid from",
+                  cell: (row) => (
+                    <Input
+                      type="date"
+                      value={row.valid_from}
+                      onChange={(e) => updateChild(row.key, "valid_from", e.target.value)}
+                    />
+                  ),
+                },
+                {
+                  header: "Valid to",
+                  cell: (row) => (
+                    <Input
+                      type="date"
+                      value={row.valid_to}
+                      onChange={(e) => updateChild(row.key, "valid_to", e.target.value)}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </SectionColumn>
+        </SectionGrid>
       </Sheet>
     </div>
   );

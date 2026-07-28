@@ -313,7 +313,13 @@ export function SimpleMasterScreen<Row>({
     // is what stops the provider from also advancing.
     const tag = t.tagName;
     const keepsOwnEnter =
-      tag === "TEXTAREA" || tag === "BUTTON" || t.matches("[data-field-trigger]");
+      tag === "TEXTAREA" ||
+      tag === "BUTTON" ||
+      t.matches("[data-field-trigger]") ||
+      // A tick box: Enter means "tick this", not "save the row". Left to bubble
+      // so `enterSaves` (lib/focus.ts) toggles it — the same rule the rest of
+      // the app follows, rather than a second copy of it here.
+      (t instanceof HTMLInputElement && /^(checkbox|radio)$/.test(t.type));
     if (e.key === "Enter" && !keepsOwnEnter) {
       e.preventDefault();
       save();

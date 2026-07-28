@@ -29,9 +29,14 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl / ⌘ + S", label: "Save the open form" },
   { keys: "Ctrl / ⌘ + F", label: "Focus the list search box" },
   { keys: "Ctrl / ⌘ + /", label: "Show this shortcuts help" },
-  { keys: "Enter", label: "Move to the next field (in a form)" },
-  { keys: "Esc", label: "Close the open dialog / picker" },
+  { keys: "Tab", label: "Move to the next field" },
+  { keys: "Enter", label: "Save the open form" },
+  { keys: "Enter / Space", label: "Tick the focused checkbox" },
+  { keys: "↓", label: "Open a field's list of values" },
   { keys: "↑ / ↓ then Enter", label: "Pick a value in a lookup" },
+  { keys: "↑ / ↓ (in a grid)", label: "Previous / next row" },
+  { keys: "Enter (in a grid)", label: "Next row; on the last row, add one" },
+  { keys: "Esc", label: "Close the list, then the form, then the page" },
 ];
 
 export function ShortcutsProvider({ children }: { children: ReactNode }) {
@@ -88,7 +93,7 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
   }, [fire]);
 
   return (
-    <ShortcutsContext.Provider value={{ register, openHelp }}>
+    <ShortcutsContext.Provider value={{ register, fire, openHelp }}>
       {children}
       <Sheet open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts" size="sm">
         <ul className="divide-y divide-border">

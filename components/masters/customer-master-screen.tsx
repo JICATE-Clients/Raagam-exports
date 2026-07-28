@@ -22,7 +22,11 @@ import { ApplicantPicker } from "@/components/masters/applicant-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { ChildGrid } from "@/components/masters/child-grid";
+import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-columns-dialog";
+import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { decodeGstin } from "@/lib/validation/gstin";
 import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-service";
 import { createCustomer, updateCustomer, deleteCustomer } from "@/lib/masters/customer-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
@@ -32,6 +36,7 @@ import {
   SHIP_MODES,
   PAY_MODES,
   BUSINESS_ENTITIES,
+  PAN_BUSINESS_ENTITY,
 } from "@/lib/masters/customer-types";
 import type { Applicant } from "@/lib/masters/applicant-types";
 import type { Country } from "@/lib/masters/country-types";
@@ -60,7 +65,9 @@ type HeaderForm = {
   pin: string;
   address_country_id: string;
   land_line: string;
-  fax: string;
+  mobile: string;
+  /** null = "same as mobile" (tick on). "" = tick off, nothing typed yet. */
+  whatsapp: string | null;
   email: string;
   web_site: string;
   // General
@@ -98,7 +105,8 @@ const BLANK: HeaderForm = {
   pin: "",
   address_country_id: "",
   land_line: "",
-  fax: "",
+  mobile: "",
+  whatsapp: null,
   email: "",
   web_site: "",
   currency_1: "",
@@ -185,6 +193,7 @@ export function CustomerMasterScreen({
   destinations,
   couriers,
   packingColumns,
+  companyGstin = null,
   perms,
 }: {
   rows: Customer[];
@@ -208,6 +217,14 @@ export function CustomerMasterScreen({
   destinations: PickerItem[];
   couriers: PickerItem[];
   packingColumns: PackingFormatColumn[];
+  /**
+   * Our own GSTIN — the reference point that turns a customer's GSTIN into
+   * "Within State" / "Other State". Optional because the /masters page does not
+   * fetch the company profile on the customer branch yet (only the vendor one
+   * does); until it does, decodeGstin reports supply "unknown" and the strip
+   * simply omits that fact.
+   */
+  companyGstin?: string | null;
   perms: Perms;
 }) {
   const router = useRouter();
@@ -218,6 +235,7 @@ export function CustomerMasterScreen({
   const [colsOpen, setColsOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const isdOf = useIsdLookup(countries);
 
   // Hold off the silent PWA auto-reload while there's unsaved work or a save is
   // in flight. The overlay itself is a MasterFullScreen, which already guards.
@@ -252,6 +270,58 @@ export function CustomerMasterScreen({
     return m;
   }, [countries]);
 
+  // ---------------------------------------------------------------- GSTIN ----
+  // Everything below is decoded from the GST number itself — no lookup, no
+  // network. See lib/validation/gstin.ts for what the 15 characters carry.
+  //
+  // Unlike the vendor screen this one writes NOTHING automatically: customers
+  // have no PAN column, so there is no empty box the GSTIN can safely fill.
+  // That also means no `loadedGstin` ref is needed here — merely opening a
+  // record cannot mark the form dirty when nothing auto-fills.
+
+  const gstin = useMemo(
+    () => decodeGstin(form.gst_no, { companyGstin }),
+    [form.gst_no, companyGstin],
+  );
+
+  // Two customers must not share a GSTIN — one registration belongs to exactly
+  // one party. Note this is NOT done for PAN anywhere: one PAN legitimately
+  // carries one GSTIN per state, so a PAN check would flag multi-state groups.
+  const gstDupError = useDuplicateCheck({
+    table: "customers",
+    name: form.gst_no,
+    nameColumn: "gst_no",
+    excludeId: editId ?? undefined,
+    label: "GST number",
+    enabled: !!form.gst_no.trim(),
+  });
+
+  // What the GSTIN implies but that we refuse to write silently. Empty while
+  // the checksum fails — we never propagate a number we don't trust.
+  const gstinSuggestions = useMemo<GstinSuggestion[]>(() => {
+    if (!gstin?.checksumValid) return [];
+    const out: GstinSuggestion[] = [];
+
+    // PAN_BUSINESS_ENTITY only answers the PAN codes that map to ONE entity
+    // (see customer-types.ts) — "Company" and "Firm / LLP" are ambiguous and
+    // deliberately offer nothing rather than a guess.
+    const entity = PAN_BUSINESS_ENTITY[gstin.panEntityChar];
+    if (entity && form.business_entity !== entity) {
+      out.push({
+        key: "entity",
+        label: `Set Entity = ${entity}`,
+        onApply: () => {
+          set({ business_entity: entity });
+          // Toasted because Business Entity sits in Identity while the GST
+          // number sits in General — the change lands off-screen.
+          success(`Business Entity set to ${entity}`);
+        },
+      });
+    }
+
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstin, form.business_entity]);
 
   function openAdd() {
     setEditId(null);
@@ -286,7 +356,9 @@ export function CustomerMasterScreen({
       pin: r.pin ?? "",
       address_country_id: r.address_country_id ?? "",
       land_line: r.land_line ?? "",
-      fax: r.fax ?? "",
+      mobile: r.mobile ?? "",
+      // NOT `?? ""` — a stored NULL is the "same as mobile" state.
+      whatsapp: r.whatsapp,
       email: r.email ?? "",
       web_site: r.web_site ?? "",
       currency_1: r.currency_1 ?? "",
@@ -395,7 +467,9 @@ export function CustomerMasterScreen({
         pin: form.pin.trim() || null,
         address_country_id: form.address_country_id || null,
         land_line: form.land_line.trim() || null,
-        fax: form.fax.trim() || null,
+        mobile: form.mobile.trim() || null,
+        // "" collapses to null — an empty WhatsApp box means "same as mobile".
+        whatsapp: form.whatsapp?.trim() || null,
         email: form.email.trim() || null,
         web_site: form.web_site.trim() || null,
         currency_1: form.currency_1 || null,
@@ -475,7 +549,8 @@ export function CustomerMasterScreen({
       form.pin ||
       form.address_country_id ||
       form.land_line ||
-      form.fax ||
+      form.mobile ||
+      form.whatsapp ||
       form.email ||
       form.web_site
     ) || contacts.some(contactHasData);
@@ -732,10 +807,14 @@ export function CustomerMasterScreen({
                         <Label htmlFor="cu-landline">Land Line</Label>
                         <Input id="cu-landline" value={form.land_line} onChange={(e) => set({ land_line: e.target.value })} className="text-base md:text-sm" />
                       </div>
-                      <div>
-                        <Label htmlFor="cu-fax">Fax</Label>
-                        <Input id="cu-fax" value={form.fax} onChange={(e) => set({ fax: e.target.value })} className="text-base md:text-sm" />
-                      </div>
+                      <MobileWhatsAppFields
+                        idPrefix="cu"
+                        mobile={form.mobile}
+                        whatsapp={form.whatsapp}
+                        isdCode={isdOf.get(form.address_country_id) ?? null}
+                        onMobileChange={(v) => set({ mobile: v })}
+                        onWhatsAppChange={(v) => set({ whatsapp: v })}
+                      />
                       <div>
                         <Label htmlFor="cu-email">E-Mail</Label>
                         <ValidatedInput format="email" id="cu-email" value={form.email} onChange={(e) => set({ email: e.target.value })} className="text-base md:text-sm" />
@@ -979,7 +1058,29 @@ export function CustomerMasterScreen({
                       </div>
                       <div className="sm:col-span-2">
                         <Label htmlFor="cu-gst">GST No</Label>
-                        <Input id="cu-gst" value={form.gst_no} onChange={(e) => set({ gst_no: e.target.value })} className="text-base md:text-sm" />
+                        <ValidatedInput
+                          id="cu-gst"
+                          // Shape-only on purpose. The check digit is verified
+                          // by the strip below as a WARNING, not a block — a
+                          // bad GSTIN copied off an invoice still has to be
+                          // savable while the customer is chased. Switch this
+                          // to "gstin_strict" to make it a hard block instead.
+                          format="gstin"
+                          value={form.gst_no}
+                          onChange={(e) => set({ gst_no: e.target.value })}
+                          className="text-base md:text-sm"
+                        />
+                        {gstDupError && <p className="mt-1 text-xs text-danger">{gstDupError}</p>}
+                        {gstin && (
+                          <GstinInsight
+                            decoded={gstin}
+                            // Customers have no PAN column, so the mismatch
+                            // line stays dormant; the strip still shows the PAN
+                            // the number carries, which is the useful half.
+                            panValue=""
+                            suggestions={gstinSuggestions}
+                          />
+                        )}
                       </div>
                     </div>
 
@@ -1011,7 +1112,9 @@ export function CustomerMasterScreen({
           onCancel: () => setOpen(false),
           onSave: () => submit(false),
           saveLabel: "Save customer",
-          canSave: !!form.name.trim(),
+          // A duplicate GSTIN blocks the draft save too — a half-finished row
+          // still lands in `customers`, where the collision is just as real.
+          canSave: !!form.name.trim() && !gstDupError,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
         }}

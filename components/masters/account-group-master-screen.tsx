@@ -4,8 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -200,49 +201,35 @@ export function AccountGroupMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="flex items-start gap-3 sm:col-span-2">
-            <div className="flex-1">
-              <AccountGroupPicker
-                groups={rows}
-                value={form.parent_id}
-                onChange={(id) => set({ parent_id: id })}
-                excludeId={editId}
-                label="Under"
-              />
-            </div>
-            {editId && (
-              <label className="mt-7 flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
-            )}
-          </div>
-
-          <div>
-            <Label htmlFor="ag-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+        {/* Five fields — one flat section (LAYOUT.md §4). Legacy field ORDER is
+            preserved (Under first): these operators are migrating from
+            RP-Software and type by muscle memory, so tab order is not ours to
+            improve. The Inactive tick used to need a hand-tuned `mt-7` to clear
+            the picker's label — on the 12-col track it just takes its own cell. */}
+        <DetailSection label="Details" cols={12}>
+          {/* The pickers render their own labels — never double-label them. */}
+          <Field size="md">
+            <AccountGroupPicker
+              groups={rows}
+              value={form.parent_id}
+              onChange={(id) => set({ parent_id: id })}
+              excludeId={editId}
+              label="Under"
+            />
+          </Field>
+          <Field label="Name" size="lg" required htmlFor="ag-name">
             <Input
               id="ag-name"
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
-              className="text-base md:text-sm"
             />
-          </div>
-          <div>
-            <Label htmlFor="ag-nature">Nature of Group</Label>
+          </Field>
+          <Field label="Nature of Group" size="md" htmlFor="ag-nature">
             <Select
               id="ag-nature"
               value={form.nature_of_group}
               onChange={(e) => set({ nature_of_group: e.target.value as "" | NatureOfGroup })}
-              className="text-base md:text-sm"
             >
               <option value="">— Select —</option>
               {NATURE_OF_GROUP.map((n) => (
@@ -251,27 +238,43 @@ export function AccountGroupMasterScreen({
                 </option>
               ))}
             </Select>
-          </div>
-
-          <LookupDialogPicker
-            kind="account_schedule"
-            label="Debit Schedule"
-            options={schedules}
-            value={form.debit_schedule_id}
-            onChange={(id) => set({ debit_schedule_id: id })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-          />
-          <LookupDialogPicker
-            kind="account_schedule"
-            label="Credit Schedule"
-            options={schedules}
-            value={form.credit_schedule_id}
-            onChange={(id) => set({ credit_schedule_id: id })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-          />
-        </div>
+          </Field>
+          <Field size="md">
+            <LookupDialogPicker
+              kind="account_schedule"
+              label="Debit Schedule"
+              options={schedules}
+              value={form.debit_schedule_id}
+              onChange={(id) => set({ debit_schedule_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+            />
+          </Field>
+          <Field size="md">
+            <LookupDialogPicker
+              kind="account_schedule"
+              label="Credit Schedule"
+              options={schedules}
+              value={form.credit_schedule_id}
+              onChange={(id) => set({ credit_schedule_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+            />
+          </Field>
+          {editId && (
+            <Field size="md">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
+            </Field>
+          )}
+        </DetailSection>
       </Sheet>
     </div>
   );

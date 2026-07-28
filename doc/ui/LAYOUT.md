@@ -13,25 +13,55 @@ cited so a future decision argues with the source, not with whoever wrote the sc
 
 ## 1. The anatomy
 
-Every master editor is the same four nested things. Do not invent a fifth.
+Every master editor is the same nest of primitives. Compose these; do not invent new ones.
 
 ```
 Sheet (fullScreen)  ──────────────────────── the surface, max-w-[1180px]
 └── IdentityRow ──────────────────────────── who this record is (2-4 fields, no border)
 └── SectionGrid ──────────────────────────── the page grid, 2 columns at ≥896px
-    └── DetailSection ────────────────────── a titled bordered group, 5-7 fields
-        └── Field size="xs|sm|md|lg|full" ── one labelled control, sized to its data
+    └── SectionColumn ────────────────────── OPTIONAL: one column, when which side
+        │                                    a section lands on carries meaning
+        └── DetailSection ────────────────── a titled bordered group, 5-7 fields
+            └── Field size="xs|…|full" ───── one labelled control, sized to its data
 ```
 
 | Component | File |
 |---|---|
-| `SectionGrid`, `IdentityRow` | `components/masters/section-grid.tsx` |
+| `SectionGrid`, `SectionColumn`, `IdentityRow` | `components/masters/section-grid.tsx` |
 | `DetailSection` | `components/masters/detail-section.tsx` |
 | `Field` | `components/ui/field.tsx` |
 | `ChildGrid` (repeating line items) | `components/masters/child-grid.tsx` |
 
 **Screens never write their own `grid-cols-*`, `col-span-*`, `gap-*` or `<table>`.** If you need
 a layout the primitives can't express, change the primitive.
+
+> That last sentence is not a formality. `SectionGrid` and `IdentityRow` sat at **zero adopters**
+> for months because neither could express the screen they were written for: `IdentityRow` welded
+> a `0.85fr` onto the end of every row, but Material's HSN wants a fixed `10rem`; and
+> `SectionGrid`'s auto-placement would have interleaved the sections, destroying the standing
+> "LEFT = what the material is, RIGHT = how it's measured" rule. Both were fixed — `tracks` now
+> takes the whole track list, and `SectionColumn` holds a column whose membership is meaningful.
+> A screen that hand-rolls a grid is usually reporting a gap in a primitive, not being lazy.
+
+Everything above is **layout**. It is orthogonal to **density** — the compact control heights and
+tightened rhythm that turn a form from "fits a monitor" into "fits a laptop". Density is automatic
+and needs no props; see **§10**.
+
+### The fifth anatomy
+
+There is one more, and pretending otherwise did not make it go away: **full-page bulk-assign
+grids** — `tcs-assign`, `gst-assign`, `customer-gst-assign`, `material-hsn-assign`,
+`process-hsn-assign`. These are neither a `Sheet` nor a `MasterFullScreen`: they edit one or two
+columns across many existing rows, hold their edits in a dirty-row `Map`, and save a `changes[]`
+batch. Consequences that are easy to get wrong, and that each of these files documents in a
+comment:
+
+- They inherit **no** modal guard, **no** autofocus and **no** Ctrl+S, so each must call
+  `useUnsavedGuard` and `useRegisterShortcut("save", …)` itself — `submitSurface` cannot reach
+  their Save button by DOM.
+- They are outside `@container/editor`, so they get **no** compact density (§10).
+
+Do not give them a form layout. Do add them to the list when auditing guards.
 
 ---
 
@@ -193,16 +223,27 @@ Already handled inside `Input` / `Select` / `Textarea` — **do not** re-type it
 
 ## 8. Keyboard
 
-The contract lives in `doc/ui/uicheck list.md` and is implemented once in `lib/focus.ts`, wired
-globally by `components/shell/keyboard-nav-provider.tsx`. Screens do **not** bind their own
-`onKeyDown` for field navigation.
+The contract lives in `.claude/skills/raagam-keyboard-contract` and is implemented once in
+`lib/focus.ts`, wired globally by `components/shell/keyboard-nav-provider.tsx`. Screens do **not**
+bind their own `onKeyDown` for field navigation.
 
-- ↓/↑ on a picker → open its dialog · ↓/↑ otherwise → prev/next field · Enter → next field
+- Tab → next field, and nothing else — it never opens a list
+- ↓ on a picker/dropdown → open its list · ↓/↑ otherwise → the field below / above, **spatially**
+- ←/→ → the field left / right, once the text caret is at the edge
+- Enter → pick the highlighted row if a list is open, tick a focused checkbox/radio, else
+  **save the record**
+- Esc → close the list, then the surface (confirm if dirty), then leave the page
+- In a child grid ↑/↓ stay Excel-like (row up/down) — except ↓ on a picker cell, which opens
+  its list (`gridKeyNav` stands down without `preventDefault` so the provider gets the key)
 - Navigation may not escape its scope: `[data-focus-scope]`, `[role="dialog"]`, `form`, `main`
 - A control that owns a key must call `preventDefault()` — the global listener honours that and
   nothing else. React-level `stopPropagation()` will **not** stop it (React 19 delegates to
-  `document`, the same node).
-- Auto-generated / derived fields carry `tabIndex={-1}` so Tab skips them.
+  `document`, the same node). This is load-bearing for Escape: a layer that closes without
+  claiming the key also navigates the page away.
+- Auto-generated / derived fields carry `tabIndex={-1}` so Tab skips them — write it as
+  `<Field skipTab>` (or `SimpleField.skipTab` in the descriptor tier), not by hand. It has to be a
+  real `tabIndex` on the control: under the v3 contract Tab is **native**, so no `data-` attribute
+  and nothing in `lib/focus.ts` can take a control out of the Tab order.
 
 ---
 
@@ -216,3 +257,60 @@ globally by `components/shell/keyboard-nav-provider.tsx`. Screens do **not** bin
 - [ ] List uses `MasterListShell` + `DataTable`, not a hand-rolled table + pagination
 - [ ] Pickers via `record-picker` / `lookup-picker`, never a bespoke dialog
 - [ ] Tested at 375px: one column, no horizontal page scroll
+- [ ] Derived / auto-generated fields carry `<Field skipTab>` (§8)
+
+---
+
+## 10. Density
+
+> Numbered last only to keep the §-citations in existing code comments valid. Read it before §9.
+
+Everything above decides **where a field goes**. This decides **how much room it takes**. The two
+are independent: a screen can be on the 12-col track and still waste a third of a laptop screen on
+padding, which is what "compact" fixes.
+
+**You do not opt in.** There are no density props. Every control inside an editor surface is
+already compact; the job when writing a screen is simply not to break it.
+
+### The container
+
+```
+@container/editor          declared on the CONTENT wrapper of the two editor surfaces
+                           sheet.tsx (fullScreen, size="lg") · master-full-screen.tsx
+@2xl = 672px               above this width, compact turns on
+```
+
+**It is a container query, not `md:`, and that is the whole design.** The same wrapper is ~1180px
+in a full-screen editor and ~440px inside a nested picker dialog *at an identical viewport width*.
+A breakpoint would shrink the picker's controls too. Because 440px and every phone sit below
+672px, **touch targets stay 36px wherever there isn't room to be dense**, with no prop, no
+`hidden md:block`, and no mobile-specific branch.
+
+Two consequences worth knowing before you go looking for a bug:
+
+- **Footers are outside the container.** On both surfaces the footer is a sibling band of the
+  content wrapper, so Save / Cancel keep `h-9`. That is intentional — they are the primary action
+  and sit alone on a line, not beside a field.
+- **A screen with no editor surface gets no density at all.** The bulk-assign tier (§1) and the
+  31-screen `SimpleMasterScreen` tier are outside it. `SimpleMasterScreen` looks compact only
+  because it hard-codes `h-8`, which means it will *not* track any future change to this scale.
+
+### The scale
+
+| File | Base → compact |
+|---|---|
+| `ui/input.tsx`, `ui/select.tsx`, `ui/combobox.tsx`, `masters/picker-classes.ts` | control `h-9` → `h-8` |
+| `ui/textarea.tsx` | `py-2` → `py-1.5` (a textarea has no height to compact — padding is its share) |
+| `ui/button.tsx` | `size="md"` / `"icon"` `h-9` → `h-8`; `sm` is already 32px, `lg` is a standalone CTA |
+| `ui/label.tsx` | `mb-0.5` → `mb-0`, line box 16px → 14px (≈4px per field) |
+| `masters/detail-section.tsx` | `p-2.5` → `p-2`, `space-y-2` → `space-y-1.5`, header `min-h-5` → `min-h-4` |
+| `ui/field.tsx` (`FIELD_TRACK`) | row gap `gap-y-2` → `gap-y-1.5` |
+| `masters/child-grid.tsx` | same padding + gap as `DetailSection`, deliberately, so a grid and a section side by side line up |
+| `masters/master-full-screen.tsx` (`SectionBody`) | title + hint stack → one line; ~54px of heading chrome → ~32px |
+
+**Keep these in step.** They are one scale expressed in eight files; change one height and fields
+stop lining up with the pickers beside them. `gap-x-3` is deliberately *not* on the scale — that
+gutter is what stops two adjacent controls on a 12-col row reading as one control.
+
+Type sizes do **not** compact: controls stay `text-base md:text-sm`, labels `text-xs`. 11px was
+tried and rejected as below a readable floor for all-day data entry.

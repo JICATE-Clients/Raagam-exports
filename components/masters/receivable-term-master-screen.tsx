@@ -4,9 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Field } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
+import { SectionGrid } from "@/components/masters/section-grid";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -209,48 +211,105 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
-            <div>
-              <Label htmlFor="rt-entry">Entry No</Label>
-              <Input id="rt-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
-            </div>
-            <div>
-              <Label htmlFor="rt-date">Date</Label>
+        {/* Eight fields, so titled sections rather than one flat list
+            (LAYOUT.md §4). "AT" was already its own bordered card hand-rolled
+            in the screen — it is a real legacy grouping, so it becomes a proper
+            DetailSection instead. */}
+        <SectionGrid>
+          <DetailSection label="Details" cols={12}>
+            {/* Entry No is server-assigned; `disabled` already keeps it out of
+                the Tab order, so it needs no skipTab. */}
+            <Field label="Entry No" size="sm" htmlFor="rt-entry">
+              <Input id="rt-entry" value={editEntryNo ?? "(auto)"} disabled />
+            </Field>
+            <Field label="Date" size="sm" htmlFor="rt-date">
               <Input
                 id="rt-date"
                 type="date"
                 value={form.entry_date}
                 onChange={(e) => set({ entry_date: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="rt-paymode">Pay Mode</Label>
-            <Select
-              id="rt-paymode"
-              value={form.pay_mode}
-              onChange={(e) => set({ pay_mode: e.target.value as "" | PayMode })}
-              className="text-base md:text-sm"
-            >
-              <option value="">— Select —</option>
-              {PAY_MODES.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </Select>
-          </div>
+            </Field>
+            <Field label="Pay Mode" size="md" htmlFor="rt-paymode">
+              <Select
+                id="rt-paymode"
+                value={form.pay_mode}
+                onChange={(e) => set({ pay_mode: e.target.value as "" | PayMode })}
+              >
+                <option value="">— Select —</option>
+                {PAY_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Credit Days" size="xs" htmlFor="rt-credit">
+              <Input
+                id="rt-credit"
+                type="number"
+                min="0"
+                value={form.credit_days}
+                onChange={(e) => set({ credit_days: e.target.value })}
+              />
+            </Field>
+            {/* A radio pair is one field with two controls — it keeps its own
+                inline gaps, which are intra-control spacing, not page layout. */}
+            <Field label="With Interest" size="md">
+              <div className="flex h-8 items-center gap-4">
+                <label className="flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="with_interest"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.with_interest}
+                    onChange={() => set({ with_interest: true })}
+                  />
+                  <span className="text-sm text-foreground">Yes</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="with_interest"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={!form.with_interest}
+                    onChange={() => set({ with_interest: false })}
+                  />
+                  <span className="text-sm text-foreground">No</span>
+                </label>
+              </div>
+            </Field>
+            {editId && (
+              <Field size="md">
+                <label className="flex h-8 cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => set({ inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              </Field>
+            )}
+            <Field label="Description" size="full" htmlFor="rt-desc">
+              <Textarea
+                id="rt-desc"
+                rows={3}
+                value={form.description}
+                onChange={(e) => set({ description: e.target.value })}
+              />
+            </Field>
+          </DetailSection>
 
-          {/* AT phrase — three dropdowns */}
-          <div className="rounded-lg border border-border p-3 sm:col-span-2">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">AT</div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {/* The three dropdowns read as one phrase ("AT <basis> <when>
+              <event>"), so they stay unlabelled and keep their aria-labels —
+              per-field captions would break the sentence. Three `md` = 12. */}
+          <DetailSection label="AT" cols={12}>
+            <Field size="md">
               <Select
                 value={form.at_basis}
                 onChange={(e) => set({ at_basis: e.target.value as "" | AtBasis })}
-                className="text-base md:text-sm"
                 aria-label="AT basis"
               >
                 <option value="">—</option>
@@ -260,10 +319,11 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                   </option>
                 ))}
               </Select>
+            </Field>
+            <Field size="md">
               <Select
                 value={form.at_when}
                 onChange={(e) => set({ at_when: e.target.value as "" | AtWhen })}
-                className="text-base md:text-sm"
                 aria-label="AT when"
               >
                 <option value="">—</option>
@@ -273,10 +333,11 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                   </option>
                 ))}
               </Select>
+            </Field>
+            <Field size="md">
               <Select
                 value={form.at_event}
                 onChange={(e) => set({ at_event: e.target.value as "" | AtEvent })}
-                className="text-base md:text-sm"
                 aria-label="AT event"
               >
                 <option value="">—</option>
@@ -286,66 +347,9 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                   </option>
                 ))}
               </Select>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-foreground">With Interest</span>
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <input
-                type="radio"
-                name="with_interest"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.with_interest}
-                onChange={() => set({ with_interest: true })}
-              />
-              <span className="text-sm text-foreground">Yes</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <input
-                type="radio"
-                name="with_interest"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={!form.with_interest}
-                onChange={() => set({ with_interest: false })}
-              />
-              <span className="text-sm text-foreground">No</span>
-            </label>
-          </div>
-
-          <div>
-            <Label htmlFor="rt-credit">Credit Days</Label>
-            <Input
-              id="rt-credit"
-              type="number"
-              min="0"
-              value={form.credit_days}
-              onChange={(e) => set({ credit_days: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <Label htmlFor="rt-desc">Description</Label>
-            <Textarea
-              id="rt-desc"
-              rows={3}
-              value={form.description}
-              onChange={(e) => set({ description: e.target.value })}
-              className="text-base md:text-sm"
-            />
-          </div>
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
-        </div>
+            </Field>
+          </DetailSection>
+        </SectionGrid>
       </Sheet>
     </div>
   );

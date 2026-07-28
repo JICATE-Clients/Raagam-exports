@@ -3,10 +3,13 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
+import { SectionGrid } from "@/components/masters/section-grid";
+import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 import { upsertDefaultAccountHead } from "@/lib/masters/default-account-head-actions";
 import type {
   DefaultAccountHead,
@@ -86,6 +89,20 @@ export function DefaultAccountHeadScreen({
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState(() => toForm(row));
 
+  // This screen is neither a Sheet nor a MasterFullScreen, so it inherits
+  // NOTHING: no modal guard, no autofocus, no Ctrl+S, and `submitSurface` cannot
+  // reach its Save button by DOM. Until this was wired, Enter did nothing and
+  // navigating away silently discarded every edit. Same pattern as the
+  // bulk-assign screens (tcs-assign / gst-assign) — see LAYOUT.md §1.
+  const saved = toForm(row);
+  const dirty = (Object.keys(form) as FieldKey[]).some((k) => form[k] !== saved[k]);
+
+  useUnsavedGuard(dirty || isPending);
+
+  useRegisterShortcut("save", () => {
+    if (perms.canEdit && dirty && !isPending) submit();
+  });
+
   function setField(key: FieldKey, value: string | null) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -106,36 +123,43 @@ export function DefaultAccountHeadScreen({
   const activeHeads = accountHeads.filter((h) => !h.inactive);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      {FIELD_DEFS.map((group) => (
-        <DetailSection key={group.group} label={group.group}>
-          {group.fields.map((field) => (
-            <div key={field.key}>
-              <Label htmlFor={`dah-${field.key}`}>{field.label}</Label>
-              <Select
-                id={`dah-${field.key}`}
-                value={form[field.key] ?? ""}
-                onChange={(e) =>
-                  setField(field.key, e.target.value || null)
-                }
-                disabled={!perms.canEdit}
-                className="text-base md:text-sm"
+    // A singleton settings page rather than a record editor, so it declares its
+    // own `@container/editor` at the contract's 1180px. It was capped at
+    // `max-w-2xl` (672px) — below SectionGrid's 896px two-up threshold — so nine
+    // dropdowns could only ever stack in one narrow column.
+    <div className="@container/editor mx-auto w-full max-w-[1180px] space-y-3">
+      <SectionGrid>
+        {FIELD_DEFS.map((group) => (
+          <DetailSection key={group.group} label={group.group} cols={12}>
+            {group.fields.map((field) => (
+              <Field
+                key={field.key}
+                label={field.label}
+                size="lg"
+                htmlFor={`dah-${field.key}`}
               >
-                <option value="">— None —</option>
-                {activeHeads.map((h) => (
-                  <option key={h.id} value={h.id}>
-                    {h.short_name ? `${h.short_name} — ${h.name}` : h.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          ))}
-        </DetailSection>
-      ))}
+                <Select
+                  id={`dah-${field.key}`}
+                  value={form[field.key] ?? ""}
+                  onChange={(e) => setField(field.key, e.target.value || null)}
+                  disabled={!perms.canEdit}
+                >
+                  <option value="">— None —</option>
+                  {activeHeads.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.short_name ? `${h.short_name} — ${h.name}` : h.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ))}
+          </DetailSection>
+        ))}
+      </SectionGrid>
 
       {perms.canEdit && (
-        <div className="flex justify-end">
-          <Button size="md" disabled={isPending} onClick={submit}>
+        <div data-focus-region="footer" className="flex justify-end">
+          <Button size="md" disabled={!dirty || isPending} onClick={submit}>
             {isPending ? "Saving…" : "Save"}
           </Button>
         </div>

@@ -2,10 +2,10 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -27,7 +27,6 @@ import type { Attribute, ConfigLookup } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
-import type { Uom } from "@/lib/masters/types";
 import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-picker";
 import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -42,7 +41,10 @@ type LineRow = {
   value_in_steps: boolean;
   start_value: string;
   end_value: string;
+  /** Kept only so a line configured before 0350 saves back with its old UOM
+   *  reference intact — nothing on this screen reads or sets it any more. */
   unit_id: string;
+  unit_label: string;
   step_value: string;
   mandatory: boolean;
   inactive: boolean;
@@ -75,7 +77,6 @@ export function MaterialAttributeMasterScreen({
   rows,
   attributes,
   categories,
-  units,
   levies,
   commodities,
   itemClasses,
@@ -85,7 +86,6 @@ export function MaterialAttributeMasterScreen({
   rows: MaterialAttribute[];
   attributes: Attribute[];
   categories: Category[];
-  units: Uom[];
   levies: Levy[];
   commodities: Commodity[];
   itemClasses: ConfigLookup[];
@@ -216,6 +216,7 @@ export function MaterialAttributeMasterScreen({
       start_value: "",
       end_value: "",
       unit_id: "",
+      unit_label: "",
       step_value: "",
       mandatory: false,
       inactive: false,
@@ -245,6 +246,7 @@ export function MaterialAttributeMasterScreen({
             start_value: l.start_value != null ? String(l.start_value) : "",
             end_value: l.end_value != null ? String(l.end_value) : "",
             unit_id: l.unit_id ?? "",
+            unit_label: l.unit_label ?? "",
             step_value: l.step_value != null ? String(l.step_value) : "",
             mandatory: l.mandatory,
             inactive: l.inactive,
@@ -272,6 +274,15 @@ export function MaterialAttributeMasterScreen({
    *  the "move on to the next attribute" step, and the finished one folds away
    *  behind its summary. */
   const addLine = () => {
+    // Enter on the last row now adds the next one (child-grid.tsx gridKeyNav),
+    // so this runs on a key the user may be holding down. An unpicked line is
+    // already "the next attribute" — open it again rather than laying a second
+    // blank one on top of it.
+    const last = lines[lines.length - 1];
+    if (last && !last.attribute_id) {
+      setExpandedKey(last.key);
+      return;
+    }
     const next = blankLine();
     setLines((ls) => [...ls, next]);
     setExpandedKey(next.key);
@@ -281,14 +292,17 @@ export function MaterialAttributeMasterScreen({
     setExpandedKey((k) => (k === key ? null : k));
   };
 
-  // Per-line pre-defined value list (legacy nested grid).
+  // Per-line pre-defined value list (legacy nested grid). Enter on the last
+  // value adds the next one, so a held Enter would otherwise stack blank rows —
+  // there is nothing to add until the row already there has been typed into.
   const addOption = (lineKey: string) =>
     setLines((ls) =>
-      ls.map((l) =>
-        l.key === lineKey
-          ? { ...l, options: [...l.options, { key: newOptKey(), description: "", blocked: false }] }
-          : l,
-      ),
+      ls.map((l) => {
+        if (l.key !== lineKey) return l;
+        const last = l.options[l.options.length - 1];
+        if (last && !last.description.trim()) return l;
+        return { ...l, options: [...l.options, { key: newOptKey(), description: "", blocked: false }] };
+      }),
     );
   const setOptionAt = (lineKey: string, optKey: string, patch: Partial<OptionRow>) =>
     setLines((ls) =>
@@ -315,13 +329,64 @@ export function MaterialAttributeMasterScreen({
   // per-value box gone for stepped lines, that whole failure mode goes with it.
   const genOptions = (l: LineRow): OptionRow[] => {
     const vals = previewSteps(numOrNull(l.start_value), numOrNull(l.end_value), numOrNull(l.step_value));
-    const uname = l.unit_id ? units.find((u) => u.id === l.unit_id)?.name ?? "" : "";
+    // Typed label, not a UOM lookup (client 2026-07-28) — see the Unit field.
+    const uname = l.unit_label.trim();
     return vals.map((v) => ({
       key: newOptKey(),
       description: uname ? `${v} ${uname}` : String(v),
       blocked: false,
     }));
   };
+  /**
+   * Duplicates, caught as they are typed (client 2026-07-28).
+   *
+   * The screen used to accept the same attribute on two lines of one set, and
+   * the same value twice inside one attribute's list — both save cleanly and
+   * then show up twice in the Material form's dropdown, which is where the
+   * client found them. 0350 forbids both in the database
+   * (`uq_material_attribute_lines_attr`, `uq_mal_options_desc`) and the actions
+   * reject a stale post; these two sets are what turns the row red and holds
+   * Save while it is still fixable.
+   *
+   * Blanks never count: an unpicked line or an empty value box is unfinished,
+   * not wrong.
+   */
+  const duplicateAttrIds = useMemo(() => {
+    const seen = new Set<string>();
+    const dup = new Set<string>();
+    for (const l of lines) {
+      if (!l.attribute_id) continue;
+      if (seen.has(l.attribute_id)) dup.add(l.attribute_id);
+      else seen.add(l.attribute_id);
+    }
+    return dup;
+  }, [lines]);
+  /** line key → the normalised descriptions that appear more than once in it.
+   *  Normalised the same way as the DB index: trimmed and upper-cased. */
+  const duplicateOptions = useMemo(() => {
+    const byLine = new Map<string, Set<string>>();
+    for (const l of lines) {
+      const seen = new Set<string>();
+      const dup = new Set<string>();
+      for (const o of l.options) {
+        const norm = o.description.trim().toUpperCase();
+        if (!norm) continue;
+        if (seen.has(norm)) dup.add(norm);
+        else seen.add(norm);
+      }
+      byLine.set(l.key, dup);
+    }
+    return byLine;
+  }, [lines]);
+  const hasDuplicateLine = duplicateAttrIds.size > 0;
+  // Stepped lines can't produce a duplicate (previewSteps is strictly
+  // increasing), but they are counted anyway — the gate should follow the DB
+  // constraint, not an argument about why it can't be hit.
+  const hasDuplicateOption = useMemo(
+    () => [...duplicateOptions.values()].some((s) => s.size > 0),
+    [duplicateOptions],
+  );
+
   // Update a line and, when it is Value-In-Steps, regenerate its value list so
   // the rows stay in sync with the Start/End/Step/Unit fields.
   const patchLine = (key: string, patch: Partial<LineRow>) =>
@@ -348,7 +413,10 @@ export function MaterialAttributeMasterScreen({
             value_in_steps: l.value_in_steps,
             start_value: numOrNull(l.start_value),
             end_value: numOrNull(l.end_value),
+            // unit_id is never edited here any more, but keeps round-tripping
+            // so a pre-0350 line is not stripped of it by an unrelated edit.
             unit_id: l.unit_id || null,
+            unit_label: l.unit_label.trim() || null,
             step_value: numOrNull(l.step_value),
             mandatory: l.mandatory,
             inactive: l.inactive,
@@ -437,7 +505,6 @@ export function MaterialAttributeMasterScreen({
                 setFilter("itemClass", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               {attributes.map((a) => (
@@ -456,7 +523,6 @@ export function MaterialAttributeMasterScreen({
                 setFilter("category", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               {categories.map((c) => (
@@ -529,7 +595,16 @@ export function MaterialAttributeMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !itemClassId || !categoryId} onClick={submit}>
+            <Button
+              size="md"
+              // Duplicates block the save rather than being silently dropped —
+              // the offending row is already red, so the disabled button has an
+              // explanation on screen.
+              disabled={
+                isPending || !itemClassId || !categoryId || hasDuplicateLine || hasDuplicateOption
+              }
+              onClick={submit}
+            >
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -545,10 +620,14 @@ export function MaterialAttributeMasterScreen({
               1180px, which is what lets the picker and the three flags share
               one row instead of three. */}
           <DetailSection label="Header" cols={12}>
+            {/* Two `lg` halves = 12. At `md` + `lg` the row stopped at 10 and
+                left ~200px dead at the right edge of the section. Both values
+                are long ("SEWING ACCESSORIES", a full category name), so both
+                earn the width — this is not a case of padding a row out. */}
             <Field
               label="Item Class"
               required
-              size="md"
+              size="lg"
               htmlFor="ma-item-class"
               hint="Sewing and Packing only"
             >
@@ -570,10 +649,29 @@ export function MaterialAttributeMasterScreen({
                   ))}
               </Select>
             </Field>
-            <Field size="md">
+            {/* `lg` (6), not `md`: a category is free text and holds the
+                longest value on this row, while Item Class is a two-value enum
+                that must not sprawl to match it.
+
+                The label is `Field`'s, not the picker's. Passing `label` down
+                made the picker render its OWN <Label> — no `htmlFor`, and a
+                plain space before the required marker instead of `ml-0.5` — so
+                the two asterisks on this row sat at different offsets and only
+                Item Class was click-focusable. */}
+            <Field
+              label="Category"
+              required
+              size="lg"
+              hint={
+                !itemClassId
+                  ? "Pick an Item Class first."
+                  : !editId && availableCategories.length === 0
+                    ? "Every category for this Item Class already has a Material Attribute set — edit the existing one from the list instead."
+                    : undefined
+              }
+            >
               <CategoryPicker
-                label="Category"
-                required
+                label=""
                 categories={availableCategories}
                 value={categoryId}
                 onChange={setCategoryId}
@@ -587,15 +685,6 @@ export function MaterialAttributeMasterScreen({
                 itemClasses={itemClasses}
                 fabricStructures={fabricStructures}
               />
-              {!itemClassId && (
-                <p className="mt-0.5 text-xs text-muted-foreground">Pick an Item Class first.</p>
-              )}
-              {!editId && itemClassId && availableCategories.length === 0 && (
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Every category for this Item Class already has a Material Attribute set —
-                  edit the existing one from the list instead.
-                </p>
-              )}
             </Field>
           </DetailSection>
 
@@ -609,42 +698,61 @@ export function MaterialAttributeMasterScreen({
           ) : (
           <div>
           {(() => {
+            // The picker ALONE — no wrapper, no message underneath. It is the
+            // row's identity control and lives on the header line, where a
+            // second stacked element would push the line to two rows in the
+            // duplicate state. The caller renders the warning beside it.
             const attrCell = (l: LineRow) => (
-              <AttributePicker label="" values={scopedAttributeValues} value={l.attribute_id} onChange={(v) => setLineAt(l.key, { attribute_id: v })} />
+              <AttributePicker
+                label=""
+                values={scopedAttributeValues}
+                value={l.attribute_id}
+                onChange={(v) => setLineAt(l.key, { attribute_id: v })}
+                invalid={!!l.attribute_id && duplicateAttrIds.has(l.attribute_id)}
+              />
             );
-            // Start / End / Step / Unit on ONE row (client 2026-07-25) — 2×2 on
-            // mobile, four across from sm up.
-            // Start / End / Step / Unit on ONE row — changing any of them
-            // regenerates the line's value list (patchLine).
+            // Start / End / Step / Unit on ONE row (client 2026-07-25) —
+            // changing any of them regenerates the line's value list
+            // (patchLine).
+            //
+            // Four `sm` cells = 3+3+3+3, one flush row. This was a hand-rolled
+            // `grid-cols-2 sm:grid-cols-4` with its own `text-[11px]` labels, so
+            // nothing in the card lined up with the section above it — and `sm:`
+            // is a VIEWPORT breakpoint deciding the layout of a card whose width
+            // comes from the sheet. `FieldGrid` is the same track
+            // `DetailSection cols={12}` uses, minus the border and title this
+            // already sits inside.
             const rangeCell = (l: LineRow) => (
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                <div>
-                  <Label className="text-[11px] font-normal text-muted-foreground">Start Value</Label>
-                  <Input type="number" step="0.0001" value={l.start_value} onChange={(e) => patchLine(l.key, { start_value: e.target.value })} className="text-base md:text-sm" />
-                </div>
-                <div>
-                  <Label className="text-[11px] font-normal text-muted-foreground">End Value</Label>
-                  <Input type="number" step="0.0001" value={l.end_value} onChange={(e) => patchLine(l.key, { end_value: e.target.value })} className="text-base md:text-sm" />
-                </div>
-                <div>
-                  <Label className="text-[11px] font-normal text-muted-foreground">Step Value</Label>
-                  <Input type="number" step="0.0001" value={l.step_value} onChange={(e) => patchLine(l.key, { step_value: e.target.value })} className="text-base md:text-sm" />
-                </div>
-                <div>
-                  <Label className="text-[11px] font-normal text-muted-foreground">Unit</Label>
-                  <Select value={l.unit_id} onChange={(e) => patchLine(l.key, { unit_id: e.target.value })} className="text-base md:text-sm">
-                    <option value="">— None —</option>
-                    {units.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              </div>
+              <>
+                <Field label="Start Value" size="sm">
+                  <Input type="number" step="0.0001" value={l.start_value} onChange={(e) => patchLine(l.key, { start_value: e.target.value })} />
+                </Field>
+                <Field label="End Value" size="sm">
+                  <Input type="number" step="0.0001" value={l.end_value} onChange={(e) => patchLine(l.key, { end_value: e.target.value })} />
+                </Field>
+                <Field label="Step Value" size="sm">
+                  <Input type="number" step="0.0001" value={l.step_value} onChange={(e) => patchLine(l.key, { step_value: e.target.value })} />
+                </Field>
+                {/* Typed, not picked from the UOM master (client 2026-07-28).
+                    It is only ever printed onto the generated values ("10 MM")
+                    — nothing converts by it — so the FK made the user maintain
+                    a UOM row for every label they wanted to print. Regenerates
+                    the value list like Start/End/Step, hence patchLine. */}
+                <Field label="Unit" size="sm">
+                  <Input
+                    uppercase
+                    value={l.unit_label}
+                    onChange={(e) => patchLine(l.key, { unit_label: e.target.value })}
+                    placeholder="e.g. MM"
+                  />
+                </Field>
+              </>
             );
             const flagsCell = (l: LineRow) => (
-              <div className="flex flex-wrap gap-3">
+              // `min-h-9 items-center` so the checkbox line centres on the same
+              // 36px control height as the picker beside it — otherwise the two
+              // halves share a label baseline but not a control baseline.
+              <div className="flex min-h-9 flex-wrap items-center gap-3">
                 {(
                   [
                     ["value_in_steps", "Value In Steps"],
@@ -678,11 +786,9 @@ export function MaterialAttributeMasterScreen({
             // (client 2026-07-28); every configured value is offered.
             const valuesCell = (l: LineRow) => {
               const stepped = l.value_in_steps;
+              const dupValues = duplicateOptions.get(l.key);
               return (
-                <div>
-                  <Label className="text-[11px] font-normal text-muted-foreground">
-                    {stepped ? "Generated values" : "Values"}
-                  </Label>
+                  <Field label={stepped ? "Generated values" : "Values"} size="full">
                   {/* Its OWN grid, not just a stack of inputs. Without these
                       markers each value counted as a column of the outer
                       ATTRIBUTE row, so ↓ from "End Value" landed on the second
@@ -705,64 +811,92 @@ export function MaterialAttributeMasterScreen({
                           : "No values yet — add the pick-list the Material form will offer."}
                       </p>
                     )}
-                    {l.options.map((o) => (
-                      <div key={o.key} data-grid-row className="flex items-center gap-2">
-                        {stepped ? (
-                          <span className="flex-1 rounded-md border border-border bg-surface-muted px-3 py-1.5 text-sm text-foreground">
-                            {o.description}
-                          </span>
-                        ) : (
-                          <Input
-                            value={o.description}
-                            uppercase
-                            onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
-                            placeholder="e.g. MAIN LABEL"
-                            className="text-base md:text-sm"
-                          />
-                        )}
-                        {/* No per-value Blocked box. It went from stepped rows
-                            first — a stepped line's values are derived from
-                            Start/End/Step, so the way to exclude one is to narrow
-                            the range (client 2026-07-27) — and the same argument
-                            finishes it for manual lists: the way to exclude a
-                            value you typed is to Remove it. Between that and the
-                            line-level Blocked, a third control that half-hides a
-                            single value earned nothing (client 2026-07-28).
+                    {l.options.map((o) => {
+                      const dup = !!dupValues?.has(o.description.trim().toUpperCase());
+                      return (
+                        // `data-grid-row` sits on the wrapper, not the flex row:
+                        // the duplicate hint below belongs to the same row, and
+                        // child-grid finds a row's fields by containment.
+                        <div key={o.key} data-grid-row>
+                          <div className="flex items-center gap-2">
+                            {stepped ? (
+                              <span className="flex-1 rounded-md border border-border bg-surface-muted px-3 py-1.5 text-sm text-foreground">
+                                {o.description}
+                              </span>
+                            ) : (
+                              <Input
+                                value={o.description}
+                                uppercase
+                                onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
+                                placeholder="e.g. MAIN LABEL"
+                                aria-invalid={dup ? true : undefined}
+                                className={cn(dup && "border-danger")}
+                              />
+                            )}
+                            {/* No per-value Blocked box. It went from stepped rows
+                                first — a stepped line's values are derived from
+                                Start/End/Step, so the way to exclude one is to narrow
+                                the range (client 2026-07-27) — and the same argument
+                                finishes it for manual lists: the way to exclude a
+                                value you typed is to Remove it. Between that and the
+                                line-level Blocked, a third control that half-hides a
+                                single value earned nothing (client 2026-07-28).
 
-                            `options.blocked` is deliberately still in the row
-                            type, the payload and the DB (migration 0346): the UI
-                            is hidden, the column round-trips, so a value blocked
-                            before this change stays blocked rather than being
-                            silently re-offered. Its one reader is the
-                            `filter((o) => !o.blocked)` in material-master-screen.tsx,
-                            which now simply never filters anything out. */}
-                        {!stepped && (
-                          <Button variant="ghost" size="sm" onClick={() => removeOption(l.key, o.key)}>
-                            Remove
-                          </Button>
-                        )}
-                      </div>
-                    ))}
+                                `options.blocked` is deliberately still in the row
+                                type, the payload and the DB (migration 0346): the UI
+                                is hidden, the column round-trips, so a value blocked
+                                before this change stays blocked rather than being
+                                silently re-offered. Its one reader is the
+                                `filter((o) => !o.blocked)` in material-master-screen.tsx,
+                                which now simply never filters anything out. */}
+                            {!stepped && (
+                              <Button variant="ghost" size="sm" onClick={() => removeOption(l.key, o.key)}>
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+                          {/* Both copies are flagged, not just the later one — the
+                              user is as likely to want to retype the first. */}
+                          {dup && (
+                            <p className="mt-1 text-xs text-danger">Already listed in this attribute</p>
+                          )}
+                        </div>
+                      );
+                    })}
                     {!stepped && (
                       <Button variant="outline" size="sm" onClick={() => addOption(l.key)}>
                         + Add value
                       </Button>
                     )}
                   </div>
-                </div>
+                  </Field>
               );
             };
-            // Value-In-Steps → the Start/End/Step/Unit row PLUS the generated
-            // value list; otherwise just the manual value list.
-            const specCell = (l: LineRow) =>
-              l.value_in_steps ? (
-                <div className="space-y-2">
-                  {rangeCell(l)}
-                  {valuesCell(l)}
-                </div>
-              ) : (
-                valuesCell(l)
-              );
+            /**
+             * The whole expanded body: behaviour, then (when stepped) the
+             * range row, then the value list.
+             *
+             * ONE `FieldGrid`, not one per group. They are rows of the same
+             * 12-col track, so they share its left edge and its vertical
+             * rhythm — stacked grids agree on the edge but not on the gap,
+             * because the gap between two grids is the parent's `space-y-2`
+             * while the gap inside one compacts to `gap-y-1.5` on a wide
+             * editor.
+             *
+             * `Behaviour` is `full` rather than a part span: a checkbox group
+             * does not stretch to fill its cell, so 12 is the same three
+             * checkboxes with more air — and it leaves no part-row sitting
+             * above the full rows beneath it.
+             */
+            const specCell = (l: LineRow) => (
+              <FieldGrid>
+                <Field label="Behaviour" size="full">
+                  {flagsCell(l)}
+                </Field>
+                {l.value_in_steps && rangeCell(l)}
+                {valuesCell(l)}
+              </FieldGrid>
+            );
             /** One-line stand-in for a collapsed attribute: what it is, how it
              *  behaves, and how many values it will offer. Enough to recognise
              *  the line without opening it. */
@@ -778,58 +912,124 @@ export function MaterialAttributeMasterScreen({
               <ChildGrid<LineRow>
                 label="Attributes"
                 forceCards
+                listRows
                 pageSize={6}
                 rows={lines}
                 onAdd={addLine}
                 onRemove={(l) => removeLine(l.key)}
                 addLabel="+ Add attribute"
                 columns={[
+                  // `listRows` + `renderMobileRow` mean these never render — they
+                  // are the fallback if this grid is ever switched back to a
+                  // table. Two entries now, not three: the flags moved inside
+                  // specCell when the Attribute picker moved up to the header.
                   { header: "Attribute", cell: attrCell },
-                  { header: "Flags", cell: flagsCell },
-                  { header: "Range / Values", cell: specCell },
+                  { header: "Details", cell: specCell },
                 ]}
-                renderMobileRow={(l) => {
+                renderMobileRow={(l, i) => {
                   const isOpen = expandedKey === l.key;
                   const name = attrValueLabel.get(l.attribute_id) ?? "";
+                  // A duplicate blocks Save, and only one line is expanded at a
+                  // time — so the summary has to carry the complaint too, or the
+                  // dead Save button has no explanation anywhere on screen.
+                  const dupAttr = !!l.attribute_id && duplicateAttrIds.has(l.attribute_id);
+                  const dupValue = (duplicateOptions.get(l.key)?.size ?? 0) > 0;
+                  const invalid = dupAttr || dupValue;
                   return (
                     <div className="space-y-2">
-                      {/* The line's own header doubles as the expand control.
-                          A <button> rather than a click handler on a div so it
-                          is reachable by keyboard and announced as a control. */}
-                      <button
-                        type="button"
-                        onClick={() => setExpandedKey(isOpen ? null : l.key)}
-                        aria-expanded={isOpen}
-                        className="flex w-full items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-surface-muted"
-                      >
-                        {isOpen ? (
-                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <span
+                      {/* ONE header line: index, expander, name, summary and
+                          remove. `listRows` suppresses ChildGrid's own `#N` +
+                          remove band, which used to sit above this and repeat
+                          the same identity in ~40px of its own height.
+
+                          The remove button is a SIBLING of the expander, not
+                          nested inside it — a <button> inside a <button> is
+                          invalid and the inner one never receives its click. */}
+                      <div className="flex items-center gap-2">
+                        {/* Closed, the expander owns the whole line so anywhere
+                            on it opens the row. Open, it shrinks to the chevron
+                            and the number: the rest of the line is the picker,
+                            and a <button> cannot live inside a <button> — the
+                            inner one never receives its click. */}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedKey(isOpen ? null : l.key)}
+                          aria-expanded={isOpen}
+                          aria-label={isOpen ? "Collapse attribute" : `Expand ${name || "attribute"}`}
                           className={cn(
-                            "truncate text-sm font-medium",
-                            name ? "text-foreground" : "text-muted-foreground",
+                            "flex min-w-0 items-center gap-2 rounded-md py-0.5 text-left hover:bg-surface-muted",
+                            !isOpen && "flex-1",
                           )}
                         >
-                          {name || "— No attribute picked —"}
-                        </span>
-                        {!isOpen && (
-                          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                            {summaryOf(l)}
+                          {isOpen ? (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                            #{i + 1}
                           </span>
+                          {/* Only while closed. Open, this text WAS the picker's
+                              own value echoed back — two controls for one field,
+                              and the user could not tell which one was live. */}
+                          {!isOpen && (
+                            <>
+                              <span
+                                className={cn(
+                                  "truncate text-sm font-medium",
+                                  invalid ? "text-danger" : name ? "text-foreground" : "text-muted-foreground",
+                                )}
+                              >
+                                {name || "— No attribute picked —"}
+                              </span>
+                              <span
+                                className={cn(
+                                  "ml-auto shrink-0 text-xs",
+                                  invalid ? "text-danger" : "text-muted-foreground",
+                                )}
+                              >
+                                {dupAttr
+                                  ? "Already used in this set"
+                                  : dupValue
+                                    ? "Duplicate value"
+                                    : summaryOf(l)}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                        {/* The row's identity control, in the exact spot its name
+                            occupies when closed. Unlabelled on purpose: the same
+                            reasoning `IdentityRow` is built on (section-grid.tsx)
+                            — the record's identity is the one thing that needs no
+                            caption, and "— None —" already says it.
+
+                            `max-w-sm` because the header owns this track: an
+                            attribute value is "MAIN LABEL", not a paragraph. */}
+                        {isOpen && (
+                          <>
+                            <div className="w-full min-w-0 max-w-sm">{attrCell(l)}</div>
+                            {dupAttr && (
+                              <span className="shrink-0 text-xs text-danger">
+                                Already used in this set
+                              </span>
+                            )}
+                            <div className="flex-1" />
+                          </>
                         )}
-                      </button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0 text-muted-foreground hover:text-danger"
+                          onClick={() => removeLine(l.key)}
+                          aria-label="Remove attribute"
+                        >
+                          <X className="h-4 w-4 shrink-0" />
+                        </Button>
+                      </div>
 
                       {isOpen && (
                         <>
-                          {/* Picker and flags share one row — only possible now
-                              the panel is full width. */}
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                            <div className="min-w-[14rem] flex-1">{attrCell(l)}</div>
-                            <div className="shrink-0">{flagsCell(l)}</div>
-                          </div>
                           {specCell(l)}
                         </>
                       )}

@@ -3,6 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import type { Asset, AssetAssignment, Courier, CourierDespatch } from "./extras-types";
 
 export type LocationOption = { id: string; code: string; name: string };
+/** A Capital Goods material offered as an asset name (0350). `category` is the
+ *  category NAME, not an id — it is copied straight onto the asset's free-text
+ *  `category` column when the material is picked. Shaped by the assets page
+ *  from the material/category masters; deliberately tiny. */
+export type AssetItemOption = { id: string; name: string; category: string | null };
 export type CourierOption = { id: string; code: string | null; name: string };
 
 function joined(row: Record<string, unknown>, rel: string, field: string): string | null {
@@ -19,22 +24,35 @@ export async function getLocations(): Promise<LocationOption[]> {
 // ---------- assets ----------
 export interface AssetWithRefs extends Asset {
   location_code: string | null;
+  /** Name of the linked Capital Goods material, if any (0350). */
+  item_name: string | null;
 }
 export async function listAssets(): Promise<AssetWithRefs[]> {
   const s = await createClient();
   const { data } = await s
     .from("assets")
-    .select("*, locations(code)")
+    .select("*, locations(code), items(name)")
     .order("created_at", { ascending: false });
   return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as Asset),
     location_code: joined(r, "locations", "code"),
+    item_name: joined(r, "items", "name"),
   }));
 }
-export async function getAsset(id: string): Promise<Asset | null> {
+export async function getAsset(id: string): Promise<AssetWithRefs | null> {
   const s = await createClient();
-  const { data } = await s.from("assets").select("*").eq("id", id).maybeSingle();
-  return (data ?? null) as Asset | null;
+  const { data } = await s
+    .from("assets")
+    .select("*, locations(code), items(name)")
+    .eq("id", id)
+    .maybeSingle();
+  if (!data) return null;
+  const r = data as Record<string, unknown>;
+  return {
+    ...(r as unknown as Asset),
+    location_code: joined(r, "locations", "code"),
+    item_name: joined(r, "items", "name"),
+  };
 }
 export async function getAssetAssignments(assetId: string): Promise<AssetAssignment[]> {
   const s = await createClient();

@@ -31,7 +31,10 @@ function normalizeBranches(data: BankInput): BranchRow[] {
       pin: clean(b.pin),
       street: clean(b.street),
       land_line: clean(b.land_line),
-      fax: clean(b.fax),
+      mobile: clean(b.mobile),
+      // clean() collapses "" → null, which is exactly the stored convention:
+      // an explicit-but-empty WhatsApp box means "same as mobile".
+      whatsapp: clean(b.whatsapp),
       email: clean(b.email),
       swift_rtgs_code: clean(b.swift_rtgs_code),
       current_acc_no: clean(b.current_acc_no),
@@ -45,7 +48,8 @@ function normalizeBranches(data: BankInput): BranchRow[] {
         b.pin ||
         b.street ||
         b.land_line ||
-        b.fax ||
+        b.mobile ||
+        b.whatsapp ||
         b.email ||
         b.swift_rtgs_code ||
         b.current_acc_no ||

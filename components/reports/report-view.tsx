@@ -28,11 +28,14 @@ export function ReportView<T>({
   const columns: Column<T>[] = config.columns.map((c) => ({
     header: c.header,
     align: c.isNumeric ? "right" : c.align,
-    cell: (row: T) => (
-      <span className={c.isNumeric ? "tabular-nums" : undefined}>
-        {c.value(row)}
-      </span>
-    ),
+    cell: (row: T) => {
+      const v = c.value(row);
+      return (
+        <span className={c.isNumeric ? "tabular-nums" : undefined}>
+          {c.format ? c.format(v) : v}
+        </span>
+      );
+    },
   }));
 
   return (

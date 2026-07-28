@@ -1,13 +1,15 @@
 "use client";
 
-import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
+import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { Textarea } from "@/components/ui/textarea";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -36,7 +38,9 @@ type HeaderForm = {
   pin: string;
   address_country_id: string;
   land_line: string;
-  fax: string;
+  mobile: string;
+  /** null = "same as mobile" (tick on). "" = tick off, nothing typed yet. */
+  whatsapp: string | null;
   email: string;
   web_site: string;
 };
@@ -51,7 +55,8 @@ const BLANK: HeaderForm = {
   pin: "",
   address_country_id: "",
   land_line: "",
-  fax: "",
+  mobile: "",
+  whatsapp: null,
   email: "",
   web_site: "",
 };
@@ -106,6 +111,7 @@ export function NotifyMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const isdOf = useIsdLookup(countries);
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
@@ -145,7 +151,9 @@ export function NotifyMasterScreen({
       pin: r.pin ?? "",
       address_country_id: r.address_country_id ?? "",
       land_line: r.land_line ?? "",
-      fax: r.fax ?? "",
+      mobile: r.mobile ?? "",
+      // NOT `?? ""` — a stored NULL is the "same as mobile" state.
+      whatsapp: r.whatsapp,
       email: r.email ?? "",
       web_site: r.web_site ?? "",
     });
@@ -189,7 +197,9 @@ export function NotifyMasterScreen({
         pin: form.pin.trim() || null,
         address_country_id: form.address_country_id || null,
         land_line: form.land_line.trim() || null,
-        fax: form.fax.trim() || null,
+        mobile: form.mobile.trim() || null,
+        // "" collapses to null — an empty WhatsApp box means "same as mobile".
+        whatsapp: form.whatsapp?.trim() || null,
         email: form.email.trim() || null,
         web_site: form.web_site.trim() || null,
         contacts: contacts.map((c, i) => ({
@@ -309,157 +319,168 @@ export function NotifyMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          {/* Header */}
-          <div>
-            <Label htmlFor="nt-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="nt-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-          <CountryPicker
-            countries={countries}
-            value={form.country_id || null}
-            onChange={(id) => set({ country_id: id })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-          />
-          {editId && (
-            <label className="sm:col-span-2 flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
+        {/* Identity + address LEFT, contacts RIGHT. The address block splits
+            into "Address" (where it is) and "Communication" (how to reach it):
+            as one card it held 10 fields, well past the 5-7 a section should
+            carry (LAYOUT.md §4). Both were hand-rolled bordered cards with their
+            own header bands — they are DetailSections. */}
+        <SectionGrid>
+          <SectionColumn>
+            <DetailSection label="Details" cols={12}>
+              <Field label="Name" size="lg" required htmlFor="nt-name">
+                <Input
+                  id="nt-name"
+                  uppercase
+                  value={form.name}
+                  onChange={(e) => set({ name: e.target.value })}
+                  required
+                />
+              </Field>
+              {/* Pickers render their own labels — never double-label them. */}
+              <Field size="md">
+                <CountryPicker
+                  countries={countries}
+                  value={form.country_id || null}
+                  onChange={(id) => set({ country_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              {editId && (
+                <Field size="md">
+                  <label className="flex h-8 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.inactive}
+                      onChange={(e) => set({ inactive: e.target.checked })}
+                    />
+                    <span className="text-sm text-foreground">Inactive</span>
+                  </label>
+                </Field>
+              )}
+            </DetailSection>
 
-          {/* Address */}
-          <div className="sm:col-span-2 rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-              Address
-            </div>
-            {/* dense 2-per-row address fields (organized layout) */}
-            <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <Label htmlFor="nt-street">Street</Label>
+            <DetailSection label="Address" cols={12}>
+              <Field label="Street" size="full" htmlFor="nt-street">
                 <Textarea
                   id="nt-street"
                   rows={3}
                   value={form.street}
                   onChange={(e) => set({ street: e.target.value })}
-                  className="text-base md:text-sm"
                 />
-              </div>
-              <LookupDialogPicker
-                kind="city"
-                label="City"
-                options={cities}
-                value={form.city_id || null}
-                onChange={(id) => set({ city_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-              />
-              <LookupDialogPicker
-                kind="state"
-                label="State"
-                options={states}
-                value={form.state_id || null}
-                onChange={(id) => set({ state_id: id })}
-              />
-              <div>
-                <Label htmlFor="nt-pin">Pin</Label>
+              </Field>
+              <Field size="md">
+                <LookupDialogPicker
+                  kind="city"
+                  label="City"
+                  options={cities}
+                  value={form.city_id || null}
+                  onChange={(id) => set({ city_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              <Field size="md">
+                <LookupDialogPicker
+                  kind="state"
+                  label="State"
+                  options={states}
+                  value={form.state_id || null}
+                  onChange={(id) => set({ state_id: id })}
+                />
+              </Field>
+              {/* A PIN is 6 digits — it must not inherit a picker's box. */}
+              <Field label="Pin" size="sm" htmlFor="nt-pin">
                 <Input
                   id="nt-pin"
                   value={form.pin}
                   onChange={(e) => set({ pin: e.target.value })}
-                  className="text-base md:text-sm"
                 />
-              </div>
-              <CountryPicker
-                countries={countries}
-                value={form.address_country_id || null}
-                onChange={(id) => set({ address_country_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-              />
-              <div>
-                <Label htmlFor="nt-landline">Land Line</Label>
+              </Field>
+              <Field size="md">
+                <CountryPicker
+                  countries={countries}
+                  value={form.address_country_id || null}
+                  onChange={(id) => set({ address_country_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+            </DetailSection>
+
+            <DetailSection label="Communication" cols={12}>
+              <Field label="Land Line" size="md" htmlFor="nt-landline">
                 <Input
                   id="nt-landline"
                   value={form.land_line}
                   onChange={(e) => set({ land_line: e.target.value })}
-                  className="text-base md:text-sm"
                 />
-              </div>
-              <div>
-                <Label htmlFor="nt-fax">Fax</Label>
-                <Input
-                  id="nt-fax"
-                  value={form.fax}
-                  onChange={(e) => set({ fax: e.target.value })}
-                  className="text-base md:text-sm"
+              </Field>
+              {/* The pair is taken apart here rather than using
+                  MobileWhatsAppFields: that helper emits two bare sibling cells
+                  for a `sm:grid-cols-2` parent, and on the 12-col track a child
+                  with no span takes ONE column of twelve. Each half needs its
+                  own Field. Both render their own labels. */}
+              <Field size="md">
+                <MobileField
+                  id="nt-mobile"
+                  value={form.mobile}
+                  onChange={(v) => set({ mobile: v })}
                 />
-              </div>
-              <div>
-                <Label htmlFor="nt-email">E-Mail</Label>
+              </Field>
+              <Field size="md">
+                <WhatsAppField
+                  id="nt-whatsapp"
+                  value={form.whatsapp}
+                  mobile={form.mobile}
+                  isdCode={isdOf.get(form.address_country_id) ?? null}
+                  onChange={(v) => set({ whatsapp: v })}
+                />
+              </Field>
+              <Field label="E-Mail" size="lg" htmlFor="nt-email">
                 <ValidatedInput
                   format="email"
                   id="nt-email"
                   value={form.email}
                   onChange={(e) => set({ email: e.target.value })}
-                  className="text-base md:text-sm"
                 />
-              </div>
-              <div>
-                <Label htmlFor="nt-web">Web site</Label>
+              </Field>
+              <Field label="Web site" size="lg" htmlFor="nt-web">
                 <ValidatedInput
                   format="website"
                   id="nt-web"
                   value={form.web_site}
                   onChange={(e) => set({ web_site: e.target.value })}
-                  className="text-base md:text-sm"
                 />
-              </div>
-            </div>
-          </div>
+              </Field>
+            </DetailSection>
+          </SectionColumn>
 
-          {/* Contact grid */}
-          <div className="sm:col-span-2 rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-              Contact
-            </div>
-            <div className="space-y-3 p-3">
-              {contacts.length === 0 && <p className="text-xs text-muted-foreground">No contacts yet.</p>}
-              {/* row area capped — a growing grid scrolls instead of pushing
-                  the content below (Add button stays pinned) */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="max-h-56 space-y-3 overflow-y-auto">
-              {contacts.map((c, i) => (
-                <div data-grid-row key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Contact #{i + 1}</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground hover:text-danger"
-                      onClick={() => removeContact(c.key)}
-                      aria-label="Remove contact"
-                    >
-                      <X className="h-4 w-4 shrink-0" />
-                    </Button>
-                  </div>
-                  <div>
-                    <Label>Department</Label>
+          <SectionColumn>
+            {/* Seven fields per row, so stacked cards (LAYOUT.md §6) with a
+                FieldGrid inside: the card body gets the same 12-col track as the
+                sections beside it, instead of seven controls stacked one per
+                line. Replaces a hand-rolled list with its own header band, `#`
+                column, remove button and `max-h-56` scroller. */}
+            <ChildGrid<ContactRow>
+              label="Contact"
+              rows={contacts}
+              onAdd={addContact}
+              onRemove={(c) => removeContact(c.key)}
+              addLabel="+ Add contact"
+              forceCards
+              pageSize={4}
+              // `forceCards` + `renderMobileRow` mean these never render; they
+              // are the fallback if this grid is ever switched back to a table.
+              columns={[
+                { header: "Department", cell: (c) => c.contact_name },
+                { header: "Contact Name", cell: (c) => c.contact_name },
+                { header: "Designation", cell: (c) => c.designation_id ?? "" },
+              ]}
+              renderMobileRow={(c) => (
+                <FieldGrid>
+                  <Field label="Department" size="lg">
                     <LookupDialogPicker
                       kind="department"
                       label="Department"
@@ -468,15 +489,8 @@ export function NotifyMasterScreen({
                       onChange={(id) => setContactAt(c.key, { department_id: id })}
                       compact
                     />
-                  </div>
-                  <Input
-                    placeholder="Contact Name"
-                    value={c.contact_name}
-                    onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                  <div>
-                    <Label>Designation</Label>
+                  </Field>
+                  <Field label="Designation" size="lg">
                     <LookupDialogPicker
                       kind="designation"
                       label="Designation"
@@ -485,30 +499,14 @@ export function NotifyMasterScreen({
                       onChange={(id) => setContactAt(c.key, { designation_id: id })}
                       compact
                     />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  </Field>
+                  <Field label="Contact Name" size="lg">
                     <Input
-                      placeholder="Land Line"
-                      value={c.land_line}
-                      onChange={(e) => setContactAt(c.key, { land_line: e.target.value })}
-                      className="text-base md:text-sm"
+                      value={c.contact_name}
+                      onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })}
                     />
-                    <Input
-                      placeholder="Mobile"
-                      value={c.mobile}
-                      onChange={(e) => setContactAt(c.key, { mobile: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <ValidatedInput
-                    format="email"
-                    placeholder="Email ID"
-                    value={c.email_id}
-                    onChange={(e) => setContactAt(c.key, { email_id: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                  <div>
-                    <Label>Internal Department</Label>
+                  </Field>
+                  <Field label="Internal Department" size="lg">
                     <LookupDialogPicker
                       kind="internal_department"
                       label="Internal Department"
@@ -519,16 +517,31 @@ export function NotifyMasterScreen({
                       canEdit={perms.canEdit}
                       compact
                     />
-                  </div>
-                </div>
-              ))}
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={addContact}>
-                + Add contact
-              </Button>
-            </div>
-          </div>
-        </div>
+                  </Field>
+                  <Field label="Land Line" size="md">
+                    <Input
+                      value={c.land_line}
+                      onChange={(e) => setContactAt(c.key, { land_line: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Mobile" size="md">
+                    <Input
+                      value={c.mobile}
+                      onChange={(e) => setContactAt(c.key, { mobile: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Email ID" size="md">
+                    <ValidatedInput
+                      format="email"
+                      value={c.email_id}
+                      onChange={(e) => setContactAt(c.key, { email_id: e.target.value })}
+                    />
+                  </Field>
+                </FieldGrid>
+              )}
+            />
+          </SectionColumn>
+        </SectionGrid>
       </Sheet>
     </div>
   );

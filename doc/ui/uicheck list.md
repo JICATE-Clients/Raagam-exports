@@ -2,11 +2,18 @@ If you're improving the **user experience (UX)** of an ERP, here are practical, 
 
 ## Keyboard Navigation
 
-* **Tab** → Move to the next field.
-* **Shift + Tab** → Move to the previous field.
-* **Arrow keys** → Navigate dropdown options, tables, and menus.
-* **Enter** → Move to the next field or save the form (configurable).
-* **Esc** → Close popups or cancel editing.
+> As shipped. The authoritative version, with the reasoning and the failure modes,
+> is `.claude/skills/raagam-keyboard-contract`; it is implemented once in
+> `lib/focus.ts` and delivered app-wide by `components/shell/keyboard-nav-provider.tsx`.
+
+* **Tab / Shift + Tab** → Move to the next / previous field. Nothing else — Tab never opens a list.
+* **↓** → Open this field's list of values; on a field with no list, move to the field below.
+* **↑** → Move to the field above.
+* **← / →** → Move to the field left / right, once the text caret has reached the edge.
+* **Enter** → Pick the highlighted row when a list is open; on a tick box or radio, toggle it;
+  otherwise **save the record**.
+* **Space** → Tick a checkbox, or open a picker (it is a button). Enter does both jobs too.
+* **Esc** → Close the list, then the form (asking if there is unsaved work), then leave the page.
 * **Ctrl + S** → Save.
 * **Ctrl + N** → Create new record.
 * **Ctrl + F** → Search within the page.
@@ -183,12 +190,17 @@ Shows:
 In grids:
 
 * Tab → Next cell
-* Enter → Next row
-* Arrow keys → Move around
+* Enter → Next row; on the last row, add a row
+* ↑ / ↓ → Previous / next row, same column
+* ← / → → Previous / next column
+* ↓ on a picker cell → Open its list (↑ and Enter still move rows from that cell)
+* Tick-box cells navigate like any other column; Enter on one ticks it. Radios are the
+  exception — ↑/↓ there move within the radio group, as they do natively.
 * Ctrl + C / Ctrl + V → Copy and paste rows or cells
 * Delete → Clear selected value
 
-Similar to Excel.
+Similar to Excel. Note this is the one place Enter does **not** save: inside a grid
+the operator is entering line items, and stepping to the next row is what they mean.
 
 ---
 

@@ -23,6 +23,7 @@ import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button"
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { MATERIAL_SEED_WORDS } from "@/lib/masters/material-dictionary";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
@@ -164,12 +165,21 @@ export function CategoryMasterScreen({
     enabled: !!(form.name && form.item_class_id),
   });
 
-  // Live "did you mean?" on Name — dictionary = seed fibre words + existing
-  // category names. Suppressed while a dup error is showing (red error wins).
-  const knownNames = useMemo(() => rows.map((r) => r.name ?? ""), [rows]);
+  // Live "did you mean?" on Name — suppressed while a dup error is showing (red
+  // error wins). Scoped to the selected Item Class exactly like the dup check
+  // above (client 2026-07-28): a Packing Accessories name must not be
+  // "corrected" towards an unrelated Yarn category, and the curated fibre words
+  // (COTTON, JERSEY…) are only vocabulary on Yarn/Fabric — everywhere else the
+  // dictionary is the class's own names and nothing more.
+  const knownNames = useMemo(
+    () => rows.filter((r) => r.item_class_id === form.item_class_id).map((r) => r.name ?? ""),
+    [rows, form.item_class_id],
+  );
+  const fibreSeed = selectedClassCode === "YARN" || selectedClassCode === "FABRIC";
   const nameSuggestions = useSpellSuggest({
     name: form.name ?? "",
     names: knownNames,
+    seed: fibreSeed ? MATERIAL_SEED_WORDS : [],
     enabled: !!form.name && !dupError,
   });
 

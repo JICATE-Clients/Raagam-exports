@@ -5,7 +5,10 @@ import {
   BANK_ACCT_RE,
   PINCODE_IN_RE,
   EMAIL_RE,
+  PHONE_INTL_RE,
 } from "@/lib/validation/formats";
+
+const PHONE_MSG = "Enter a valid phone number (7–15 digits, optional +country code)";
 
 // ============================================================================
 // Banks — master-detail (0235). Legacy EDP2 "Bank" form: header (Code ·
@@ -25,7 +28,9 @@ export interface BankBranch {
   pin: string | null;
   street: string | null;
   land_line: string | null;
-  fax: string | null;
+  mobile: string | null;
+  /** NULL = same as `mobile` — resolve via effectiveWhatsApp(), never read directly. */
+  whatsapp: string | null;
   email: string | null;
   swift_rtgs_code: string | null;
   current_acc_no: string | null;
@@ -51,7 +56,8 @@ export const bankBranchInput = z.object({
   pin: nullableFormat(PINCODE_IN_RE, "Enter a 6-digit PIN code"),
   street: nullableText,
   land_line: nullableText,
-  fax: nullableText,
+  mobile: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
+  whatsapp: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   // swift_rtgs_code dual-holds SWIFT (Foreign) / RTGS (Local); left unformatted
   // so a Local bank's RTGS code isn't rejected by a SWIFT-only pattern.

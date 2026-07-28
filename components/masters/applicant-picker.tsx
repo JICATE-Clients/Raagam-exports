@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Applicant } from "@/lib/masters/applicant-types";
 import { PICKER_TRIGGER_CLASS, PICKER_CLEAR_CLASS } from "@/components/masters/picker-classes";
+import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker-keys";
 
 /**
  * A select-only version of the legacy ⓘ picker over the `applicants` master:
@@ -39,6 +40,9 @@ export function ApplicantPicker({
   useEffect(() => setMounted(true), []);
 
   const [open, setOpen] = useState(false);
+  // Hand the cursor back to this picker's trigger when the dialog closes —
+  // removing the focused node strands focus on <body>. See picker-keys.ts.
+  usePickerFocusReturn(open);
   const [query, setQuery] = useState("");
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
@@ -60,26 +64,14 @@ export function ApplicantPicker({
     setOpen(true);
   }
 
-  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!filtered.length) return;
-      const idx = filtered.findIndex((a) => a.id === highlightId);
-      const next =
-        e.key === "ArrowDown"
-          ? filtered[Math.min(idx + 1, filtered.length - 1)]
-          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
-      setHighlightId(next.id);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const pick =
-        highlightId && filtered.some((a) => a.id === highlightId) ? highlightId : filtered[0]?.id;
-      if (pick) {
-        onChange(pick);
-        setOpen(false);
-      }
-    }
-  }
+  const onListKeyDown = pickerKeyDown({
+    items: filtered,
+    keyOf: (r) => r.id,
+    highlight: highlightId,
+    setHighlight: setHighlightId,
+    onPick: onChange,
+    onClose: () => setOpen(false),
+  });
 
   const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
@@ -135,6 +127,10 @@ export function ApplicantPicker({
               role="dialog"
               aria-modal="true"
               aria-label={`Select ${label}`}
+              // ↑/↓/Enter/Escape/Tab for the whole dialog — bound here rather than
+              // on the search box so the keys still work once focus has moved on
+              // to a row or to Cancel. See picker-keys.ts.
+              onKeyDown={onListKeyDown}
               className="relative mt-[8vh] flex max-h-[80vh] w-[94%] max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -154,7 +150,6 @@ export function ApplicantPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={onListKeyDown}
                   placeholder="Search short name or name…"
                   className="text-base md:text-sm"
                 />

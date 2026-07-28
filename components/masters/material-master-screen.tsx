@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
+import { ChevronDown, Eye, Info, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,12 +20,16 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/material-actions";
+import { createSubCategory } from "@/lib/masters/category-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { LookupDialogPicker, CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
+import { SectionGrid, SectionColumn, IdentityRow } from "@/components/masters/section-grid";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { MobileCardList } from "@/components/masters/mobile-card-list";
+import { MaterialViewSheet } from "@/components/masters/material-view-sheet";
 import {
   MATERIAL_FORMS,
   MATERIAL_TYPES,
@@ -40,7 +45,7 @@ import {
 } from "@/lib/masters/material-types";
 import type { ConfigLookup, Attribute, AttributeValue } from "@/lib/masters/extras-types";
 import type { MaterialAttribute } from "@/lib/masters/material-attribute-types";
-import { showsSubCategories, type Category } from "@/lib/masters/category-types";
+import { showsSubCategories, type Category, type CategorySubCategory } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Uom } from "@/lib/masters/types";
@@ -68,6 +73,8 @@ const BLANK = {
   hsn_id: "",
   category_id: "",
   sub_category_id: "",
+  item_type_name: "",
+  item_base_name: "",
   material_type: "",
   specifications: "",
   short_spec: "",
@@ -126,6 +133,10 @@ export function MaterialMasterScreen({
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  // Read-only view (client 2026-07-28 #9): opening the editor was the only way
+  // to look at a material. Holds the row itself — everything the view renders is
+  // already loaded on it, so there is nothing to fetch.
+  const [viewRow, setViewRow] = useState<Material | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   // Name of the record as it was when the editor opened — used for the sheet
   // title so it doesn't flicker while the user retypes the Name field.
@@ -141,7 +152,6 @@ export function MaterialMasterScreen({
 
   const classLabel = useMemo(() => new Map(itemClasses.map((c) => [c.id, c.name])), [itemClasses]);
   const catLabel = useMemo(() => new Map(categories.map((c) => [c.id, c.name ?? "—"])), [categories]);
-  const unitCodeById = useMemo(() => new Map(units.map((u) => [u.id, u.code.toUpperCase()])), [units]);
   // Cascading picker rule (mirrors material-attribute-master-screen.tsx): Category
   // only ever shows rows scoped to the selected Item Class, never the full list.
   const scopedCategories = useMemo(
@@ -216,20 +226,30 @@ export function MaterialMasterScreen({
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const selectedClassCode = itemClasses.find((c) => c.id === form.item_class_id)?.code ?? null;
   const formKey: MaterialFormKey = itemClassForm(selectedClassCode);
-  const formDef = formKey === "A" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
+  const formDef = formKey === "A" || formKey === "GEN" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
   const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
-  // Sub Category (0349) — General only, and only when the picked Category
-  // actually defines a second level. A category with none hides the field
-  // entirely, so this can never become a dead end the way the attribute flow
-  // did for General: no sub-categories defined ⇒ nothing to answer.
-  const subCategoryOptions =
-    showsSubCategories(selectedClassCode) && selectedCategory?.has_sub_categories
-      ? (selectedCategory.sub_categories ?? [])
-      : [];
-  const subCategoryVisible = subCategoryOptions.length > 0;
-  // Required once the field is on screen — an unattributed material is exactly
-  // the hole the category/sub-category split exists to close (client 2026-07-28).
-  const subCategoryMissing = subCategoryVisible && !form.sub_category_id;
+  // Sub-categories created from this form's own "+ Add" row, keyed by category.
+  // The server action revalidates, but the refreshed `categories` prop only
+  // arrives after router.refresh() resolves — until then the option the user
+  // just created would vanish from the list they created it in.
+  const [newSubCategories, setNewSubCategories] = useState<CategorySubCategory[]>([]);
+  // Sub Category (0349) — shown for the classes that carry a second level
+  // (General today) as soon as a Category is picked, whether or not that
+  // category already defines one: the list is creatable now, so an empty list is
+  // a starting point rather than a dead end (client 2026-07-28). Optional, too —
+  // plenty of consumables are just "STATIONERY ▸ PEN" with nothing in between.
+  const subCategoryVisible = showsSubCategories(selectedClassCode) && !!form.category_id;
+  const subCategoryOptions = useMemo(() => {
+    if (!subCategoryVisible || !selectedCategory) return [];
+    const stored = selectedCategory.sub_categories ?? [];
+    const fresh = newSubCategories.filter(
+      (sc) => sc.category_id === selectedCategory.id && !stored.some((s) => s.id === sc.id),
+    );
+    return [...stored, ...fresh].sort((a, b) => a.sno - b.sno);
+  }, [subCategoryVisible, selectedCategory, newSubCategories]);
+  // Second segment of the General auto-name.
+  const subCategoryName =
+    subCategoryOptions.find((sc) => sc.id === form.sub_category_id)?.name ?? null;
   // Child grids are wide tables — they render full-width BELOW the two-column
   // body (Screenshot 2079), so their visibility gates live here rather than
   // inside the per-class detail sections. Yarn Mixing shows for a Mixed-nature
@@ -356,7 +376,12 @@ export function MaterialMasterScreen({
           end: l.end_value,
           step: l.step_value,
           // Unit label appended to each generated step value (e.g. "50 KGS").
-          unitLabel: l.unit_id ? units.find((u) => u.id === l.unit_id)?.name ?? "" : "",
+          // Free text since 0350 — the Unit was a UOM-master dropdown but is
+          // only ever printed, never converted by (client 2026-07-28). Falls
+          // back to the linked UOM's name for lines configured before that.
+          unitLabel:
+            l.unit_label?.trim() ||
+            (l.unit_id ? units.find((u) => u.id === l.unit_id)?.name ?? "" : ""),
         };
       });
   }, [attributeDriven, matchedAttrSet, attributeValueById, units]);
@@ -425,9 +450,45 @@ export function MaterialMasterScreen({
   // Item Class change: reset the (class-scoped) Category. Yarn's kg UOM defaults
   // are applied by the effect above (fires when formKey becomes YARN), so they
   // no longer need to be duplicated here.
+  //
+  // Accessories (Sewing/Packing) pre-select Purchased: a thread or a button is
+  // bought in, and Converted is the rare exception the operator can still pick
+  // (client 2026-07-28). Only fills an EMPTY Transaction Type, so re-picking the
+  // class on a record that already says Converted doesn't overwrite it. General
+  // no longer shows the field at all and `submit` sends Purchased for it.
   function handleItemClassChange(v: string) {
-    set({ item_class_id: v, category_id: "", sub_category_id: "" });
+    const code = itemClasses.find((c) => c.id === v)?.code ?? null;
+    set({
+      item_class_id: v,
+      category_id: "",
+      sub_category_id: "",
+      ...(isAccessoryClass(code) && !form.material_type ? { material_type: "Purchased" } : {}),
+    });
   }
+
+  /** "+ Add" from the Sub Category list. Creates the row, keeps it in local
+   *  state so it is selectable immediately (the refreshed `categories` prop is a
+   *  round-trip away), and returns the new id for the combobox to select. */
+  const createSubCategoryInline = useCallback(
+    async (name: string): Promise<string | null> => {
+      const categoryId = form.category_id;
+      if (!categoryId) return null;
+      const res = await createSubCategory(categoryId, name);
+      if (!res.ok) {
+        error(res.error);
+        return null;
+      }
+      setNewSubCategories((xs) => [
+        ...xs,
+        // sno 999: appended after everything the Category master defined,
+        // matching where the server's next-sno insert actually put it.
+        { id: res.id, category_id: categoryId, sno: 999, name: name.trim().toUpperCase() },
+      ]);
+      router.refresh();
+      return res.id;
+    },
+    [form.category_id, error, router],
+  );
 
   function openAdd() {
     setEditId(null);
@@ -450,6 +511,8 @@ export function MaterialMasterScreen({
       hsn_id: r.hsn_id ?? "",
       category_id: r.category_id ?? "",
       sub_category_id: r.sub_category_id ?? "",
+      item_type_name: r.item_type_name ?? "",
+      item_base_name: r.item_base_name ?? "",
       material_type: r.material_type ?? "",
       specifications: r.specifications ?? "",
       short_spec: r.short_spec ?? "",
@@ -591,7 +654,11 @@ export function MaterialMasterScreen({
         // Only ever sent when the field is actually on screen — otherwise a
         // stale pick would survive a category change that hid the field.
         sub_category_id: (subCategoryVisible && form.sub_category_id) || null,
-        material_type: form.material_type || null,
+        item_type_name: form.item_type_name.trim() || null,
+        item_base_name: form.item_base_name.trim() || null,
+        // General never shows the Transaction Type — a consumable is always
+        // bought, so it is saved silently rather than asked (client 2026-07-28).
+        material_type: formKey === "GEN" ? "Purchased" : form.material_type || null,
         // Mirrors the Category rather than being edited here; the server
         // re-derives it authoritatively, so this is only a best-effort value.
         user_defined: selectedCategory?.user_defined ?? false,
@@ -671,11 +738,19 @@ export function MaterialMasterScreen({
 
   // UOM options show just the short code (client 2026-07-23 #5) — "KG",
   // not "KG — KGS".
-  const uomSelect = (value: string, onChange: (v: string) => void) => (
+  //
+  // `limitTo` narrows the list to a specific set of unit ids instead of the whole
+  // active UOM master. Used by the five slot fields once Alternative UOM is on:
+  // the conversion rows above them have already named the only units this
+  // material deals in, so offering all ~40 again is asking the same question
+  // twice and invites a Purchase Uom that no conversion can reach (client
+  // 2026-07-28). The current value is always kept in the list, or editing an old
+  // record would silently drop a unit that is no longer offered.
+  const uomSelect = (value: string, onChange: (v: string) => void, limitTo?: Set<string>) => (
     <Select value={value} onChange={(e) => onChange(e.target.value)} className="text-base md:text-sm">
       <option value="">— None —</option>
       {units
-        .filter((u) => u.is_active || u.id === value)
+        .filter((u) => (limitTo ? limitTo.has(u.id) : u.is_active) || u.id === value)
         .map((u) => (
           <option key={u.id} value={u.id}>
             {u.code}
@@ -683,6 +758,22 @@ export function MaterialMasterScreen({
         ))}
     </Select>
   );
+
+  /** Every unit named in the conversion rows — both sides, since a row reads
+   *  "12 DOZ = 1 NOS" and either end is a unit this material is handled in.
+   *  This is the pick-list for the five UOM slots below. */
+  const convUnitIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of conversions) {
+      if (c.alt_uom_id) ids.add(c.alt_uom_id);
+      if (c.base_uom_id) ids.add(c.base_uom_id);
+    }
+    return ids;
+  }, [conversions]);
+  // Only narrow once the rows actually name something. An empty set would leave
+  // every slot with nothing but "— None —" the instant the box is ticked, which
+  // reads as a broken form rather than as "fill the conversion first".
+  const uomLimit = form.has_alternate_uom && convUnitIds.size > 0 ? convUnitIds : undefined;
 
   /**
    * How wide each Classification field should be, on the 12-column track.
@@ -698,10 +789,20 @@ export function MaterialMasterScreen({
    * and Type wrapped onto a row of its own, with the empty rest of that row
    * under it (client 2026-07-28). Sizing each to what it actually holds lands on
    * exactly 12. Widen one of these and something else has to give.
+   *
+   * Both four-field rows have to hit 12 with the SAME category/sub-category
+   * spans, since this map is per FIELD, not per form:
+   *   form A   — Category 4 + Sub Category 3 + User defined 2 + Type 3 = 12
+   *   form GEN — Category 4 + Sub Category 3 + Item Type 2 + Item Name 3 = 12
+   * That leaves 5 to split between the two General fields, and Item Name
+   * ("NYLON 4 INCH") is the longer of the pair, so it takes 3 and Item Type
+   * ("BRUSH", "PEN") takes 2.
    */
   const DETAIL_FIELD_SIZE: Record<DetailFieldKey, FieldSize> = {
     category_id: "md", // 4 — picker, holds the longest value of the four
     sub_category_id: "sm", // 3 — second level under the category, General only
+    item_type_name: "xs", // 2 — General only: BRUSH, PEN, CABLE
+    item_base_name: "sm", // 3 — General only: the specific item, NYLON 4 INCH
     material_type: "sm", // 3 — Purchased / Converted / Production
     user_defined: "xs", // 2 — read-only, renders just the word "Yes"/"No"
     specifications: "lg", // free-text description
@@ -763,27 +864,52 @@ export function MaterialMasterScreen({
         );
       }
       case "sub_category_id":
-        // Only rendered when the Category defines sub-categories (see the
-        // fields filter on the Classification section), so there is no empty
-        // or disabled state to handle here.
+        // Optional and creatable (client 2026-07-28 #10/#15). It used to be a
+        // mandatory <Select> that only appeared once the Category already
+        // defined a second level, so meeting a new one mid-material meant
+        // abandoning the form for the Category master.
         return (
           <div key={key}>
-            <Label htmlFor="mt-sub-category">
-              Sub Category <span className="text-danger">*</span>
-            </Label>
-            <Select
+            <Label htmlFor="mt-sub-category">Sub Category</Label>
+            <CreatableSubCategoryField
               id="mt-sub-category"
               value={form.sub_category_id}
-              onChange={(e) => set({ sub_category_id: e.target.value })}
+              options={subCategoryOptions}
+              onChange={(v) => set({ sub_category_id: v })}
+              onCreate={createSubCategoryInline}
+              canCreate={perms.canCreate}
+            />
+          </div>
+        );
+      case "item_type_name":
+        // General only — the third segment of the composed Name (see
+        // suggestedName). Free text: the client's consumables aren't a list
+        // anyone maintains, they are whatever was bought this month.
+        return (
+          <div key={key}>
+            <Label htmlFor="mt-item-type">Item Type</Label>
+            <Input
+              id="mt-item-type"
+              uppercase
+              placeholder="BRUSH"
+              value={form.item_type_name}
+              onChange={(e) => set({ item_type_name: e.target.value })}
               className="text-base md:text-sm"
-            >
-              <option value="">— Select —</option>
-              {subCategoryOptions.map((sc) => (
-                <option key={sc.id} value={sc.id}>
-                  {sc.name}
-                </option>
-              ))}
-            </Select>
+            />
+          </div>
+        );
+      case "item_base_name":
+        return (
+          <div key={key}>
+            <Label htmlFor="mt-item-name">Item Name</Label>
+            <Input
+              id="mt-item-name"
+              uppercase
+              placeholder="NYLON 4 INCH"
+              value={form.item_base_name}
+              onChange={(e) => set({ item_base_name: e.target.value })}
+              className="text-base md:text-sm"
+            />
           </div>
         );
       case "user_defined": {
@@ -911,6 +1037,21 @@ export function MaterialMasterScreen({
       }
       return head.toUpperCase() || null;
     }
+    // General (client 2026-07-28): CATEGORY / SUB CATEGORY / ITEM TYPE / ITEM
+    // NAME — e.g. "ELECTRICAL / LIGHTS / BULB / 9W LED". Same shape as the
+    // accessory branch below (category first, then what identifies the item),
+    // with a fixed " / " separator rather than a configured one — General has no
+    // attribute set to carry a name_separator. Blank segments drop out, so a
+    // half-filled form composes as far as it can instead of showing "/ / /".
+    if (formKey === "GEN") {
+      const parts = [
+        selectedCategory?.name,
+        subCategoryName,
+        form.item_type_name.trim(),
+        form.item_base_name.trim(),
+      ].filter(Boolean);
+      return parts.length ? parts.join(" / ").toUpperCase() : null;
+    }
     // SEW/PACK attribute-driven (User Defined = No): Category ‹sep› answers —
     // e.g. "LABEL / MAIN / PRINTED / WOVEN / RFID" (client 2026-07-25, no description).
     if (attributeDriven && attrQuestions.length) {
@@ -919,7 +1060,7 @@ export function MaterialMasterScreen({
       return parts.length ? parts.join(attrSeparator).toUpperCase() : null;
     }
     return null;
-  }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
+  }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, form.item_type_name, form.item_base_name, subCategoryName, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
 
   // Auto-write the generated name for Yarn/Fabric (suggestedName is null for
   // other classes, so General/etc. stay manual). Depends on suggestedName only —
@@ -1296,8 +1437,12 @@ export function MaterialMasterScreen({
      through load and save, so any legacy rows survive an edit rather than being
      silently deleted. Re-rendering it is a one-line change if that reverses. */
 
-  const uomCell = (id: string | null) => <span className="text-xs text-muted-foreground">{id ? unitCodeById.get(id) ?? "—" : "—"}</span>;
-
+  /* The list used to carry HSN Code plus all five UOM slots (Base / Stock /
+     Billing / Planning / Purchase). Nobody reads them there: four of the five
+     are the same unit on ~90% of materials, and HSN belongs to the tax paperwork,
+     not to finding a material (client 2026-07-28 #8). All six are gone; the eye
+     icon opens the full record instead. HSN is still SEARCHABLE (see the search
+     predicate above) — it just doesn't own a column. */
   const columns: Column<Material>[] = [
     {
       header: "Item Class",
@@ -1308,12 +1453,6 @@ export function MaterialMasterScreen({
       cell: (r) => <span className="text-sm text-muted-foreground">{r.category_id ? catLabel.get(r.category_id) ?? "—" : "—"}</span>,
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
-    { header: "HSN Code", cell: (r) => <span className="text-xs text-muted-foreground">{r.hsn_code ?? "—"}</span> },
-    { header: "Base", cell: (r) => uomCell(r.base_uom_id) },
-    { header: "Stock", cell: (r) => uomCell(r.stock_uom_id) },
-    { header: "Billing", cell: (r) => uomCell(r.billing_uom_id) },
-    { header: "Planning", cell: (r) => uomCell(r.planning_uom_id) },
-    { header: "Purchase", cell: (r) => uomCell(r.purchase_uom_id) },
     { header: "Created User", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_by ?? "—"}</span> },
     { header: "Created Dt", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_at ? r.created_at.slice(0, 10) : "—"}</span> },
     {
@@ -1325,6 +1464,11 @@ export function MaterialMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — the only way to read a material used to be
+              to open the editor and remember not to touch anything. */}
+          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -1442,30 +1586,23 @@ export function MaterialMasterScreen({
         <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No materials yet." />
       </div>
 
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {pg.paged.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No materials yet.
-          </div>
-        ) : (
-          pg.paged.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                </div>
-                <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
-              </div>
-              {r.item_class_id && <div className="mt-2 text-[13px] text-muted-foreground">{classLabel.get(r.item_class_id)}</div>}
-            </button>
-          ))
-        )}
+      {/* mobile cards — the shared list, so the eye (view) and delete
+          affordances the desktop table has are on the phone too. Was a
+          hand-rolled tap-to-edit card, which had no room for either. */}
+      <div className="md:hidden">
+        <MobileCardList<Material>
+          rows={pg.paged}
+          getKey={(r) => r.id}
+          title={(r) => r.name}
+          meta={(r) => (r.item_class_id ? classLabel.get(r.item_class_id) ?? null : null)}
+          pill={(r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>}
+          onView={(r) => setViewRow(r)}
+          onEdit={perms.canEdit ? openEdit : undefined}
+          canDelete={perms.canDelete}
+          onDelete={remove}
+          isPending={isPending}
+          empty="No materials yet."
+        />
       </div>
 
       <PaginationBar
@@ -1499,7 +1636,6 @@ export function MaterialMasterScreen({
                 mixPctSumInvalid ||
                 attrMandatoryMissing ||
                 attributeSetMissing ||
-                subCategoryMissing ||
                 nameDuplicate
               }
               onClick={submit}
@@ -1517,7 +1653,7 @@ export function MaterialMasterScreen({
           {/* Item Class is a picked name, Name is the long free text, HSN is 8
               digits — the tracks are weighted to match, so HSN stops occupying
               a quarter of the row (client 2026-07-24 #3). */}
-          <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)_10rem]">
+          <IdentityRow tracks="minmax(0,0.8fr) minmax(0,2fr) 10rem">
             <div>
               <Label htmlFor="mt-item-class">Item Class</Label>
               <Select
@@ -1550,13 +1686,15 @@ export function MaterialMasterScreen({
                 // classes (General) keep the name in Tab order. See global rule.
                 // Attribute-driven accessories can't be named manually (spec) —
                 // the name is fully generated from Category + attributes + Description.
+                // General is the same: its four fields ARE the name (client
+                // 2026-07-28), so it is composed, never typed.
                 tabIndex={suggestedName ? -1 : undefined}
-                readOnly={attributeDriven}
+                readOnly={attributeDriven || formKey === "GEN"}
                 aria-invalid={nameDuplicate ? true : undefined}
                 className={cn(
                   "text-base md:text-sm",
                   nameDuplicate && "border-danger",
-                  attributeDriven && "bg-surface-muted",
+                  (attributeDriven || formKey === "GEN") && "bg-surface-muted",
                 )}
               />
               {dupMessage && <p className="mt-1 text-xs text-danger">{dupMessage}</p>}
@@ -1568,7 +1706,7 @@ export function MaterialMasterScreen({
               value={form.hsn_id}
               onChange={(v) => set({ hsn_id: v })}
             />
-          </div>
+          </IdentityRow>
 
           {/* Everything below the identity row waits for an Item Class — an
               empty details column beside a full UOM card reads as a broken
@@ -1582,8 +1720,8 @@ export function MaterialMasterScreen({
           {/* Two-column body — class-specific details LEFT, UOM RIGHT. No more
               Details/UOM tabs: both are always visible (planned layout), so the
               duplicate-name error simply gates Save. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-            <div className="space-y-4">
+          <SectionGrid>
+            <SectionColumn>
               {formKey === "FABRIC" ? (
                 fabricDetails()
               ) : formKey === "YARN" ? (
@@ -1690,25 +1828,43 @@ export function MaterialMasterScreen({
               {/* Using (Items) is a General-item concept only. Accessories
                   (SEW/PACK) list their configured attributes instead (client
                   2026-07-25). */}
-            </div>
+            </SectionColumn>
 
             {/* RIGHT: pure measurement for ALL classes — Units of Measure,
                 Conversions, status. Composition grids never render here. */}
-            <div className="space-y-4">
-              {/* Every UOM is a 2-4 character code (KG, MTR, PCS), so each gets
-                  a narrow track — five fit in two rows instead of sprawling
-                  across two wide columns (client 2026-07-24 #3). */}
+            <SectionColumn>
+              {/* Order follows how the client describes the job (2026-07-28):
+                  tick Alternative UOM → the conversion grid comes to the TOP of
+                  the section → enter the alternate ↔ base row → then fill the
+                  five UOM slots underneath, choosing only from the units that
+                  row just named.
+                  Those five were briefly removed altogether earlier the same day.
+                  That went too far: the complaint was their ORDER and their
+                  option list, not their existence — four dropdowns over the whole
+                  UOM master, asked before the one row that gives them meaning.
+                  Restored below the conversion and filtered to `uomLimit`. */}
               <DetailSection label="Units of Measure" cols={12}>
-                <Field label="Base Uom" size="sm">
-                  {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }))}
+                {/* Row 1: Base + the toggle, side by side (client 2026-07-28).
+                    ~90% of materials are consumed and purchased in the same unit
+                    (a label is Numbers everywhere), so everything the toggle
+                    reveals stays out of the way until the material says it needs
+                    it. Thread (metres → cones) and buttons (numbers → gross) are
+                    the cases that tick it.
+                    2 + 4 = 6 of 12, so neither cell is cramped — and Base at `xs`
+                    sits in track 1, directly above Stock at `xs` in track 1 of
+                    the slot row below, so the two rows align by construction
+                    rather than by luck. */}
+                <Field label="Base" size="xs">
+                  {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), uomLimit)}
                 </Field>
-                {/* ~90% of materials are consumed and purchased in the same unit
-                    (a label is Numbers everywhere), so the other four slots and
-                    the conversions grid stay out of the way until the material
-                    says it needs them. Thread (metres → cones) and buttons
-                    (numbers → gross) are the cases that tick this. */}
-                <Field label="&nbsp;" size="md">
-                  <label className="flex h-9 cursor-pointer items-center gap-2">
+                {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
+                    <Label> only when `label != null`, so an unlabelled cell
+                    starts a label's height higher than the labelled Base beside
+                    it. `h-9 @2xl/editor:h-8` tracks the Combobox's own height —
+                    hard-coding h-9 left the checkbox 4px taller than the select
+                    on the wide editor surface. */}
+                <Field label={<>&nbsp;</>} size="md">
+                  <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
                       className="h-4 w-4 cursor-pointer accent-primary"
@@ -1718,55 +1874,76 @@ export function MaterialMasterScreen({
                     <span className="text-sm text-foreground">Alternative UOM</span>
                   </label>
                 </Field>
+                {/* Conversions as one inline row per record — the legacy wide
+                    table doesn't fit a half-width column, and the previous
+                    2-col card wrapped four controls onto two lines. Quantities
+                    are numeric so they get a fixed narrow track; the UOM pickers
+                    share the remaining space. Spans the whole 12-col track: it
+                    is a table, not a field. */}
+                {form.has_alternate_uom && (
+                  <Field size="full">
+                    <ChildGrid<ConvRow>
+                      label="Alternate ↔ Base Conversions"
+                      rows={conversions}
+                      onAdd={addConv}
+                      onRemove={(c) => delConv(c.key)}
+                      addLabel="+ Add conversion"
+                      inlineCards
+                      frameless
+                      columns={[
+                        {
+                          header: "Alt qty",
+                          align: "center",
+                          width: "4.5rem",
+                          cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-center" />,
+                        },
+                        { header: "Alt UOM", cell: (c) => uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v })) },
+                        {
+                          header: "Base qty",
+                          align: "center",
+                          width: "4.5rem",
+                          cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-center" />,
+                        },
+                        { header: "Base UOM", cell: (c) => uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v })) },
+                      ]}
+                    />
+                  </Field>
+                )}
+                {/* The four downstream slots, one row of `xs` (2 of 12 each = 8).
+                    They appear only with Alternative UOM on: with it off they are
+                    all the base unit by definition, and the server writes them
+                    that way (material-actions.ts `uomSlots`).
+                    "Uom" is dropped from every label — the section is already
+                    titled Units of Measure, and "Planning Uom" wraps in a ~85px
+                    track while "Planning" does not. Base is NOT here; it sits up
+                    on row 1 beside the toggle, in this same track 1. */}
                 {form.has_alternate_uom && (
                   <>
-                    <Field label="Stock Uom" size="sm">
-                      {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }))}
+                    <Field label="Stock" size="xs">
+                      {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }), uomLimit)}
                     </Field>
-                    <Field label="Billing Uom" size="sm">
-                      {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }))}
+                    <Field label="Billing" size="xs">
+                      {uomSelect(form.billing_uom_id, (v) => set({ billing_uom_id: v }), uomLimit)}
                     </Field>
-                    <Field label="Planning Uom" size="sm">
-                      {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }))}
+                    <Field label="Planning" size="xs">
+                      {uomSelect(form.planning_uom_id, (v) => set({ planning_uom_id: v }), uomLimit)}
                     </Field>
-                    <Field label="Purchase Uom" size="sm">
-                      {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }))}
+                    <Field label="Purchase" size="xs">
+                      {uomSelect(form.purchase_uom_id, (v) => set({ purchase_uom_id: v }), uomLimit)}
                     </Field>
+                    {/* Says which question to answer first, rather than leaving
+                        the dropdowns on the full UOM master with no explanation
+                        of why they narrow later. */}
+                    {convUnitIds.size === 0 && (
+                      <Field size="full">
+                        <p className="text-xs text-muted-foreground">
+                          Fill a conversion row above — Base and these four then offer only the units it names.
+                        </p>
+                      </Field>
+                    )}
                   </>
                 )}
               </DetailSection>
-
-              {/* Conversions as one inline row per record — the legacy wide
-                  table doesn't fit a half-width column, and the previous
-                  2-col card wrapped four controls onto two lines. Quantities
-                  are numeric so they get a fixed narrow track; the UOM pickers
-                  share the remaining space. */}
-              {form.has_alternate_uom && (
-              <ChildGrid<ConvRow>
-                label="Alternate ↔ Base Conversions"
-                rows={conversions}
-                onAdd={addConv}
-                onRemove={(c) => delConv(c.key)}
-                addLabel="+ Add conversion"
-                inlineCards
-                columns={[
-                  {
-                    header: "Alt qty",
-                    align: "center",
-                    width: "4.5rem",
-                    cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-center" />,
-                  },
-                  { header: "Alt UOM", cell: (c) => uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v })) },
-                  {
-                    header: "Base qty",
-                    align: "center",
-                    width: "4.5rem",
-                    cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-center" />,
-                  },
-                  { header: "Base UOM", cell: (c) => uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v })) },
-                ]}
-              />
-              )}
 
               {/* Budget + Cost Rate removed from the data path (client walkthrough,
                   0279) — no longer edited or written from this screen. The DB
@@ -1778,12 +1955,275 @@ export function MaterialMasterScreen({
                   <span className="text-sm text-foreground">Inactive</span>
                 </label>
               )}
-            </div>
-          </div>
+            </SectionColumn>
+          </SectionGrid>
             </>
           )}
         </div>
       </Sheet>
+
+      {/* Read-only view — same record, nothing editable, Edit in the footer
+          hands off to the editor above. */}
+      <MaterialViewSheet
+        open={!!viewRow}
+        material={viewRow}
+        onClose={() => setViewRow(null)}
+        canEdit={perms.canEdit}
+        onEdit={(r) => {
+          setViewRow(null);
+          openEdit(r);
+        }}
+        itemClasses={itemClasses}
+        categories={categories}
+        units={units}
+        counts={counts}
+        purities={purities}
+        fabricTypes={fabricTypes}
+        fabricStructures={fabricStructures}
+        yarnTypes={yarnTypes}
+        materials={rows}
+        materialAttributes={materialAttributes}
+        attributes={attributes}
+      />
+    </div>
+  );
+}
+
+/**
+ * Sub Category: type-or-pick, with a "+ Add" row that creates whatever is being
+ * typed (client 2026-07-28 #10/#15). Optional — "— None —" is the first row.
+ *
+ * Deliberately local rather than a `creatable` mode on components/ui/combobox.tsx:
+ * that component is what EVERY desktop `<Select>` in the app renders as
+ * (select.tsx upgrades to it on a fine pointer), so a new branch there would put
+ * ~every dropdown in the ERP at risk for the sake of one field. Local control,
+ * shared contract — `role="combobox"` + `aria-expanded` is what lib/focus.ts
+ * reads to decide whether ↑/↓ belong to the field or to the surface
+ * (`ownsArrowKeys`), so browsing, picking and Esc behave here exactly as they do
+ * on a Combobox without touching the shared file. (`data-field-trigger` is the
+ * BUTTON half of that contract and is deliberately absent: on an input it would
+ * make `arrowOpensPicker` re-click the field on ↓, fighting this component's own
+ * handler.)
+ *
+ * The list is portaled with fixed positioning, like Combobox, because this field
+ * sits low in a full-screen Sheet whose body is the one scroll container.
+ */
+function CreatableSubCategoryField({
+  id,
+  value,
+  options,
+  onChange,
+  onCreate,
+  canCreate,
+}: {
+  id: string;
+  value: string;
+  options: CategorySubCategory[];
+  onChange: (v: string) => void;
+  /** Returns the new id, or null when the create failed (the caller toasts). */
+  onCreate: (name: string) => Promise<string | null>;
+  canCreate: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const [creating, setCreating] = useState(false);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  const selected = options.find((o) => o.id === value) ?? null;
+  const typed = query.trim().toUpperCase();
+  const matches = options.filter((o) => !typed || o.name.toUpperCase().includes(typed));
+  // Only offer to create what does not already exist — an exact (case- and
+  // space-insensitive) hit is the same value the DB's unique index would reject.
+  const exact = options.some((o) => o.name.trim().toUpperCase() === typed);
+  type Row = { kind: "none" } | { kind: "option"; sc: CategorySubCategory } | { kind: "create" };
+  const rows: Row[] = [
+    { kind: "none" },
+    ...matches.map((sc) => ({ kind: "option", sc }) as Row),
+    ...(canCreate && typed && !exact ? [{ kind: "create" } as Row] : []),
+  ];
+
+  const measure = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    measure();
+    const onMove = () => measure();
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
+  }, [open, measure]);
+  // Close on a click outside the input or the portaled list.
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      const t = e.target as Node;
+      if (inputRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
+      setQuery("");
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  function openList() {
+    setQuery("");
+    setHighlight(Math.max(0, options.findIndex((o) => o.id === value) + 1));
+    setOpen(true);
+  }
+  function close() {
+    setOpen(false);
+    setQuery("");
+  }
+  // No blur() on commit — dropping focus to <body> is what sends the next Tab
+  // back to the top of the Sheet (see the same note in components/ui/combobox.tsx).
+  async function commit(row: Row | undefined) {
+    if (!row || creating) return;
+    if (row.kind === "none") {
+      onChange("");
+      close();
+      return;
+    }
+    if (row.kind === "option") {
+      onChange(row.sc.id);
+      close();
+      return;
+    }
+    setCreating(true);
+    const created = await onCreate(typed);
+    setCreating(false);
+    if (created) {
+      onChange(created);
+      close();
+    }
+    // Failed create: the list stays open with the typed value intact, so the
+    // toast's reason (duplicate name, forbidden) can be acted on.
+  }
+
+  /** The same contract as components/ui/combobox.tsx — see the skill
+   *  `raagam-keyboard-contract`. ↓ opens / moves down, ↑ moves up but bubbles
+   *  when the list is closed (so it means "the field above" and a dropdown is
+   *  never a one-way door), Enter picks the highlight and otherwise bubbles to
+   *  save the record, Tab closes without choosing and lets focus move on, Esc
+   *  closes the list only. */
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!open) {
+        if (e.key === "ArrowUp") return; // bubbles: "the field above"
+        e.preventDefault();
+        e.stopPropagation();
+        return openList();
+      }
+      // Consumed here; without stopPropagation the arrow would also drive the
+      // surrounding surface's field navigation.
+      e.preventDefault();
+      e.stopPropagation();
+      setHighlight((h) => (e.key === "ArrowDown" ? Math.min(h + 1, rows.length - 1) : Math.max(h - 1, 0)));
+    } else if (e.key === "Enter") {
+      if (open) {
+        // Picking is what this Enter does; without preventDefault it would also
+        // reach `enterSaves` and commit the whole material.
+        e.preventDefault();
+        e.stopPropagation();
+        void commit(rows[highlight]);
+      }
+    } else if (e.key === "Tab") {
+      // Close WITHOUT committing — "Tab never changes a value" — and never
+      // preventDefault, or focus would stay put: the move belongs to Sheet's
+      // focus trap.
+      if (open) close();
+    } else if (e.key === "Escape") {
+      if (open) {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    }
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        ref={inputRef}
+        uppercase
+        role="combobox"
+        aria-expanded={open}
+        autoComplete="off"
+        placeholder={selected ? selected.name : "Type or pick…"}
+        value={open ? query : selected?.name ?? ""}
+        // No open-on-focus, matching every other dropdown on the form
+        // (select.tsx passes openOnFocus={false}): focus alone leaves the list
+        // closed, so Enter there still saves the record. The list drops on
+        // click, on ↓, or as soon as the operator types.
+        onClick={() => {
+          if (!open) openList();
+        }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setHighlight(0);
+          if (!open) setOpen(true);
+        }}
+        onKeyDown={onKeyDown}
+        className={cn("pr-8 text-base md:text-sm", !selected && !open && "text-muted-foreground")}
+      />
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+        <ChevronDown className="h-4 w-4 shrink-0" />
+      </span>
+      {open &&
+        rect &&
+        createPortal(
+          <ul
+            ref={listRef}
+            role="listbox"
+            style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width, zIndex: 150 }}
+            className="max-h-60 overflow-auto rounded-md border border-border bg-surface py-1 shadow-lg"
+          >
+            {rows.map((row, i) => {
+              const key = row.kind === "option" ? row.sc.id : row.kind;
+              const label =
+                row.kind === "none" ? (
+                  <span className="text-muted-foreground">— None —</span>
+                ) : row.kind === "option" ? (
+                  row.sc.name
+                ) : (
+                  <span className="flex items-center gap-1.5 text-primary">
+                    <Plus className="h-4 w-4 shrink-0" />
+                    {creating ? `Adding "${typed}"…` : `Add "${typed}"`}
+                  </span>
+                );
+              return (
+                <li
+                  key={key}
+                  role="option"
+                  aria-selected={row.kind === "option" && row.sc.id === value}
+                  // Focus stays in the input, so use mousedown to beat the blur.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    void commit(row);
+                  }}
+                  onMouseEnter={() => setHighlight(i)}
+                  className={cn(
+                    "cursor-pointer px-3 py-2 text-sm",
+                    i === highlight ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-muted",
+                  )}
+                >
+                  {label}
+                </li>
+              );
+            })}
+          </ul>,
+          document.body,
+        )}
     </div>
   );
 }

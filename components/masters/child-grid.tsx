@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
-import { atCaretEdge } from "@/lib/focus";
+import { atCaretEdge, focusField } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,27 +16,26 @@ import { cn } from "@/lib/utils";
  * Enter mean "down one row" on a text cell but "along to the next cell" on the
  * picker beside it, and left arrow keys dead on pickers entirely — the same
  * split this whole pass exists to remove (client 2026-07-25).
+ *
+ * A **checkbox** counts too, for the same reason: it is a column the operator
+ * sees, and excluding it made every arrow key dead on a tick-box cell — the only
+ * way off one was Tab (client 2026-07-28). It has no native arrow meaning to
+ * protect. Rows that render a tick box conditionally are fine: `focusColIn`
+ * already clamps to the last field when the destination row is shorter.
+ *
+ * A **radio** does NOT: ↑/↓ natively move within a radio group, and stealing
+ * that would make the group unusable.
  */
 const ROW_FIELDS =
-  'input:not([type="button"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea, [data-field-trigger]';
+  'input:not([type="button"]):not([type="hidden"]):not([type="radio"]), select, textarea, [data-field-trigger]';
 
 /** Enter-on-last-row must not grow a grid that has its "+ Add" hidden (a
  *  Single-Yarn fabric is capped at exactly one component). */
 const NO_ADD = () => {};
 
-/** Focus a cell and put the caret at the end, so typing appends rather than
- *  overwrites. number/email inputs reject selection ranges — hence the catch. */
-function focusField(el: HTMLElement) {
-  el.focus();
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    const len = el.value.length;
-    try {
-      el.setSelectionRange(len, len);
-    } catch {
-      /* number/email inputs reject selection ranges */
-    }
-  }
-}
+// `focusField` (lib/focus.ts) focuses a cell and puts the caret at the end, so
+// typing appends rather than overwrites — and so ←/→ can leave the cell on the
+// first press. It was duplicated here; one copy now, shared with the provider.
 
 /** Direct descendants only — a nested ChildGrid must not steal the outer one's rows. */
 function ownDescendants(scope: HTMLElement, selector: string, boundary: string): HTMLElement[] {
@@ -66,6 +65,11 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
   const vertical = e.key === "ArrowDown" || e.key === "ArrowUp";
   const horizontal = e.key === "ArrowLeft" || e.key === "ArrowRight";
   if (e.key !== "Enter" && !vertical && !horizontal) return;
+  // Alt+↓ is how a grid cell opens its list — the global contract routes it to
+  // `arrowOpensPicker` (lib/focus.ts) precisely BECAUSE plain ↑/↓ belong to this
+  // handler. Claiming it here swallowed it: on any row but the last, Alt+↓ moved
+  // down a row and the picker never opened. Alt belongs to the layer above.
+  if (e.altKey) return;
   const el = e.target;
   if (!(el instanceof HTMLElement)) return;
   // Text-like inputs and picker triggers navigate; native selects and textareas
@@ -73,8 +77,24 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
   const isTrigger = el.matches("[data-field-trigger]");
   if (!isTrigger) {
     if (!(el instanceof HTMLInputElement)) return;
-    if (/^(button|submit|reset|checkbox|radio)$/.test(el.type)) return;
+    // Radios keep their native arrow semantics (↑/↓ move within the group).
+    if (/^(button|submit|reset|radio)$/.test(el.type)) return;
+    // A checkbox navigates like any other cell (see ROW_FIELDS) — but Enter on
+    // it is not ours. It belongs to `enterSaves` (lib/focus.ts), which ticks it.
+    // Declined WITHOUT preventDefault, so the provider still gets the key.
+    if (el.type === "checkbox" && e.key === "Enter") return;
   }
+  // ↓ ON A PICKER CELL OPENS ITS LIST, exactly as it does on a form. Standing
+  // down WITHOUT preventDefault is what hands the key to `arrowOpensPicker`
+  // (lib/focus.ts) — the provider bails on `defaultPrevented`, so claiming it
+  // here would swallow the opener.
+  //
+  // Nothing is lost: from this cell ↑ still goes up a row and Enter still goes
+  // down one, which is the Excel key for it anyway. And it removes a split that
+  // was already visible inside a single row — a Combobox cell opens on ↓ (it
+  // consumes the key itself, so this handler never sees it) while the picker
+  // beside it moved a row instead (client 2026-07-28).
+  if (isTrigger && e.key === "ArrowDown") return;
   // Same rule the Sheet's Enter-advance follows: don't COMMIT out of a field
   // that is currently invalid. gridKeyNav stopPropagations, so without this the
   // validation gate was bypassed inside every grid.
@@ -139,28 +159,47 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
     return true;
   };
 
+  // Consume the key only once the destination actually took focus. A row with no
+  // fields at all — this grid's collapsed accordion rows, where everything but
+  // the summary is unmounted — used to swallow the key and land nowhere, which
+  // was merely odd while Enter meant "advance" and is a dead Save key now that
+  // Enter COMMITS the record (lib/focus.ts enterSaves). Declining lets the
+  // provider have it. `focusColIn` already clamps for merely ragged rows, so
+  // this only fires when the destination is genuinely empty.
   if (e.key === "ArrowUp") {
-    if (idx > 0) {
+    if (idx > 0 && focusColIn(rows[idx - 1])) {
       e.preventDefault();
       e.stopPropagation();
-      focusColIn(rows[idx - 1]);
     }
     return;
   }
   // Enter or ArrowDown
   if (idx < rows.length - 1) {
+    if (!focusColIn(rows[idx + 1])) return;
     e.preventDefault();
     e.stopPropagation();
-    focusColIn(rows[idx + 1]);
   } else if (e.key === "Enter") {
     // Last row + Enter → add a new row and land in the same column.
     //
-    // Only from a typed field. From a picker trigger this looped: the new row's
-    // trigger is again the last row, so a second Enter added another row, and
-    // on a picker-ONLY grid (customer Agents / Category / Vendor) Enter had no
-    // other meaning — holding it wrote a run of blank child records to the
-    // server. Enter on a last-row picker is a no-op; Space still opens it.
-    if (isTrigger) return;
+    // From an EMPTY picker trigger this looped: the new row's trigger is again
+    // the last row, so a second Enter added another row, and on a picker-ONLY
+    // grid (customer Agents / Category / Vendor) Enter had no other meaning —
+    // holding it wrote a run of blank child records to the server.
+    //
+    // Refined to only the empty case (client 2026-07-28): a grid whose first
+    // cell is a picker — Material Attributes — could never be extended from the
+    // keyboard at all, since the guard fired before the row was ever filled in.
+    // A picker that HAS a value is a finished row, so Enter behaves there as it
+    // does on a typed field.
+    //
+    // Opt-IN, hence `!== "false"` rather than a bare `hasAttribute`: a picker
+    // states its emptiness through `data-field-empty="true|false"`, and only the
+    // two shared pickers (lookup-picker.tsx, lookup-dialog-picker.tsx) do. The
+    // dozen-odd bespoke triggers (customer / vendor / bank / country …) declare
+    // nothing and keep the old no-op — reading their silence as "filled" would
+    // hand the runaway-blank-row bug straight back to the grids it came from.
+    // Space still opens the picker either way.
+    if (isTrigger && el.getAttribute("data-field-empty") !== "false") return;
     e.preventDefault();
     e.stopPropagation();
     addRow();
@@ -204,6 +243,7 @@ export function ChildGrid<T extends { key: string }>({
   keyboardNav = true,
   hideAdd = false,
   inlineCards = false,
+  listRows = false,
   startIndex = 0,
 }: {
   label: ReactNode;
@@ -236,6 +276,22 @@ export function ChildGrid<T extends { key: string }>({
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
   inlineCards?: boolean;
+  /**
+   * Cards mode, but the rows are flat list items divided by a rule instead of
+   * boxes, and `renderMobileRow` owns the whole row INCLUDING its header — no
+   * `#N` / remove band above it.
+   *
+   * For rows that already draw their own summary line (the Material Attribute
+   * accordion). Boxing those produced a card inside a card: the outer grid's
+   * border, then the row's border 12px further in, then the row's own padding
+   * again — 22px of chrome before a field, against 8px for a `DetailSection`
+   * beside it, so no two form controls on the page shared a left edge. It also
+   * cost two stacked header bands saying the same thing, one of them ~40px tall
+   * for nothing but an index and a delete icon.
+   *
+   * The row still carries `data-grid-row`, so keyboard nav is unaffected.
+   */
+  listRows?: boolean;
   /** Offset for the displayed "#" numbers — set to the page offset when the
    *  caller paginates `rows`, so numbering stays global (11, 12… on page 2)
    *  instead of restarting at 1 each page. Defaults to 0. */
@@ -279,7 +335,16 @@ export function ChildGrid<T extends { key: string }>({
       ? "cards"
       : "responsive";
   return (
-    <div className={cn("@container space-y-3", !frameless && "rounded-lg border border-border p-3")}>
+    // Padding and rhythm are `DetailSection`'s, not this grid's own — they were
+    // `p-3` / `space-y-3` against the section's `p-2.5 @2xl/editor:p-2`, so a
+    // grid's label and fields sat 4px right of the section's above it and
+    // nothing down the page shared a left edge.
+    <div
+      className={cn(
+        "@container space-y-2 @2xl/editor:space-y-1.5",
+        !frameless && "rounded-lg border border-border p-2.5 @2xl/editor:p-2",
+      )}
+    >
       <div className="flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
         {badge}
@@ -414,19 +479,33 @@ export function ChildGrid<T extends { key: string }>({
           keys dead. */
       <div
         data-grid-body
-        className={cn("space-y-2", mode === "responsive" && "@lg:hidden")}
+        className={cn(
+          listRows ? "divide-y divide-border" : "space-y-2",
+          mode === "responsive" && "@lg:hidden",
+        )}
         onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
       >
         {view.map((row, localI) => {
           const i = offset + localI;
           return (
-          <div key={row.key} data-grid-row className="space-y-2 rounded-lg border border-border p-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
-              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
-                <X className="h-4 w-4 shrink-0" />
-              </Button>
-            </div>
+          <div
+            key={row.key}
+            data-grid-row
+            className={cn(
+              "space-y-2",
+              // `py-2` only — no horizontal padding, so a flat row's fields keep
+              // the grid's own left edge and line up with the sections above it.
+              listRows ? "py-2 first:pt-0 last:pb-0" : "rounded-lg border border-border p-2.5",
+            )}
+          >
+            {!listRows && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
+                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+                  <X className="h-4 w-4 shrink-0" />
+                </Button>
+              </div>
+            )}
             {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => <div key={ci}>{c.cell(row, i)}</div>)}
           </div>
           );

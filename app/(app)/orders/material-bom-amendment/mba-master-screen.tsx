@@ -14,6 +14,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -187,6 +188,17 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
     setTab("items");
     setMode("edit");
   }
+
+  // Ctrl/⌘+S and Enter both save through here. This screen is neither a Sheet
+  // nor a MasterFullScreen, so it inherits neither; and `submitSurface` cannot
+  // reach its Save button by DOM, so registering is what makes Enter save.
+  useRegisterShortcut(
+    "save",
+    () => {
+      if (canSave && !isPending) submit(false);
+    },
+    mode === "edit",
+  );
 
   function submit(asDraft: boolean) {
     const payload = {
