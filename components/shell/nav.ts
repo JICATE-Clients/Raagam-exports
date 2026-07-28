@@ -106,6 +106,7 @@ export const NAV: NavItem[] = [
       { href: "/stores/process-receipts", label: "Process Receipts" },
       { href: "/stores/transfers", label: "Transfers" },
       { href: "/stores/adjustments", label: "Adjustments" },
+      { href: "/stores/interdept", label: "Inter-dept Delivery" },
     ],
   },
   {
