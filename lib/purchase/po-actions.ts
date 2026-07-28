@@ -8,6 +8,7 @@ import {
   vendorInput,
   rfqInput,
   rfqQuoteInput,
+  rfqQuoteLineInput,
   purchaseOrderInput,
   poLineInput,
   poItemGroupInput,
@@ -21,6 +22,7 @@ import type {
   VendorInput,
   RfqInput,
   RfqQuoteInput,
+  RfqQuoteLineInput,
   PurchaseOrderInput,
   PoLineInput,
   PoItemGroupInput,
@@ -205,6 +207,54 @@ export async function selectRfqQuote(
   if (rfqErr) return { ok: false, error: rfqErr.message };
 
   revalidatePurchase(`/purchase/rfq/${rfqId}`, "/purchase/rfq");
+  return { ok: true };
+}
+
+// ---------- RFQ quote lines ----------
+
+export async function saveRfqQuoteLines(
+  quoteId: string,
+  rfqId: string,
+  lines: RfqQuoteLineInput[],
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+
+  // delete existing then re-insert
+  const { error: delErr } = await supabase
+    .from("rfq_quote_lines")
+    .delete()
+    .eq("rfq_quote_id", quoteId);
+  if (delErr) return { ok: false, error: delErr.message };
+
+  if (lines.length > 0) {
+    const valid = lines
+      .map((l) => {
+        const r = rfqQuoteLineInput.safeParse({
+          ...l,
+          rfq_quote_id: quoteId,
+        });
+        return r.success ? r.data : null;
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+
+    if (valid.length > 0) {
+      const { error: insErr } = await supabase
+        .from("rfq_quote_lines")
+        .insert(valid);
+      if (insErr) return { ok: false, error: insErr.message };
+    }
+
+    // recalc quote total
+    const total = valid.reduce((sum, l) => sum + (l.amount ?? 0), 0);
+    await supabase
+      .from("rfq_quotes")
+      .update({ total_amount: total })
+      .eq("id", quoteId);
+  }
+
+  revalidatePurchase(`/purchase/rfq/${rfqId}`);
   return { ok: true };
 }
 

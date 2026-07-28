@@ -104,6 +104,18 @@ export interface RfqQuote {
   created_at: string;
 }
 
+export interface RfqQuoteLine {
+  id: string;
+  rfq_quote_id: string;
+  rfq_line_id: string;
+  unit_price: number;
+  amount: number;
+  lead_days: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PurchaseOrder {
   id: string;
   code: string | null;
@@ -382,6 +394,16 @@ export const rfqQuoteInput = z.object({
   notes: z.string().optional().nullable(),
 });
 export type RfqQuoteInput = z.infer<typeof rfqQuoteInput>;
+
+export const rfqQuoteLineInput = z.object({
+  rfq_quote_id: z.string().uuid(),
+  rfq_line_id: z.string().uuid(),
+  unit_price: z.coerce.number().nonnegative().default(0),
+  amount: z.coerce.number().nonnegative().default(0),
+  lead_days: z.coerce.number().int().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+export type RfqQuoteLineInput = z.infer<typeof rfqQuoteLineInput>;
 
 export const poLineInput = z.object({
   item_id: z.string().uuid().optional().nullable(),

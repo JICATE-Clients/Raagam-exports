@@ -5,6 +5,7 @@ import type {
   Rfq,
   RfqLine,
   RfqQuote,
+  RfqQuoteLine,
   PurchaseOrder,
   PoLineItem,
   PoItemGroup,
@@ -126,6 +127,95 @@ export async function getRfq(id: string): Promise<RfqWithDetails | null> {
     lines: (lines ?? []) as RfqLine[],
     quotes: mappedQuotes,
   };
+}
+
+// ---------- RFQ quote lines (per-line vendor prices) ----------
+
+export async function getRfqQuoteLines(
+  quoteId: string,
+): Promise<RfqQuoteLine[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("rfq_quote_lines")
+    .select("*")
+    .eq("rfq_quote_id", quoteId)
+    .order("created_at");
+  return (data ?? []) as RfqQuoteLine[];
+}
+
+export type QuoteComparisonRow = {
+  rfq_line_id: string;
+  description: string;
+  quantity: number;
+  quotes: {
+    quote_id: string;
+    vendor_id: string;
+    vendor_name: string | null;
+    unit_price: number;
+    amount: number;
+    lead_days: number | null;
+  }[];
+};
+
+export async function getRfqComparison(
+  rfqId: string,
+): Promise<QuoteComparisonRow[]> {
+  const supabase = await createClient();
+
+  const [{ data: lines }, { data: quotes }, { data: quoteLines }] =
+    await Promise.all([
+      supabase
+        .from("rfq_lines")
+        .select("*")
+        .eq("rfq_id", rfqId)
+        .order("sort_order"),
+      supabase
+        .from("rfq_quotes")
+        .select("id, vendor_id, vendors(name)")
+        .eq("rfq_id", rfqId),
+      supabase
+        .from("rfq_quote_lines")
+        .select("*, rfq_quotes!inner(rfq_id)")
+        .eq("rfq_quotes.rfq_id", rfqId),
+    ]);
+
+  const rfqLines = (lines ?? []) as RfqLine[];
+  const rfqQuotes = (quotes ?? []) as Record<string, unknown>[];
+  const allQuoteLines = (quoteLines ?? []) as Record<string, unknown>[];
+
+  const quoteMap = new Map(
+    rfqQuotes.map((q) => [
+      q.id as string,
+      {
+        vendor_id: q.vendor_id as string,
+        vendor_name: (q.vendors as { name: string } | null)?.name ?? null,
+      },
+    ]),
+  );
+
+  return rfqLines.map((line) => {
+    const lineQuotes = allQuoteLines
+      .filter((ql) => (ql as { rfq_line_id: string }).rfq_line_id === line.id)
+      .map((ql) => {
+        const quoteId = (ql as { rfq_quote_id: string }).rfq_quote_id;
+        const vendor = quoteMap.get(quoteId);
+        return {
+          quote_id: quoteId,
+          vendor_id: vendor?.vendor_id ?? "",
+          vendor_name: vendor?.vendor_name ?? null,
+          unit_price: (ql as { unit_price: number }).unit_price ?? 0,
+          amount: (ql as { amount: number }).amount ?? 0,
+          lead_days: (ql as { lead_days: number | null }).lead_days ?? null,
+        };
+      });
+
+    return {
+      rfq_line_id: line.id,
+      description: line.description,
+      quantity: line.quantity,
+      quotes: lineQuotes,
+    };
+  });
 }
 
 // ---------- purchase orders ----------
