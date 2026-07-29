@@ -10,7 +10,7 @@ export type PcWithVendor = PriceConfirmation & { vendor_name: string | null };
 export async function listPriceConfirmations(): Promise<PcWithVendor[]> {
   const supabase = await createClient();
   const { data } = await supabase
-    .from("price_confirmations")
+    .from("purchase_price_confirmations")
     .select("*, vendors(name)")
     .order("created_at", { ascending: false });
 
@@ -31,14 +31,14 @@ export async function getPriceConfirmation(
   const supabase = await createClient();
 
   const { data: pc } = await supabase
-    .from("price_confirmations")
+    .from("purchase_price_confirmations")
     .select("*, vendors(name)")
     .eq("id", id)
     .maybeSingle();
   if (!pc) return null;
 
   const { data: items } = await supabase
-    .from("price_confirmation_items")
+    .from("purchase_price_confirmation_items")
     .select("*")
     .eq("price_confirmation_id", id)
     .order("sort_order");

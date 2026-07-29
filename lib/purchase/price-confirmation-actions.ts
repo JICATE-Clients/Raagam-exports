@@ -35,7 +35,7 @@ export async function createPriceConfirmation(
   const supabase = await createClient();
 
   const { data: pc, error } = await supabase
-    .from("price_confirmations")
+    .from("purchase_price_confirmations")
     .insert({ ...parsed.data, status: "draft", created_by: user?.id ?? null })
     .select("id")
     .single();
@@ -57,7 +57,7 @@ export async function addPriceConfirmationItem(
 
   const supabase = await createClient();
   const { error } = await supabase
-    .from("price_confirmation_items")
+    .from("purchase_price_confirmation_items")
     .insert(parsed.data);
   if (error) return { ok: false, error: error.message };
 
@@ -73,7 +73,7 @@ export async function deletePriceConfirmationItem(
 
   const supabase = await createClient();
   const { error } = await supabase
-    .from("price_confirmation_items")
+    .from("purchase_price_confirmation_items")
     .delete()
     .eq("id", itemId);
   if (error) return { ok: false, error: error.message };
@@ -89,7 +89,7 @@ export async function submitPriceConfirmation(
 
   const supabase = await createClient();
   const { error } = await supabase
-    .from("price_confirmations")
+    .from("purchase_price_confirmations")
     .update({ status: "submitted" })
     .eq("id", id)
     .eq("status", "draft");
@@ -108,7 +108,7 @@ export async function approvePriceConfirmation(
   const supabase = await createClient();
 
   const { error } = await supabase
-    .from("price_confirmations")
+    .from("purchase_price_confirmations")
     .update({
       status: "approved",
       approved_by: user?.id ?? null,
@@ -135,7 +135,7 @@ export async function rejectPriceConfirmation(
 
   const supabase = await createClient();
   const { error } = await supabase
-    .from("price_confirmations")
+    .from("purchase_price_confirmations")
     .update({ status: "rejected" })
     .eq("id", id)
     .eq("status", "submitted");

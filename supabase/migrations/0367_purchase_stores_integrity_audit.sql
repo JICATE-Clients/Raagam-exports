@@ -55,7 +55,7 @@ create index if not exists idx_pmi_store on public.process_material_issues(store
 -- ---------- Fix 9: process_material_receipts missing store_id index ----------
 create index if not exists idx_pmr_store on public.process_material_receipts(store_id);
 
--- ---------- Fix 10: price_confirmations add location_id ----------
-alter table public.price_confirmations
+-- ---------- Fix 10: purchase_price_confirmations add location_id ----------
+alter table public.purchase_price_confirmations
   add column if not exists location_id uuid references public.locations(id);
-create index if not exists idx_pc_location on public.price_confirmations(location_id);
+create index if not exists idx_ppc_location on public.purchase_price_confirmations(location_id);

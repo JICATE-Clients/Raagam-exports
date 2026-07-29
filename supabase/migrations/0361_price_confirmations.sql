@@ -4,9 +4,9 @@
 -- Applicability: T (this order), E (effective upto date), U (until further notice)
 -- ============================================================================
 
-create sequence if not exists public.seq_price_confirmation;
+create sequence if not exists public.seq_purchase_price_confirmation;
 
-create table if not exists public.price_confirmations (
+create table if not exists public.purchase_price_confirmations (
   id              uuid primary key default gen_random_uuid(),
   code            text unique,
   vendor_id       uuid not null references public.vendors(id),
@@ -23,16 +23,16 @@ create table if not exists public.price_confirmations (
   updated_at      timestamptz not null default now()
 );
 
-create trigger trg_pc_code before insert on public.price_confirmations
-  for each row execute function public.assign_code('PC','public.seq_price_confirmation');
-create trigger trg_pc_updated before update on public.price_confirmations
+create trigger trg_ppc_code before insert on public.purchase_price_confirmations
+  for each row execute function public.assign_code('PPC','public.seq_purchase_price_confirmation');
+create trigger trg_ppc_updated before update on public.purchase_price_confirmations
   for each row execute function public.set_updated_at();
-create index if not exists idx_pc_vendor on public.price_confirmations(vendor_id);
-create index if not exists idx_pc_status on public.price_confirmations(status);
+create index if not exists idx_ppc_vendor on public.purchase_price_confirmations(vendor_id);
+create index if not exists idx_ppc_status on public.purchase_price_confirmations(status);
 
-create table if not exists public.price_confirmation_items (
+create table if not exists public.purchase_price_confirmation_items (
   id                    uuid primary key default gen_random_uuid(),
-  price_confirmation_id uuid not null references public.price_confirmations(id) on delete cascade,
+  price_confirmation_id uuid not null references public.purchase_price_confirmations(id) on delete cascade,
   item_id               uuid references public.items(id),
   item_class            text,
   category              text,
@@ -49,15 +49,15 @@ create table if not exists public.price_confirmation_items (
   updated_at            timestamptz not null default now()
 );
 
-create index if not exists idx_pci_pc on public.price_confirmation_items(price_confirmation_id);
-create trigger trg_pci_updated before update on public.price_confirmation_items
+create index if not exists idx_ppci_pc on public.purchase_price_confirmation_items(price_confirmation_id);
+create trigger trg_ppci_updated before update on public.purchase_price_confirmation_items
   for each row execute function public.set_updated_at();
 
 -- RLS
 do $$
 declare t text;
 begin
-  foreach t in array array['price_confirmations','price_confirmation_items'] loop
+  foreach t in array array['purchase_price_confirmations','purchase_price_confirmation_items'] loop
     execute format('alter table public.%I enable row level security;', t);
     execute format($f$
       create policy %1$s_read on public.%1$s
