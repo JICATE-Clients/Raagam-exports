@@ -237,7 +237,11 @@ export function DestinationMasterScreen({
           </>
         }
       >
-        {/* Two fields plus a flag — one flat section (LAYOUT.md §4). */}
+        {/* Two fields plus a flag — one flat section (LAYOUT.md §4), all on one
+            row: name 6 + country 3 + inactive 2 = 11. Too small a form for
+            four-per-row to mean anything, so each field is sized to its data
+            instead (client 2026-07-29). The flag was `full`, which put a single
+            tick on a 12-col row of its own. */}
         <DetailSection label="Details" cols={12}>
           <Field label="Name" size="lg" required htmlFor="de-name">
             <Input
@@ -249,7 +253,7 @@ export function DestinationMasterScreen({
             {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
           </Field>
           {/* CountryPicker renders its own label — see the note on port. */}
-          <Field size="md">
+          <Field size="sm">
             <CountryPicker
               countries={countries}
               value={form.country_id || null}
@@ -259,7 +263,7 @@ export function DestinationMasterScreen({
             />
           </Field>
           {editId && (
-            <Field size="full">
+            <Field size="xs">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

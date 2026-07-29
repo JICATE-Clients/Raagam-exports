@@ -239,7 +239,11 @@ export function MerchandisingTeamMasterScreen({
           </>
         }
       >
-        {/* Two fields — one flat section (LAYOUT.md §4). */}
+        {/* Two fields plus a flag — one flat section (LAYOUT.md §4), all on one
+            row: name 6 + location 3 + inactive 2 = 11. It was 6 + 4 + 4 = 14,
+            which does not shrink — the Inactive tick wrapped onto a 12-col line
+            of its own. Three fields is too small a form for four-per-row to be
+            a goal; sizing each to its data is the point (client 2026-07-29). */}
         <DetailSection label="Details" cols={12}>
           <Field label="Name" size="lg" required htmlFor="mt-name">
             <Input
@@ -253,7 +257,7 @@ export function MerchandisingTeamMasterScreen({
           {/* LocationPicker renders its own <Label> (defaulting to "Location"),
               so the screen's outer one was a duplicate — it rendered two labels
               stacked above a single control. Dropped, not moved. */}
-          <Field size="md">
+          <Field size="sm">
             <LocationPicker
               locations={locations}
               value={form.location_id || null}
@@ -261,7 +265,7 @@ export function MerchandisingTeamMasterScreen({
             />
           </Field>
           {editId && (
-            <Field size="md">
+            <Field size="xs">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

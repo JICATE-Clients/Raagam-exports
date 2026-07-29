@@ -1020,7 +1020,8 @@ export function ConsigneeMasterScreen({
               <FieldGrid>
                 <Field label="Currency 1" size={FIELD_SIZE.currency}>
                   <CurrencyPicker
-                    label=""
+                    label="Currency"
+                    compact
                     currencies={currencies}
                     value={form.currency_1 || null}
                     onChange={(code) => set({ currency_1: code })}
@@ -1030,7 +1031,8 @@ export function ConsigneeMasterScreen({
                 </Field>
                 <Field label="Currency 2" size={FIELD_SIZE.currency}>
                   <CurrencyPicker
-                    label=""
+                    label="Currency"
+                    compact
                     currencies={currencies}
                     value={form.currency_2 || null}
                     onChange={(code) => set({ currency_2: code })}
@@ -1040,7 +1042,8 @@ export function ConsigneeMasterScreen({
                 </Field>
                 <Field label="Currency 3" size={FIELD_SIZE.currency}>
                   <CurrencyPicker
-                    label=""
+                    label="Currency"
+                    compact
                     currencies={currencies}
                     value={form.currency_3 || null}
                     onChange={(code) => set({ currency_3: code })}
@@ -1062,13 +1065,24 @@ export function ConsigneeMasterScreen({
                     ))}
                   </Select>
                 </Field>
-                {/* `label=""` on every picker below: they print their own <Label>
-                    otherwise, and the one from <Field> is the one that carries
-                    htmlFor and lines its required marker up with the row. */}
+                {/* `compact` — NOT `label=""` — on every picker below. Both hide
+                    the picker's own <Label> so only <Field>'s remains (that is
+                    the one carrying htmlFor and aligning the required marker),
+                    but they are not interchangeable:
+                      - `compact` suppresses the <Label> element entirely.
+                      - `label=""` leaves the element rendering EMPTY, and an
+                        empty <Label> still contributes its line-height, so the
+                        control drops a row below its neighbours
+                        (see lookup-picker.tsx:247).
+                    And `label` is read for much more than the visible label —
+                    the trigger placeholder ("— Select Ship Type —"), the
+                    aria-label, the dialog title, the Add/Modify toasts and the
+                    empty-state text. Blanking it degrades all five. Keep the
+                    real text and pass `compact`. */}
                 <Field label="Ship Type" size={FIELD_SIZE.ship_type_id}>
                   <LookupDialogPicker
                     kind="ship_type"
-                    label=""
+                    label="Ship Type"
                     options={shipTypes}
                     value={form.ship_type_id || null}
                     onChange={(id) => set({ ship_type_id: id })}
@@ -1098,7 +1112,7 @@ export function ConsigneeMasterScreen({
                 <Field label="Payment Terms" size={FIELD_SIZE.payment_term_id}>
                   <LookupDialogPicker
                     kind="payment_term"
-                    label=""
+                    label="Payment Term"
                     options={paymentTerms}
                     value={form.payment_term_id || null}
                     onChange={(id) => set({ payment_term_id: id })}

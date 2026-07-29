@@ -115,15 +115,33 @@ adopter across 92 screens — nobody could migrate without silently shredding th
 
 `<Field size>` inside `<DetailSection cols={12}>`. Size to the **data**, not the cell.
 
-| Size | Span | Use |
-|---|---|---|
-| `xs` | 2 | 2-4 chars — %, qty, a small count |
-| `sm` | 3 | short codes — HSN, count, shade |
-| `md` | 4 | **default** — most pickers and lookups |
-| `lg` | 6 | long free text — names, addresses |
-| `full` | 12 | stands alone — child grids, textareas |
+| Size | Span | Fields/row | Use |
+|---|---|---|---|
+| `xs` | 2 | 6 | 2-4 chars — %, qty, a code, Yes/No |
+| `sm` | 3 | **4** | **the working default** — short codes, identifiers, dates, most pickers |
+| `md` | 4 | 3 | a picker whose value visibly truncates at `sm` |
+| `lg` | 6 | 2 | long free text — entity names, addresses, emails, URLs |
+| `full` | 12 | 1 | stands alone — child grids, textareas, fact strips |
 
 A 3-character "Mixing %" must not inherit the same ~490px box as a free-text Name.
+
+**Aim for four fields per row (client 2026-07-29).** `md` is the component's default
+only because a span has to be *some* number when the caller omits one; it is **not** the
+size to reach for. Three-per-row across a 20-field master is a screen the operator scrolls
+instead of reads, and most values — a PAN, a GSTIN, a date, a phone number, a picked city —
+sit comfortably in `sm`.
+
+So: **start at `sm`, and move only when the data makes you.** Down to `xs` for a currency
+code or a Yes/No; up to `lg` for a company name or an address line. `md` is a deliberate
+choice about one picker, not a default you inherit by omitting the prop.
+
+Reference: `components/masters/bank-master-screen.tsx` — 15 of its 17 fields are `sm`,
+so every row is flush at four.
+
+**Rows must still sum to 12.** A row totalling 13+ does not shrink; the last field wraps
+onto a line of its own with the rest of that line left empty. Write the arithmetic into
+the `FIELD_SIZE` map's header comment (see `material-master-screen.tsx`) — that comment is
+what stops the next edit overflowing a row, because nothing in the build can catch it.
 
 ---
 

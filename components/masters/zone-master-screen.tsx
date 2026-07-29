@@ -217,7 +217,6 @@ export function ZoneMasterScreen({
                 setFilter("status", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               <option value="active">Active</option>
@@ -313,6 +312,13 @@ export function ZoneMasterScreen({
             sections — see LAYOUT.md §1. */}
         <SectionGrid>
           <SectionColumn>
+            {/* TWO fields, in a section that is half a sheet wide (~560px, so
+                one column is ~34px). Four per row is not a goal a two-field
+                form can carry, and forcing both to `sm` would only make a short
+                form look cramped — the name would get 126px. So: name 6 +
+                inactive 3 = 9 on one row, each sized to its data, and the
+                density on this screen comes from the Areas grid beside it
+                (client 2026-07-29). */}
             <DetailSection label="Details" cols={12}>
               <Field label="Zone Name" size="lg" required htmlFor="zn-name">
                 <Input
@@ -325,7 +331,7 @@ export function ZoneMasterScreen({
                 {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
               </Field>
               {editId && (
-                <Field size="md">
+                <Field size="sm">
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"

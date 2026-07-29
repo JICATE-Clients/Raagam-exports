@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { ValidatedInput } from "@/components/ui/validated-input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { DetailSection } from "@/components/masters/detail-section";
+import { SectionGrid } from "@/components/masters/section-grid";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
@@ -54,6 +55,70 @@ const CATEGORY_FLAGS = [
   { key: "is_sub_contractor", label: "Is Sub Contractor" },
 ] as const;
 type CategoryKey = (typeof CATEGORY_FLAGS)[number]["key"];
+
+/**
+ * How wide each field is on the 12-column track (LAYOUT.md §3).
+ *
+ * `sm` (3 of 12 — four per row) is the working default; a field leaves it only
+ * when its DATA says so. Nearly everything this screen holds is a fixed-width
+ * identifier — a 15-character GSTIN, a 10-character PAN, an 11-character IFSC,
+ * a 6-digit PIN — and those sat two to a row in a hand-rolled `sm:grid-cols-2`
+ * until now (client 2026-07-29: four fields per row).
+ *
+ * THE SPANS OF ONE ROW MUST SUM TO 12 — a row past 12 does not shrink, its last
+ * field wraps onto a line of its own with the rest of that line left empty, and
+ * nothing in the build catches it. Per-row arithmetic is written above each
+ * block below; this map is the single place the numbers live.
+ *
+ * A `<Field>` with no size takes `md` by default. That default is why this
+ * screen was `md`-dominant, so every entry below is deliberate, including the
+ * ones that agree with it.
+ */
+const FIELD_SIZE = {
+  // ---- Identity ----
+  name: "lg", // 6 — "SREE LAKSHMI TEXTILE PROCESSORS PVT LTD"
+  vendor_type: "sm", // 3 — With in State · Other State · Foreign Vendor
+  status: "sm", // 3 — longest is "Under Evaluation"
+  country_id: "sm", // 3 — a picked country name
+  group_id: "sm", // 3 — a picked vendor group
+  inactive: "sm", // 3 — a tick box, room for its own caption
+  category_flag: "sm", // 3 — ×4 = one flush row of the Category checkboxes
+  // ---- Registration ----
+  tin_no: "sm", // 3 — 11 digits
+  pan_no: "sm", // 3 — exactly 10 characters
+  reg_caption: "sm", // 3 — a short caption, not a sentence
+  reg_no_dt: "sm", // 3 — a registration number and date
+  web_site: "lg", // 6 — a URL; wraps or truncates at anything narrower
+  // ---- Other Details · Banking ----
+  bank_name: "sm", // 3 — "STATE BANK OF INDIA"
+  branch: "sm", // 3 — "PEELAMEDU"
+  ac_no: "sm", // 3 — a fixed-width identifier
+  ifsc_code: "sm", // 3 — exactly 11 characters
+  ac_type: "sm", // 3 — SB / CA / CC
+  // ---- Other Details · GST + ledger groups ----
+  gst_reg_status: "sm", // 3 — Registered · Unregistered · Composite
+  gst_no: "sm", // 3 — exactly 15 characters
+  debit_group_id: "sm", // 3 — a picked account group
+  credit_group_id: "sm", // 3 — a picked account group
+  gstin_strip: "full", // 12 — a fact strip stands alone (LAYOUT.md §3)
+  // ---- Other Details · Additional ----
+  enterprise_status: "sm", // 3 — MSME / Small / Medium
+  memorandum_no: "sm", // 3 — a reference number
+  inhouse_unit_id: "sm", // 3 — a unit code
+  duty_against: "sm", // 3 — a short code
+  // ---- Address child rows ----
+  address_type: "sm", // 3 — Office · Works · Billing
+  street: "sm", // 3 — a wider Street was declined (client 2026-07-29); the
+  //                    box still scrolls past the ~34 characters it shows
+  city_id: "sm", // 3 — a picked city
+  state_id: "sm", // 3 — a picked state
+  address_country_id: "sm", // 3 — a picked country
+  pin: "sm", // 3 — 6 digits
+  land_line: "sm", // 3 — a phone number
+  mobile: "sm", // 3 — a phone number
+  whatsapp: "sm", // 3 — beside its mobile, same as bank-master-screen
+  email_id: "lg", // 6 — an address like accounts@sreelakshmitextiles.co.in
+} satisfies Record<string, FieldSize>;
 
 // Alternate spellings a hand-typed State master row might carry, keyed by GST
 // state code. Only consulted when the row has no `code` to match on.
@@ -583,157 +648,160 @@ export function VendorMasterScreen({
   // inline in the `sections` prop so the prop stays legible.
   const SECTION_CONTENT: Record<SectionKey, ReactNode> = {
     identity: (
-                  <SectionBody title="Identity" hint="Who this vendor is, their category and registration details.">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      {editId && (
-                        <label className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 cursor-pointer accent-primary"
-                            checked={form.inactive}
-                            onChange={(e) => set({ inactive: e.target.checked })}
-                          />
-                          <span className="text-sm text-foreground">Inactive</span>
-                        </label>
-                      )}
-                      <div className="sm:col-span-2">
-                        <Label htmlFor="ve-name">
-                          Name <span className="text-danger">*</span>
-                        </Label>
-                        <Input
-                          id="ve-name"
-                          uppercase
-                          value={form.name}
-                          onChange={(e) => set({ name: e.target.value })}
-                          required
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-type">Type</Label>
-                        <Select
-                          id="ve-type"
-                          value={form.vendor_type}
-                          onChange={(e) => set({ vendor_type: e.target.value as "" | VendorType })}
-                          className="text-base md:text-sm"
-                        >
-                          <option value="">— Select —</option>
-                          {VENDOR_TYPES.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-status">Status</Label>
-                        <Select
-                          id="ve-status"
-                          value={form.status}
-                          onChange={(e) => set({ status: e.target.value as VendorStatus })}
-                          className="text-base md:text-sm"
-                        >
-                          {VENDOR_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Country</Label>
-                        <CountryPicker
-                          countries={countries}
-                          value={form.country_id || null}
-                          onChange={(id) => set({ country_id: id })}
-                          canCreate={perms.canCreate}
-                          canEdit={perms.canEdit}
-                          compact
-                        />
-                      </div>
-                      <LookupDialogPicker
-                        kind="vendor_group"
-                        label="Group Name"
-                        options={groups}
-                        value={form.group_id || null}
-                        onChange={(id) => set({ group_id: id })}
-                        canCreate={perms.canCreate}
-                        canEdit={perms.canEdit}
-                      />
-                    </div>
+      <SectionBody title="Identity" hint="Who this vendor is, their category and registration details.">
+        {/* The identity band — no card chrome, so `FieldGrid` rather than a
+            `DetailSection`. It replaces a hand-rolled `sm:grid-cols-2`, which
+            gave a three-word Type dropdown the same half-row box as the
+            vendor's name and held every row to two fields.
+              row 1  name 6 + vendor_type 3 + status 3            = 12
+              row 2  country 3 + group 3 [+ inactive 3, edit only]
+            Inactive sits LAST, not first, so row 1 looks the same in New as in
+            Edit (same reasoning as bank-master-screen). */}
+        <FieldGrid className="mb-3">
+          <Field label="Name" size={FIELD_SIZE.name} required htmlFor="ve-name">
+            <Input
+              id="ve-name"
+              uppercase
+              value={form.name}
+              onChange={(e) => set({ name: e.target.value })}
+              required
+            />
+          </Field>
+          <Field label="Type" size={FIELD_SIZE.vendor_type} htmlFor="ve-type">
+            <Select
+              id="ve-type"
+              value={form.vendor_type}
+              onChange={(e) => set({ vendor_type: e.target.value as "" | VendorType })}
+            >
+              <option value="">— Select —</option>
+              {VENDOR_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Status" size={FIELD_SIZE.status} htmlFor="ve-status">
+            <Select
+              id="ve-status"
+              value={form.status}
+              onChange={(e) => set({ status: e.target.value as VendorStatus })}
+            >
+              {VENDOR_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {/* `compact` on the picker, label on the Field — without it the
+              picker draws its own caption and the field reads "Country"
+              twice. */}
+          <Field label="Country" size={FIELD_SIZE.country_id}>
+            <CountryPicker
+              countries={countries}
+              value={form.country_id || null}
+              onChange={(id) => set({ country_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              compact
+            />
+          </Field>
+          {/* This one labels itself, so the Field is an unlabelled cell that
+              exists only to carry the span. */}
+          <Field size={FIELD_SIZE.group_id}>
+            <LookupDialogPicker
+              kind="vendor_group"
+              label="Group Name"
+              options={groups}
+              value={form.group_id || null}
+              onChange={(id) => set({ group_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+            />
+          </Field>
+          {editId && (
+            <Field size={FIELD_SIZE.inactive}>
+              <label className="flex h-8 cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
+            </Field>
+          )}
+        </FieldGrid>
 
-                    {/* Category flags */}
-                    <div className="mt-5">
-                      <Label>Category</Label>
-                      <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {CATEGORY_FLAGS.map((f) => (
-                          <label key={f.key} className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 cursor-pointer accent-primary"
-                              checked={form[f.key as CategoryKey]}
-                              onChange={(e) => set({ [f.key]: e.target.checked } as Partial<HeaderForm>)}
-                            />
-                            <span className="text-sm text-foreground">{f.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
+        {/* Both blocks were hand-rolled cards (a bare `<Label>` over a
+            `sm:grid-cols-2`, and a bordered div with an `<h3>`); they are
+            real groups, so they become real `DetailSection`s and stop
+            inventing their own borders and gaps. `span={2}` keeps each on a
+            row of its own — the four Category captions do not fit in a
+            half-width column. */}
+        <SectionGrid>
+          {/* Four flags, one row: 3+3+3+3 = 12. */}
+          <DetailSection label="Category" cols={12} span={2}>
+            {CATEGORY_FLAGS.map((f) => (
+              <Field key={f.key} size={FIELD_SIZE.category_flag}>
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form[f.key as CategoryKey]}
+                    onChange={(e) => set({ [f.key]: e.target.checked } as Partial<HeaderForm>)}
+                  />
+                  <span className="text-sm text-foreground">{f.label}</span>
+                </label>
+              </Field>
+            ))}
+          </DetailSection>
 
-                    {/* Registration footer */}
-                    <div className="mt-6 rounded-lg border border-border p-3.5">
-                      <h3 className="mb-3 text-[13px] font-bold text-foreground">Registration</h3>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div>
-                          <Label htmlFor="ve-tin">TIN No.</Label>
-                          <Input
-                            id="ve-tin"
-                            value={form.tin_no}
-                            onChange={(e) => set({ tin_no: e.target.value })}
-                            className="text-base md:text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="ve-pan">PAN No</Label>
-                          <ValidatedInput
-                            id="ve-pan"
-                            format="pan"
-                            value={form.pan_no}
-                            onChange={(e) => set({ pan_no: e.target.value })}
-                            className="text-base md:text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="ve-regcap">Reg. Caption</Label>
-                          <Input
-                            id="ve-regcap"
-                            value={form.reg_caption}
-                            onChange={(e) => set({ reg_caption: e.target.value })}
-                            className="text-base md:text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="ve-regno">Reg. No / Dt</Label>
-                          <Input
-                            id="ve-regno"
-                            value={form.reg_no_dt}
-                            onChange={(e) => set({ reg_no_dt: e.target.value })}
-                            className="text-base md:text-sm"
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <Label htmlFor="ve-web">Web site</Label>
-                          <ValidatedInput
-                            id="ve-web"
-                            format="website"
-                            value={form.web_site}
-                            onChange={(e) => set({ web_site: e.target.value })}
-                            className="text-base md:text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </SectionBody>
+          {/* row 1  tin_no 3 + pan_no 3 + reg_caption 3 + reg_no_dt 3 = 12
+              row 2  web_site 6 */}
+          <DetailSection label="Registration" cols={12} span={2}>
+            <Field label="TIN No." size={FIELD_SIZE.tin_no} htmlFor="ve-tin">
+              <Input
+                id="ve-tin"
+                value={form.tin_no}
+                onChange={(e) => set({ tin_no: e.target.value })}
+              />
+            </Field>
+            <Field label="PAN No" size={FIELD_SIZE.pan_no} htmlFor="ve-pan">
+              <ValidatedInput
+                id="ve-pan"
+                format="pan"
+                value={form.pan_no}
+                onChange={(e) => set({ pan_no: e.target.value })}
+              />
+            </Field>
+            <Field label="Reg. Caption" size={FIELD_SIZE.reg_caption} htmlFor="ve-regcap">
+              <Input
+                id="ve-regcap"
+                value={form.reg_caption}
+                onChange={(e) => set({ reg_caption: e.target.value })}
+              />
+            </Field>
+            <Field label="Reg. No / Dt" size={FIELD_SIZE.reg_no_dt} htmlFor="ve-regno">
+              <Input
+                id="ve-regno"
+                value={form.reg_no_dt}
+                onChange={(e) => set({ reg_no_dt: e.target.value })}
+              />
+            </Field>
+            <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="ve-web">
+              <ValidatedInput
+                id="ve-web"
+                format="website"
+                value={form.web_site}
+                onChange={(e) => set({ web_site: e.target.value })}
+              />
+            </Field>
+          </DetailSection>
+        </SectionGrid>
+      </SectionBody>
     ),
     address: (
       <SectionBody title="Address" hint="One or more addresses for this vendor.">
@@ -760,21 +828,24 @@ export function VendorMasterScreen({
             { header: "Street", cell: (a) => a.street },
           ]}
           renderMobileRow={(a) => (
+            /* row 1  address_type 3 + street 3 + city 3 + state 3   = 12
+               row 2  country 3 + pin 3 + land_line 3 + mobile 3     = 12
+               row 3  whatsapp 3 + email_id 6                        =  9 */
             <FieldGrid>
-              <Field label="Address Type" size="md">
+              <Field label="Address Type" size={FIELD_SIZE.address_type}>
                 <Input
                   value={a.address_type}
                   onChange={(e) => setAddressAt(a.key, { address_type: e.target.value })}
                 />
               </Field>
-              <Field label="Street" size="lg">
+              <Field label="Street" size={FIELD_SIZE.street}>
                 <Input
                   value={a.street}
                   onChange={(e) => setAddressAt(a.key, { street: e.target.value })}
                 />
               </Field>
               {/* The three pickers render their own labels. */}
-              <Field size="md">
+              <Field size={FIELD_SIZE.city_id}>
                 <LookupDialogPicker
                   kind="city"
                   label="City"
@@ -785,7 +856,7 @@ export function VendorMasterScreen({
                   canEdit={perms.canEdit}
                 />
               </Field>
-              <Field size="md">
+              <Field size={FIELD_SIZE.state_id}>
                 <LookupDialogPicker
                   kind="state"
                   label="State"
@@ -794,7 +865,7 @@ export function VendorMasterScreen({
                   onChange={(id) => setAddressAt(a.key, { state_id: id })}
                 />
               </Field>
-              <Field size="md">
+              <Field size={FIELD_SIZE.address_country_id}>
                 <CountryPicker
                   countries={countries}
                   value={a.country_id || null}
@@ -803,28 +874,30 @@ export function VendorMasterScreen({
                   canEdit={perms.canEdit}
                 />
               </Field>
-              <Field label="Pin" size="sm">
+              <Field label="Pin" size={FIELD_SIZE.pin}>
                 <ValidatedInput
                   format="pincode"
                   value={a.pin}
                   onChange={(e) => setAddressAt(a.key, { pin: e.target.value })}
                 />
               </Field>
-              <Field label="Land Line" size="md">
+              <Field label="Land Line" size={FIELD_SIZE.land_line}>
                 <Input
                   value={a.land_line}
                   onChange={(e) => setAddressAt(a.key, { land_line: e.target.value })}
                 />
               </Field>
-              <Field size="md">
+              <Field size={FIELD_SIZE.mobile}>
                 <MobileField
                   id={`ve-${a.key}-mobile`}
                   value={a.mobile}
                   onChange={(v) => setAddressAt(a.key, { mobile: v })}
                 />
               </Field>
-              {/* Full width: the "Same as mobile" tick needs a line of its own. */}
-              <Field size="full">
+              {/* The "Same as mobile" tick makes this cell ~18px taller than
+                  the one beside it and the row grows to match — that is the
+                  grid stretching, not a reason to give it a whole line. */}
+              <Field size={FIELD_SIZE.whatsapp}>
                 <WhatsAppField
                   id={`ve-${a.key}-whatsapp`}
                   value={a.whatsapp}
@@ -833,7 +906,7 @@ export function VendorMasterScreen({
                   onChange={(v) => setAddressAt(a.key, { whatsapp: v })}
                 />
               </Field>
-              <Field label="Email ID" size="lg">
+              <Field label="Email ID" size={FIELD_SIZE.email_id}>
                 <ValidatedInput
                   format="email"
                   value={a.email_id}
@@ -846,157 +919,156 @@ export function VendorMasterScreen({
       </SectionBody>
     ),
     other: (
-                  <SectionBody title="Other Details" hint="Banking, GST and ledger-group defaults for this vendor.">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div>
-                        <Label htmlFor="ve-bank">Bank Name</Label>
-                        <Input
-                          id="ve-bank"
-                          value={form.bank_name}
-                          onChange={(e) => set({ bank_name: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-branch">Branch</Label>
-                        <Input
-                          id="ve-branch"
-                          value={form.branch}
-                          onChange={(e) => set({ branch: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-acno">A/c No</Label>
-                        <ValidatedInput
-                          id="ve-acno"
-                          format="account"
-                          value={form.ac_no}
-                          onChange={(e) => set({ ac_no: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-ifsc">IFSC Code</Label>
-                        <ValidatedInput
-                          id="ve-ifsc"
-                          format="ifsc"
-                          value={form.ifsc_code}
-                          onChange={(e) => set({ ifsc_code: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-actype">A/c Type</Label>
-                        <Input
-                          id="ve-actype"
-                          value={form.ac_type}
-                          onChange={(e) => set({ ac_type: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div className="hidden sm:block" />
+      <SectionBody title="Other Details" hint="Banking, GST and ledger-group defaults for this vendor.">
+        {/* Thirteen fields, so titled sections rather than one flat list
+            (LAYOUT.md §4) — the two headings this used to draw by hand (a
+            bare `<h3>` over a `border-t`) were saying the same thing without
+            the structure. Each takes the full row (`span={2}`): a bank name
+            beside a GSTIN in a half-width column is back to three fields a
+            row, which is what this pass exists to fix. */}
+        <SectionGrid>
+          {/* row 1  bank_name 3 + branch 3 + ac_no 3 + ifsc_code 3 = 12
+              row 2  ac_type 3 — the fifth of five, nothing to pair it with. */}
+          <DetailSection label="Banking" cols={12} span={2}>
+            <Field label="Bank Name" size={FIELD_SIZE.bank_name} htmlFor="ve-bank">
+              <Input
+                id="ve-bank"
+                value={form.bank_name}
+                onChange={(e) => set({ bank_name: e.target.value })}
+              />
+            </Field>
+            <Field label="Branch" size={FIELD_SIZE.branch} htmlFor="ve-branch">
+              <Input
+                id="ve-branch"
+                value={form.branch}
+                onChange={(e) => set({ branch: e.target.value })}
+              />
+            </Field>
+            <Field label="A/c No" size={FIELD_SIZE.ac_no} htmlFor="ve-acno">
+              <ValidatedInput
+                id="ve-acno"
+                format="account"
+                value={form.ac_no}
+                onChange={(e) => set({ ac_no: e.target.value })}
+              />
+            </Field>
+            <Field label="IFSC Code" size={FIELD_SIZE.ifsc_code} htmlFor="ve-ifsc">
+              <ValidatedInput
+                id="ve-ifsc"
+                format="ifsc"
+                value={form.ifsc_code}
+                onChange={(e) => set({ ifsc_code: e.target.value })}
+              />
+            </Field>
+            <Field label="A/c Type" size={FIELD_SIZE.ac_type} htmlFor="ve-actype">
+              <Input
+                id="ve-actype"
+                value={form.ac_type}
+                onChange={(e) => set({ ac_type: e.target.value })}
+              />
+            </Field>
+          </DetailSection>
 
-                      <div>
-                        <Label htmlFor="ve-gststatus">GST No</Label>
-                        <Select
-                          id="ve-gststatus"
-                          value={form.gst_reg_status}
-                          onChange={(e) => set({ gst_reg_status: e.target.value as "" | GstRegStatus })}
-                          className="text-base md:text-sm"
-                        >
-                          <option value="">— Select —</option>
-                          {GST_REG_STATUSES.map((g) => (
-                            <option key={g} value={g}>
-                              {g}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-gstno">GST Number</Label>
-                        <ValidatedInput
-                          id="ve-gstno"
-                          // Shape-only on purpose. The check digit is verified
-                          // by the strip below as a WARNING, not a block — a
-                          // bad GSTIN copied off an invoice still has to be
-                          // savable while the vendor is chased. Switch this to
-                          // "gstin_strict" to make it a hard block instead.
-                          format="gstin"
-                          value={form.gst_no}
-                          onChange={(e) => set({ gst_no: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
+          {/* row 1  gst_reg_status 3 + gst_no 3 + debit_group 3 + credit_group 3 = 12
+              row 2  the GSTIN strip, 12
+              The strip is a fact strip, so it is `full` (LAYOUT.md §3) and
+              lands on the line directly under the GST number it decodes —
+              the two ledger pickers sit beside that number rather than
+              between it and its own explanation. */}
+          <DetailSection label="GST & Ledger Groups" cols={12} span={2}>
+            <Field label="GST No" size={FIELD_SIZE.gst_reg_status} htmlFor="ve-gststatus">
+              <Select
+                id="ve-gststatus"
+                value={form.gst_reg_status}
+                onChange={(e) => set({ gst_reg_status: e.target.value as "" | GstRegStatus })}
+              >
+                <option value="">— Select —</option>
+                {GST_REG_STATUSES.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="GST Number" size={FIELD_SIZE.gst_no} htmlFor="ve-gstno">
+              <ValidatedInput
+                id="ve-gstno"
+                // Shape-only on purpose. The check digit is verified by the
+                // strip below as a WARNING, not a block — a bad GSTIN copied
+                // off an invoice still has to be savable while the vendor is
+                // chased. Switch this to "gstin_strict" to make it a hard
+                // block instead.
+                format="gstin"
+                value={form.gst_no}
+                onChange={(e) => set({ gst_no: e.target.value })}
+              />
+            </Field>
+            {/* Both pickers label themselves — unlabelled cells, span only. */}
+            <Field size={FIELD_SIZE.debit_group_id}>
+              <AccountGroupPicker
+                groups={accountGroups}
+                value={form.debit_group_id || null}
+                onChange={(id) => set({ debit_group_id: id ?? "" })}
+                label="Debit Group"
+              />
+            </Field>
+            <Field size={FIELD_SIZE.credit_group_id}>
+              <AccountGroupPicker
+                groups={accountGroups}
+                value={form.credit_group_id || null}
+                onChange={(id) => set({ credit_group_id: id ?? "" })}
+                label="Credit Group"
+              />
+            </Field>
+            {gstin && (
+              <Field size={FIELD_SIZE.gstin_strip}>
+                <GstinInsight
+                  decoded={gstin}
+                  panValue={form.pan_no}
+                  suggestions={gstinSuggestions}
+                />
+              </Field>
+            )}
+          </DetailSection>
 
-                      {gstin && (
-                        <div className="sm:col-span-2 -mt-1">
-                          <GstinInsight
-                            decoded={gstin}
-                            panValue={form.pan_no}
-                            suggestions={gstinSuggestions}
-                          />
-                        </div>
-                      )}
-
-                      <div>
-                        <AccountGroupPicker
-                          groups={accountGroups}
-                          value={form.debit_group_id || null}
-                          onChange={(id) => set({ debit_group_id: id ?? "" })}
-                          label="Debit Group"
-                        />
-                      </div>
-                      <div>
-                        <AccountGroupPicker
-                          groups={accountGroups}
-                          value={form.credit_group_id || null}
-                          onChange={(id) => set({ credit_group_id: id ?? "" })}
-                          label="Credit Group"
-                        />
-                      </div>
-
-                      <div className="sm:col-span-2 mt-2 border-t border-border pt-4">
-                        <h3 className="mb-3 text-[13px] font-bold text-foreground">Additional Details</h3>
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-enterprise-status">Enterprise Status</Label>
-                        <Input
-                          id="ve-enterprise-status"
-                          value={form.enterprise_status}
-                          onChange={(e) => set({ enterprise_status: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-memorandum-no">Memorandum No</Label>
-                        <Input
-                          id="ve-memorandum-no"
-                          value={form.memorandum_no}
-                          onChange={(e) => set({ memorandum_no: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-inhouse-unit">Inhouse Unit ID</Label>
-                        <Input
-                          id="ve-inhouse-unit"
-                          value={form.inhouse_unit_id}
-                          onChange={(e) => set({ inhouse_unit_id: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="ve-duty-against">Duty Against</Label>
-                        <Input
-                          id="ve-duty-against"
-                          value={form.duty_against}
-                          onChange={(e) => set({ duty_against: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                    </div>
-                  </SectionBody>
+          {/* row 1  enterprise_status 3 + memorandum_no 3 + inhouse_unit_id 3
+                     + duty_against 3 = 12 */}
+          <DetailSection label="Additional Details" cols={12} span={2}>
+            <Field
+              label="Enterprise Status"
+              size={FIELD_SIZE.enterprise_status}
+              htmlFor="ve-enterprise-status"
+            >
+              <Input
+                id="ve-enterprise-status"
+                value={form.enterprise_status}
+                onChange={(e) => set({ enterprise_status: e.target.value })}
+              />
+            </Field>
+            <Field label="Memorandum No" size={FIELD_SIZE.memorandum_no} htmlFor="ve-memorandum-no">
+              <Input
+                id="ve-memorandum-no"
+                value={form.memorandum_no}
+                onChange={(e) => set({ memorandum_no: e.target.value })}
+              />
+            </Field>
+            <Field label="Inhouse Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="ve-inhouse-unit">
+              <Input
+                id="ve-inhouse-unit"
+                value={form.inhouse_unit_id}
+                onChange={(e) => set({ inhouse_unit_id: e.target.value })}
+              />
+            </Field>
+            <Field label="Duty Against" size={FIELD_SIZE.duty_against} htmlFor="ve-duty-against">
+              <Input
+                id="ve-duty-against"
+                value={form.duty_against}
+                onChange={(e) => set({ duty_against: e.target.value })}
+              />
+            </Field>
+          </DetailSection>
+        </SectionGrid>
+      </SectionBody>
     ),
   };
 

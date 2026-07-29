@@ -226,7 +226,6 @@ export function CertificationMasterScreen({
                 setFilter("status", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               <option value="active">Active</option>
@@ -326,6 +325,13 @@ export function CertificationMasterScreen({
             so SectionColumns rather than auto-placement (LAYOUT.md §1). */}
         <SectionGrid>
           <SectionColumn>
+            {/* Three fields in a section half a sheet wide (~560px), and the
+                middle one is a textarea, which stays `full` whatever else
+                happens (LAYOUT.md §3). Nothing here can share a row with
+                anything: Description sits between the name and the flag, so
+                there is no pair to pull together. Left at one field per row on
+                purpose — this is a form too small for four-per-row to mean
+                anything (client 2026-07-29). */}
             <DetailSection label="Details" cols={12}>
               <Field label="Certification Name" size="full" required htmlFor="cert-name">
                 <Input
@@ -346,7 +352,7 @@ export function CertificationMasterScreen({
                 />
               </Field>
               {editId && (
-                <Field size="md">
+                <Field size="sm">
                   <label className="flex h-8 cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"

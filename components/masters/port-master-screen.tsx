@@ -218,7 +218,12 @@ export function PortMasterScreen({
           </>
         }
       >
-        {/* Three fields — one flat section (LAYOUT.md §4). */}
+        {/* Three fields — one flat section (LAYOUT.md §4), and the whole form is
+            one row: name 6 + country 3 + type 3 = 12. It was 6 + 4 + 4 = 14,
+            which does not shrink — Type wrapped onto a line of its own with the
+            rest of that line empty. Three fields IS the row here; there is no
+            fourth to reach for, so the job was sizing each to its data rather
+            than hitting a count (client 2026-07-29). */}
         <DetailSection label="Details" cols={12}>
           <Field label="Name" size="lg" required htmlFor="pt-name">
             <Input
@@ -231,7 +236,7 @@ export function PortMasterScreen({
           </Field>
           {/* No `label` on the Field: CountryPicker renders its own, and two
               labels misalign the asterisk and break click-to-focus. */}
-          <Field size="md">
+          <Field size="sm">
             <CountryPicker
               countries={countries}
               value={form.country_id || null}
@@ -240,7 +245,8 @@ export function PortMasterScreen({
               canEdit={perms.canEdit}
             />
           </Field>
-          <Field label="Type" size="md" htmlFor="pt-type">
+          {/* Air / Sea / Sea-Air — `sm` is already generous for it. */}
+          <Field label="Type" size="sm" htmlFor="pt-type">
             <Select
               id="pt-type"
               value={form.port_type}
