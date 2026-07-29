@@ -43,9 +43,16 @@ update public.config_lookups
 -- So: drop -> update -> re-add.
 --
 -- All five were declared as INLINE column checks (0319 lines 26/28/40, 0327
--- lines 33/36), so Postgres auto-named them <table>_<column>_check. `if exists`
--- keeps this re-runnable; if a drop matches nothing the re-add below fails
--- loudly against the old data rather than silently leaving it unconstrained.
+-- lines 33/36), so Postgres auto-named them <table>_<column>_check. Those five
+-- names were VERIFIED against pg_constraint on the live database before this
+-- was written -- not assumed.
+--
+-- That verification is load-bearing. Every one of these columns is currently
+-- EMPTY, and an empty table satisfies any CHECK, so a drop that matched nothing
+-- would NOT fail on the re-add: it would leave the old lowercase constraint
+-- sitting beside the new one, and the first operator to save "AIR" would be
+-- rejected with nothing in the migration to blame. `if exists` makes this
+-- re-runnable; it does not make it self-checking.
 alter table public.opportunities  drop constraint if exists opportunities_delivery_mode_check;
 alter table public.opportunities  drop constraint if exists opportunities_receipt_mode_check;
 alter table public.styles         drop constraint if exists styles_ship_mode_check;
@@ -79,13 +86,20 @@ alter table public.order_bookings
   check (receipt_mode is null or receipt_mode in ('EMAIL','PHONE','FAX','COURIER','DIRECT'));
 
 -- ---------- 3. Amendments: the unconstrained twins ----------
--- orders_amendments.ship_mode / received_mode / pay_mode are plain text with no
--- CHECK (0126 lines 45/49/50), but the amendment screen renders each as a FIXED
--- list and the Select matches on value. RECEIPT_MODES just moved from Title Case
--- ("By Mail") to CAPS, so a row still holding the old string would render as an
--- empty dropdown on an existing amendment. Rewrite the data to match.
+-- garment_order_amendments.ship_mode / received_mode / pay_mode are plain text
+-- with no CHECK (0126 lines 45/49/50), but the amendment screen renders each as
+-- a FIXED list and the Select matches on value. RECEIPT_MODES just moved from
+-- Title Case ("By Mail") to CAPS, so a row still holding the old string would
+-- render as an empty dropdown on an existing amendment. Rewrite to match.
 -- ship_mode and pay_mode were already CAPS in code; upper() is a no-op there and
 -- costs nothing, so it also cleans up anything hand-entered before the lists.
-update public.orders_amendments set received_mode = upper(received_mode) where received_mode is not null;
-update public.orders_amendments set ship_mode     = upper(ship_mode)     where ship_mode     is not null;
-update public.orders_amendments set pay_mode      = upper(pay_mode)      where pay_mode      is not null;
+--
+-- The TABLE NAME is `garment_order_amendments`. It is not `orders_amendments`,
+-- which this migration said in its first draft by reading the name off the
+-- migration FILE (0126_orders_garment_amendments.sql) instead of its `create
+-- table`. There is a separate, unrelated `order_amendments` table, so the wrong
+-- name is plausible enough to survive review -- it only failed against a real
+-- database.
+update public.garment_order_amendments set received_mode = upper(received_mode) where received_mode is not null;
+update public.garment_order_amendments set ship_mode     = upper(ship_mode)     where ship_mode     is not null;
+update public.garment_order_amendments set pay_mode      = upper(pay_mode)      where pay_mode      is not null;
