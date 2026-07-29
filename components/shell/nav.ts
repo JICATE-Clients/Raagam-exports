@@ -82,6 +82,7 @@ export const NAV: NavItem[] = [
       { href: "/planning/accessory-bom", label: "Accessories BOM" },
       { href: "/planning/bom-shortage", label: "BOM Shortage" },
       { href: "/planning/bom-transfer", label: "BOM Transfer" },
+      { href: "/planning/budgets", label: "Budgets" },
     ],
   },
   {
