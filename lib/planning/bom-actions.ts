@@ -7,10 +7,18 @@ import { writeAudit } from "@/lib/audit";
 import {
   materialBomInput,
   materialBomProductInput,
+  bomShortageInput,
+  bomShortageItemInput,
+  bomTransferInput,
+  bomTransferItemInput,
 } from "./bom-types";
 import type {
   MaterialBomInput,
   MaterialBomProductInput,
+  BomShortageInput,
+  BomShortageItemInput,
+  BomTransferInput,
+  BomTransferItemInput,
 } from "./bom-types";
 
 type OkResult = { ok: true };
@@ -281,5 +289,235 @@ export async function approveMaterialBom(
   });
 
   revalidateBom(`/planning/material-bom/${id}`);
+  return { ok: true };
+}
+
+// ============================================================================
+// BOM Shortage (FrmBOM_Shortage)
+// ============================================================================
+
+function revalidateShortage(...paths: string[]): void {
+  for (const p of paths) revalidatePath(p);
+  revalidatePath("/planning");
+  revalidatePath("/planning/bom-shortage");
+}
+
+export async function createBomShortage(
+  data: BomShortageInput,
+): Promise<{ ok: true; shortageId: string } | ErrResult> {
+  if (!(await can("planning", "create"))) throw new Error("Forbidden");
+
+  const parsed = bomShortageInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const user = await getAppUser();
+  const supabase = await createClient();
+
+  const { data: shortage, error } = await supabase
+    .from("bom_shortages")
+    .insert({ ...parsed.data, status: "draft", created_by: user?.id ?? null })
+    .select("id")
+    .single();
+
+  if (error || !shortage) return { ok: false, error: error?.message ?? "Failed" };
+
+  revalidateShortage();
+  return { ok: true, shortageId: shortage.id };
+}
+
+export async function addBomShortageItem(
+  data: BomShortageItemInput,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "edit"))) throw new Error("Forbidden");
+
+  const parsed = bomShortageItemInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bom_shortage_items")
+    .insert(parsed.data);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateShortage(`/planning/bom-shortage/${data.shortage_id}`);
+  return { ok: true };
+}
+
+export async function deleteBomShortageItem(
+  itemId: string,
+  shortageId: string,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "delete"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bom_shortage_items")
+    .delete()
+    .eq("id", itemId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateShortage(`/planning/bom-shortage/${shortageId}`);
+  return { ok: true };
+}
+
+export async function submitBomShortage(
+  id: string,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "edit"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bom_shortages")
+    .update({ status: "submitted" })
+    .eq("id", id)
+    .eq("status", "draft");
+  if (error) return { ok: false, error: error.message };
+
+  revalidateShortage(`/planning/bom-shortage/${id}`);
+  return { ok: true };
+}
+
+export async function approveBomShortage(
+  id: string,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "approve"))) throw new Error("Forbidden");
+
+  const user = await getAppUser();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("bom_shortages")
+    .update({
+      status: "approved",
+      approved_by: user?.id ?? null,
+      approved_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "submitted");
+  if (error) return { ok: false, error: error.message };
+
+  await writeAudit({
+    action: "bom_shortage.approved",
+    entityType: "bom_shortage",
+    entityId: id,
+  });
+
+  revalidateShortage(`/planning/bom-shortage/${id}`);
+  return { ok: true };
+}
+
+// ============================================================================
+// BOM Transfer (FrmBOMXfrs)
+// ============================================================================
+
+function revalidateTransfer(...paths: string[]): void {
+  for (const p of paths) revalidatePath(p);
+  revalidatePath("/planning");
+  revalidatePath("/planning/bom-transfer");
+}
+
+export async function createBomTransfer(
+  data: BomTransferInput,
+): Promise<{ ok: true; transferId: string } | ErrResult> {
+  if (!(await can("planning", "create"))) throw new Error("Forbidden");
+
+  const parsed = bomTransferInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const user = await getAppUser();
+  const supabase = await createClient();
+
+  const { data: transfer, error } = await supabase
+    .from("bom_transfers")
+    .insert({ ...parsed.data, status: "draft", created_by: user?.id ?? null })
+    .select("id")
+    .single();
+
+  if (error || !transfer) return { ok: false, error: error?.message ?? "Failed" };
+
+  revalidateTransfer();
+  return { ok: true, transferId: transfer.id };
+}
+
+export async function addBomTransferItem(
+  data: BomTransferItemInput,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "edit"))) throw new Error("Forbidden");
+
+  const parsed = bomTransferItemInput.safeParse(data);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bom_transfer_items")
+    .insert(parsed.data);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateTransfer(`/planning/bom-transfer/${data.transfer_id}`);
+  return { ok: true };
+}
+
+export async function deleteBomTransferItem(
+  itemId: string,
+  transferId: string,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "delete"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bom_transfer_items")
+    .delete()
+    .eq("id", itemId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidateTransfer(`/planning/bom-transfer/${transferId}`);
+  return { ok: true };
+}
+
+export async function submitBomTransfer(
+  id: string,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "edit"))) throw new Error("Forbidden");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bom_transfers")
+    .update({ status: "submitted" })
+    .eq("id", id)
+    .eq("status", "draft");
+  if (error) return { ok: false, error: error.message };
+
+  revalidateTransfer(`/planning/bom-transfer/${id}`);
+  return { ok: true };
+}
+
+export async function approveBomTransfer(
+  id: string,
+): Promise<OkResult | ErrResult> {
+  if (!(await can("planning", "approve"))) throw new Error("Forbidden");
+
+  const user = await getAppUser();
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("bom_transfers")
+    .update({
+      status: "approved",
+    })
+    .eq("id", id)
+    .eq("status", "submitted");
+  if (error) return { ok: false, error: error.message };
+
+  await writeAudit({
+    action: "bom_transfer.approved",
+    entityType: "bom_transfer",
+    entityId: id,
+  });
+
+  revalidateTransfer(`/planning/bom-transfer/${id}`);
   return { ok: true };
 }

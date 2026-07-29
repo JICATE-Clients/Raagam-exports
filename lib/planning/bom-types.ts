@@ -392,3 +392,41 @@ export const bomTransferInput = z.object({
   location_id: z.string().uuid().optional().nullable(),
 });
 export type BomTransferInput = z.infer<typeof bomTransferInput>;
+
+export const bomShortageItemInput = z.object({
+  shortage_id: z.string().uuid(),
+  sno: z.coerce.number().int().default(0),
+  item_class: z.string().max(100).optional().nullable(),
+  description: z.string().max(250).optional().nullable(),
+  uom_id: z.string().uuid().optional().nullable(),
+  qty: z.coerce.number().nonnegative().default(0),
+  mtr: z.coerce.number().nonnegative().default(0),
+  wt: z.coerce.number().nonnegative().default(0),
+  rate: z.coerce.number().nonnegative().default(0),
+  reason: z.string().max(250).optional().nullable(),
+  due_to: z.enum(DUE_TO_TYPES).optional().nullable(),
+  due_to_vendor_id: z.string().uuid().optional().nullable(),
+  due_to_employee_id: z.string().uuid().optional().nullable(),
+  debit_required: z.boolean().default(false),
+  remarks: z.string().max(500).optional().nullable(),
+  sort_order: z.coerce.number().int().default(0),
+});
+export type BomShortageItemInput = z.infer<typeof bomShortageItemInput>;
+
+export const bomTransferItemInput = z.object({
+  transfer_id: z.string().uuid(),
+  sno: z.coerce.number().int().default(0),
+  item_class: z.string().max(100).optional().nullable(),
+  stage: z.enum(TRANSFER_STAGES).optional().nullable(),
+  description: z.string().max(250).optional().nullable(),
+  process_name: z.string().max(100).optional().nullable(),
+  uom_id: z.string().uuid().optional().nullable(),
+  reqd_qty: z.coerce.number().nonnegative().default(0),
+  reqd_wt: z.coerce.number().nonnegative().default(0),
+  xfr_qty: z.coerce.number().nonnegative().default(0),
+  xfr_wt: z.coerce.number().nonnegative().default(0),
+  xfr_qty_with_loss: z.coerce.number().nonnegative().default(0),
+  xfr_wt_with_loss: z.coerce.number().nonnegative().default(0),
+  sort_order: z.coerce.number().int().default(0),
+});
+export type BomTransferItemInput = z.infer<typeof bomTransferItemInput>;
