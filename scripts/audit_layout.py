@@ -274,12 +274,97 @@ def check_text_size_noop(path: Path, code: str, slug: str):
         )
 
 
+# Field names whose values are digits, an address or a URL rather than words --
+# LAYOUT.md §11's "digit formats" exemption, expressed as the binding name.
+CONTACT_FIELD = re.compile(
+    r"value=\{[^}]*\b("
+    r"land_?line|mobile|whats_?app|phone|fax|pin|pincode|isd|"
+    r"email|website|url"
+    r")\b",
+    re.I,
+)
+
+
+def _jsx_open_tag(code: str, start: int) -> str:
+    """The full opening tag beginning at `start`, brace-aware.
+
+    A naive `<Input[^>]*` stops at the `>` of an arrow function -- and almost
+    every JSX input has an `onChange={(e) => ...}`, so it would read only the
+    first attribute or two and miss `uppercase` sitting after the handler. Track
+    brace depth and end at the first `>` that is genuinely outside a JSX
+    expression container.
+    """
+    depth = 0
+    for i in range(start, len(code)):
+        c = code[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        elif c == ">" and depth == 0:
+            return code[start : i + 1]
+    return code[start : start + 400]
+
+
+def check_caps_input(path: Path, code: str, slug: str):
+    """Master field values are stored in CAPITALS (client 2026-07-23).
+
+    `<Input uppercase>` is the mechanism: it uppercases the keystroke AND adds a
+    CSS text-transform, so rows saved before the rule still display in caps.
+
+    Scoped to `components/masters/` on purpose. A repo-wide version fires on
+    hundreds of legitimate numeric, date and id fields and gets ignored, which is
+    how the layout contract was ignored by 58 of 60 editors before this script
+    existed. Narrow and believed beats broad and muted.
+
+    An `<Input` is exempt when it declares a `type=` (number / date / password /
+    email are not caps candidates), because free text is the only case the rule
+    is about. `ValidatedInput` is a different tag and never matches -- it owns
+    its own casing via the format's transform.
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    if "components/masters/" not in slug:
+        return
+    for m in re.finditer(r"<Input\b", code):
+        tag = _jsx_open_tag(code, m.start())
+        if "uppercase" in tag or "type=" in tag:
+            continue
+        # A search box is not a field value -- forcing the operator's query to
+        # caps changes nothing about what is stored and everything about how the
+        # toolbar reads. Every master list has one, which is why this exemption
+        # is worth more than the findings it removes.
+        if re.search(r'placeholder="Search', tag, re.I):
+            continue
+        # A derived / auto-generated field the user cannot type into. These
+        # render placeholders like "(auto)" and "#3"; uppercasing turns them
+        # into "(AUTO)", which reads as data rather than as a hint.
+        if re.search(r"\b(readOnly|disabled)\b", tag):
+            continue
+        # Digit / contact formats. LAYOUT.md §11 exempts these because
+        # `uppercase` is a no-op on digits -- adding it would be noise that
+        # reads as a mistake. Matched on the bound field name, which is the
+        # only signal available statically.
+        #
+        # These SHOULD be `ValidatedInput format="…"`, and several still are
+        # not; that is a real gap this check cannot express, because the tag it
+        # would flag is the tag it is told to ignore. Fix them by conversion,
+        # not by adding `uppercase`.
+        if re.search(CONTACT_FIELD, tag):
+            continue
+        yield Finding(
+            "caps-input", path, line_of(code, m.start()),
+            "field value not in CAPS; add `uppercase` to <Input> or give it a type=",
+        )
+
+
 CHECKS = {
     "screen-grid": check_screen_grid,
     "screen-table": check_screen_table,
     "field-track": check_field_track,
     "editor-clone": check_editor_clone,
     "text-size-noop": check_text_size_noop,
+    "caps-input": check_caps_input,
 }
 
 

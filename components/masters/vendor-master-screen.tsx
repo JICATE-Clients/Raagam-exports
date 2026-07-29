@@ -764,6 +764,7 @@ export function VendorMasterScreen({
           <DetailSection label="Registration" cols={12} span={2}>
             <Field label="TIN No." size={FIELD_SIZE.tin_no} htmlFor="ve-tin">
               <Input
+                uppercase
                 id="ve-tin"
                 value={form.tin_no}
                 onChange={(e) => set({ tin_no: e.target.value })}
@@ -779,6 +780,7 @@ export function VendorMasterScreen({
             </Field>
             <Field label="Reg. Caption" size={FIELD_SIZE.reg_caption} htmlFor="ve-regcap">
               <Input
+                uppercase
                 id="ve-regcap"
                 value={form.reg_caption}
                 onChange={(e) => set({ reg_caption: e.target.value })}
@@ -786,6 +788,7 @@ export function VendorMasterScreen({
             </Field>
             <Field label="Reg. No / Dt" size={FIELD_SIZE.reg_no_dt} htmlFor="ve-regno">
               <Input
+                uppercase
                 id="ve-regno"
                 value={form.reg_no_dt}
                 onChange={(e) => set({ reg_no_dt: e.target.value })}
@@ -834,12 +837,14 @@ export function VendorMasterScreen({
             <FieldGrid>
               <Field label="Address Type" size={FIELD_SIZE.address_type}>
                 <Input
+                  uppercase
                   value={a.address_type}
                   onChange={(e) => setAddressAt(a.key, { address_type: e.target.value })}
                 />
               </Field>
               <Field label="Street" size={FIELD_SIZE.street}>
                 <Input
+                  uppercase
                   value={a.street}
                   onChange={(e) => setAddressAt(a.key, { street: e.target.value })}
                 />
@@ -932,6 +937,7 @@ export function VendorMasterScreen({
           <DetailSection label="Banking" cols={12} span={2}>
             <Field label="Bank Name" size={FIELD_SIZE.bank_name} htmlFor="ve-bank">
               <Input
+                uppercase
                 id="ve-bank"
                 value={form.bank_name}
                 onChange={(e) => set({ bank_name: e.target.value })}
@@ -939,6 +945,7 @@ export function VendorMasterScreen({
             </Field>
             <Field label="Branch" size={FIELD_SIZE.branch} htmlFor="ve-branch">
               <Input
+                uppercase
                 id="ve-branch"
                 value={form.branch}
                 onChange={(e) => set({ branch: e.target.value })}
@@ -962,6 +969,7 @@ export function VendorMasterScreen({
             </Field>
             <Field label="A/c Type" size={FIELD_SIZE.ac_type} htmlFor="ve-actype">
               <Input
+                uppercase
                 id="ve-actype"
                 value={form.ac_type}
                 onChange={(e) => set({ ac_type: e.target.value })}
@@ -1040,6 +1048,7 @@ export function VendorMasterScreen({
               htmlFor="ve-enterprise-status"
             >
               <Input
+                uppercase
                 id="ve-enterprise-status"
                 value={form.enterprise_status}
                 onChange={(e) => set({ enterprise_status: e.target.value })}
@@ -1047,6 +1056,7 @@ export function VendorMasterScreen({
             </Field>
             <Field label="Memorandum No" size={FIELD_SIZE.memorandum_no} htmlFor="ve-memorandum-no">
               <Input
+                uppercase
                 id="ve-memorandum-no"
                 value={form.memorandum_no}
                 onChange={(e) => set({ memorandum_no: e.target.value })}
@@ -1054,6 +1064,7 @@ export function VendorMasterScreen({
             </Field>
             <Field label="Inhouse Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="ve-inhouse-unit">
               <Input
+                uppercase
                 id="ve-inhouse-unit"
                 value={form.inhouse_unit_id}
                 onChange={(e) => set({ inhouse_unit_id: e.target.value })}
@@ -1061,6 +1072,7 @@ export function VendorMasterScreen({
             </Field>
             <Field label="Duty Against" size={FIELD_SIZE.duty_against} htmlFor="ve-duty-against">
               <Input
+                uppercase
                 id="ve-duty-against"
                 value={form.duty_against}
                 onChange={(e) => set({ duty_against: e.target.value })}

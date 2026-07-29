@@ -94,13 +94,12 @@ export default function SettingsClient({
           <div>
             <Label htmlFor="ps-currency">Currency</Label>
             <Input
+              uppercase
               id="ps-currency"
               value={form.currency}
               maxLength={3}
               disabled={!canEdit}
-              onChange={(e) =>
-                setForm({ ...form, currency: e.target.value.toUpperCase() })
-              }
+              onChange={(e) => setForm({ ...form, currency: e.target.value })}
             />
           </div>
           <div>

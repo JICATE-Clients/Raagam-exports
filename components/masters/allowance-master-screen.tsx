@@ -313,6 +313,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
                 </label>
                 <div className="min-w-[160px] flex-1">
                   <Input
+                    uppercase
                     value={form.calc_basis}
                     onChange={(e) => set({ calc_basis: e.target.value })}
                     placeholder="Basis…"

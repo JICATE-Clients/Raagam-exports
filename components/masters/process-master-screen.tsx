@@ -495,6 +495,7 @@ export function ProcessMasterScreen({
               <div>
                 <Label htmlFor="pr-hsn">HSN Code</Label>
                 <Input
+                  uppercase
                   id="pr-hsn"
                   value={form.hsn_code}
                   onChange={(e) => set({ hsn_code: e.target.value })}
@@ -600,7 +601,7 @@ export function ProcessMasterScreen({
                   {/* short fields pair up two-per-row inside cards */}
                   <div className="grid grid-cols-2 gap-2">
                     <Input uppercase value={s.short_description} onChange={(e) => setSubAt(s.key, { short_description: e.target.value })} placeholder="Short Description" className="text-base md:text-sm" />
-                    <Input value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
+                    <Input uppercase value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
                   </div>
                 </>
               )}
@@ -620,7 +621,7 @@ export function ProcessMasterScreen({
                 {
                   header: "HSN Code",
                   cell: (s) => (
-                    <Input value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
+                    <Input uppercase value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
                   ),
                 },
               ]}

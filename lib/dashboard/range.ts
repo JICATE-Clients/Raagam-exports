@@ -21,6 +21,12 @@ import { DASHBOARD_RANGES } from "./types";
 const TZ = "Asia/Kolkata";
 
 // en-CA formats as YYYY-MM-DD, which is the format we want to compare with.
+//
+// NOT a display format — do not "fix" this to DD/MM/YYYY when sweeping dates
+// (client 2026-07-29 asked for DD/MM/YYYY everywhere, and this is the one place
+// it must not reach). The output is compared against Postgres `date` values and
+// fed back into queries; reformatting it breaks every range on the dashboard
+// silently, because the strings still compare — just wrongly.
 const ISO_IN_TZ = new Intl.DateTimeFormat("en-CA", {
   timeZone: TZ,
   year: "numeric",

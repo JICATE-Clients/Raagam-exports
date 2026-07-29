@@ -359,6 +359,7 @@ export function SizeGroupMasterScreen({
                     {i + 1}
                   </span>
                   <Input
+                    uppercase
                     value={row.size_name}
                     onChange={(e) => updateChild(row.key, "size_name", e.target.value)}
                     placeholder="Size name"

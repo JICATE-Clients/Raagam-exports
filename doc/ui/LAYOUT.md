@@ -276,6 +276,7 @@ bind their own `onKeyDown` for field navigation.
 - [ ] Pickers via `record-picker` / `lookup-picker`, never a bespoke dialog
 - [ ] Tested at 375px: one column, no horizontal page scroll
 - [ ] Derived / auto-generated fields carry `<Field skipTab>` (§8)
+- [ ] Every free-text `<Input>` carries `uppercase`; the schema uses `capsName` (§11)
 
 ---
 
@@ -332,3 +333,110 @@ gutter is what stops two adjacent controls on a 12-col row reading as one contro
 
 Type sizes do **not** compact: controls stay `text-base md:text-sm`, labels `text-xs`. 11px was
 tried and rejected as below a readable floor for all-day data entry.
+
+---
+
+## 11. Letter case
+
+**Field values are stored in CAPITALS.** Not displayed in caps — *stored*. Client rule since
+2026-07-23, extended to the whole application 2026-07-29.
+
+This existed for six days as an inline comment (`// names stored in CAPS`) repeated in ~30 server
+actions and nowhere else. That is the same failure mode §1 documents for the layout contract, so
+it is written here and checked by `scripts/audit_layout.py --check caps-input`.
+
+### The two halves, and why you need both
+
+| Half | Where | Fixes |
+|---|---|---|
+| Type-time | `<Input uppercase>` mutates the value in `onChange` | what the operator types now |
+| Display | the same prop adds a CSS `text-transform` | rows **already** saved in mixed case |
+
+The CSS half is not decoration. A value loaded from the database and never re-typed cannot be
+reached by a keystroke transform — without it, a record saved before the rule existed keeps
+showing lower case forever.
+
+### Where the write-side transform belongs
+
+In the **Zod schema**, via `capsName()` / `capsTextNullable()` (`lib/validation/formats.ts`) —
+never only in the server action.
+
+The action is not the only write path. `lib/data-io/actions.ts` parses a spreadsheet import with
+the *same* `*Input` schemas and writes `parsed.data` straight to Postgres, so an action-level
+`.toUpperCase()` never sees an import. Every bulk import was storing mixed case despite thirty
+hand-copied uppercase calls, and no screen showed it.
+
+Validate before you transform: `.min()` cannot be chained after a Zod transform, and a
+whitespace-only name should fail as empty rather than succeed as `""`.
+
+### What is NOT uppercased
+
+These are exemptions by construction, not oversights — do not "fix" them:
+
+| Exempt | Why |
+|---|---|
+| email, website | `transform: "none"` in `formats.ts`. Case can be significant, and a shouted email reads as broken |
+| digit formats — phone, PIN, account, Aadhaar | `uppercase` is a no-op; they carry their own transform |
+| land line, mobile, WhatsApp, fax, ISD | same reason; the check matches these on the bound field name |
+| `<Textarea>` free text | no `uppercase` prop exists on it. A shouted paragraph is unreadable |
+| passwords | obviously |
+| uuids and ids | Postgres renders uuids lower case; an uppercased one will not match |
+| read-only / derived fields | `(auto)` is a hint, not data — uppercasing makes it read as a value |
+| search boxes | the query is not stored; caps only changes how the toolbar looks |
+| workflow status keys | `draft` / `in_progress` are internal state, rendered through `StatusPill` with their own labels |
+
+`ValidatedInput` handles its own casing: it applies the format's transform on change, and carries
+the CSS half only for `transform: "upper"` kinds (GSTIN, PAN, TAN, CIN, IEC, IFSC, SWIFT, currency,
+yarn count).
+
+> **A gap the check cannot see.** Those contact fields are exempted by *name*, which means a
+> plain `<Input value={form.land_line}>` is indistinguishable from a properly-wired
+> `<ValidatedInput format="landline">`. Several masters still use the bare `Input` and so get no
+> validation at all — Brand's Website and Phone were two, found only because the CAPS sweep made
+> the odd one out visible. The fix is to convert them, never to add `uppercase`.
+
+### Fixed value lists
+
+A dropdown's members are field values too. `["air","sea","road"]` and `["AIR","ROAD","SEA"]` both
+existed for ship mode, in different modules, for the same concept — migration `0368` settled that
+in favour of caps. When a list is pinned by a Postgres `CHECK`, the constraint, the `z.enum` and
+the const array move **together**, and any render-time re-casing gets deleted rather than left.
+
+---
+
+## 12. Dates and times
+
+**DD/MM/YYYY everywhere** (client 2026-07-29). One pair of formatters owns it — `fmtDate` and
+`fmtDateTime` in `lib/format.ts`. Do not format a date at a call site.
+
+Both are built by hand rather than through `toLocaleDateString`, for two reasons worth keeping:
+
+1. **A locale is a request, not a guarantee.** `en-IN` renders DD/MM/YYYY on most runtimes, but
+   the result depends on the ICU data the runtime ships, and server render and browser hydration
+   do not always agree. A fixed business format should not be negotiated with a locale database.
+2. **Timezone.** A Postgres `date` column arrives as the bare string `"2026-07-29"`.
+   `new Date("2026-07-29")` reads that as UTC midnight, so `getDate()` at a negative UTC offset
+   returns the 28th. `fmtDate` formats the string directly when it matches `YYYY-MM-DD`, so no
+   instant is involved and nothing can drift. Only real timestamps go through `Date`, where
+   local-time conversion is the point.
+
+### What is deliberately NOT DD/MM/YYYY
+
+| Where | Renders | Why |
+|---|---|---|
+| `lib/dashboard/range.ts` `today()` | `2026-07-29` | **a computation, not a display.** The string is compared against `date` columns and fed back into queries. Reformatting it breaks every dashboard range *silently*, because the strings still compare — just wrongly |
+| `monthLabel` (`range.ts`, `analytics-dashboard.tsx`) | `Jul`, `Jul 26` | chart axis labels. Twelve `01/07/2026`s along an axis is unreadable |
+| `components/dashboard/hero.tsx` | `Monday, 29 July 2026` | prose in a greeting, and the weekday is the useful part |
+| `hero.tsx` hour extraction | — | picks the hour for "Good morning". A computation |
+| `lib/data-io/export.ts` filenames | `2026-07-29` | ISO sorts correctly and is safe in a filename |
+
+### The native date input
+
+`<input type="date">` — ~160 of them — renders in the **browser's** locale, not the page's. No
+HTML attribute, CSS rule or React prop can change that; the element's `value` is always ISO
+`yyyy-mm-dd` regardless of what it displays. A machine set to US English shows MM/DD/YYYY and
+there is nothing in this codebase that can override it.
+
+Forcing DD/MM/YYYY in the pickers means replacing the native control with a masked text input plus
+a calendar popover — a real component, not a formatting change. Until that exists, the guarantee is
+**display is DD/MM/YYYY everywhere the app draws the date itself**; the pickers follow the machine.

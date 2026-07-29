@@ -170,6 +170,7 @@ export function NewBillForm({
             <div>
               <Label htmlFor="bill-no">Bill / Invoice No.</Label>
               <Input
+                uppercase
                 id="bill-no"
                 value={billNo}
                 onChange={(e) => setBillNo(e.target.value)}
@@ -200,10 +201,13 @@ export function NewBillForm({
 
             <div>
               <Label htmlFor="bill-currency">Currency</Label>
+              {/* `uppercase` prop, not a handler toUpperCase — it preserves
+                  the caret and adds the CSS transform for rows saved earlier. */}
               <Input
+                uppercase
                 id="bill-currency"
                 value={currencyCode}
-                onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
+                onChange={(e) => setCurrencyCode(e.target.value)}
                 placeholder="INR"
                 maxLength={3}
               />

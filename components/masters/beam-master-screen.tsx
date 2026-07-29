@@ -346,6 +346,7 @@ export function BeamMasterScreen({
                 Beam No <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="bm-no"
                 value={form.beam_no}
                 onChange={(e) => set({ beam_no: e.target.value })}
@@ -380,6 +381,7 @@ export function BeamMasterScreen({
             <div>
               <Label htmlFor="bm-loom">Loom Type</Label>
               <Input
+                uppercase
                 id="bm-loom"
                 value={form.loom_type}
                 onChange={(e) => set({ loom_type: e.target.value })}

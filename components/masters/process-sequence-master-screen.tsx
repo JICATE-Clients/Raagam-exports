@@ -213,7 +213,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
             </div>
             <div>
               <Label htmlFor="ps-ict">Item Class Type <span className="text-danger">*</span></Label>
-              <Input id="ps-ict" value={form.item_class_type} onChange={(e) => setForm({ ...form, item_class_type: e.target.value })} className="text-base md:text-sm" />
+              <Input uppercase id="ps-ict" value={form.item_class_type} onChange={(e) => setForm({ ...form, item_class_type: e.target.value })} className="text-base md:text-sm" />
             </div>
             {editId && (
               <label className="flex cursor-pointer items-center gap-2">

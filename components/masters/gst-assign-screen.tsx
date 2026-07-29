@@ -277,6 +277,7 @@ export function GstAssignScreen({ rows, perms }: { rows: VendorGstRow[]; perms: 
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Set GSTIN</span>
             <Input
+              uppercase
               value={bulkNo}
               onChange={(e) => setBulkNo(e.target.value)}
               maxLength={15}

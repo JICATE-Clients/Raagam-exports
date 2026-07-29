@@ -344,6 +344,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
                 Size ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="ps-id"
                 value={form.prod_size_id}
                 onChange={(e) => set({ prod_size_id: e.target.value })}
@@ -424,6 +425,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
             <div>
               <Label htmlFor="ps-cut">Cut Size</Label>
               <Input
+                uppercase
                 id="ps-cut"
                 value={form.prod_cut_size}
                 onChange={(e) => set({ prod_cut_size: e.target.value })}

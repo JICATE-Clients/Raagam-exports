@@ -387,7 +387,7 @@ export function ComponentMasterScreen({
                     {
                       header: "Coordinate",
                       cell: (c) => (
-                        <Input value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
+                        <Input uppercase value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
                       ),
                     },
                   ]}

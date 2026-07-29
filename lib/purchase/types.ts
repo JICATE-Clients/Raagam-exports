@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsName } from "@/lib/validation/formats";
 
 // ---------- enums ----------
 export const VENDOR_TYPES = [
@@ -357,7 +358,7 @@ export interface DcLineItem {
 
 // ---------- input schemas ----------
 export const vendorInput = z.object({
-  name: z.string().min(1),
+  name: capsName(),
   vendor_type: z.enum(VENDOR_TYPES).optional().nullable(),
   contact_person: z.string().optional().nullable(),
   email: z.string().email().optional().or(z.literal("")).nullable(),

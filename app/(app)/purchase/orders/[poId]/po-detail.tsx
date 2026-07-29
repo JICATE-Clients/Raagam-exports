@@ -368,7 +368,7 @@ function CommercialTab({
           <>
             <div>
               <Label>Foreign Currency</Label>
-              <Input value={fields.foreign_currency_code} onChange={(e) => set("foreign_currency_code", e.target.value)} disabled={!canEdit} placeholder="e.g. USD" />
+              <Input uppercase value={fields.foreign_currency_code} onChange={(e) => set("foreign_currency_code", e.target.value)} disabled={!canEdit} placeholder="e.g. USD" />
             </div>
             <div>
               <Label>Exchange Rate</Label>
@@ -376,37 +376,44 @@ function CommercialTab({
             </div>
           </>
         )}
+        {/* Every free-text value here carries `uppercase` (client 2026-07-23,
+            extended app-wide 2026-07-29). These are `text` columns with no
+            picker behind them, so casing was whatever the operator typed and
+            "Sea" / "sea" / "SEA" all coexisted. The prop also fixes rows saved
+            BEFORE this, because it applies a CSS text-transform on top of the
+            type-time one. Exchange Rate and the two Selects are deliberately
+            left alone — see doc/ui/LAYOUT.md. */}
         <div>
           <Label>Payment Terms</Label>
-          <Input value={fields.payment_terms} onChange={(e) => set("payment_terms", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.payment_terms} onChange={(e) => set("payment_terms", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>Pay Mode</Label>
-          <Input value={fields.pay_mode} onChange={(e) => set("pay_mode", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.pay_mode} onChange={(e) => set("pay_mode", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>Ship Mode</Label>
-          <Input value={fields.ship_mode} onChange={(e) => set("ship_mode", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.ship_mode} onChange={(e) => set("ship_mode", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>Ship Type</Label>
-          <Input value={fields.ship_type} onChange={(e) => set("ship_type", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.ship_type} onChange={(e) => set("ship_type", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>Place of Delivery</Label>
-          <Input value={fields.place_of_delivery} onChange={(e) => set("place_of_delivery", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.place_of_delivery} onChange={(e) => set("place_of_delivery", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>Invoice Send To</Label>
-          <Input value={fields.invoice_send_to} onChange={(e) => set("invoice_send_to", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.invoice_send_to} onChange={(e) => set("invoice_send_to", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>VAT/GST Against</Label>
-          <Input value={fields.vat_against} onChange={(e) => set("vat_against", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.vat_against} onChange={(e) => set("vat_against", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>Duty Against</Label>
-          <Input value={fields.duty_against} onChange={(e) => set("duty_against", e.target.value)} disabled={!canEdit} />
+          <Input uppercase value={fields.duty_against} onChange={(e) => set("duty_against", e.target.value)} disabled={!canEdit} />
         </div>
         <div>
           <Label>Freight Type</Label>

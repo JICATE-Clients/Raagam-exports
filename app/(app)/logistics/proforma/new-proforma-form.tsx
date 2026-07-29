@@ -124,10 +124,16 @@ export function NewProformaForm({ buyers, currencies }: Props) {
               </div>
               <div>
                 <Label htmlFor="pi-inco">Incoterm</Label>
+                {/* `uppercase` rather than a hand-rolled toUpperCase in the
+                    handler: the prop also carries the CSS transform, so an
+                    incoterm saved in lower case before this displays in caps
+                    too. It preserves the caret, which the hand-rolled version
+                    did not — typing mid-string jumped the cursor to the end. */}
                 <Input
+                  uppercase
                   id="pi-inco"
                   value={incoterm}
-                  onChange={(e) => setIncoterm(e.target.value.toUpperCase())}
+                  onChange={(e) => setIncoterm(e.target.value)}
                   list="pi-incoterms"
                   placeholder="FOB"
                 />

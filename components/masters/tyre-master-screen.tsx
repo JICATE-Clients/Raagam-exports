@@ -300,6 +300,7 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
             <div>
               <Label htmlFor="tyr-brand">Brand</Label>
               <Input
+                uppercase
                 id="tyr-brand"
                 value={form.brand}
                 onChange={(e) => set({ brand: e.target.value })}
@@ -309,6 +310,7 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
             <div>
               <Label htmlFor="tyr-type">Tyre Type</Label>
               <Input
+                uppercase
                 id="tyr-type"
                 value={form.tyre_type}
                 onChange={(e) => set({ tyre_type: e.target.value })}
@@ -318,6 +320,7 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
             <div>
               <Label htmlFor="tyr-size">Size</Label>
               <Input
+                uppercase
                 id="tyr-size"
                 value={form.size}
                 onChange={(e) => set({ size: e.target.value })}

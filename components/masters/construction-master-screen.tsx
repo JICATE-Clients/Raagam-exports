@@ -256,7 +256,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
             </div>
             <div>
               <Label htmlFor="con-reedcount">Reed Count</Label>
-              <Input id="con-reedcount" value={form.reed_count} onChange={(e) => setForm({ ...form, reed_count: e.target.value })} className="text-base md:text-sm" />
+              <Input uppercase id="con-reedcount" value={form.reed_count} onChange={(e) => setForm({ ...form, reed_count: e.target.value })} className="text-base md:text-sm" />
             </div>
             <div>
               <Label htmlFor="con-pick">Pick</Label>

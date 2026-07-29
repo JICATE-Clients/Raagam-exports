@@ -285,6 +285,7 @@ export function PackingInstructionMasterScreen({
                 Packing Type <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="pi-type"
                 value={form.packing_type}
                 onChange={(e) => setForm({ ...form, packing_type: e.target.value })}
@@ -308,6 +309,7 @@ export function PackingInstructionMasterScreen({
             <div>
               <Label htmlFor="pi-ref">Reference</Label>
               <Input
+                uppercase
                 id="pi-ref"
                 value={form.reference}
                 onChange={(e) => setForm({ ...form, reference: e.target.value })}

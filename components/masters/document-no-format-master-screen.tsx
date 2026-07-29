@@ -515,6 +515,7 @@ export function DocumentNoFormatMasterScreen({
                         <div>
                           <Label>Sample DocNo</Label>
                           <Input
+                            uppercase
                             value={m.sample_doc_no}
                             onChange={(e) => setMenuAt(m.key, { sample_doc_no: e.target.value })}
                             className="text-base md:text-sm"
@@ -569,12 +570,14 @@ export function DocumentNoFormatMasterScreen({
                               />
                               <div className="grid grid-cols-2 gap-2">
                                 <Input
+                                  uppercase
                                   placeholder="Value"
                                   value={s.value}
                                   onChange={(e) => setSegmentAt(m.key, s.key, { value: e.target.value })}
                                   className="text-base md:text-sm"
                                 />
                                 <Input
+                                  uppercase
                                   placeholder="Seperator"
                                   value={s.separator}
                                   onChange={(e) => setSegmentAt(m.key, s.key, { separator: e.target.value })}

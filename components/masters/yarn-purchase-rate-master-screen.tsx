@@ -223,7 +223,7 @@ export function YarnPurchaseRateMasterScreen({
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </Select>
-                    <Input placeholder="UOM" value={l.uom}
+                    <Input uppercase placeholder="UOM" value={l.uom}
                       onChange={(e) => setLineAt(l.key, { uom: e.target.value })}
                       className="text-base md:text-sm" />
                     <Input type="number" placeholder="Rate" value={l.rate} min={0} step="0.01"

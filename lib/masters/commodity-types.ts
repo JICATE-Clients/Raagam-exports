@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
 // Commodities — header-only master (0230). Legacy EDP2 "Commodity" form:
@@ -19,7 +20,7 @@ export interface Commodity {
 export const commodityInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
   short_name: z.string().optional().nullable(),
-  name: z.string().optional().nullable(),
+  name: capsTextNullable(),
   inactive: z.boolean().default(false),
 });
 export type CommodityInput = z.infer<typeof commodityInput>;

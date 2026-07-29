@@ -75,6 +75,18 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
           // Live, so enterSaves blocks Enter the instant the value is invalid —
           // before blur. Display (border/message) stays gated on `shownError`.
           aria-invalid={liveError ? true : undefined}
+          // The DISPLAY half of the CAPS rule, for `upper` kinds only (GSTIN,
+          // PAN, TAN, CIN, IEC, IFSC, SWIFT, currency, yarn_count).
+          // `handleChange` above already uppercases keystrokes, but a value
+          // loaded from the DB and never re-typed kept whatever case it was
+          // saved with — a PAN entered before this field had a format still
+          // rendered lowercase. `Input`'s `uppercase` prop carries the CSS
+          // text-transform that fixes those without touching stored data.
+          //
+          // Scoped to `transform === "upper"` on purpose: email and website are
+          // `transform: "none"` (formats.ts) because their case is significant
+          // or simply not ours to change.
+          uppercase={spec?.transform === "upper"}
           className={cn(shownError && "border-danger", className)}
           {...props}
         />

@@ -347,6 +347,7 @@ export function PackingMethodMasterScreen({
                 Packing Type <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="pm-type"
                 value={form.packing_type}
                 onChange={(e) => setForm({ ...form, packing_type: e.target.value })}
@@ -358,6 +359,7 @@ export function PackingMethodMasterScreen({
             <div>
               <Label htmlFor="pm-ref">Reference</Label>
               <Input
+                uppercase
                 id="pm-ref"
                 value={form.reference}
                 onChange={(e) => setForm({ ...form, reference: e.target.value })}
@@ -438,6 +440,7 @@ export function PackingMethodMasterScreen({
                     className="w-20 shrink-0 text-base md:text-sm"
                   />
                   <Input
+                    uppercase
                     placeholder="Category name"
                     value={row.category_name}
                     onChange={(e) => updateChild(row.key, "category_name", e.target.value)}

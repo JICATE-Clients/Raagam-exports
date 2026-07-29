@@ -305,6 +305,7 @@ export function DepartmentMasterScreen({
             <div>
               <Label htmlFor="dep-prefix">Doc Prefix</Label>
               <Input
+                uppercase
                 id="dep-prefix"
                 value={form.doc_prefix}
                 onChange={(e) => set({ doc_prefix: e.target.value })}

@@ -15,9 +15,16 @@ export const FABRIC_SUBTYPES = ["solid", "yarn_dyed", "melange"] as const;
 
 export const ENQUIRY_AGAINST = ["new", "repeat", "development"] as const;
 export const ORDER_TYPES = ["new", "repeat"] as const;
-export const DELIVERY_MODES = ["air", "sea", "courier", "road"] as const;
-export const RECEIPT_MODES = ["email", "phone", "fax", "courier", "direct"] as const;
-export const SHIP_MODES = ["air", "sea", "road"] as const;
+// CAPS, like every other field value (client 2026-07-23). These were lowercase
+// while lib/masters/applicant-types.ts held ["AIR","ROAD","SEA","SEA/AIR"] for
+// the SAME concept, so the two halves of the app disagreed and three screens
+// re-capitalised at render time. Storage is the caps now; those workarounds are
+// gone. Casing changed, membership did NOT — applicant's extra "SEA/AIR" is a
+// product question, not a casing one. Pinned by CHECK constraints in
+// migration 0368, so this array and the DB must move together.
+export const DELIVERY_MODES = ["AIR", "SEA", "COURIER", "ROAD"] as const;
+export const RECEIPT_MODES = ["EMAIL", "PHONE", "FAX", "COURIER", "DIRECT"] as const;
+export const SHIP_MODES = ["AIR", "SEA", "ROAD"] as const;
 
 /** Sample types (shared by samples + the Define Styles "Sample Type" column). */
 export const SAMPLE_TYPES = ["proto", "fit", "sms", "pp", "top"] as const;

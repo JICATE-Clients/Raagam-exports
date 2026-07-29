@@ -41,6 +41,7 @@ export function FilterBar({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <Input
+          uppercase
           ref={searchRef}
           value={search}
           onChange={(e) => onSearch(e.target.value)}

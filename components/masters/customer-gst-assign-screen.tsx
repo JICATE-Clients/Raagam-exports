@@ -211,6 +211,7 @@ export function CustomerGstAssignScreen({
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Set GSTIN</span>
             <Input
+              uppercase
               value={bulkNo}
               onChange={(e) => setBulkNo(e.target.value)}
               maxLength={15}

@@ -292,6 +292,7 @@ export function CurrencyPicker({
                       <div>
                         <Label htmlFor="cur-symbol">Symbol</Label>
                         <Input
+                          uppercase
                           id="cur-symbol"
                           value={symbol}
                           onChange={(e) => setSymbol(e.target.value)}

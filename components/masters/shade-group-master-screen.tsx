@@ -388,30 +388,30 @@ export function ShadeGroupMasterScreen({
                     header: "ID",
                     className: "w-24",
                     cell: (r) => (
-                      <Input value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
+                      <Input uppercase value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
                     ),
                   },
                   {
                     header: "Short",
                     className: "w-28",
                     cell: (r) => (
-                      <Input value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
+                      <Input uppercase value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
                     ),
                   },
                   {
                     header: "Shade Name",
                     cell: (r) => (
-                      <Input value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
+                      <Input uppercase value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
                     ),
                   },
                 ]}
                 renderMobileRow={(r) => (
                   <>
-                    <Input value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
+                    <Input uppercase value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
                     {/* fields pair up two-per-row inside cards */}
                     <div className="grid grid-cols-2 gap-2">
-                      <Input value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
-                      <Input value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
+                      <Input uppercase value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
+                      <Input uppercase value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
                     </div>
                   </>
                 )}

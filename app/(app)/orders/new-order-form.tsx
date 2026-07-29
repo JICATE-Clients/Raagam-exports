@@ -256,11 +256,12 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
               <div>
                 <Label htmlFor="currency">Currency</Label>
                 <Input
+                  uppercase
                   id="currency"
                   placeholder="USD"
                   maxLength={3}
                   value={currencyCode}
-                  onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
+                  onChange={(e) => setCurrencyCode(e.target.value)}
                 />
               </div>
 
@@ -308,6 +309,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                         <tr key={i} data-grid-row className="border-b border-border last:border-0">
                           <td className="px-3 py-1">
                             <Input
+                              uppercase
                               placeholder="e.g. Navy"
                               value={l.color}
                               onChange={(e) => updateLine(i, "color", e.target.value)}
@@ -316,6 +318,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                           </td>
                           <td className="px-3 py-1">
                             <Input
+                              uppercase
                               placeholder="e.g. M"
                               value={l.size}
                               onChange={(e) => updateLine(i, "size", e.target.value)}

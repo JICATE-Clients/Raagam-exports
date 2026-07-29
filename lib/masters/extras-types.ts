@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CURRENCY_RE, YARN_COUNT_RE } from "@/lib/validation/formats";
+import { CURRENCY_RE, YARN_COUNT_RE, capsName, capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
 // Config lookups — generic kind-discriminated material/spec masters (0218)
@@ -183,7 +183,7 @@ export const attributeValueInput = z.object({
 });
 export const attributeInput = z.object({
   code: z.string().optional().nullable(),
-  name: z.string().min(1, "Name is required"),
+  name: capsName(),
   type_code: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   is_active: z.boolean().default(true),
@@ -194,7 +194,7 @@ export const lookupInput = z
   .object({
     kind: z.enum(LOOKUP_KINDS),
     code: z.string().optional().nullable(),
-    name: z.string().min(1),
+    name: capsName(),
     type_code: z.string().optional().nullable(),
     notes: z.string().optional().nullable(),
     is_active: z.boolean().default(true),
@@ -222,7 +222,7 @@ export type LookupInput = z.infer<typeof lookupInput>;
 export type ItemClass = ConfigLookup;
 export const itemClassInput = z.object({
   code: z.string().optional().nullable(),
-  name: z.string().min(1, "Name is required"),
+  name: capsName(),
   type_code: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   has_attribute: z.boolean().default(false),
@@ -245,8 +245,8 @@ export interface Transporter {
 }
 export const transporterInput = z.object({
   code: z.string().optional().nullable(),
-  name: z.string().min(1),
-  contact_person: z.string().optional().nullable(),
+  name: capsName(),
+  contact_person: capsTextNullable(),
   phone: z.string().optional().nullable(),
   is_active: z.boolean().default(true),
 });

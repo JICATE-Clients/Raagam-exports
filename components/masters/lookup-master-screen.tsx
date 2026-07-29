@@ -149,6 +149,7 @@ export function LookupMasterScreen({
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <Input
+          uppercase
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search ${singular.toLowerCase()}…`}

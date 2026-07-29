@@ -236,6 +236,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
           </Field>
           <Field label="ECGC Code" size={FIELD_SIZE.ecgc_code} htmlFor="co-ecgc">
             <Input
+              uppercase
               id="co-ecgc"
               value={form.ecgc_code}
               onChange={(e) => set({ ecgc_code: e.target.value })}

@@ -54,7 +54,8 @@ const FIELD_SIZE = {
   branch_name: "sm", // 3 — "PEELAMEDU"
   swift_code: "sm", // 3 — 8 or 11 characters
   ifsc_code: "sm", // 3 — exactly 11 characters
-  address: "lg", // 6 — the one free-text line on the form (LAYOUT.md §3)
+  address: "sm", // 3 — the one free-text line on the form; it keeps the same
+  //                    box as its neighbours (uniform 4-per-row, 2026-07-29)
   inactive: "sm", // 3 — a tick box; it only needs room for its own caption
 } satisfies Record<string, FieldSize>;
 
@@ -337,6 +338,7 @@ export function OurBankMasterScreen({
           </Field>
           <Field label="Address" size={FIELD_SIZE.address} htmlFor="ob-address">
             <Input
+              uppercase
               id="ob-address"
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}

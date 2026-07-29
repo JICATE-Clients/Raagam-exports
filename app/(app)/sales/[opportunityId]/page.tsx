@@ -124,7 +124,8 @@ export default async function OpportunityDetailPage({ params }: PageProps) {
         {opportunity.delivery_mode && (
           <div className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Delivery:</span>
-            <span className="font-medium capitalize">{opportunity.delivery_mode}</span>
+            {/* No `capitalize`: delivery_mode is CAPS at rest (migration 0368). */}
+            <span className="font-medium">{opportunity.delivery_mode}</span>
           </div>
         )}
         {opportunity.notes && (

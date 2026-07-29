@@ -19,7 +19,12 @@ export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
 // Reused from the Applicant/Customer masters (see doc/masters-open-questions.md).
 export const SHIP_MODES = ["AIR", "ROAD", "SEA"] as const;
 export const PAY_MODES = ["CAD", "CASH", "CHEQUE", "DA", "DD", "DP", "LC", "OTH"] as const;
-export const RECEIPT_MODES = ["By Mail", "By Hand", "Courier", "Email"] as const;
+// CAPS like SHIP_MODES and PAY_MODES above — it was the only Title Case set in
+// this block, on the same form. `orders_amendments.received_mode` is free text
+// (0126:49) so there is no CHECK to move, but migration 0368 DOES rewrite the
+// stored rows: the Select matches on value, so a row still holding "By Mail"
+// would render as blank against a "BY MAIL" option list.
+export const RECEIPT_MODES = ["BY MAIL", "BY HAND", "COURIER", "EMAIL"] as const;
 // Color/Print ▸ Dyeing sections (the Yarn / Fabric split).
 export const DYE_SECTIONS = ["yarn", "fabric"] as const;
 

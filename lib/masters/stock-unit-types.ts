@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsName } from "@/lib/validation/formats";
 
 // ============================================================================
 // Stock Units — the enriched UOM master (0224 adds columns to `uoms`). Legacy
@@ -30,7 +31,7 @@ export const stockUnitInput = z.object({
    *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
    *  code through unchanged. */
   code: z.string().optional().default(""),
-  name: z.string().min(1, "Name is required"),
+  name: capsName(),
   description: z.string().optional().nullable(),
   decimal_places: z.coerce.number().int().min(0).max(6).default(0),
   decimal_places_allowed: z.coerce.number().int().min(0).max(9).default(2),

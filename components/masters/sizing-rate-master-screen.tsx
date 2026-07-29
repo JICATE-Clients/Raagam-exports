@@ -199,7 +199,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="sr-type">Entry Type</Label>
-              <Input id="sr-type" value={entryType} onChange={(e) => setEntryType(e.target.value)} className="text-base md:text-sm" />
+              <Input uppercase id="sr-type" value={entryType} onChange={(e) => setEntryType(e.target.value)} className="text-base md:text-sm" />
             </div>
             <div>
               <Label htmlFor="sr-base">Base Rate</Label>

@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -330,22 +331,29 @@ export function BrandMasterScreen({
               canCreate={perms.canCreate}
               canEdit={perms.canEdit}
             />
+            {/* `ValidatedInput`, not a bare `Input` — every other master with
+                these two fields already uses it (applicant, consignee, courier,
+                customer, vendor). Surfaced by the CAPS audit: a plain Input here
+                was the only thing standing between `form.website` and being
+                uppercased along with the rest of the form, which would have been
+                wrong. `website` and `phone_intl` are `transform: "none"`
+                (formats.ts), so they keep their case and gain inline validation. */}
             <div>
               <Label htmlFor="brd-website">Website</Label>
-              <Input
+              <ValidatedInput
+                format="website"
                 id="brd-website"
                 value={form.website}
                 onChange={(e) => set({ website: e.target.value })}
-                className="text-base md:text-sm"
               />
             </div>
             <div>
               <Label htmlFor="brd-phone">Phone</Label>
-              <Input
+              <ValidatedInput
+                format="phone_intl"
                 id="brd-phone"
                 value={form.phone}
                 onChange={(e) => set({ phone: e.target.value })}
-                className="text-base md:text-sm"
               />
             </div>
             <MobileWhatsAppFields

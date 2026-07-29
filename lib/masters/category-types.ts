@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsName, capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
 // Categories — rich material-classification master (0223). Legacy EDP2
@@ -65,13 +66,13 @@ export interface Category {
 export const categorySubCategoryInput = z.object({
   id: z.string().uuid().nullable().default(null),
   sno: z.coerce.number().int().nonnegative().default(0),
-  name: z.string().trim().min(1, "Sub Category name is required"),
+  name: capsName("Sub Category name is required"),
 });
 
 export const categoryInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
   short_name: z.string().optional().nullable(),
-  name: z.string().optional().nullable(),
+  name: capsTextNullable(),
   short_spec: z.string().optional().nullable(),
   made: z.enum(MADE_TYPES).nullable().default(null),
   levy_id: z.string().uuid().nullable().default(null),

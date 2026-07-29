@@ -305,7 +305,7 @@ export function CurrenciesSection({ currencies }: { currencies: Currency[] }) {
       <Card>
         <CardBody>
           <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
-            <div className="w-24"><Label htmlFor="cu-code">Code</Label><Input id="cu-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} disabled={!!editCode} required /></div>
+            <div className="w-24"><Label htmlFor="cu-code">Code</Label><Input uppercase id="cu-code" value={code} onChange={(e) => setCode(e.target.value)} disabled={!!editCode} required /></div>
             <div className="min-w-[180px] flex-1"><Label htmlFor="cu-name">Name</Label><Input id="cu-name" value={name} onChange={(e) => setName(e.target.value)} required /></div>
             <div className="w-24"><Label htmlFor="cu-symbol">Symbol</Label><Input id="cu-symbol" value={symbol} onChange={(e) => setSymbol(e.target.value)} /></div>
             <Button type="submit" variant="primary" size="sm" disabled={isPending}>{editCode ? "Update" : "Add"}</Button>

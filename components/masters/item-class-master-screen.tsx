@@ -19,6 +19,7 @@ import { Select } from "@/components/ui/select";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -127,7 +128,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
       header: "Created Date",
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
-          {new Date(r.created_at).toLocaleDateString("en-GB")}
+          {fmtDate(r.created_at)}
         </span>
       ),
     },

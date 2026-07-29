@@ -307,6 +307,46 @@ export function nullableKind(kind: FormatKind) {
     });
 }
 
+// ============================================================================
+// CAPS
+// ============================================================================
+/**
+ * A text field STORED in capitals (client 2026-07-23, extended app-wide
+ * 2026-07-29).
+ *
+ * Put this in the `*Input` SCHEMA, never only in the server action. The action
+ * is not the only write path: `lib/data-io/actions.ts` parses a spreadsheet row
+ * with these very schemas and pushes `parsed.data` straight to Postgres, so an
+ * action-level `.toUpperCase()` never sees an import. That is how mixed-case
+ * rows have been getting in despite ~30 hand-copied uppercase calls.
+ *
+ * Validate BEFORE transforming — `.min()` cannot be chained after a Zod
+ * transform, and a whitespace-only name should fail as empty rather than
+ * succeed as "".
+ *
+ * NOT for email, website, or any `transform: "none"` format kind: those are
+ * case-sensitive or case-irrelevant, and shouting them helps nobody. Route
+ * those through `nullableKind` / `nullableFormat` instead, which is already
+ * what the master screens do by rendering `ValidatedInput`.
+ */
+export function capsName(message = "Name is required") {
+  return z
+    .string()
+    .trim()
+    .min(1, message)
+    .transform((s) => s.toUpperCase());
+}
+
+/** Optional/nullable counterpart of `capsName` — null and undefined pass through. */
+export function capsTextNullable() {
+  return z
+    .string()
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .optional()
+    .nullable();
+}
+
 /** GST slab whitelist (percentage), null-tolerant. */
 export function gstRate() {
   return z.coerce

@@ -190,6 +190,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
                 ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="lt-code"
                 value={form.code}
                 onChange={(e) => set({ code: e.target.value })}

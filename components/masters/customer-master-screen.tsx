@@ -829,10 +829,10 @@ export function CustomerMasterScreen({
                         <Input id="cu-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} required />
                       </Field>
                       <Field label="Doc Prefix" size={FIELD_SIZE.doc_prefix} htmlFor="cu-prefix">
-                        <Input id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
+                        <Input uppercase id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
                       </Field>
                       <Field label="ID" size={FIELD_SIZE.doc_id} htmlFor="cu-docid">
-                        <Input id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} />
+                        <Input uppercase id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} />
                       </Field>
                       <Field label="Also Consignee" size={FIELD_SIZE.also_consignee} htmlFor="cu-alsocons">
                         <Select id="cu-alsocons" value={form.also_consignee ? "yes" : "no"} onChange={(e) => set({ also_consignee: e.target.value === "yes" })}>
@@ -867,7 +867,7 @@ export function CustomerMasterScreen({
                         </Select>
                       </Field>
                       <Field label="In-house Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="cu-inhouseunit">
-                        <Input id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
+                        <Input uppercase id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
                       </Field>
                     </FieldGrid>
                   </SectionBody>
@@ -881,8 +881,13 @@ export function CustomerMasterScreen({
             content: (
                   <SectionBody title="Address" hint="Primary correspondence address for this customer.">
                     <FieldGrid>
+                      {/* A single-line Input, not the 3-row Textarea this used
+                          to be: every grid row is as tall as its tallest item,
+                          so a textarea sharing the row would leave City / State
+                          / Pin above a band of dead space. Stored newlines
+                          survive; an <input> just shows them on one line. */}
                       <Field label="Street" size={FIELD_SIZE.street} htmlFor="cu-street">
-                        <Textarea id="cu-street" rows={3} value={form.street} onChange={(e) => set({ street: e.target.value })} />
+                        <Input uppercase id="cu-street" value={form.street} onChange={(e) => set({ street: e.target.value })} />
                       </Field>
                       {/* The pickers were the self-labelling idiom while the rest
                           of the screen used an external <Label> + `compact`. One
@@ -944,7 +949,7 @@ export function CustomerMasterScreen({
                           {
                             header: "Contact Name",
                             className: "min-w-[130px]",
-                            cell: (c) => <Input value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="h-8 text-sm" />,
+                            cell: (c) => <Input uppercase value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="h-8 text-sm" />,
                           },
                           {
                             header: "Designation",
@@ -982,7 +987,7 @@ export function CustomerMasterScreen({
                               <Label>Department</Label>
                               <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} compact />
                             </div>
-                            <Input placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
+                            <Input uppercase placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
                             <div>
                               <Label>Designation</Label>
                               <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} compact />
@@ -1199,7 +1204,7 @@ export function CustomerMasterScreen({
                           {
                             header: "Marking",
                             cell: (m) => (
-                              <Input value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" placeholder="Marking text" />
+                              <Input uppercase value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" placeholder="Marking text" />
                             ),
                           },
                         ]}

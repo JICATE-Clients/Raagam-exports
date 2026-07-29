@@ -335,6 +335,7 @@ export function DefectDetailMasterScreen({
                 Category ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="dd-catg"
                 value={form.defect_catg_id}
                 onChange={(e) => set({ defect_catg_id: e.target.value })}
@@ -347,6 +348,7 @@ export function DefectDetailMasterScreen({
                 Defect ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="dd-id"
                 value={form.defect_id}
                 onChange={(e) => set({ defect_id: e.target.value })}
@@ -359,6 +361,7 @@ export function DefectDetailMasterScreen({
                 Detail ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="dd-det"
                 value={form.defect_det_id}
                 onChange={(e) => set({ defect_det_id: e.target.value })}
@@ -408,6 +411,7 @@ export function DefectDetailMasterScreen({
             <div>
               <Label htmlFor="dd-type">Defect Type</Label>
               <Input
+                uppercase
                 id="dd-type"
                 value={form.defect_type}
                 onChange={(e) => set({ defect_type: e.target.value })}

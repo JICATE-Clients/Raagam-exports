@@ -357,6 +357,7 @@ export function CountryPicker({
                       <div>
                         <Label htmlFor="cp-ecgc">ECGC Code</Label>
                         <Input
+                          uppercase
                           id="cp-ecgc"
                           value={form.ecgc_code}
                           onChange={(e) => setForm((f) => ({ ...f, ecgc_code: e.target.value }))}
@@ -366,6 +367,7 @@ export function CountryPicker({
                       <div>
                         <Label htmlFor="cp-isd">ISD Code</Label>
                         <Input
+                          uppercase
                           id="cp-isd"
                           value={form.isd_code}
                           onChange={(e) => setForm((f) => ({ ...f, isd_code: e.target.value }))}

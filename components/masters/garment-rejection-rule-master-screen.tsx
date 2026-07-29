@@ -296,6 +296,7 @@ export function GarmentRejectionRuleMasterScreen({
               Rule <span className="text-danger">*</span>
             </Label>
             <Input
+              uppercase
               id="grr-rule"
               value={rule}
               onChange={(e) => setRule(e.target.value)}
@@ -342,6 +343,7 @@ export function GarmentRejectionRuleMasterScreen({
                     </Button>
                   </div>
                   <Input
+                    uppercase
                     placeholder="Range"
                     value={l.range_label}
                     onChange={(e) => setLineAt(l.key, { range_label: e.target.value })}

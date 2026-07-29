@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsName, capsTextNullable } from "@/lib/validation/formats";
 
 export interface Currency {
   code: string;
@@ -36,10 +37,13 @@ export interface Item {
   is_active: boolean;
 }
 
+// `capsName` rather than a `.toUpperCase()` in the action: these schemas are
+// ALSO what lib/data-io parses a spreadsheet import with, and that path writes
+// straight to Postgres without touching an action. See capsName's doc comment.
 export const buyerInput = z.object({
   code: z.string().min(1, "Code required"),
-  name: z.string().min(1, "Name required"),
-  country: z.string().optional().nullable(),
+  name: capsName("Name required"),
+  country: capsTextNullable(),
   currency_code: z.string().optional().nullable(),
   contact_email: z.string().email().optional().or(z.literal("")).nullable(),
   contact_phone: z.string().optional().nullable(),
@@ -50,8 +54,8 @@ export type BuyerInput = z.infer<typeof buyerInput>;
 
 export const itemInput = z.object({
   code: z.string().min(1),
-  name: z.string().min(1),
-  category: z.string().optional().nullable(),
+  name: capsName(),
+  category: capsTextNullable(),
   uom_id: z.string().uuid().optional().nullable(),
   is_active: z.boolean().default(true),
 });
@@ -59,7 +63,7 @@ export type ItemInput = z.infer<typeof itemInput>;
 
 export const uomInput = z.object({
   code: z.string().min(1),
-  name: z.string().min(1),
+  name: capsName(),
   is_active: z.boolean().default(true),
 });
 export type UomInput = z.infer<typeof uomInput>;
