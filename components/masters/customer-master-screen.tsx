@@ -257,7 +257,8 @@ export function CustomerMasterScreen({
   internalDepartments,
   currencies,
   shipTypes,
-  categories,
+  sewingCategories,
+  packingCategories,
   agentTypes,
   agentOptions,
   packingFormats,
@@ -281,7 +282,10 @@ export function CustomerMasterScreen({
   internalDepartments: ConfigLookup[];
   currencies: Currency[];
   shipTypes: ConfigLookup[];
-  categories: ConfigLookup[];
+  /** Categories of item class SEW — feeds the Sewing Accessories card. */
+  sewingCategories: ConfigLookup[];
+  /** Categories of item class PACK — feeds the Packaging Accessories card. */
+  packingCategories: ConfigLookup[];
   agentTypes: ConfigLookup[];
   agentOptions: ConfigLookup[];
   packingFormats: ConfigLookup[];
@@ -1045,8 +1049,8 @@ export function CustomerMasterScreen({
             content: (
                   <SectionBody title="Supplied Items" hint="Categories the customer supplies (free-issue), by accessory group.">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
-                      <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
+                      <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={sewingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
+                      <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={packingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
                     </div>
                   </SectionBody>
             ),
@@ -1260,8 +1264,12 @@ function CategoryGrid({
       columns={[
         {
           header: "Category",
+          // Add/Modify OFF: the options are `categories` rows (0356), but this
+          // picker's inline create writes to `config_lookups` — it would file a
+          // new category under the wrong table and the FK would reject it. New
+          // categories are created in the Category master.
           cell: (r) => (
-            <LookupDialogPicker kind="material_category" label="Category" options={categories} value={r.category_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, category_id: id } : x))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+            <LookupDialogPicker kind="material_category" label="Category" options={categories} value={r.category_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, category_id: id } : x))); setDirty(true); }} canCreate={false} canEdit={false} compact />
           ),
         },
       ]}
