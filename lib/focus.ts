@@ -16,8 +16,8 @@ export type NavKeyEvent = {
   defaultPrevented: boolean;
   target: EventTarget | null;
   preventDefault(): void;
-  /** Only `tabOpensList` reads this — Shift+Tab must always walk backwards. */
-  shiftKey?: boolean;
+  /** Only `arrowOpensPicker` reads this — Alt+↓ is the in-grid way to open a list. */
+  altKey?: boolean;
 };
 
 /**
@@ -30,6 +30,81 @@ export type NavKeyEvent = {
  */
 export const FOCUSABLE_SELECTOR =
   'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Focus a field and put the caret at the END of its text.
+ *
+ * The caret position is not cosmetic: `atCaretEdge` gates ←/→ on it, so a field
+ * focused with a bare `.focus()` lands the caret at 0 and → then has to walk the
+ * whole value one character at a time before it will move to the next field.
+ * That is precisely what "→ doesn't go to the next field" looked like — and note
+ * it is DIRECTIONAL: ← worked from the same field, because caret 0 already is the
+ * previous-edge (client 2026-07-28).
+ *
+ * Every path that moves focus programmatically must use this. It existed three
+ * times over — inline in `arrowNavigate` and `focusFirstField`, and copied into
+ * `child-grid.tsx` — and the one place that skipped it (Sheet's Tab trap) is the
+ * one every masters editor tabs through.
+ */
+export function focusField(el: HTMLElement): void {
+  el.focus();
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const len = el.value.length;
+    try {
+      el.setSelectionRange(len, len);
+    } catch {
+      /* number/email inputs reject selection ranges */
+    }
+  }
+}
+
+/**
+ * Where the cursor has recently been, most recent first. Fed by the single
+ * `focusin` listener in components/shell/keyboard-nav-provider.tsx.
+ *
+ * A HISTORY rather than one "last element outside an overlay", because "outside
+ * an overlay" cannot be expressed as a selector here: `Sheet` wears
+ * `role="dialog"` too, so excluding dialogs would blind this to every field on
+ * every masters editor. Depth handles it instead — when a portal picker unmounts,
+ * its own nodes leave the document and the first entry still `isConnected` is the
+ * trigger the operator opened it from.
+ */
+const FOCUS_HISTORY_MAX = 8;
+let focusHistory: HTMLElement[] = [];
+
+export function rememberFocus(el: EventTarget | null): void {
+  if (!(el instanceof HTMLElement)) return;
+  if (typeof document !== "undefined" && el === document.body) return;
+  focusHistory = [el, ...focusHistory.filter((x) => x !== el)].slice(0, FOCUS_HISTORY_MAX);
+}
+
+/**
+ * FOCUS IS NEVER DROPPED TO `<body>`. Put the cursor back on the field the
+ * operator came from if it has been stranded there.
+ *
+ * A portal picker renders into `<body>` and UNMOUNTS on pick — and removing the
+ * focused node silently moves focus to `<body>` in Chrome without even firing
+ * `blur`. So choosing a value left no cursor anywhere and the operator had to
+ * reach for the mouse to get back to the field they had just filled in (client
+ * 2026-07-28). `Sheet` already solved this for itself with `openerRef`; portal
+ * pickers had nothing.
+ *
+ * Restores ONLY from `<body>`, and only to a node still in the document, so it
+ * can never steal focus from whatever legitimately took it next.
+ */
+export function restoreFocusIfLost(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  if (active && active !== document.body) return false;
+  // The most recent entry that is still real: still in the document, still laid
+  // out, and not inside a closed `Sheet` (which stays mounted behind `inert`).
+  const home = focusHistory.find(
+    (el) => el.isConnected && el.offsetParent !== null && !el.closest("[inert]"),
+  );
+  if (!home) return false;
+  focusField(home);
+  return true;
+}
 
 /** Visible focusable elements inside `root`, in DOM order. */
 export function focusablesIn(root: HTMLElement): HTMLElement[] {
@@ -68,155 +143,134 @@ export function orderedFocusables(root: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Legacy ERP "Enter moves forward" (client 2026-07-23 #7): Enter in a field
- * advances focus to the next focusable control. Textareas and real buttons
- * (Save / Cancel / + Add) keep their native Enter, and handlers that already
- * consumed the key (preventDefault) are left alone. `root` is the boundary the
- * advance walks.
- *
  * `[data-field-trigger]` — a dialog-picker trigger. It is a <button> for
  * accessibility, but to the operator it IS a field, sitting in a row of inputs
  * and styled identically. Without this, Enter fell through to the button's
- * native activation and OPENED the picker, so Enter meant "next field" on a
- * text box and "open a dialog" on the picker beside it — roughly every other
- * field on a masters form (client 2026-07-25). Enter now advances everywhere;
- * Space and click still open the picker.
+ * native activation and OPENED the picker, so Enter meant one thing on a text
+ * box and "open a dialog" on the picker beside it — roughly every other field on
+ * a masters form (client 2026-07-25). Enter now saves everywhere; ↓, Space and
+ * click open the picker.
  */
 const FIELD_TRIGGER = "[data-field-trigger]";
 
-export function enterAdvance(e: NavKeyEvent, root: HTMLElement | null) {
+/** Fires a global shortcut handler; see lib/shortcuts.ts. Returns false if none. */
+export type FireShortcut = (id: "save") => boolean;
+
+/**
+ * Save the surface the operator is standing in. Returns true when it found
+ * something to do — the caller only swallows the key on true, so Enter in a list
+ * page's filter box still falls through to the browser instead of dying quietly.
+ *
+ * The footer rule is lifted from the Ctrl+S handler in components/ui/sheet.tsx:
+ * the primary action is the LAST footer button by POSITION (Cancel → Save), not
+ * the last *enabled* one. When Save is disabled by a validation error, "last
+ * enabled" resolves to Cancel, and Ctrl+S silently discarded the form (client
+ * 2026-07-25). A disabled primary means the record is not saveable yet, so the
+ * key is consumed and nothing happens — which is the line to flip if Enter should
+ * instead fall through while Save is disabled.
+ */
+export function submitSurface(root: HTMLElement | null, fire?: FireShortcut): boolean {
+  if (!root) return false;
+
+  // 1. The surface's own footer, when the scope contains it.
+  const footer = root.querySelector<HTMLElement>('[data-focus-region="footer"]');
+  if (footer) {
+    const btns = footer.querySelectorAll<HTMLButtonElement>("button");
+    const primary = btns[btns.length - 1];
+    if (primary) {
+      if (!primary.disabled) primary.click();
+      return true;
+    }
+  }
+
+  // 2. The registered "save" handler. This is the path for `Sheet` (whose footer
+  //    lives OUTSIDE the <form> that usually becomes the scope) and for
+  //    `MasterFullScreen` (whose scope is its content pane). Only those two ever
+  //    register "save", so a list page cannot save by accident.
+  if (fire?.("save")) return true;
+
+  // 3. A plain form with a real submit button. Deliberately requires the button:
+  //    `requestSubmit()` on a form that has no submit handler would navigate.
+  const form = root instanceof HTMLFormElement ? root : root.closest("form");
+  const submitter = form?.querySelector<HTMLButtonElement>(
+    'button[type="submit"], input[type="submit"]',
+  );
+  if (form && submitter) {
+    if (!submitter.disabled) form.requestSubmit(submitter);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * ENTER SAVES THE RECORD (client 2026-07-28). Enter used to advance to the next
+ * field, the legacy RP-Software behaviour; the operators asked for the commit key
+ * instead, and moving forward is now Tab / ↓ / →.
+ *
+ * Textareas and real buttons keep their native Enter (a newline, an activation),
+ * and anything that already consumed the key — an open picker list choosing its
+ * highlighted row, a child grid stepping to the next row, an inline row editor —
+ * has called preventDefault and is left alone.
+ */
+export function enterSaves(e: NavKeyEvent, root: HTMLElement | null, fire?: FireShortcut) {
   if (e.key !== "Enter" || e.defaultPrevented) return;
   const t = e.target;
   const isTrigger = t instanceof HTMLElement && t.matches(FIELD_TRIGGER);
   if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement || isTrigger)) return;
   if (t instanceof HTMLInputElement && /^(button|submit|reset)$/.test(t.type)) return;
-  // Don't advance out of a field that's currently invalid (client 2026-07-24):
-  // keep the user on it until the validation message clears. Fields flag this
-  // via aria-invalid — ValidatedInput sets it on error, and any field with a
-  // live error (e.g. a duplicate-name check) can set it too.
+  // A TICK BOX IS THE ONE FIELD WHERE ENTER MUST NOT SAVE. Standing on it the
+  // operator means "tick this", and Enter there committed the whole record
+  // instead — a dead key for the tick AND a footgun, since a stray Enter on a
+  // half-filled form saved it (client 2026-07-28). Space still toggles natively;
+  // this only makes the key they actually reach for do the obvious thing.
+  // Radios get the same treatment — Enter selects, ↑/↓ still walk the group.
+  if (t instanceof HTMLInputElement && /^(checkbox|radio)$/.test(t.type)) {
+    e.preventDefault();
+    t.click(); // same path Space and a mouse take, so onChange fires normally
+    return;
+  }
+  // Don't save from a field that's currently invalid (client 2026-07-24): keep
+  // the user on it until the validation message clears. Fields flag this via
+  // aria-invalid — ValidatedInput sets it on error, and any field with a live
+  // error (e.g. a duplicate-name check) can set it too.
   if (t.getAttribute("aria-invalid") === "true") {
     e.preventDefault();
     return;
   }
-  if (!root) return;
-  // Confined to the region the cursor is already in. Enter used to walk out of
-  // the last data field and land on the footer's FIRST button — which is
-  // Cancel, not Save — so a second Enter discarded the whole form without a
-  // confirmation (client 2026-07-25). Enter now stops at the end of the fields;
-  // Ctrl+S or Tab still reaches the footer.
-  const region = regionOf(t as HTMLElement);
-  const items = orderedFocusables(root).filter((el) => regionOf(el) === region);
-  const idx = items.indexOf(t);
-  e.preventDefault();
-  if (idx !== -1) {
-    items[idx + 1]?.focus();
-    return;
-  }
-  // The field is itself skipped (tabindex="-1", e.g. an auto-generated Name the
-  // user clicked into) so it has no index. Advance to the first control that
-  // follows it in the document instead of doing nothing.
-  const after = items.find(
-    (el) => t.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING,
-  );
-  after?.focus();
+  if (submitSurface(root, fire)) e.preventDefault();
 }
 
 /**
- * ↓/↑ on a dialog-picker trigger OPENS its list — the same thing ↓ does on a
- * Combobox, so every "choose a stored value" field answers the arrow key.
+ * ↓ ON A FIELD OPENS ITS LIST — the same thing ↓ does on a Combobox, so every
+ * "choose a stored value" field answers the same key (client 2026-07-28). This is
+ * now the ONLY key that opens a list: Tab was previously overloaded to do it on a
+ * second press, and no longer is.
  *
- * Without this, Count (a `<Select>`, so really a Combobox `<input>`) opened on
- * ↓ while Category (a picker `<button>`) sat dead beside it in the same row.
- * Marking triggers as fields fixed Enter and fixed grid arrows, but a plain
- * form has no arrow handling at all — arrows there are purely native, and a
- * native button ignores them (client 2026-07-25).
+ * Without this, Count (a `<Select>`, so really a Combobox `<input>`) opened on ↓
+ * while Category (a picker `<button>`) sat dead beside it in the same row.
+ * Marking triggers as fields fixed Enter and fixed grid arrows, but a plain form
+ * has no arrow handling at all — arrows there are purely native, and a native
+ * button ignores them (client 2026-07-25).
  *
- * Inside a child grid the arrows keep meaning "previous / next row" — that is
- * `gridKeyNav`'s contract and it runs first — so this only fires on form
- * fields. Returns true when it consumed the key.
+ * ↑ is deliberately NOT an opener: it means "the field above", so a picker is not
+ * a one-way door.
+ *
+ * This fires inside a child grid too. Grids own ↑/↓ for row movement, so the
+ * opener was Alt+↓ only — but Tab-Tab had been the way into a grid picker until
+ * ↓ replaced it on forms, and grid cells got nothing back: both keys an operator
+ * reaches for did nothing, leaving Space and an undiscoverable modifier (client
+ * 2026-07-28). `gridKeyNav` now stands down on ↓ over a trigger; ↑ and Enter
+ * still move rows from that cell, so no capability was traded away. Alt+↓ still
+ * works as an alias. Returns true when it consumed the key.
  */
 export function arrowOpensPicker(e: NavKeyEvent): boolean {
   if (e.defaultPrevented) return false;
-  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return false;
+  if (e.key !== "ArrowDown") return false;
   const t = e.target;
   if (!(t instanceof HTMLElement) || !t.matches(FIELD_TRIGGER)) return false;
-  if (t.closest("[data-grid-row]")) return false;
   e.preventDefault();
   t.click(); // the trigger's existing onClick opens the dialog
-  // Count this the same as a Tab-opened list, so dismissing it with Escape
-  // leaves Tab free to move on instead of re-opening what the operator just
-  // closed. See `openedFor`.
-  openedFor = t;
-  return true;
-}
-
-/** Fields whose value comes from stored data, so Tab has a list to show. */
-const LIST_FIELD = '[data-field-trigger], [role="combobox"]';
-
-/**
- * The field whose list Tab last opened, so the NEXT Tab on it moves on instead
- * of re-opening.
- *
- * Without this the contract is a trap with no way out. Escape closes a list but
- * leaves the cursor on the field (deliberately — Escape must not silently move
- * the operator), so the following Tab would find a closed list and open it
- * again, forever. The operator could never get past a picker without choosing
- * something, which is precisely the "no accidental value" rule inverted into a
- * cage.
- *
- * Cleared as soon as Tab lands on a different field, so coming back to this one
- * later opens its list again as normal.
- */
-let openedFor: HTMLElement | null = null;
-
-/**
- * TAB OPENS THE LIST. Tab moves to the next field; pressing it AGAIN on a field
- * backed by stored data drops that field's list open instead of moving on.
- *
- * This is the legacy RP-Software model the operators already have in their
- * fingers (client 2026-07-27): Tab-Tab-↓↓-Enter picks a customer without ever
- * reaching for the mouse, and without having to know a special shortcut.
- *
- * "The SECOND Tab" needs no state tracking, which is worth spelling out because
- * it looks like it should. The keydown that MOVES focus onto the field is
- * dispatched while the previous field is still focused — so by the time a
- * keydown arrives with the picker itself as target, the operator has pressed Tab
- * twice. First press lands, second press opens, for free.
- *
- * Shift+Tab is excluded: walking backwards out of a form must never stop to open
- * something. Returns true when it consumed the key.
- */
-export function tabOpensList(e: NavKeyEvent): boolean {
-  if (e.key !== "Tab") return false;
-  const t = e.target;
-  if (!(t instanceof HTMLElement)) return false;
-  // Tab moved on to some other field — this one is no longer "the field we just
-  // opened", so a later visit gets a fresh list. Checked before the Shift+Tab
-  // bail-out on purpose: backing out of a field and returning to it must arm it
-  // again, otherwise Shift+Tab silently leaves a picker that no longer opens.
-  if (openedFor && openedFor !== t) openedFor = null;
-  if (e.shiftKey || e.defaultPrevented || !t.matches(LIST_FIELD)) return false;
-
-  // Already open → the list owns the keyboard now (Enter picks, Esc closes), so
-  // Tab does nothing at all. This is what stops an operator tabbing straight
-  // past a picker without seeing it. Dialog pickers move focus INTO their
-  // dialog when they open, so an open one is never the target here; the inline
-  // Combobox keeps focus on its input, so it is the case this actually serves —
-  // including when it opened itself on focus rather than on Tab.
-  if (t.getAttribute("aria-expanded") === "true") {
-    openedFor = t;
-    e.preventDefault();
-    return true;
-  }
-  // We already showed this field's list and the operator dismissed it. Let Tab
-  // do its ordinary job now.
-  if (openedFor === t) {
-    openedFor = null;
-    return false;
-  }
-  openedFor = t;
-  e.preventDefault();
-  t.click(); // same path a mouse takes: opens the dialog / drops the list
   return true;
 }
 
@@ -236,8 +290,13 @@ function ownsArrowKeys(t: HTMLElement): boolean {
   if (t instanceof HTMLTextAreaElement) return true;
   // A native <select> (touch/SSR) changes its VALUE on arrows.
   if (t instanceof HTMLSelectElement) return true;
-  // A Combobox opens / browses its own list.
-  if (t.getAttribute("role") === "combobox") return true;
+  // A Combobox browses its own list — but only while that list is actually OPEN.
+  // Closed, it is just a field: ↑ must reach `arrowNavigate` and move to the
+  // field above, exactly as it does from a picker trigger. (↓ on a closed one
+  // still opens the list, because the Combobox consumes that key itself.)
+  if (t.getAttribute("role") === "combobox" && t.getAttribute("aria-expanded") === "true") {
+    return true;
+  }
   // Radios have native group semantics; the rest have segment/step semantics
   // that would be surprising to lose.
   if (
@@ -264,12 +323,18 @@ function ownsArrowKeys(t: HTMLElement): boolean {
  * never reaches this function — `ownsArrowKeys` keeps it, since ←/→ there move
  * between day/month/year segments.
  *
- * A non-collapsed selection returns false: let the arrow collapse it first.
+ * A PARTIAL selection returns false: let the arrow collapse it first. A FULL one
+ * does not — see below.
  */
 export function atCaretEdge(el: HTMLElement, dir: "prev" | "next"): boolean {
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
     return true; // buttons, pickers, anything with no text to traverse
   }
+  // A closed dropdown is not a text box. Its visible text is the SELECTED LABEL,
+  // rewritten wholesale when the operator picks or types — there is no in-place
+  // edit for ←/→ to protect, so walking a 20-character label to leave the field
+  // is pure friction. (An OPEN one never reaches here: `ownsArrowKeys` claims it.)
+  if (el.getAttribute("role") === "combobox") return true;
   let start: number | null;
   let end: number | null;
   try {
@@ -279,7 +344,13 @@ export function atCaretEdge(el: HTMLElement, dir: "prev" | "next"): boolean {
     return true; // number/email — caret not addressable, so treat as the edge
   }
   if (start === null || end === null) return true;
-  if (start !== end) return false;
+  if (start !== end) {
+    // Native Tab leaves the whole value SELECTED. That is not "the operator is
+    // part-way through the text", it is "the operator just arrived" — so treat
+    // it as the edge and let the first ←/→ move on, rather than spending a press
+    // collapsing a selection the operator never made (client 2026-07-28).
+    return start === 0 && end === el.value.length;
+  }
   return dir === "prev" ? start === 0 : start === el.value.length;
 }
 
@@ -431,15 +502,7 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
   if (!next) return false;
 
   e.preventDefault();
-  next.focus();
-  if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) {
-    const len = next.value.length;
-    try {
-      next.setSelectionRange(len, len);
-    } catch {
-      /* number/email inputs reject selection ranges */
-    }
-  }
+  focusField(next);
   return true;
 }
 
@@ -469,16 +532,7 @@ export function focusFirstField(root: HTMLElement | null): boolean {
         el instanceof HTMLTextAreaElement,
     ) ?? orderedFocusables(root)[0];
   if (field) {
-    field.focus();
-    // Put the caret at the end of any existing text for edit forms.
-    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
-      const len = field.value.length;
-      try {
-        field.setSelectionRange(len, len);
-      } catch {
-        /* number/email inputs don't support selection ranges */
-      }
-    }
+    focusField(field); // caret at the end — see the note there on ←/→
     return true;
   }
   return false;

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
 import { MASTERS_SECTION_ACTIONS } from "@/lib/masters/masters-nav";
+import { REPORTS, reportHref } from "@/lib/reports/catalog";
 
 /** A sub-module link nested under a module. Inherits the parent's `module` permission. */
 export interface SubNavItem {
@@ -199,9 +200,11 @@ export const NAV: NavItem[] = [
     label: "Reports",
     module: "reports",
     icon: BarChart3,
+    // Derived from the catalog so a new report can never appear in the landing
+    // grid but go missing from the nav (they used to be two hand-edited lists).
     children: [
       { href: "/reports", label: "All Reports" },
-      { href: "/reports/shipment-pnl", label: "Shipment P&L" },
+      ...REPORTS.map((r) => ({ href: reportHref(r), label: r.label })),
     ],
   },
   {

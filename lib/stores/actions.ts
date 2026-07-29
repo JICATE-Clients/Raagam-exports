@@ -85,6 +85,10 @@ export async function recordMovement(
     reference_type: parsed.data.reference_type ?? null,
     reference_id: parsed.data.reference_id ?? null,
     note: parsed.data.note ?? null,
+    // Both fall back to the ledger's stamp trigger when omitted (today's date,
+    // rate resolved from the last PO price / rate master / budget rate).
+    txn_date: parsed.data.txn_date ?? null,
+    rate: parsed.data.rate ?? null,
     created_by: user?.id ?? null,
   });
 

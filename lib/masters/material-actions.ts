@@ -35,6 +35,10 @@ function toHeader(d: MaterialInput) {
     cost_head_id: _ch,
     budget_rate: _br,
     budget_rate_uom_id: _bru,
+    stock_uom_id: _su,
+    billing_uom_id: _bu,
+    planning_uom_id: _pu,
+    purchase_uom_id: _qu,
     ...rest
   } = d;
   void _m;
@@ -44,29 +48,62 @@ function toHeader(d: MaterialInput) {
   void _ch;
   void _br;
   void _bru;
-  // Alternative UOM off ⇒ the material uses ONE unit for everything, so every
-  // downstream slot points at the base unit. Mirroring the flag server-side (as
-  // normalizeSubCategories does for processes) means the hidden fields can never
-  // hold stale values from before the toggle was switched off, and downstream
-  // readers of stock_uom_id / purchase_uom_id keep resolving instead of hitting
-  // nulls. The client hides these fields; it does not get to decide the data.
-  const uom = d.has_alternate_uom
-    ? {}
-    : {
-        stock_uom_id: d.base_uom_id,
-        billing_uom_id: d.base_uom_id,
-        planning_uom_id: d.base_uom_id,
-        purchase_uom_id: d.base_uom_id,
-      };
+  void _su;
+  void _bu;
+  void _pu;
+  void _qu;
   return {
     ...rest,
-    ...uom,
     name: (d.name?.trim() || d.code.trim()).toUpperCase() as string, // Name falls back to Short Name; stored in CAPS (client 2026-07-23)
     hsn_code: d.hsn_code?.trim() || null,
     material_type: d.material_type?.trim() || null,
+    item_type_name: d.item_type_name?.trim().toUpperCase() || null,
+    item_base_name: d.item_base_name?.trim().toUpperCase() || null,
     specifications: d.specifications?.trim() || null,
     short_spec: d.short_spec?.trim() || null,
     shade: d.shade?.trim() || null,
+  };
+}
+
+/**
+ * The four downstream UOM slots (stock / billing / planning / purchase).
+ *
+ * The form collects them again (client 2026-07-28), below the conversion grid
+ * and restricted to the units that grid names. They are stripped out of
+ * `toHeader` above and re-added here so there is exactly ONE place that decides
+ * what lands in the columns.
+ *
+ * Two rules, and both exist so nothing downstream ever reads a null:
+ *  - Alternative UOM OFF → the four fields are not on screen, and by definition
+ *    the material is stocked, billed, planned and purchased in its base unit.
+ *    Whatever stale values the form still holds are ignored.
+ *  - Alternative UOM ON → honour what was picked, falling back to the base for
+ *    any slot left blank. A slot the user genuinely wants to differ is theirs to
+ *    set; the form is the source of truth now, so there is no need to read the
+ *    stored row first to protect a value the UI could not otherwise restore.
+ */
+type UomSlots = {
+  stock_uom_id: string | null;
+  billing_uom_id: string | null;
+  planning_uom_id: string | null;
+  purchase_uom_id: string | null;
+};
+
+function uomSlots(d: MaterialInput): UomSlots {
+  const base = d.base_uom_id ?? null;
+  if (!d.has_alternate_uom) {
+    return {
+      stock_uom_id: base,
+      billing_uom_id: base,
+      planning_uom_id: base,
+      purchase_uom_id: base,
+    };
+  }
+  return {
+    stock_uom_id: d.stock_uom_id ?? base,
+    billing_uom_id: d.billing_uom_id ?? base,
+    planning_uom_id: d.planning_uom_id ?? base,
+    purchase_uom_id: d.purchase_uom_id ?? base,
   };
 }
 
@@ -194,7 +231,7 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
       p.data.item_class_id ? { scope: { column: "item_class_id", value: p.data.item_class_id } } : undefined,
     );
   }
-  const header = toHeader(p.data);
+  const header = { ...toHeader(p.data), ...uomSlots(p.data) };
   header.user_defined = await resolveCategoryUserDefined(s, p.data.category_id);
   const subErr = await checkSubCategory(s, p.data.category_id, p.data.sub_category_id);
   if (subErr) return fail(subErr);
@@ -267,7 +304,10 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
   const classCode = await resolveItemClassCode(s, p.data.item_class_id);
-  const header: Partial<ReturnType<typeof toHeader>> = toHeader(p.data);
+  const header: Partial<ReturnType<typeof toHeader>> & Partial<UomSlots> = {
+    ...toHeader(p.data),
+    ...uomSlots(p.data),
+  };
   header.user_defined = await resolveCategoryUserDefined(s, p.data.category_id);
   const subErr = await checkSubCategory(s, p.data.category_id, p.data.sub_category_id);
   if (subErr) return fail(subErr);

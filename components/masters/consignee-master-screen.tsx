@@ -1,11 +1,12 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { TriangleAlert, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
+import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
@@ -21,8 +22,11 @@ import { CustomerPicker } from "@/components/masters/customer-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
 import { NotifyPicker } from "@/components/masters/notify-picker";
+import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { createConsignee, updateConsignee, deleteConsignee } from "@/lib/masters/consignee-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { decodeGstin, normalizeGstin } from "@/lib/validation/gstin";
 import {
   SHIP_MODES,
   PAY_MODES,
@@ -52,7 +56,9 @@ type HeaderForm = {
   pin: string;
   address_country_id: string;
   land_line: string;
-  fax: string;
+  mobile: string;
+  /** null = "same as mobile" (tick on). "" = tick off, nothing typed yet. */
+  whatsapp: string | null;
   email: string;
   web_site: string;
   // General
@@ -84,7 +90,8 @@ const BLANK: HeaderForm = {
   pin: "",
   address_country_id: "",
   land_line: "",
-  fax: "",
+  mobile: "",
+  whatsapp: null,
   email: "",
   web_site: "",
   currency_1: "",
@@ -127,6 +134,16 @@ const blankContact = (key: string): ContactRow => ({
   internal_department_id: "",
 });
 
+// Alternate spellings a hand-typed State master row might carry, keyed by GST
+// state code. Only consulted when the row has no `code` to match on. Twin of the
+// map in vendor-master-screen.tsx — kept local rather than shared because it is
+// a stop-gap for unseeded State rows, not a contract.
+const STATE_ALIASES: Record<string, string[]> = {
+  "05": ["Uttaranchal"],
+  "07": ["NCT of Delhi", "New Delhi"],
+  "21": ["Orissa"],
+};
+
 /**
  * Master-detail CRUD for the legacy "Consignee" master (Associates): a header
  * (Short Name · Name · Inactive · Country · Also Notify · Customer) + three tabs
@@ -152,6 +169,7 @@ export function ConsigneeMasterScreen({
   shipTypes,
   paymentTerms,
   notifies,
+  companyGstin = null,
   perms,
 }: {
   rows: Consignee[];
@@ -167,11 +185,19 @@ export function ConsigneeMasterScreen({
   shipTypes: ConfigLookup[];
   paymentTerms: ConfigLookup[];
   notifies: Notify[];
+  /**
+   * Our own GSTIN — the reference point for calling a consignee's GSTIN
+   * within-state or other-state. Optional: the Consignee branch of the masters
+   * page does not fetch the company profile yet, and the strip simply omits the
+   * supply line while this is null.
+   */
+  companyGstin?: string | null;
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const isdOf = useIsdLookup(countries);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -204,6 +230,120 @@ export function ConsigneeMasterScreen({
     return m;
   }, [customers]);
 
+  // ---------------------------------------------------------------- GSTIN ----
+  // Everything below is decoded from the GST number itself — no lookup, no
+  // network. See lib/validation/gstin.ts for what the 15 characters carry.
+
+  const gstin = useMemo(
+    () => decodeGstin(form.gst_no, { companyGstin }),
+    [form.gst_no, companyGstin],
+  );
+
+  // Read the current PAN without making it an effect dependency (see below).
+  const panRef = useRef(form.pan_no);
+  panRef.current = form.pan_no;
+
+  /**
+   * The GSTIN as loaded, so merely OPENING a record never auto-fills — that
+   * would mark a freshly-opened form dirty and trip the unsaved-work guard.
+   * Only a GSTIN the user actually changed feeds the auto-fill.
+   */
+  const loadedGstin = useRef("");
+
+  // The State row this GSTIN points at. `states.code` IS the GST state code, so
+  // that is the primary match; the name/alias ladder is a fallback because the
+  // table ships unseeded and rows get hand-typed.
+  const gstinState = useMemo(() => {
+    if (!gstin) return null;
+    const byCode = states.find(
+      (s) => (s.code ?? "").trim().padStart(2, "0") === gstin.stateCode,
+    );
+    if (byCode) return byCode;
+    if (!gstin.stateName) return null;
+    const norm = (v: string) => v.toUpperCase().replace(/[^A-Z]/g, "");
+    const wanted = new Set(
+      [gstin.stateName, ...(STATE_ALIASES[gstin.stateCode] ?? [])].map(norm),
+    );
+    return states.find((s) => wanted.has(norm(s.name))) ?? null;
+  }, [gstin, states]);
+
+  // A GSTIN can only belong to an Indian registration, so the country it implies
+  // is never in doubt — but it is still offered, never written (see below).
+  const indCountryId = useMemo(
+    () => countries.find((c) => (c.code ?? "").toUpperCase() === "IND")?.id ?? "",
+    [countries],
+  );
+
+  // PAN is characters 3-12 of the GSTIN, so filling an EMPTY PAN box cannot
+  // lose information. A PAN that is already typed is never overwritten — a
+  // disagreement is real signal, surfaced as a mismatch line instead.
+  useEffect(() => {
+    if (!gstin?.checksumValid) return;
+    if (gstin.gstin === loadedGstin.current) return;
+    if (panRef.current.trim()) return;
+    set({ pan_no: gstin.pan });
+    // Deliberately NOT depending on form.pan_no: that would re-run on every PAN
+    // keystroke and silently re-fill a field the user had just cleared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstin?.gstin, gstin?.checksumValid]);
+
+  // Everything the GSTIN implies but that we refuse to write silently. Empty
+  // while the checksum fails — we never propagate a number we don't trust.
+  const gstinSuggestions = useMemo<GstinSuggestion[]>(() => {
+    if (!gstin?.checksumValid) return [];
+    const out: GstinSuggestion[] = [];
+
+    const typedPan = form.pan_no.trim().toUpperCase();
+    if (typedPan && typedPan !== gstin.pan) {
+      out.push({
+        key: "pan",
+        label: `Use ${gstin.pan}`,
+        onApply: () => set({ pan_no: gstin.pan }),
+      });
+    }
+
+    if (gstinState && !form.state_id) {
+      out.push({
+        key: "state",
+        label: `Set State = ${gstinState.name}`,
+        onApply: () => {
+          set({ state_id: gstinState.id });
+          // Toasted because the State box lives on the Address tab, which the
+          // user is not looking at while typing the GST number on General.
+          success(`State set to ${gstinState.name} on the Address tab`);
+        },
+      });
+    }
+
+    if (indCountryId && !form.address_country_id) {
+      out.push({
+        key: "country",
+        label: "Set Country = India",
+        onApply: () => {
+          set({ address_country_id: indCountryId });
+          success("Address country set to India");
+        },
+      });
+    }
+
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstin, gstinState, indCountryId, form.pan_no, form.state_id, form.address_country_id]);
+
+  // Real-time duplicate check on the GST number: one registration belongs to
+  // exactly one party, so two consignees sharing a GSTIN is almost always the
+  // same party keyed twice. Advisory only — it never disables Save, because a
+  // legacy pair that already collides must stay editable. Deliberately NOT
+  // extended to PAN: one PAN legitimately carries one GSTIN *per state*, so a
+  // multi-state party would false-positive on every branch after the first.
+  const gstDup = useDuplicateCheck({
+    table: "consignees",
+    name: form.gst_no,
+    nameColumn: "gst_no",
+    excludeId: editId ?? undefined,
+    enabled: !!form.gst_no.trim(),
+  });
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -215,6 +355,7 @@ export function ConsigneeMasterScreen({
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
+    loadedGstin.current = "";
     setContacts([blankContact(newKey())]);
     setMarkings([]);
     setNotifyRefs([]);
@@ -236,7 +377,9 @@ export function ConsigneeMasterScreen({
       pin: r.pin ?? "",
       address_country_id: r.address_country_id ?? "",
       land_line: r.land_line ?? "",
-      fax: r.fax ?? "",
+      mobile: r.mobile ?? "",
+      // NOT `?? ""` — a stored NULL is the "same as mobile" state.
+      whatsapp: r.whatsapp,
       email: r.email ?? "",
       web_site: r.web_site ?? "",
       currency_1: r.currency_1 ?? "",
@@ -254,6 +397,8 @@ export function ConsigneeMasterScreen({
       pan_no: r.pan_no ?? "",
       gst_no: r.gst_no ?? "",
     });
+    // Baseline for the PAN auto-fill: opening a record must never write to it.
+    loadedGstin.current = normalizeGstin(r.gst_no);
     setContacts(
       r.contacts.map((c) => ({
         key: newKey(),
@@ -319,7 +464,9 @@ export function ConsigneeMasterScreen({
         pin: form.pin.trim() || null,
         address_country_id: form.address_country_id || null,
         land_line: form.land_line.trim() || null,
-        fax: form.fax.trim() || null,
+        mobile: form.mobile.trim() || null,
+        // "" collapses to null — an empty WhatsApp box means "same as mobile".
+        whatsapp: form.whatsapp?.trim() || null,
         email: form.email.trim() || null,
         web_site: form.web_site.trim() || null,
         currency_1: form.currency_1 || null,
@@ -641,15 +788,14 @@ export function ConsigneeMasterScreen({
                     className="text-base md:text-sm"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="cn-fax">Fax</Label>
-                  <Input
-                    id="cn-fax"
-                    value={form.fax}
-                    onChange={(e) => set({ fax: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
+                <MobileWhatsAppFields
+                  idPrefix="cn"
+                  mobile={form.mobile}
+                  whatsapp={form.whatsapp}
+                  isdCode={isdOf.get(form.address_country_id) ?? null}
+                  onMobileChange={(v) => set({ mobile: v })}
+                  onWhatsAppChange={(v) => set({ whatsapp: v })}
+                />
                 <div>
                   <Label htmlFor="cn-email">E-Mail</Label>
                   <ValidatedInput
@@ -952,8 +1098,9 @@ export function ConsigneeMasterScreen({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="cn-pan">PAN No</Label>
-                      <Input
+                      <ValidatedInput
                         id="cn-pan"
+                        format="pan"
                         value={form.pan_no}
                         onChange={(e) => set({ pan_no: e.target.value })}
                         className="text-base md:text-sm"
@@ -961,13 +1108,37 @@ export function ConsigneeMasterScreen({
                     </div>
                     <div>
                       <Label htmlFor="cn-gst">GST No</Label>
-                      <Input
+                      <ValidatedInput
                         id="cn-gst"
+                        // Shape-only on purpose. The check digit is verified by
+                        // the strip below as a WARNING, not a block — a bad
+                        // GSTIN copied off a shipping document still has to be
+                        // savable while the party is chased. Switch this to
+                        // "gstin_strict" to make it a hard block instead.
+                        format="gstin"
                         value={form.gst_no}
                         onChange={(e) => set({ gst_no: e.target.value })}
                         className="text-base md:text-sm"
                       />
                     </div>
+
+                    {gstin && (
+                      <div className="sm:col-span-2 -mt-1">
+                        <GstinInsight
+                          decoded={gstin}
+                          panValue={form.pan_no}
+                          suggestions={gstinSuggestions}
+                        />
+                      </div>
+                    )}
+
+                    {gstDup && (
+                      <p className="sm:col-span-2 -mt-1 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                        <TriangleAlert className="h-4 w-4 shrink-0" />
+                        Another consignee already carries this GST number — check you are not
+                        keying the same party twice.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

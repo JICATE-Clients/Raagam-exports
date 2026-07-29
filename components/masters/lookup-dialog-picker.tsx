@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Info, Pencil, X } from "lucide-react";
@@ -12,6 +12,7 @@ import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup, LookupKind } from "@/lib/masters/extras-types";
 import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
+import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker-keys";
 
 /**
  * The legacy green ⊕ / blue ⓘ lookup popup, generalized over a `config_lookups`
@@ -51,6 +52,9 @@ export function LookupDialogPicker({
   useEffect(() => setMounted(true), []);
 
   const [open, setOpen] = useState(false);
+  // Hand the cursor back to this picker's trigger when the dialog closes —
+  // removing the focused node strands focus on <body>. See picker-keys.ts.
+  usePickerFocusReturn(open);
   const [query, setQuery] = useState("");
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [mode, setMode] = useState<"list" | "form">("list");
@@ -156,26 +160,18 @@ export function LookupDialogPicker({
     });
   }
 
-  function onListKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!filtered.length) return;
-      const idx = filtered.findIndex((o) => o.id === highlightId);
-      const next =
-        e.key === "ArrowDown"
-          ? filtered[Math.min(idx + 1, filtered.length - 1)]
-          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
-      setHighlightId(next.id);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const pick =
-        highlightId && filtered.some((o) => o.id === highlightId) ? highlightId : filtered[0]?.id;
-      if (pick) {
-        onChange(pick);
-        close();
-      }
-    }
-  }
+  const onListKeyDown = pickerKeyDown({
+    items: filtered,
+    keyOf: (r) => r.id,
+    highlight: highlightId,
+    setHighlight: setHighlightId,
+    onPick: onChange,
+    // One layer per Escape: out of the Add/Modify form back to the list, and
+    // only then out of the dialog — so Escape never discards a half-typed new
+    // entry AND the picker in one press.
+    onClose: () => (mode === "form" ? setMode("list") : close()),
+    active: mode === "list",
+  });
 
   const selectedLabel = selected ? selected.name : `— Select ${label} —`;
 
@@ -185,6 +181,11 @@ export function LookupDialogPicker({
       onClick={openDialog}
 
       data-field-trigger
+      // Enter on the last row of a child grid adds the next row — but only from
+      // a picker that already holds a value, or holding Enter would stack rows
+      // nobody has filled in. Stated both ways round because gridKeyNav reads it
+      // as opt-in (child-grid.tsx).
+      data-field-empty={value ? "false" : "true"}
       className={PICKER_TRIGGER_CLASS}
     >
       <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
@@ -212,17 +213,10 @@ export function LookupDialogPicker({
               role="dialog"
               aria-modal="true"
               aria-label={`Select ${label}`}
-              // Escape closes the LIST, never the editor behind it. It unwinds
-              // one layer at a time: from the inline Add/Modify form back to the
-              // list, and only then out of the picker — so Escape never discards
-              // a half-typed new entry AND the picker in one press.
-              onKeyDown={(e) => {
-                if (e.key !== "Escape") return;
-                e.preventDefault();
-                e.stopPropagation();
-                if (mode === "form") setMode("list");
-                else close();
-              }}
+              // ↑/↓/Enter/Escape/Tab for the whole dialog — bound here rather
+              // than on the search box so the keys still work once focus has
+              // moved on to a row or to Cancel. See picker-keys.ts.
+              onKeyDown={onListKeyDown}
               className="relative mt-[8vh] flex max-h-[80vh] w-[94%] max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
             >
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -250,7 +244,6 @@ export function LookupDialogPicker({
                       autoFocus
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      onKeyDown={onListKeyDown}
                       placeholder="Search code or name…"
                       className="text-base md:text-sm"
                     />

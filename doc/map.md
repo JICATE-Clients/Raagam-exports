@@ -340,6 +340,33 @@ Reorganizes the legacy EDP2 deep-capture (11 modules / 31 sub-modules / 433 form
 
 ---
 
+## REPORTS — `/reports` · permission `reports:view` / `reports:export`
+
+Config-driven: a report declares a `ReportConfig` and the shared `<ReportView>`
+gives it PDF / Excel / Print / chart for free. Item reports are all slices of one
+fact source, `report_item_movements` (migrations 0351–0352). Conventions and the
+add-a-report recipe live in the **`raagam-report-data`** skill.
+
+| Report | Route | Status |
+|---|---|---|
+| Item Purchase & Consumption | `/reports/item-movement` | ✅ ordered/received/consumed/closing, qty + value, grouped by item, class, category, sub-category or **material attribute** |
+| Item Movement Ledger | `/reports/item-ledger` | ✅ drill-down, one row per movement across every source |
+| Purchase vs Receipt | `/reports/purchase-vs-receipt` | ✅ ordered → GRN accepted → reached stock reconciliation |
+| Shipment P&L | `/reports/shipment-pnl` | ✅ (pilot report) |
+| Analytics dashboard | `/analytics` | ✅ 8 metrics via `analytics_*` RPCs — no export yet 🔲 |
+| Scheduled / emailed reports | — | 🔲 no table, no UI, no provider wired |
+
+**Registration:** add to `lib/reports/catalog.ts` — the landing grid and the nav
+both map over it. New transaction children register their fields in
+`lib/reports/registry.ts`; `audit_reports.py` enforces it.
+
+**Known reporting gaps** (declared as `status: "gap"` in `REPORT_SOURCES`, not
+silently dropped): production consumption, dispatch/packing/shipment stock-out
+and subcontract (DC) stock are all off-book — those tables carry no `item_id` and
+post no stock movement. `grn_line_items` likewise has no `item_id` of its own.
+
+---
+
 ## EXCLUDED / OUT OF SCOPE
 
 - **Dashboard** — `/` (home screen, not a module).

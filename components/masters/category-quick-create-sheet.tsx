@@ -25,6 +25,7 @@ import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { createCategory } from "@/lib/masters/category-actions";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { MATERIAL_SEED_WORDS } from "@/lib/masters/material-dictionary";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
@@ -102,10 +103,14 @@ export function CategoryQuickCreateSheet({
     enabled: open && !!(name && itemClassId),
   });
 
-  // Live "did you mean?" on Name — suppressed while a dup error is showing.
+  // Live "did you mean?" on Name — suppressed while a dup error is showing. The
+  // curated fibre words (COTTON, JERSEY…) are only vocabulary on Yarn/Fabric;
+  // on Packing/Sewing/General the dictionary is `knownNames` alone, which the
+  // picker already scopes to this item class (client 2026-07-28).
   const nameSuggestions = useSpellSuggest({
     name,
     names: knownNames,
+    seed: code === "YARN" || code === "FABRIC" ? MATERIAL_SEED_WORDS : [],
     enabled: open && !!name && !dupError,
   });
 

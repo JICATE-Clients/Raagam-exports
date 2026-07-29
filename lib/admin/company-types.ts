@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nullableFormat, nullableKind, MOBILE_IN_RE } from "@/lib/validation/formats";
 
 export const companyProfileInput = z.object({
   company_short_name: z.string().optional().nullable(),
@@ -13,7 +14,11 @@ export const companyProfileInput = z.object({
   state: z.string().optional().nullable(),
   country_code: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
-  fax: z.string().optional().nullable(),
+  // Your own company, so the strict Indian rule applies here (unlike the buyer-
+  // facing masters, which are international-tolerant). This number prints on
+  // documents, so a typo is worth catching.
+  mobile: nullableFormat(MOBILE_IN_RE, "Enter a 10-digit mobile (starting 6–9)"),
+  whatsapp: nullableFormat(MOBILE_IN_RE, "Enter a 10-digit mobile (starting 6–9)"),
   email: z.string().optional().nullable(),
   website: z.string().optional().nullable(),
 
@@ -24,10 +29,14 @@ export const companyProfileInput = z.object({
   reg_pin_code: z.string().optional().nullable(),
   reg_state: z.string().optional().nullable(),
 
-  pan_no: z.string().optional().nullable(),
-  gstin: z.string().optional().nullable(),
-  cin_no: z.string().optional().nullable(),
-  ie_code: z.string().optional().nullable(),
+  // The four numbers that print on outbound documents (invoices, shipping bills),
+  // so a typo here is a typo on paper. Shape only — the GSTIN check digit is an
+  // advisory on the screen, not a block, because this is one wide form and a bad
+  // GSTIN must not freeze every other field on it.
+  pan_no: nullableKind("pan"),
+  gstin: nullableKind("gstin"),
+  cin_no: nullableKind("cin"),
+  ie_code: nullableKind("iec"),
   rbi_code: z.string().optional().nullable(),
   reg_no: z.string().optional().nullable(),
   cu_licence_no: z.string().optional().nullable(),

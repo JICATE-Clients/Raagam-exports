@@ -177,11 +177,12 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "material_attributes") {
-      const [maRows, categories, attributes, units, all, levies, commodities] = await Promise.all([
+      // No listUoms() here any more: the Unit on a stepped attribute line is a
+      // typed label, not a UOM reference (client 2026-07-28).
+      const [maRows, categories, attributes, all, levies, commodities] = await Promise.all([
         listMaterialAttributes(),
         listCategories(),
         listAttributes(),
-        listUoms(),
         listConfigLookups(),
         listLevies(),
         listCommodities(),
@@ -195,7 +196,6 @@ export default async function MaterialEntityPage({
           // Same predicate the material form uses to decide whether to ASK the
           // questions, so the two can never drift apart.
           attributes={attributes.filter((a) => isAccessoryClass(a.code))}
-          units={units}
           // Lookups for the Category quick-create mini-child (Levy/Commodity
           // pickers + item-class-scoped create).
           levies={levies}

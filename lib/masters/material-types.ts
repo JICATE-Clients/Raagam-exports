@@ -55,8 +55,14 @@ export interface Material {
    *  defines no sub-categories, which is the normal case for every other class. */
   sub_category_id: string | null;
   /** Legacy "Type" — for SEW/PACK it is the accessory Transaction Type
-   *  (Purchased / Converted; Production filtered out in the form). */
+   *  (Purchased / Converted; Production filtered out in the form). General
+   *  never asks for it and always stores "Purchased" (client 2026-07-28). */
   material_type: string | null;
+  /** General item class only (0350) — the kind of thing (BRUSH, PEN, CABLE) and
+   *  the specific item (NYLON 4 INCH). Free text; the third and fourth segments
+   *  of the auto-composed Name. Null for every other class. */
+  item_type_name: string | null;
+  item_base_name: string | null;
   user_defined: boolean;
   specifications: string | null;
   short_spec: string | null;
@@ -107,6 +113,8 @@ export interface Material {
 export type DetailFieldKey =
   | "category_id"
   | "sub_category_id"
+  | "item_type_name"
+  | "item_base_name"
   | "material_type"
   | "user_defined"
   | "specifications"
@@ -123,18 +131,26 @@ export const FABRIC_USING = ["Single Yarn", "Multiple Yarn"] as const;
 
 export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
 
-/** A = Button/Capital/General/Sewing/Packing, C = Garments — both still generic,
- *  switch-rendered. Fabric and Yarn diverged too far (structure inheritance,
- *  nature-driven branching, %-mixing) for the generic switch — they get their
- *  own dedicated form components in the screen (0279). */
-// Form A (Button/Capital/General/Sewing/Packing): Category + User defined +
+/** A = Button/Capital/Sewing/Packing, GEN = General, C = Garments — all still
+ *  generic, switch-rendered. Fabric and Yarn diverged too far (structure
+ *  inheritance, nature-driven branching, %-mixing) for the generic switch — they
+ *  get their own dedicated form components in the screen (0279). */
+// Form A (Button/Capital/Sewing/Packing): Category + User defined +
 // Transaction Type. Description/Short-Spec dropped from the UI (client 2026-07-25 —
 // the item name comes from the attributes, not a free-text description); the
 // specifications/short_spec DB columns are kept for round-trip.
-// `sub_category_id` sits right after the Category it hangs off. It is General-only
-// AND only when that Category actually defines sub-categories, so the screen
-// filters it out of this list rather than the registry carrying two variants of
-// form A (see the fields.filter at the Classification section).
+// `sub_category_id` sits right after the Category it hangs off. Only the classes
+// in SUB_CATEGORY_CLASS_CODES (category-types.ts) show it, so the screen filters
+// it out of this list rather than the registry carrying two variants of form A
+// (see the fields.filter at the Classification section). It stays in A for the
+// day Capital Goods joins that set — today only GEN below actually renders it.
+// Form GEN (General) split out of A on 2026-07-28. A consumable is identified by
+// Category ▸ Sub Category ▸ Item Type ▸ Item Name, and the Name is composed from
+// exactly those four — nothing is typed by hand. The two fields A shows are noise
+// here: "User defined" is a read-only echo of the Category that explains an
+// attribute flow General doesn't have, and the Transaction Type only ever has one
+// answer, since a consumable is always bought (the screen sends "Purchased"
+// silently). Both columns still round-trip; they are simply not asked for.
 // Form C (Garments) is deliberately SHORTER than A. A garment is identified by
 // its category and its name and nothing else — the client asked for "Category
 // Name and Item Name", with none of the consumption/conversion modelling that
@@ -143,12 +159,13 @@ export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
 // the Category and shown to explain itself (see the `user_defined` case in
 // material-master-screen.tsx). The items.material_type column is untouched and
 // still round-trips — it is simply no longer asked for on this form.
-export const MATERIAL_FORMS: Record<"A" | "C", MaterialForm> = {
+export const MATERIAL_FORMS: Record<"A" | "GEN" | "C", MaterialForm> = {
   A: { fields: ["category_id", "sub_category_id", "user_defined", "material_type"], mixing: false },
+  GEN: { fields: ["category_id", "sub_category_id", "item_type_name", "item_base_name"], mixing: false },
   C: { fields: ["category_id", "user_defined"], mixing: false },
 };
 
-export type MaterialFormKey = "A" | "FABRIC" | "YARN" | "C";
+export type MaterialFormKey = "A" | "FABRIC" | "YARN" | "GEN" | "C";
 
 /** Map an item-class CODE to its Details form (unknown/new classes → A). */
 export function itemClassForm(code: string | null | undefined): MaterialFormKey {
@@ -157,6 +174,8 @@ export function itemClassForm(code: string | null | undefined): MaterialFormKey 
       return "FABRIC";
     case "YARN":
       return "YARN";
+    case "GEN":
+      return "GEN";
     case "GAR":
       return "C";
     default:
@@ -169,11 +188,11 @@ export function itemClassForm(code: string | null | undefined): MaterialFormKey 
  *  their "Type" is a Transaction Type (Purchased/Converted, no Production).
  *
  *  Do NOT infer this from `itemClassForm() === "A"`. Form A is the *default*
- *  bucket above, so General and Capital Goods land in it too — and that is
- *  exactly how they picked up an attribute flow they have no config for, which
- *  disabled their Save and made their Name read-only, leaving no way to create
- *  one at all (client 2026-07-28). `formKey === "A"` means "not Fabric/Yarn/
- *  Garments", never "is an accessory". */
+ *  bucket above, so Capital Goods lands in it too (as General did until it got
+ *  its own form) — and that is exactly how they picked up an attribute flow they
+ *  have no config for, which disabled their Save and made their Name read-only,
+ *  leaving no way to create one at all (client 2026-07-28). `formKey === "A"`
+ *  means "not Fabric/Yarn/General/Garments", never "is an accessory". */
 export const ACCESSORY_CLASS_CODES = new Set(["SEW", "PACK"]);
 export function isAccessoryClass(code: string | null | undefined): boolean {
   return !!code && ACCESSORY_CLASS_CODES.has(code.toUpperCase());
@@ -256,6 +275,10 @@ export const materialInput = z.object({
   hsn_id: uuidN,
   category_id: uuidN,
   sub_category_id: uuidN,
+  // General only (0350) — the Name is composed from these, but they are stored
+  // in their own columns so an edit re-opens with the parts, not a split string.
+  item_type_name: z.string().optional().nullable(),
+  item_base_name: z.string().optional().nullable(),
   material_type: z.string().optional().nullable(),
   user_defined: z.boolean().default(false),
   specifications: z.string().optional().nullable(),

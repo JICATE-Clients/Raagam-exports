@@ -13,10 +13,16 @@ export function useDuplicateCheck(args: {
   nameColumn?: string;
   excludeId?: string;
   scope?: Record<string, string | null>;
+  /**
+   * Word used in the message ("name", "code", "GST number"). Defaults to
+   * "name", so callers checking a non-name column should say what it is —
+   * otherwise a duplicate GSTIN reads "use a different name".
+   */
+  label?: string;
   /** Skip checking while false (e.g. required-field empty). Defaults to true. */
   enabled?: boolean;
 }): string | null {
-  const { table, name, nameColumn, excludeId, scope, enabled = true } = args;
+  const { table, name, nameColumn, excludeId, scope, label, enabled = true } = args;
   const [error, setError] = useState<string | null>(null);
   const scopeKey = JSON.stringify(scope ?? {});
 
@@ -31,6 +37,7 @@ export function useDuplicateCheck(args: {
         nameColumn,
         excludeId,
         scope: scope ?? undefined,
+        label,
       });
       if (!cancelled) setError(res.ok ? null : res.error);
     }, 300);
@@ -40,7 +47,7 @@ export function useDuplicateCheck(args: {
     };
     // scopeKey captures `scope` object identity-independently
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [table, name, nameColumn, excludeId, scopeKey, enabled]);
+  }, [table, name, nameColumn, excludeId, scopeKey, label, enabled]);
 
   return error;
 }

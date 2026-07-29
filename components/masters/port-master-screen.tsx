@@ -4,8 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -217,34 +218,33 @@ export function PortMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="pt-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+        {/* Three fields — one flat section (LAYOUT.md §4). */}
+        <DetailSection label="Details" cols={12}>
+          <Field label="Name" size="lg" required htmlFor="pt-name">
             <Input
               id="pt-name"
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
-              className="text-base md:text-sm"
             />
-          </div>
-          <CountryPicker
-            countries={countries}
-            value={form.country_id || null}
-            onChange={(id) => set({ country_id: id })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-          />
-          <div>
-            <Label htmlFor="pt-type">Type</Label>
+          </Field>
+          {/* No `label` on the Field: CountryPicker renders its own, and two
+              labels misalign the asterisk and break click-to-focus. */}
+          <Field size="md">
+            <CountryPicker
+              countries={countries}
+              value={form.country_id || null}
+              onChange={(id) => set({ country_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+            />
+          </Field>
+          <Field label="Type" size="md" htmlFor="pt-type">
             <Select
               id="pt-type"
               value={form.port_type}
               onChange={(e) => set({ port_type: e.target.value as "" | PortType })}
-              className="text-base md:text-sm"
             >
               <option value="">— Select —</option>
               {PORT_TYPES.map((t) => (
@@ -253,8 +253,8 @@ export function PortMasterScreen({
                 </option>
               ))}
             </Select>
-          </div>
-        </div>
+          </Field>
+        </DetailSection>
       </Sheet>
     </div>
   );

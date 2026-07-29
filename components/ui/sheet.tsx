@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { orderedFocusables, focusFirstField } from "@/lib/focus";
+import { orderedFocusables, focusFirstField, focusField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { useModalGuard, confirmDiscard } from "@/lib/reload-guard";
 
@@ -166,12 +166,15 @@ export function Sheet({
         // both listeners sit on the same node.
         if (e.defaultPrevented) return;
         if (!confirmDiscard()) return;
+        // Say we consumed it. Escape's last layer (keyboard-nav-provider, bound
+        // to `window` so it runs after this) leaves the PAGE, so an editor that
+        // closes silently would also navigate the operator away.
+        e.preventDefault();
         entry();
       } else if (e.key === "Tab") {
-        // Same rule as Escape above, and for the same reason: the keyboard-nav
-        // provider turns a second Tab on a picker into "open its list" and marks
-        // the key handled. Without this the trap would then ALSO advance focus,
-        // so the list opened and the cursor immediately left it.
+        // Same rule as Escape above: a control that already claimed Tab (an open
+        // list closing itself and stepping on) must not ALSO be moved by the
+        // trap, or focus would jump two fields.
         if (e.defaultPrevented) return;
         // Focus trap. We drive the WHOLE cycle rather than only guarding the
         // two edges: the cycle is region-ordered (fields → footer → ✕) while
@@ -193,12 +196,18 @@ export function Sheet({
         const idx = from ? items.indexOf(from) : -1;
 
         e.preventDefault();
+        // focusField, not .focus() — it lands the caret at the END of the text.
+        // A bare .focus() left it at 0, and `atCaretEdge` then refused to let →
+        // leave the field until the operator had walked the whole value one
+        // character at a time. Every masters editor tabs through this trap, so
+        // this one call is what "→ doesn't move to the next field" was (client
+        // 2026-07-28).
         if (idx === -1) {
-          (e.shiftKey ? items[items.length - 1] : items[0]).focus();
+          focusField(e.shiftKey ? items[items.length - 1] : items[0]);
           return;
         }
         const next = e.shiftKey ? idx - 1 : idx + 1;
-        items[(next + items.length) % items.length].focus();
+        focusField(items[(next + items.length) % items.length]);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -215,7 +224,7 @@ export function Sheet({
       const home = openerRef.current;
       const active = document.activeElement;
       if (home && home.isConnected && (!active || active === document.body)) {
-        home.focus();
+        focusField(home); // caret at the end when the opener is a text field
       }
       lastFocusedRef.current = null;
     };

@@ -104,6 +104,15 @@ export const stockMovementInput = z.object({
   reference_type: z.string().optional().nullable(),
   reference_id: z.string().uuid().optional().nullable(),
   note: z.string().optional().nullable(),
+  /**
+   * Back-date an adjustment to the day it actually happened. Omitted for an
+   * ordinary movement recorded now, where the ledger's stamp trigger defaults it
+   * to today. Supplying it keeps a corrective entry in its own period instead of
+   * distorting the current one.
+   */
+  txn_date: z.string().optional().nullable(),
+  /** Override the resolved rate — e.g. a stock adjustment at a known cost. */
+  rate: z.coerce.number().optional().nullable(),
 });
 export type StockMovementInput = z.infer<typeof stockMovementInput>;
 

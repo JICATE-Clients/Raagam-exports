@@ -205,14 +205,22 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
   const supabase = await createClient();
 
   // 1. fetch and verify GRN
+  // grn_date/location_id are read here so the stock movements below carry the
+  // GRN's own document date rather than the posting instant — a back-dated GRN
+  // must land in its own period or every stock report for that period is wrong.
   const { data: grnData } = await supabase
     .from("grns")
-    .select("id, status")
+    .select("id, status, grn_date, location_id")
     .eq("id", grnId)
     .maybeSingle();
 
   if (!grnData) return { ok: false, error: "GRN not found" };
-  if ((grnData as { status: string }).status !== "draft") {
+  const grn = grnData as {
+    status: string;
+    grn_date: string | null;
+    location_id: string | null;
+  };
+  if (grn.status !== "draft") {
     return { ok: false, error: "GRN is already posted" };
   }
 
@@ -249,6 +257,7 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
     store_type: "material" | "rejection";
     item_id: string;
     qty: number;
+    rate: number | null;
   }[] = [];
   const poAccepted = new Map<string, number>(); // poId → accepted value (for payables)
 
@@ -288,13 +297,23 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
       }
       // accepted goods → Material store (only when the PO line maps to an item)
       if (pl.item_id) {
-        stockIns.push({ store_type: "material", item_id: pl.item_id, qty: line.accepted_qty });
+        stockIns.push({
+          store_type: "material",
+          item_id: pl.item_id,
+          qty: line.accepted_qty,
+          rate: pl.unit_price ?? null,
+        });
       }
     }
 
     // rejected goods → Rejection store
     if ((line.rejected_qty ?? 0) > 0 && pl.item_id) {
-      stockIns.push({ store_type: "rejection", item_id: pl.item_id, qty: line.rejected_qty });
+      stockIns.push({
+        store_type: "rejection",
+        item_id: pl.item_id,
+        qty: line.rejected_qty,
+        rate: pl.unit_price ?? null,
+      });
     }
   }
 
@@ -367,6 +386,12 @@ export async function postGrn(grnId: string): Promise<ActionResult> {
             item_id: m.item_id,
             movement_type: "receipt",
             quantity: m.qty,
+            // The GRN knows both facts the ledger cannot infer: when the goods
+            // actually arrived, and what they cost. Supplying them here stops
+            // the stamp trigger falling back to today's date + a guessed rate.
+            txn_date: grn.grn_date,
+            rate: m.rate,
+            location_id: grn.location_id,
             reference_type: "grn",
             reference_id: grnId,
             note: `GRN stock-in (${m.store_type})`,

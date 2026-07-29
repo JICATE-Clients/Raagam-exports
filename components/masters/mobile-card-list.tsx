@@ -1,15 +1,17 @@
 "use client";
 
 import { type ReactNode } from "react";
+import { Eye } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { Button } from "@/components/ui/button";
 
 /**
  * The mobile (`md:hidden`) card list every master screen used to hand-roll —
  * extracted, plus the delete affordance mobile users never had (delete lived
  * only in the desktop table's row actions). The card body is a tap-to-edit
- * button; the delete control renders in a footer row as a SIBLING of that
- * button (never nested inside it), so the two-step DeleteConfirmButton works
- * without invalid button-in-button markup.
+ * button; the view and delete controls render in a footer row as SIBLINGS of
+ * that button (never nested inside it), so the two-step DeleteConfirmButton
+ * works without invalid button-in-button markup.
  */
 export function MobileCardList<Row>({
   rows,
@@ -19,6 +21,7 @@ export function MobileCardList<Row>({
   pill,
   meta,
   onEdit,
+  onView,
   canDelete = false,
   onDelete,
   isPending = false,
@@ -36,6 +39,10 @@ export function MobileCardList<Row>({
   meta?: (r: Row) => ReactNode;
   /** Tap-to-edit; omit to render cards non-tappable. */
   onEdit?: (r: Row) => void;
+  /** Read-only view (eye icon in the footer row). Omit to hide it. Worth wiring
+   *  wherever the desktop table has a view action — on a phone the tap target IS
+   *  edit, so without this there is no way to just look at a record. */
+  onView?: (r: Row) => void;
   canDelete?: boolean;
   onDelete?: (r: Row) => void;
   isPending?: boolean;
@@ -50,6 +57,7 @@ export function MobileCardList<Row>({
   }
 
   const showDelete = canDelete && !!onDelete;
+  const showFooter = showDelete || !!onView;
 
   return (
     <div className="space-y-2.5">
@@ -72,9 +80,14 @@ export function MobileCardList<Row>({
               {pill && pill(r)}
             </div>
           </button>
-          {showDelete && (
-            <div className="flex justify-end border-t border-border px-3 py-1.5">
-              <DeleteConfirmButton isPending={isPending} onConfirm={() => onDelete!(r)} />
+          {showFooter && (
+            <div className="flex items-center justify-end gap-1 border-t border-border px-3 py-1.5">
+              {onView && (
+                <Button variant="ghost" size="sm" aria-label="View" title="View" onClick={() => onView(r)}>
+                  <Eye className="h-4 w-4" />
+                </Button>
+              )}
+              {showDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => onDelete!(r)} />}
             </div>
           )}
         </div>

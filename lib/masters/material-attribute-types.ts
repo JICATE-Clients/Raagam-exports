@@ -26,6 +26,10 @@ export interface MaterialAttributeLine {
   start_value: number | null;
   end_value: number | null;
   unit_id: string | null;
+  /** 0350: free-text suffix printed on each generated step value ("10 MM").
+   *  Superseded `unit_id` — the unit was never converted by, only printed
+   *  (client 2026-07-28). `unit_id` is kept so pre-0350 rows round-trip. */
+  unit_label: string | null;
   step_value: number | null;
   mandatory: boolean;
   inactive: boolean;
@@ -59,6 +63,7 @@ export const materialAttributeLineInput = z.object({
   start_value: num,
   end_value: num,
   unit_id: z.string().uuid().nullable().default(null),
+  unit_label: z.string().trim().nullable().default(null),
   step_value: num,
   mandatory: z.boolean().default(false),
   inactive: z.boolean().default(false),

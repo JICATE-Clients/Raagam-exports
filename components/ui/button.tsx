@@ -14,11 +14,23 @@ const variants: Record<Variant, string> = {
   subtle: "bg-surface-muted text-foreground hover:bg-border",
 };
 
+// `@2xl/editor:h-8` joins `md`/`icon` to the compact density scale (see
+// input.tsx and doc/ui/LAYOUT.md §Density). Its blast radius is narrower than it
+// looks, and deliberately so: both editor surfaces put `@container/editor` on
+// the CONTENT wrapper only (sheet.tsx:354, master-full-screen.tsx:249) while the
+// footer is a sibling band outside it. So Save/Cancel keep their 36px target —
+// they are the primary action and sit alone on a line, not beside a field —
+// while a `size="md"` button rendered INSIDE the form drops to 32px and stops
+// standing 4px proud of the inputs around it.
+//
+// `sm` (h-8) is already compact, which is why ChildGrid's `+ Add` / remove-row
+// buttons never showed the problem. `lg` is a standalone CTA and never shares a
+// row with a field, so it stays.
 const sizes: Record<Size, string> = {
   sm: "h-8 px-3 text-xs rounded-md gap-1.5",
-  md: "h-9 px-4 text-sm rounded-md gap-2",
+  md: "h-9 @2xl/editor:h-8 px-4 text-sm rounded-md gap-2",
   lg: "h-11 px-6 text-sm rounded-lg gap-2",
-  icon: "h-9 w-9 rounded-md",
+  icon: "h-9 w-9 @2xl/editor:h-8 @2xl/editor:w-8 rounded-md",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

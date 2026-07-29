@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,11 +24,14 @@ interface Props {
   assetId: string;
   status: AssetStatus;
   assignments: AssetAssignment[];
+  /** Name of the Capital Goods material this asset was bought as (0350), or
+   *  null for a one-off asset entered by name. */
+  itemName: string | null;
   canEdit: boolean;
   canDelete: boolean;
 }
 
-export function AssetDetail({ assetId, status, assignments, canEdit, canDelete }: Props) {
+export function AssetDetail({ assetId, status, assignments, itemName, canEdit, canDelete }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -80,6 +85,24 @@ export function AssetDetail({ assetId, status, assignments, canEdit, canDelete }
 
   return (
     <div className="space-y-4">
+      {/* Where this asset came from. Shown only when the register row was
+          picked from the material master — a one-off asset has nothing to
+          point at, and an empty "Linked material —" row would just be noise. */}
+      {itemName && (
+        <Card>
+          <CardHeader><CardTitle>Linked material</CardTitle></CardHeader>
+          <CardBody className="flex flex-wrap items-center gap-3">
+            <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="text-sm text-foreground">{itemName}</span>
+            <Link
+              href="/masters/materials/materials"
+              className="text-xs text-muted-foreground hover:text-primary"
+            >
+              Capital Goods materials
+            </Link>
+          </CardBody>
+        </Card>
+      )}
       <Card>
         <CardHeader><CardTitle>Assignment history ({assignments.length})</CardTitle></CardHeader>
         <CardBody className="space-y-4">

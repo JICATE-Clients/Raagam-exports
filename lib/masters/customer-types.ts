@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { nullableFormat, EMAIL_RE, WEBSITE_RE } from "@/lib/validation/formats";
+import { nullableFormat, nullableKind, EMAIL_RE, WEBSITE_RE, PHONE_INTL_RE } from "@/lib/validation/formats";
 import { SHIP_MODES, PAY_MODES } from "./applicant-types";
+
+const PHONE_MSG = "Enter a valid phone number (7–15 digits, optional +country code)";
 
 // ============================================================================
 // Customers — master-detail (0240 base + 0247 tabs). Legacy EDP2 "Customer"
@@ -35,6 +37,24 @@ export const BUSINESS_ENTITIES = [
   "LLP",
   "Others",
 ] as const;
+
+/**
+ * PAN 4th character (see PAN_CONSTITUTION in lib/validation/gstin.ts) → the one
+ * BUSINESS_ENTITIES value it implies. Used only to offer a suggestion chip once
+ * a GSTIN has been typed; nothing here is ever written silently.
+ *
+ * Deliberately PARTIAL, because the PAN alphabet is coarser than this list:
+ *   · "C" is just "Company" — it does not say Pvt Ltd vs Pub Ltd.
+ *   · "F" is documented as "Firm / LLP" — Partnership vs LLP is unresolvable.
+ * Neither gets an entry: business_entity prints on the customer's paperwork, so
+ * a coin-flip is worse than leaving the field for the user to answer. The rest
+ * (AOP, BOI, Government, HUF, Trust, …) would all collapse to "Others", which
+ * tells the user nothing the blank field doesn't, so they are omitted too.
+ */
+export const PAN_BUSINESS_ENTITY: Record<string, (typeof BUSINESS_ENTITIES)[number]> = {
+  P: "Proprietorship", // Proprietor / Individual
+  E: "LLP",
+};
 
 export interface CustomerContact {
   id: string;
@@ -106,7 +126,9 @@ export interface Customer {
   pin: string | null;
   address_country_id: string | null;
   land_line: string | null;
-  fax: string | null;
+  mobile: string | null;
+  /** NULL = same as `mobile` — resolve via effectiveWhatsApp(), never read directly. */
+  whatsapp: string | null;
   email: string | null;
   web_site: string | null;
   // CustomerGeneral tab (scalar)
@@ -198,7 +220,8 @@ export const customerInput = z.object({
   pin: nullableText,
   address_country_id: uuidN,
   land_line: nullableText,
-  fax: nullableText,
+  mobile: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
+  whatsapp: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   // General (scalar)
@@ -220,7 +243,11 @@ export const customerInput = z.object({
   inhouse_unit_id: nullableText,
   color_spec_applicable: z.boolean().default(false),
   tcs_applicable: z.boolean().default(false),
-  gst_no: nullableText,
+  // Shape only, matching the field's format="gstin" on the client. A wrong
+  // check digit is surfaced by GstinInsight as a warning rather than blocked
+  // here: rows saved before this validation existed must stay editable, and a
+  // GSTIN copied off an invoice has to be savable while the customer is chased.
+  gst_no: nullableKind("gstin"),
   is_draft: z.boolean().default(false),
   // children
   contacts: z.array(customerContactInput).default([]),

@@ -6,9 +6,12 @@
 // tappable suggestion and only applies it if the user accepts.
 //
 // Pure module (no React) so it stays trivially testable and reusable. The
-// dictionary of "correct" words = a curated fibre/material seed list + whatever
-// existing Category names the caller passes in (so it also catches typos of
-// names the user already created).
+// dictionary of "correct" words = whatever names the caller passes in (so it
+// also catches typos of names the user already created) + a seed word list the
+// caller chooses. The seed DEFAULTS to the curated fibre/material list, but a
+// caller outside yarn/fabric passes `[]` — offering COTTON as a correction for
+// a Packing Accessories name is noise (client 2026-07-28). Both halves are the
+// caller's to scope: pass only the names that belong beside what is being typed.
 
 /** Curated common fibre / material / process words — always uppercase. Extend
  *  this freely; anything the mill routinely types is fair game. */
@@ -62,9 +65,11 @@ function tokenize(name: string): string[] {
     .filter((t) => t.length > 2 && !/^\d/.test(t));
 }
 
-/** Known-good word set = curated seed list ∪ words from the passed DB names. */
-export function buildWordDictionary(names: string[]): Set<string> {
-  const dict = new Set<string>(MATERIAL_SEED_WORDS);
+/** Known-good word set = `seed` ∪ words from the passed DB names. `seed`
+ *  defaults to the fibre/material list; pass `[]` on a screen where those words
+ *  are not vocabulary (Packing, Capital Goods, …). */
+export function buildWordDictionary(names: string[], seed: string[] = MATERIAL_SEED_WORDS): Set<string> {
+  const dict = new Set<string>(seed);
   for (const name of names) for (const tok of tokenize(name)) dict.add(tok);
   return dict;
 }

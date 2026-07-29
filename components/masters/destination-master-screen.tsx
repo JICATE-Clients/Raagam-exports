@@ -4,7 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -236,39 +237,41 @@ export function DestinationMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="de-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+        {/* Two fields plus a flag — one flat section (LAYOUT.md §4). */}
+        <DetailSection label="Details" cols={12}>
+          <Field label="Name" size="lg" required htmlFor="de-name">
             <Input
               id="de-name"
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
-              className="text-base md:text-sm"
             />
             {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-          </div>
-          <CountryPicker
-            countries={countries}
-            value={form.country_id || null}
-            onChange={(id) => set({ country_id: id })}
-            canCreate={perms.canCreate}
-            canEdit={perms.canEdit}
-          />
+          </Field>
+          {/* CountryPicker renders its own label — see the note on port. */}
+          <Field size="md">
+            <CountryPicker
+              countries={countries}
+              value={form.country_id || null}
+              onChange={(id) => set({ country_id: id })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+            />
+          </Field>
           {editId && (
-            <label className="flex cursor-pointer items-center gap-2 sm:col-span-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
+            <Field size="full">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => set({ inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Inactive</span>
+              </label>
+            </Field>
           )}
-        </div>
+        </DetailSection>
       </Sheet>
     </div>
   );

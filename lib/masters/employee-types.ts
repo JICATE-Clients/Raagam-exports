@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   nullableFormat,
+  nullableKind,
   PINCODE_IN_RE,
   MOBILE_IN_RE,
   EMAIL_RE,
@@ -163,11 +164,18 @@ export const employeeInput = z.object({
   father_name: nullableText,
   mother_name: nullableText,
   spouse_name: nullableText,
+  // pf_no stays unchecked — a PF account number is a slashed establishment string
+  // whose segments vary in length, so there is no one national shape to test.
   pf_no: nullableText,
-  esi_no: nullableText,
-  uan: nullableText,
-  pan_no: nullableText,
-  aadhar_no: nullableText,
+  // "esi_ip" (10 digits), not "esi" (17) — this column holds the employee's
+  // Insurance number, not the factory's employer code.
+  esi_no: nullableKind("esi_ip"),
+  uan: nullableKind("uan"),
+  pan_no: nullableKind("pan"),
+  // Shape only. The Verhoeff check digit is an advisory on the screen, never a
+  // save block — a record already holding a number that fails it must stay
+  // editable (client 2026-07-28).
+  aadhar_no: nullableKind("aadhaar"),
   pay_mode: z.enum(PAY_MODES).nullable().default(null),
   bank_name: nullableText,
   bank_acc_no: nullableText,

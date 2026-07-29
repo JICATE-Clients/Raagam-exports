@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { FIELD_TRACK } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 /**
@@ -85,10 +86,11 @@ export function DetailSection({
       </div>
       <div
         className={cn(
-          "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5",
+          // `cols={12}` IS `FIELD_TRACK` — the same string `FieldGrid` uses, so
+          // a card body and a section can never lay fields out differently.
+          cols === 12 ? FIELD_TRACK : "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5",
           cols === 2 && "sm:grid-cols-2",
           cols === 3 && "sm:grid-cols-2 lg:grid-cols-3",
-          cols === 12 && "@lg/section:grid-cols-12",
         )}
       >
         {children}

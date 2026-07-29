@@ -70,6 +70,7 @@ function DialogListPicker({
   placeholder = "— None —",
   clearable = true,
   required = false,
+  invalid = false,
   manage,
   onAddOverride,
 }: {
@@ -83,6 +84,10 @@ function DialogListPicker({
   placeholder?: string;
   clearable?: boolean;
   required?: boolean;
+  /** The picked value is rejected by the host form (e.g. the same attribute
+   *  chosen on two lines of one set) — red border plus `aria-invalid`, which
+   *  also holds Enter on the field until it clears (lib/focus.ts, child-grid). */
+  invalid?: boolean;
   manage?: ManageConfig;
   /** When set, the footer "+ Add" hands off to a custom creation flow (e.g.
    *  the Yarn quick-create sheet) instead of the inline name-only form —
@@ -243,7 +248,11 @@ function DialogListPicker({
           picker cells sat lower than the plain inputs beside them. */}
       {label ? (
         <Label>
-          {label} {required && <span className="text-danger">*</span>}
+          {/* `ml-0.5`, matching `Field` (field.tsx). It was a plain space, so a
+              picker's asterisk sat a few px further out than the one on a
+              native control beside it in the same row. */}
+          {label}
+          {required && <span className="ml-0.5 text-danger">*</span>}
         </Label>
       ) : null}
       <button
@@ -251,9 +260,15 @@ function DialogListPicker({
         onClick={openPicker}
 
         data-field-trigger
+        // Enter on the last row of a child grid adds the next row — but only
+        // from a picker that already holds a value, or holding Enter would
+        // stack rows nobody has filled in. Stated both ways round because
+        // gridKeyNav reads it as opt-in (child-grid.tsx).
+        data-field-empty={value ? "false" : "true"}
+        aria-invalid={invalid ? true : undefined}
         // This one had drifted: it was missing the `hover:border-primary`
         // affordance every other picker has. Sharing the class restores it.
-        className={cn(PICKER_TRIGGER_CLASS, "text-foreground")}
+        className={cn(PICKER_TRIGGER_CLASS, "text-foreground", invalid && "border-danger")}
       >
         <span className={cn("truncate", !selected && "text-muted-foreground")}>
           {selected ? `${selected.label}${selected.disabled ? " (inactive)" : ""}` : placeholder}
@@ -1009,6 +1024,7 @@ export function AttributePicker({
   onChange,
   clearable = true,
   required = false,
+  invalid = false,
 }: {
   label: string;
   values: AttributeValue[];
@@ -1016,12 +1032,15 @@ export function AttributePicker({
   onChange: (v: string) => void;
   clearable?: boolean;
   required?: boolean;
+  /** Set when the host grid already lists this attribute on another line — one
+   *  attribute may appear only once per set (0350). */
+  invalid?: boolean;
 }) {
   const rows: PickerRow[] = useMemo(
     () => values.map((v) => ({ id: v.id, label: v.value })),
     [values],
   );
   return (
-    <DialogListPicker label={label} rows={rows} value={value} onChange={onChange} clearable={clearable} required={required} />
+    <DialogListPicker label={label} rows={rows} value={value} onChange={onChange} clearable={clearable} required={required} invalid={invalid} />
   );
 }

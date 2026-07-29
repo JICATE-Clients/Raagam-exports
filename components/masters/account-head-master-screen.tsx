@@ -4,7 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { SectionGrid } from "@/components/masters/section-grid";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -210,58 +211,60 @@ export function AccountHeadMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-          <div className="flex items-start gap-3 sm:col-span-2">
-            <div className="flex-1">
-              <Label htmlFor="ah-name">
-                Name <span className="text-danger">*</span>
-              </Label>
+        {/* "Group Under" is a real legacy grouping, so it stays its own section
+            rather than dissolving into a flat list — two small sections side by
+            side (LAYOUT.md §1/§4). Both pickers render their own labels. */}
+        <SectionGrid>
+          <DetailSection label="Details" cols={12}>
+            <Field label="Name" size="lg" required htmlFor="ah-name">
               <Input
                 id="ah-name"
                 uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
+            </Field>
+            <Field size="md">
+              <CostHeadPicker
+                costHeads={costHeads}
+                value={form.cost_head_id}
+                onChange={(id) => set({ cost_head_id: id })}
+                label="Cost head"
+              />
+            </Field>
             {editId && (
-              <label className="mt-7 flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.inactive}
-                  onChange={(e) => set({ inactive: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">Inactive</span>
-              </label>
+              <Field size="md">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => set({ inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              </Field>
             )}
-          </div>
-
-          {/* Group Under */}
-          <div className="sm:col-span-2">
-            <DetailSection label="Group Under" cols={2}>
+          </DetailSection>
+          <DetailSection label="Group Under" cols={12}>
+            <Field size="lg">
               <AccountGroupPicker
                 groups={accountGroups}
                 value={form.debit_group_id}
                 onChange={(id) => set({ debit_group_id: id })}
                 label="If Debits"
               />
+            </Field>
+            <Field size="lg">
               <AccountGroupPicker
                 groups={accountGroups}
                 value={form.credit_group_id}
                 onChange={(id) => set({ credit_group_id: id })}
                 label="If Credits"
               />
-            </DetailSection>
-          </div>
-
-          <CostHeadPicker
-            costHeads={costHeads}
-            value={form.cost_head_id}
-            onChange={(id) => set({ cost_head_id: id })}
-            label="Cost head"
-          />
-        </div>
+            </Field>
+          </DetailSection>
+        </SectionGrid>
       </Sheet>
     </div>
   );

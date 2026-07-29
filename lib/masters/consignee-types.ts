@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { nullableFormat, EMAIL_RE, WEBSITE_RE } from "@/lib/validation/formats";
+import {
+  nullableFormat,
+  nullableKind,
+  EMAIL_RE,
+  WEBSITE_RE,
+  PHONE_INTL_RE,
+} from "@/lib/validation/formats";
+
+const PHONE_MSG = "Enter a valid phone number (7–15 digits, optional +country code)";
 export { SHIP_MODES, PAY_MODES, type ShipMode, type PayMode } from "./applicant-types";
 
 // ============================================================================
@@ -63,7 +71,9 @@ export interface Consignee {
   pin: string | null;
   address_country_id: string | null;
   land_line: string | null;
-  fax: string | null;
+  mobile: string | null;
+  /** NULL = same as `mobile` — resolve via effectiveWhatsApp(), never read directly. */
+  whatsapp: string | null;
   email: string | null;
   web_site: string | null;
   // General tab (0248)
@@ -128,7 +138,8 @@ export const consigneeInput = z.object({
   pin: nullableText,
   address_country_id: uuidN,
   land_line: nullableText,
-  fax: nullableText,
+  mobile: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
+  whatsapp: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   email: nullableFormat(EMAIL_RE, "Enter a valid email address"),
   web_site: nullableFormat(WEBSITE_RE, "Enter a valid website URL"),
   // General tab
@@ -141,11 +152,17 @@ export const consigneeInput = z.object({
   payment_term_id: uuidN,
   bank_id: uuidN,
   ac_no: nullableText,
+  // TIN / CST stay unvalidated on purpose. Unlike GSTIN and PAN, a TIN is a
+  // PRE-GST, per-state identifier: 11 digits in most states but not all, and the
+  // legacy rows carry whatever the state issued before 2017. There is no single
+  // national shape to check against, so a regex here would reject valid history.
   tin_no: nullableText,
   tin_no_2: nullableText,
   tin_no_3: nullableText,
-  pan_no: nullableText,
-  gst_no: nullableText,
+  // Shape-only (see the screen): a GSTIN that fails only its check digit is
+  // still savable, and surfaces as an advisory warning instead.
+  pan_no: nullableKind("pan"),
+  gst_no: nullableKind("gstin"),
   is_draft: z.boolean().default(false),
   contacts: z.array(consigneeContactInput).default([]),
   markings: z.array(consigneeMarkingInput).default([]),

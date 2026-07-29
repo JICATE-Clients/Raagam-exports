@@ -37,7 +37,14 @@ export function SectionGrid({
   children,
   className,
 }: {
-  /** `DetailSection`s. Pass `span={2}` on one to make it claim the full row. */
+  /**
+   * `DetailSection`s — auto-placed, so use this when the sections are peers and
+   * reading order left-to-right is fine. Pass `span={2}` on one to make it claim
+   * the full row.
+   *
+   * When column MEMBERSHIP is meaningful, wrap each side in a `SectionColumn`
+   * instead; auto-placement would interleave them.
+   */
   children: ReactNode;
   className?: string;
 }) {
@@ -46,6 +53,33 @@ export function SectionGrid({
       <div className="grid items-start gap-3 @4xl/sections:grid-cols-2">{children}</div>
     </div>
   );
+}
+
+/**
+ * One column of a `SectionGrid`, holding a fixed set of sections.
+ *
+ * `SectionGrid` on its own auto-places its children, which is right when the
+ * sections are peers and wrong when the split carries meaning. On a Material
+ * editor it carries a lot: LEFT is *what the material is* (class fields,
+ * attribute questions, composition) and RIGHT is *how it's measured* (UOM,
+ * conversions, status) — a standing rule for every item class. Auto-placement
+ * would deal those sections alternately into the two columns and destroy it,
+ * which is why the screen hand-rolled `lg:grid-cols-2` with two `space-y-4`
+ * wrappers instead and this file had no adopters at all.
+ *
+ * Two `SectionColumn`s land in the grid's two cells, so the rule survives and
+ * the screen still writes no `grid-cols-*`, `col-span-*` or `gap-*` of its own.
+ * The internal `space-y-3` matches `SectionGrid`'s `gap-3`, so the vertical
+ * rhythm between stacked sections equals the horizontal gutter between columns.
+ */
+export function SectionColumn({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <div className={cn("space-y-3", className)}>{children}</div>;
 }
 
 /**
@@ -62,14 +96,20 @@ export function SectionGrid({
  */
 export function IdentityRow({
   children,
-  tracks = "1.4fr",
+  tracks = "0.85fr 1.4fr 0.85fr",
   className,
 }: {
   children: ReactNode;
   /**
-   * Grid tracks for the row, minus the leading/trailing `0.85fr`. Defaults to a
-   * single wide middle column, giving the mockup's `0.85fr 1.4fr 0.85fr`. Pass
-   * e.g. `"1.4fr 0.85fr"` for a four-field identity row.
+   * The COMPLETE `grid-template-columns` for the row — one track per child.
+   * Defaults to the mockup's `0.85fr 1.4fr 0.85fr`.
+   *
+   * This used to be the middle tracks only, with a `0.85fr` welded on at each
+   * end. That could not express the screen it was written for: Material's
+   * identity row ends in an 8-digit HSN code, which wants a fixed `10rem`, not
+   * a proportional share — and a fractional trailing track is exactly how HSN
+   * ended up occupying a quarter of the row (client 2026-07-24 #3). Taking the
+   * whole list costs one longer default and buys every real shape.
    */
   tracks?: string;
   className?: string;
@@ -80,7 +120,7 @@ export function IdentityRow({
       // Track widths are data, not design tokens — a static Tailwind class map
       // would need one entry per shape. The container query below is what makes
       // this safe: the custom tracks only ever apply once there is room for them.
-      style={{ ["--identity-tracks" as string]: `0.85fr ${tracks} 0.85fr` }}
+      style={{ ["--identity-tracks" as string]: tracks }}
     >
       {/* `grid` is already one column; the tracks only switch on once there is
           room, so no explicit mobile fallback is needed. */}

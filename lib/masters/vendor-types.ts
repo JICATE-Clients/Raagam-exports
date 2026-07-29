@@ -8,7 +8,10 @@ import {
   WEBSITE_RE,
   EMAIL_RE,
   PINCODE_IN_RE,
+  PHONE_INTL_RE,
 } from "@/lib/validation/formats";
+
+const PHONE_MSG = "Enter a valid phone number (7–15 digits, optional +country code)";
 
 // ============================================================================
 // Vendors — master-detail (0246). Legacy EDP2 "Vendor" form: a header (Short
@@ -35,7 +38,9 @@ export interface VendorAddress {
   country_id: string | null;
   pin: string | null;
   land_line: string | null;
-  fax: string | null;
+  mobile: string | null;
+  /** NULL = same as `mobile` — resolve via effectiveWhatsApp(), never read directly. */
+  whatsapp: string | null;
   email_id: string | null;
 }
 
@@ -91,7 +96,8 @@ export const vendorAddressInput = z.object({
   country_id: uuidN,
   pin: nullableText, // IN-format enforced conditionally in vendorInput.superRefine
   land_line: nullableText,
-  fax: nullableText,
+  mobile: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
+  whatsapp: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   email_id: nullableFormat(EMAIL_RE, "Enter a valid email address"),
 });
 
@@ -119,7 +125,7 @@ export const vendorInput = z
     ifsc_code: nullableFormat(IFSC_RE, "Invalid IFSC (e.g. HDFC0001234)"),
     ac_type: nullableText,
     gst_reg_status: z.enum(GST_REG_STATUSES).nullable().default(null),
-    gst_no: nullableFormat(GSTIN_RE, "Invalid GSTIN (e.g. 33ABCDE1234F1Z5)"),
+    gst_no: nullableFormat(GSTIN_RE, "Invalid GSTIN (e.g. 33ABCDE1234F1Z7)"),
     debit_group_id: uuidN,
     credit_group_id: uuidN,
     enterprise_status: nullableText,

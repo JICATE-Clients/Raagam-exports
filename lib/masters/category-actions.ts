@@ -141,6 +141,56 @@ export async function deleteCategory(id: string): Promise<DeleteResult> {
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
+/**
+ * Inline "+ Add" from the Material form's Sub Category combobox (client
+ * 2026-07-28) — a second level could previously only be created here in the
+ * Category master, so meeting a new one mid-material meant abandoning a
+ * half-typed form. Returns the new id so the caller can select it immediately
+ * (createItemClass precedent below).
+ *
+ * `has_sub_categories` is flipped ON as part of the same create: it is what
+ * reveals the Sub Categories grid on the Category master, so without it the row
+ * just created would be invisible there and the next category save — which
+ * normalizes to `[]` when the flag is off — would delete it.
+ */
+export async function createSubCategory(
+  categoryId: string,
+  name: string,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (!(await can("masters", "create"))) return fail("Forbidden");
+  const trimmed = name.trim().toUpperCase();
+  if (!trimmed) return fail("Sub Category name is required.");
+  const s = await createClient();
+  const dup = await checkDuplicateName(s, "category_sub_categories", trimmed, {
+    scope: { category_id: categoryId },
+  });
+  if (!dup.ok) return fail(dup.error);
+  // Next sno in this category — the grid's display order is sno, so a row
+  // appended from here must land after the ones typed in the Category master.
+  const { data: last } = await s
+    .from("category_sub_categories")
+    .select("sno")
+    .eq("category_id", categoryId)
+    .order("sno", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const { data: created, error } = await s
+    .from("category_sub_categories")
+    .insert({ category_id: categoryId, sno: (last?.sno ?? 0) + 1, name: trimmed })
+    .select("id")
+    .single();
+  // Two clients racing the same new name land here (uq_category_sub_categories_name,
+  // 0349) — say what happened instead of leaking the constraint name.
+  if (error) return fail(subCategoryError(error));
+  const { error: flagErr } = await s
+    .from("categories")
+    .update({ has_sub_categories: true })
+    .eq("id", categoryId);
+  if (flagErr) return fail(flagErr.message);
+  rev();
+  return { ok: true, id: created.id };
+}
+
 /** Inline "+ New" Item Class add from the Category picker — returns the new id
  *  so the caller can immediately select it. Item Class = config_lookups kind. */
 export async function createItemClass(

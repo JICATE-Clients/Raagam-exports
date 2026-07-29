@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -16,6 +17,8 @@ import { LocationPicker } from "@/components/masters/location-picker";
 import { EmployeePicker } from "@/components/masters/employee-picker";
 import { createEmployee, updateEmployee, deleteEmployee } from "@/lib/masters/employee-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
+import { AADHAAR_RE } from "@/lib/validation/formats";
+import { isAadhaarChecksumValid } from "@/lib/validation/aadhaar";
 import {
   GUARDIAN_RELATIONS,
   SPOUSE_TYPES,
@@ -417,6 +420,15 @@ export function EmployeeMasterScreen({
 
   const age = ageFromDob(form.dob);
 
+  // Aadhaar's 12th digit is a Verhoeff check digit over the other 11 — it catches
+  // a mistyped or transposed digit that the 12-digit shape rule never will. Held
+  // back until the shape itself is valid so it can't nag mid-typing, and shown as
+  // an advisory rather than an error (see the field below for why).
+  const aadhaarCheckFails = useMemo(() => {
+    const v = form.aadhar_no.trim();
+    return AADHAAR_RE.test(v) && !isAadhaarChecksumValid(v);
+  }, [form.aadhar_no]);
+
   return (
     <div className="space-y-4">
       {/* toolbar */}
@@ -767,6 +779,11 @@ export function EmployeeMasterScreen({
           <DetailSection label="Statutory IDs" cols={2}>
             <div>
               <Label htmlFor="emp-pf">PF No</Label>
+              {/* Left unvalidated deliberately. A PF account number is a slashed
+                  establishment string (TN/MAS/12345/000/0001234) whose region and
+                  office segments vary in length and are re-issued as offices are
+                  renamed, so there is no one national shape to test — a regex here
+                  would only reject numbers that are correct. */}
               <Input
                 id="emp-pf"
                 value={form.pf_no}
@@ -776,8 +793,13 @@ export function EmployeeMasterScreen({
             </div>
             <div>
               <Label htmlFor="emp-esi">ESI No</Label>
-              <Input
+              {/* "esi_ip", NOT "esi" — the two are easy to swap and only one is
+                  right here. `esi` is the 17-digit ESIC EMPLOYER code (the
+                  factory's); what an employee carries is the 10-digit Insurance
+                  (IP) number off their Pehchan card. */}
+              <ValidatedInput
                 id="emp-esi"
+                format="esi_ip"
                 value={form.esi_no}
                 onChange={(e) => set({ esi_no: e.target.value })}
                 className="text-base md:text-sm"
@@ -785,8 +807,9 @@ export function EmployeeMasterScreen({
             </div>
             <div>
               <Label htmlFor="emp-uan">UAN</Label>
-              <Input
+              <ValidatedInput
                 id="emp-uan"
+                format="uan"
                 value={form.uan}
                 onChange={(e) => set({ uan: e.target.value })}
                 className="text-base md:text-sm"
@@ -794,8 +817,9 @@ export function EmployeeMasterScreen({
             </div>
             <div>
               <Label htmlFor="emp-pan">PAN No</Label>
-              <Input
+              <ValidatedInput
                 id="emp-pan"
+                format="pan"
                 value={form.pan_no}
                 onChange={(e) => set({ pan_no: e.target.value })}
                 className="text-base md:text-sm"
@@ -803,12 +827,25 @@ export function EmployeeMasterScreen({
             </div>
             <div>
               <Label htmlFor="emp-aadhar">Aadhar No</Label>
-              <Input
+              <ValidatedInput
                 id="emp-aadhar"
+                // Shape-only on purpose. The check digit is reported by the note
+                // below as a WARNING, never a block: Aadhaar has been stored
+                // unvalidated until now, so an employee already on file may hold
+                // a number that fails it — and that must not stand between you
+                // and correcting their phone number. Switch this to
+                // "aadhaar_strict" to make it a hard block instead.
+                format="aadhaar"
                 value={form.aadhar_no}
                 onChange={(e) => set({ aadhar_no: e.target.value })}
                 className="text-base md:text-sm"
               />
+              {aadhaarCheckFails && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                  <TriangleAlert className="h-4 w-4 shrink-0" />
+                  Check digit doesn&apos;t match — verify this number with the employee.
+                </p>
+              )}
             </div>
           </DetailSection>
 

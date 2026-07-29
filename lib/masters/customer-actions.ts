@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { customerInput, type CustomerInput } from "./customer-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -143,11 +144,38 @@ function headerOnly(data: CustomerInput) {
   return header;
 }
 
+/**
+ * A GSTIN identifies exactly one registered party, so two customers may never
+ * share one. The screen checks this live while typing, but that hint is
+ * advisory and racy — two operators can both pass it and both save. This is the
+ * authoritative check (client 2026-07-28).
+ *
+ * Deliberately GSTIN only. PAN is NOT unique across rows: one PAN carries one
+ * GSTIN per state, so a multi-state customer legitimately appears several times
+ * under the same PAN, and guarding it would block real data.
+ */
+async function checkGstinUnique(
+  s: Awaited<ReturnType<typeof createClient>>,
+  gstNo: string | null | undefined,
+  excludeId?: string,
+): Promise<string | null> {
+  const v = (gstNo ?? "").trim();
+  if (!v) return null;
+  const res = await checkDuplicateName(s, "customers", v, {
+    nameColumn: "gst_no",
+    excludeId,
+    label: "GST number",
+  });
+  return res.ok ? null : res.error;
+}
+
 export async function createCustomer(data: CustomerInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = customerInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupErr = await checkGstinUnique(s, p.data.gst_no);
+  if (dupErr) return fail(dupErr);
   const { data: created, error } = await s
     .from("customers")
     .insert(headerOnly(p.data))
@@ -165,6 +193,8 @@ export async function updateCustomer(id: string, data: CustomerInput): Promise<R
   const p = customerInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupErr = await checkGstinUnique(s, p.data.gst_no, id);
+  if (dupErr) return fail(dupErr);
   const { error } = await s.from("customers").update(headerOnly(p.data)).eq("id", id);
   if (error) return fail(error.message);
   const childRes = await writeChildren(s, id, p.data);

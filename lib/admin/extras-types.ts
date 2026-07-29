@@ -17,6 +17,11 @@ export interface Asset {
   name: string;
   category: string | null;
   asset_group: string | null;
+  /** The Capital Goods material this asset was bought as (0350). Null for a
+   *  one-off asset typed in by name. `name`/`category` are COPIED at pick time,
+   *  not read through this link — the register must still read correctly if the
+   *  material row is later deleted (the FK is ON DELETE SET NULL). */
+  item_id: string | null;
   location_id: string | null;
   status: AssetStatus;
   purchase_date: string | null;
@@ -42,6 +47,7 @@ export const assetInput = z.object({
   name: z.string().min(1),
   category: z.string().optional().nullable(),
   asset_group: z.string().optional().nullable(),
+  item_id: z.string().uuid().optional().nullable(),
   location_id: z.string().uuid().optional().nullable(),
   purchase_date: z.string().optional().nullable(),
   value: z.coerce.number().nonnegative().optional().nullable(),

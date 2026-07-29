@@ -9,6 +9,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useRegisterShortcut } from "@/lib/shortcuts";
 import { saveVendorGst, type VendorGstChange } from "@/lib/masters/vendor-gst-actions";
 import type { VendorGstRow } from "@/lib/masters/vendor-gst-service";
 import {
@@ -147,6 +148,13 @@ export function GstAssignScreen({ rows, perms }: { rows: VendorGstRow[]; perms: 
     setFGst("");
     setFCat("");
   }
+
+  // Ctrl/⌘+S and Enter both save through here. This screen is neither a Sheet
+  // nor a MasterFullScreen, so it inherits neither; and `submitSurface` cannot
+  // reach its Save button by DOM, so registering is what makes Enter save.
+  useRegisterShortcut("save", () => {
+    if (dirty > 0 && !isPending) save();
+  });
 
   function save() {
     startTransition(async () => {

@@ -128,6 +128,11 @@ export function MasterFullScreen({
       // not the whole 30-field form behind it.
       if (hasOpenModalInDom()) return;
       if (!confirmDiscard()) return;
+      // Say we consumed it. Escape's last layer (keyboard-nav-provider, bound to
+      // `window` so it runs after this) leaves the PAGE, and this surface is a
+      // bare fixed-inset div that `hasOpenModalInDom` deliberately cannot see —
+      // so preventDefault is the only thing that stops one press doing both.
+      e.preventDefault();
       onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);

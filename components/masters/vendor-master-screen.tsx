@@ -1,24 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { X, User, MapPin, SlidersHorizontal, Trash2, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { focusFirstField } from "@/lib/focus";
+import { User, MapPin, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid } from "@/components/masters/child-grid";
+import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
+import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
+import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
+import { decodeGstin, normalizeGstin } from "@/lib/validation/gstin";
 import { createVendor, updateVendor, deleteVendor } from "@/lib/masters/vendor-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
@@ -52,6 +54,18 @@ const CATEGORY_FLAGS = [
   { key: "is_sub_contractor", label: "Is Sub Contractor" },
 ] as const;
 type CategoryKey = (typeof CATEGORY_FLAGS)[number]["key"];
+
+// Alternate spellings a hand-typed State master row might carry, keyed by GST
+// state code. Only consulted when the row has no `code` to match on.
+const STATE_ALIASES: Record<string, string[]> = {
+  "05": ["Uttaranchal"],
+  "07": ["NCT of Delhi", "New Delhi"],
+  "21": ["Orissa"],
+  "26": ["Dadra & Nagar Haveli", "Daman & Diu"],
+  "33": ["Tamilnadu"],
+  "34": ["Pondicherry"],
+  "35": ["Andaman and Nicobar", "Andamans"],
+};
 
 type HeaderForm = {
   code: string;
@@ -126,7 +140,9 @@ type AddressRow = {
   country_id: string;
   pin: string;
   land_line: string;
-  fax: string;
+  mobile: string;
+  /** null = "same as mobile" (tick on). "" = tick off, nothing typed yet. */
+  whatsapp: string | null;
   email_id: string;
 };
 const blankAddress = (key: string, country_id = ""): AddressRow => ({
@@ -138,7 +154,8 @@ const blankAddress = (key: string, country_id = ""): AddressRow => ({
   country_id,
   pin: "",
   land_line: "",
-  fax: "",
+  mobile: "",
+  whatsapp: null,
   email_id: "",
 });
 const addressHasData = (a: AddressRow) =>
@@ -150,7 +167,8 @@ const addressHasData = (a: AddressRow) =>
     a.country_id ||
     a.pin.trim() ||
     a.land_line.trim() ||
-    a.fax.trim() ||
+    a.mobile.trim() ||
+    a.whatsapp?.trim() ||
     a.email_id.trim()
   );
 
@@ -168,6 +186,7 @@ export function VendorMasterScreen({
   states,
   groups,
   accountGroups,
+  companyGstin,
   perms,
 }: {
   rows: Vendor[];
@@ -176,6 +195,8 @@ export function VendorMasterScreen({
   states: ConfigLookup[];
   groups: ConfigLookup[];
   accountGroups: AccountGroup[];
+  /** Our own GSTIN, for within-state vs other-state classification. */
+  companyGstin: string | null;
   perms: Perms;
 }) {
   const router = useRouter();
@@ -184,22 +205,11 @@ export function VendorMasterScreen({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [section, setSection] = useState<SectionKey>("identity");
-  /** Scroll pane of the editor — the boundary the shared key contract walks. */
-  const editorContentRef = useRef<HTMLDivElement>(null);
-  // Put the cursor in the first field when the editor opens, and again when the
-  // section switches (which unmounts the previously focused field).
-  useEffect(() => {
-    if (!open) return;
-    const id = window.setTimeout(() => focusFirstField(editorContentRef.current), 60);
-    return () => window.clearTimeout(id);
-  }, [open, section]);
   const [dirty, setDirty] = useState(false);
+  const isdOf = useIsdLookup(countries);
 
-  // Hold off the silent PWA auto-reload. Both guards are needed here: the
-  // editor at :519 is a hand-rolled `fixed inset-0` clone with no role="dialog",
-  // so reload-guard's DOM scan can't see it the way it sees a Sheet.
-  useModalGuard(open);
+  // MasterFullScreen calls useModalGuard itself, so only the screen's own
+  // unsaved state is declared here — it also feeds Escape's dirty confirm.
   useUnsavedGuard(dirty || isPending);
 
   const [form, setForm] = useState<HeaderForm>(BLANK);
@@ -244,8 +254,8 @@ export function VendorMasterScreen({
   function openAdd() {
     setEditId(null);
     setForm({ ...BLANK, country_id: indCountryId });
+    loadedGstin.current = "";
     setAddresses([blankAddress(newKey(), indCountryId)]);
-    setSection("identity");
     setDirty(false);
     setOpen(true);
   }
@@ -282,6 +292,7 @@ export function VendorMasterScreen({
       inhouse_unit_id: r.inhouse_unit_id ?? "",
       duty_against: r.duty_against ?? "",
     });
+    loadedGstin.current = normalizeGstin(r.gst_no);
     setAddresses(
       r.addresses.map((a) => ({
         key: newKey(),
@@ -292,11 +303,12 @@ export function VendorMasterScreen({
         country_id: a.country_id ?? "",
         pin: a.pin ?? "",
         land_line: a.land_line ?? "",
-        fax: a.fax ?? "",
+        mobile: a.mobile ?? "",
+        // NOT `?? ""` — a stored NULL is the "same as mobile" state.
+        whatsapp: a.whatsapp,
         email_id: a.email_id ?? "",
       })),
     );
-    setSection("identity");
     setDirty(false);
     setOpen(true);
   }
@@ -313,6 +325,106 @@ export function VendorMasterScreen({
     setAddresses((xs) => xs.filter((a) => a.key !== key));
     setDirty(true);
   }
+
+  // ---------------------------------------------------------------- GSTIN ----
+  // Everything below is decoded from the GST number itself — no lookup, no
+  // network. See lib/validation/gstin.ts for what the 15 characters carry.
+
+  const gstin = useMemo(
+    () => decodeGstin(form.gst_no, { companyGstin }),
+    [form.gst_no, companyGstin],
+  );
+
+  // Read the current PAN without making it an effect dependency (see below).
+  const panRef = useRef(form.pan_no);
+  panRef.current = form.pan_no;
+
+  /**
+   * The GSTIN as loaded, so merely OPENING a record never auto-fills — that
+   * would mark a freshly-opened form dirty and trip the unsaved-work guard.
+   * Only a GSTIN the user actually changed feeds the auto-fill.
+   */
+  const loadedGstin = useRef("");
+
+  // The State-master row this GSTIN points at. `public.states.code` IS the GST
+  // state code, so that is the primary match; the name/alias ladder is a
+  // fallback because the table ships unseeded and rows get hand-typed.
+  const gstinState = useMemo(() => {
+    if (!gstin) return null;
+    const byCode = states.find(
+      (s) => (s.code ?? "").trim().padStart(2, "0") === gstin.stateCode,
+    );
+    if (byCode) return byCode;
+    if (!gstin.stateName) return null;
+    const norm = (v: string) => v.toUpperCase().replace(/[^A-Z]/g, "");
+    const wanted = new Set(
+      [gstin.stateName, ...(STATE_ALIASES[gstin.stateCode] ?? [])].map(norm),
+    );
+    return states.find((s) => wanted.has(norm(s.name))) ?? null;
+  }, [gstin, states]);
+
+  // PAN is characters 3-12 of the GSTIN, so filling an EMPTY PAN box cannot
+  // lose information. A PAN that is already typed is never overwritten — a
+  // disagreement is real signal, surfaced as a mismatch line instead.
+  useEffect(() => {
+    if (!gstin?.checksumValid) return;
+    if (gstin.gstin === loadedGstin.current) return;
+    if (panRef.current.trim()) return;
+    set({ pan_no: gstin.pan });
+    // Deliberately NOT depending on form.pan_no: that would re-run on every PAN
+    // keystroke and silently re-fill a field the user had just cleared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstin?.gstin, gstin?.checksumValid]);
+
+  // Everything the GSTIN implies but that we refuse to write silently. Empty
+  // while the checksum fails — we never propagate a number we don't trust.
+  const gstinSuggestions = useMemo<GstinSuggestion[]>(() => {
+    if (!gstin?.checksumValid) return [];
+    const out: GstinSuggestion[] = [];
+
+    const typedPan = form.pan_no.trim().toUpperCase();
+    if (typedPan && typedPan !== gstin.pan) {
+      out.push({
+        key: "pan",
+        label: `Use ${gstin.pan}`,
+        onApply: () => set({ pan_no: gstin.pan }),
+      });
+    }
+
+    if (gstin.supply !== "unknown") {
+      const want: VendorType = gstin.supply === "intra" ? "With in State" : "Other State";
+      if (form.vendor_type !== want) {
+        // Never auto-written: vendor_type drives the server-side PIN rule
+        // (Foreign Vendor skips it), so a silent flip would fail the save on a
+        // child row the user never touched.
+        out.push({ key: "type", label: `Set Type = ${want}`, onApply: () => set({ vendor_type: want }) });
+      }
+    }
+
+    if (!form.gst_reg_status) {
+      out.push({
+        key: "reg",
+        label: "Set GST Status = Registered",
+        onApply: () => set({ gst_reg_status: "Registered" }),
+      });
+    }
+
+    const first = addresses[0];
+    if (gstinState && first && !first.state_id) {
+      out.push({
+        key: "state",
+        label: `Set State = ${gstinState.name} on Address #1`,
+        onApply: () => {
+          setAddressAt(first.key, { state_id: gstinState.id });
+          // Toasted because the change lands in a section the user isn't looking at.
+          success(`State set to ${gstinState.name} on Address #1`);
+        },
+      });
+    }
+
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstin, gstinState, form.pan_no, form.vendor_type, form.gst_reg_status, addresses]);
 
   function submit(asDraft: boolean) {
     startTransition(async () => {
@@ -358,7 +470,9 @@ export function VendorMasterScreen({
           country_id: a.country_id || null,
           pin: a.pin || null,
           land_line: a.land_line || null,
-          fax: a.fax || null,
+          mobile: a.mobile || null,
+          // "" collapses to null — an empty WhatsApp box means "same as mobile".
+          whatsapp: a.whatsapp?.trim() || null,
           email_id: a.email_id || null,
         })),
       };
@@ -465,183 +579,10 @@ export function VendorMasterScreen({
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
 
-  return (
-    <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search vendor…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Vendor
-          </Button>
-        )}
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No vendors yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No vendors yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.code ?? "—"}
-                    {r.vendor_type ? ` · ${r.vendor_type}` : ""}
-                  </div>
-                </div>
-                {r.is_draft ? (
-                  <StatusPill tone="warning">Draft</StatusPill>
-                ) : r.inactive ? (
-                  <StatusPill tone="danger">Inactive</StatusPill>
-                ) : (
-                  <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>
-                )}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-
-      {/* ================= full-screen editor ================= */}
-      {open && (
-        <div className="fixed inset-0 z-[80] flex flex-col bg-background">
-          {/* topbar */}
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5">
-            <div className="text-xs text-muted-foreground">
-              {editId ? "Editing" : "New"}{" "}
-              <span className="font-semibold text-foreground">
-                {form.name.trim() || "vendor"}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* record header (sticky identity band) */}
-          <div className="grid gap-3 border-b border-border bg-surface px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-primary/10 text-base font-bold text-primary">
-                {initials}
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="truncate text-[15px] font-bold tracking-tight text-foreground">
-                    {form.name.trim() || "Untitled vendor"}
-                  </span>
-                  {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
-                  {!form.inactive && <StatusPill tone={statusTone(form.status)}>{form.status}</StatusPill>}
-                  {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
-                </div>
-                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                  <span>
-                    {form.code ? (
-                      <span className="font-mono font-semibold text-foreground">{form.code}</span>
-                    ) : (
-                      "No short name"
-                    )}
-                  </span>
-                  {form.vendor_type && <span>· {form.vendor_type}</span>}
-                  {form.country_id && countryLabel.get(form.country_id) && (
-                    <span>· {countryLabel.get(form.country_id)}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* category chips */}
-            <div className="flex flex-col gap-1.5 md:items-end">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Category
-              </span>
-              <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
-                {activeCategories.length === 0 ? (
-                  <span className="text-xs text-muted-foreground">None set</span>
-                ) : (
-                  activeCategories.map((f) => (
-                    <span
-                      key={f.key}
-                      className="inline-flex items-center rounded-full border border-border bg-surface-muted px-2.5 py-1 text-xs"
-                    >
-                      {f.label}
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* body: rail + content */}
-          <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[228px_1fr]">
-            {/* rail */}
-            <nav className="flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:flex-col md:overflow-visible md:border-b-0 md:border-r md:p-3">
-              <span className="hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
-                Sections
-              </span>
-              {SECTIONS.map((s) => {
-                const active = section === s.key;
-                const Icon = s.icon;
-                return (
-                  <button
-                    key={s.key}
-                    type="button"
-                    onClick={() => setSection(s.key)}
-                    aria-current={active}
-                    className={cn(
-                      "flex shrink-0 items-center gap-2.5 rounded-md border px-2.5 py-2 text-left text-[13.5px] transition-colors md:w-full",
-                      active
-                        ? "border-border bg-surface font-semibold text-foreground shadow-sm"
-                        : "border-transparent text-muted-foreground hover:bg-surface hover:text-foreground",
-                    )}
-                  >
-                    <Icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
-                    <span className="flex-1 truncate whitespace-nowrap">{s.label}</span>
-                    <span
-                      className={cn(
-                        "h-1.5 w-1.5 shrink-0 rounded-full border",
-                        done[s.key] ? "border-accent bg-accent" : "border-border bg-transparent",
-                      )}
-                      aria-label={done[s.key] ? "has data" : "empty"}
-                    />
-                  </button>
-                );
-              })}
-            </nav>
-
-            {/* content — routes keys through the one shared contract (↓/↑ opens
-                a picker, else moves between fields; Enter advances). This editor
-                is a hand-rolled clone of MasterFullScreen and had copied the
-                layout but not the keyboard behaviour, so arrows and Enter did
-                nothing here (client 2026-07-25). */}
-            <div ref={editorContentRef} data-focus-scope className="min-h-0 flex-1 overflow-y-auto">
-              <div className="@container/editor mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6">
-                {section === "identity" && (
+  // Section bodies, keyed the same as SECTIONS. Declared here rather than
+  // inline in the `sections` prop so the prop stays legible.
+  const SECTION_CONTENT: Record<SectionKey, ReactNode> = {
+    identity: (
                   <SectionBody title="Identity" hint="Who this vendor is, their category and registration details.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       {editId && (
@@ -793,239 +734,118 @@ export function VendorMasterScreen({
                       </div>
                     </div>
                   </SectionBody>
-                )}
-
-                {section === "address" && (
-                  <SectionBody title="Address" hint="One or more addresses for this vendor.">
-                    <div className="overflow-hidden rounded-lg border border-border">
-                      <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3.5 py-2.5">
-                        <h3 className="text-[13px] font-bold text-foreground">Address Detail</h3>
-                        <Button type="button" variant="outline" size="sm" onClick={addAddress}>
-                          + Add address
-                        </Button>
-                      </div>
-
-                      {addresses.length === 0 ? (
-                        <p className="px-4 py-8 text-center text-xs text-muted-foreground">No addresses yet.</p>
-                      ) : (
-                        <>
-                          {/* desktop: dense table */}
-                          <div className="hidden overflow-x-auto md:block">
-                            <table className="w-full min-w-[1000px] border-collapse text-[12.5px]">
-                              <thead>
-                                <tr className="bg-surface-muted text-[11px] uppercase tracking-wide text-muted-foreground">
-                                  <th className="w-8 px-2 py-2 text-center font-semibold">#</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Address Type</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Street</th>
-                                  <th className="px-2 py-2 text-left font-semibold">City</th>
-                                  <th className="px-2 py-2 text-left font-semibold">State</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Country</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Pin</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Land Line</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Fax</th>
-                                  <th className="px-2 py-2 text-left font-semibold">Email ID</th>
-                                  <th className="w-9 px-2 py-2" />
-                                </tr>
-                              </thead>
-                              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addAddress)}>
-                                {addresses.map((a, i) => (
-                                  <tr data-grid-row key={a.key} className="border-t border-border align-top">
-                                    <td className="px-2 py-1.5 text-center font-mono text-muted-foreground">{i + 1}</td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input
-                                        value={a.address_type}
-                                        onChange={(e) => setAddressAt(a.key, { address_type: e.target.value })}
-                                        className="h-8 min-w-[110px] text-sm"
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input
-                                        value={a.street}
-                                        onChange={(e) => setAddressAt(a.key, { street: e.target.value })}
-                                        className="h-8 min-w-[150px] text-sm"
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5 min-w-[150px]">
-                                      <LookupDialogPicker
-                                        kind="city"
-                                        label="City"
-                                        options={cities}
-                                        value={a.city_id || null}
-                                        onChange={(id) => setAddressAt(a.key, { city_id: id })}
-                                        canCreate={perms.canCreate}
-                                        canEdit={perms.canEdit}
-                                        compact
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5 min-w-[150px]">
-                                      <LookupDialogPicker
-                                        kind="state"
-                                        label="State"
-                                        options={states}
-                                        value={a.state_id || null}
-                                        onChange={(id) => setAddressAt(a.key, { state_id: id })}
-                                        compact
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5 min-w-[160px]">
-                                      <CountryPicker
-                                        countries={countries}
-                                        value={a.country_id || null}
-                                        onChange={(id) => setAddressAt(a.key, { country_id: id })}
-                                        canCreate={perms.canCreate}
-                                        canEdit={perms.canEdit}
-                                        compact
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <ValidatedInput
-                                        format="pincode"
-                                        value={a.pin}
-                                        onChange={(e) => setAddressAt(a.key, { pin: e.target.value })}
-                                        className="h-8 min-w-[80px] text-sm"
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input
-                                        value={a.land_line}
-                                        onChange={(e) => setAddressAt(a.key, { land_line: e.target.value })}
-                                        className="h-8 min-w-[110px] text-sm"
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <Input
-                                        value={a.fax}
-                                        onChange={(e) => setAddressAt(a.key, { fax: e.target.value })}
-                                        className="h-8 min-w-[100px] text-sm"
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5">
-                                      <ValidatedInput
-                                        format="email"
-                                        value={a.email_id}
-                                        onChange={(e) => setAddressAt(a.key, { email_id: e.target.value })}
-                                        className="h-8 min-w-[150px] text-sm"
-                                      />
-                                    </td>
-                                    <td className="px-1.5 py-1.5 text-center">
-                                      <button
-                                        type="button"
-                                        onClick={() => removeAddress(a.key)}
-                                        className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                                        aria-label="Remove address"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-
-                          {/* mobile: stacked cards */}
-                          <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addAddress)} className="space-y-3 p-3 md:hidden">
-                            {addresses.map((a, i) => (
-                              <div data-grid-row key={a.key} className="space-y-2 rounded-md border border-border p-2.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-medium text-muted-foreground">Address #{i + 1}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeAddress(a.key)}
-                                    className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:text-danger"
-                                    aria-label="Remove address"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
-                                <Input
-                                  placeholder="Address Type"
-                                  value={a.address_type}
-                                  onChange={(e) => setAddressAt(a.key, { address_type: e.target.value })}
-                                  className="text-base md:text-sm"
-                                />
-                                <Textarea
-                                  placeholder="Street"
-                                  rows={2}
-                                  value={a.street}
-                                  onChange={(e) => setAddressAt(a.key, { street: e.target.value })}
-                                  className="text-base md:text-sm"
-                                />
-                                <div>
-                                  <Label>City</Label>
-                                  <LookupDialogPicker
-                                    kind="city"
-                                    label="City"
-                                    options={cities}
-                                    value={a.city_id || null}
-                                    onChange={(id) => setAddressAt(a.key, { city_id: id })}
-                                    canCreate={perms.canCreate}
-                                    canEdit={perms.canEdit}
-                                    compact
-                                  />
-                                </div>
-                                <div>
-                                  <Label>State</Label>
-                                  <LookupDialogPicker
-                                    kind="state"
-                                    label="State"
-                                    options={states}
-                                    value={a.state_id || null}
-                                    onChange={(id) => setAddressAt(a.key, { state_id: id })}
-                                    compact
-                                  />
-                                </div>
-                                <div>
-                                  <Label>Country</Label>
-                                  <CountryPicker
-                                    countries={countries}
-                                    value={a.country_id || null}
-                                    onChange={(id) => setAddressAt(a.key, { country_id: id })}
-                                    canCreate={perms.canCreate}
-                                    canEdit={perms.canEdit}
-                                    compact
-                                  />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <ValidatedInput
-                                    format="pincode"
-                                    placeholder="Pin"
-                                    value={a.pin}
-                                    onChange={(e) => setAddressAt(a.key, { pin: e.target.value })}
-                                    className="text-base md:text-sm"
-                                  />
-                                  <Input
-                                    placeholder="Land Line"
-                                    value={a.land_line}
-                                    onChange={(e) => setAddressAt(a.key, { land_line: e.target.value })}
-                                    className="text-base md:text-sm"
-                                  />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <Input
-                                    placeholder="Fax"
-                                    value={a.fax}
-                                    onChange={(e) => setAddressAt(a.key, { fax: e.target.value })}
-                                    className="text-base md:text-sm"
-                                  />
-                                  <ValidatedInput
-                                    format="email"
-                                    placeholder="Email ID"
-                                    value={a.email_id}
-                                    onChange={(e) => setAddressAt(a.key, { email_id: e.target.value })}
-                                    className="text-base md:text-sm"
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </SectionBody>
-                )}
-
-                {section === "other" && (
+    ),
+    address: (
+      <SectionBody title="Address" hint="One or more addresses for this vendor.">
+        {/* Ten fields per address — past the ~5 a row can hold and past the 8 at
+            which LAYOUT.md §6 says stop inlining, so a card per address with a
+            FieldGrid inside. This replaces a hand-rolled `min-w-[1120px]` table
+            AND a separate `md:hidden` card branch that duplicated all ten
+            fields: two renderings to keep in step, which is exactly what
+            ChildGrid exists to prevent. The fields were labelled by column
+            header on desktop and by nothing at all on mobile; they carry real
+            labels now. */}
+        <ChildGrid<AddressRow>
+          label="Address Detail"
+          rows={addresses}
+          onAdd={addAddress}
+          onRemove={(a) => removeAddress(a.key)}
+          addLabel="+ Add address"
+          forceCards
+          pageSize={3}
+          // `forceCards` + `renderMobileRow` mean these never render; they are
+          // the fallback if this grid is ever switched back to a table.
+          columns={[
+            { header: "Address Type", cell: (a) => a.address_type },
+            { header: "Street", cell: (a) => a.street },
+          ]}
+          renderMobileRow={(a) => (
+            <FieldGrid>
+              <Field label="Address Type" size="md">
+                <Input
+                  value={a.address_type}
+                  onChange={(e) => setAddressAt(a.key, { address_type: e.target.value })}
+                />
+              </Field>
+              <Field label="Street" size="lg">
+                <Input
+                  value={a.street}
+                  onChange={(e) => setAddressAt(a.key, { street: e.target.value })}
+                />
+              </Field>
+              {/* The three pickers render their own labels. */}
+              <Field size="md">
+                <LookupDialogPicker
+                  kind="city"
+                  label="City"
+                  options={cities}
+                  value={a.city_id || null}
+                  onChange={(id) => setAddressAt(a.key, { city_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              <Field size="md">
+                <LookupDialogPicker
+                  kind="state"
+                  label="State"
+                  options={states}
+                  value={a.state_id || null}
+                  onChange={(id) => setAddressAt(a.key, { state_id: id })}
+                />
+              </Field>
+              <Field size="md">
+                <CountryPicker
+                  countries={countries}
+                  value={a.country_id || null}
+                  onChange={(id) => setAddressAt(a.key, { country_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              <Field label="Pin" size="sm">
+                <ValidatedInput
+                  format="pincode"
+                  value={a.pin}
+                  onChange={(e) => setAddressAt(a.key, { pin: e.target.value })}
+                />
+              </Field>
+              <Field label="Land Line" size="md">
+                <Input
+                  value={a.land_line}
+                  onChange={(e) => setAddressAt(a.key, { land_line: e.target.value })}
+                />
+              </Field>
+              <Field size="md">
+                <MobileField
+                  id={`ve-${a.key}-mobile`}
+                  value={a.mobile}
+                  onChange={(v) => setAddressAt(a.key, { mobile: v })}
+                />
+              </Field>
+              {/* Full width: the "Same as mobile" tick needs a line of its own. */}
+              <Field size="full">
+                <WhatsAppField
+                  id={`ve-${a.key}-whatsapp`}
+                  value={a.whatsapp}
+                  mobile={a.mobile}
+                  isdCode={isdOf.get(a.country_id) ?? null}
+                  onChange={(v) => setAddressAt(a.key, { whatsapp: v })}
+                />
+              </Field>
+              <Field label="Email ID" size="lg">
+                <ValidatedInput
+                  format="email"
+                  value={a.email_id}
+                  onChange={(e) => setAddressAt(a.key, { email_id: e.target.value })}
+                />
+              </Field>
+            </FieldGrid>
+          )}
+        />
+      </SectionBody>
+    ),
+    other: (
                   <SectionBody title="Other Details" hint="Banking, GST and ledger-group defaults for this vendor.">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
@@ -1097,12 +917,27 @@ export function VendorMasterScreen({
                         <Label htmlFor="ve-gstno">GST Number</Label>
                         <ValidatedInput
                           id="ve-gstno"
+                          // Shape-only on purpose. The check digit is verified
+                          // by the strip below as a WARNING, not a block — a
+                          // bad GSTIN copied off an invoice still has to be
+                          // savable while the vendor is chased. Switch this to
+                          // "gstin_strict" to make it a hard block instead.
                           format="gstin"
                           value={form.gst_no}
                           onChange={(e) => set({ gst_no: e.target.value })}
                           className="text-base md:text-sm"
                         />
                       </div>
+
+                      {gstin && (
+                        <div className="sm:col-span-2 -mt-1">
+                          <GstinInsight
+                            decoded={gstin}
+                            panValue={form.pan_no}
+                            suggestions={gstinSuggestions}
+                          />
+                        </div>
+                      )}
 
                       <div>
                         <AccountGroupPicker
@@ -1162,59 +997,144 @@ export function VendorMasterScreen({
                       </div>
                     </div>
                   </SectionBody>
+    ),
+  };
+
+
+  return (
+    <div className="space-y-4">
+      {/* toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search vendor…"
+          className="max-w-xs flex-1 basis-full sm:basis-auto"
+        />
+        <div className="flex-1" />
+        {perms.canCreate && (
+          <Button size="md" onClick={openAdd}>
+            + Add Vendor
+          </Button>
+        )}
+      </div>
+
+      {/* desktop table */}
+      <div className="hidden md:block">
+        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No vendors yet." />
+      </div>
+
+      {/* mobile cards */}
+      <div className="space-y-2.5 md:hidden">
+        {filtered.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
+            No vendors yet.
+          </div>
+        ) : (
+          filtered.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => perms.canEdit && openEdit(r)}
+              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    {r.code ?? "—"}
+                    {r.vendor_type ? ` · ${r.vendor_type}` : ""}
+                  </div>
+                </div>
+                {r.is_draft ? (
+                  <StatusPill tone="warning">Draft</StatusPill>
+                ) : r.inactive ? (
+                  <StatusPill tone="danger">Inactive</StatusPill>
+                ) : (
+                  <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>
                 )}
               </div>
-            </div>
-          </div>
+            </button>
+          ))
+        )}
+      </div>
 
-          {/* sticky footer */}
-          <div className="flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6">
-            {dirty ? (
-              <span className="text-xs text-muted-foreground">Unsaved changes</span>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {editId ? "All changes saved" : "New vendor"}
+      <MasterFullScreen
+        open={open}
+        onClose={() => setOpen(false)}
+        modeLabel={
+          <>
+            {editId ? "Editing" : "New"}{" "}
+            <span className="font-semibold text-foreground">{form.name.trim() || "vendor"}</span>
+          </>
+        }
+        header={{
+          initials,
+          title: form.name.trim() || "Untitled vendor",
+          badges: (
+            <>
+              {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              {!form.inactive && <StatusPill tone={statusTone(form.status)}>{form.status}</StatusPill>}
+              {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
+            </>
+          ),
+          meta: (
+            <>
+              <span>
+                {form.code ? (
+                  <span className="font-mono font-semibold text-foreground">{form.code}</span>
+                ) : (
+                  "No short name"
+                )}
               </span>
-            )}
-            <div className="flex-1" />
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            {perms.canCreate && (
-              <Button
-                variant="outline"
-                size="md"
-                disabled={isPending || !form.name.trim()}
-                onClick={() => submit(true)}
-              >
-                Save as Draft
-              </Button>
-            )}
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={() => submit(false)}>
-              {isPending ? "Saving…" : "Save vendor"}
-            </Button>
-          </div>
-        </div>
-      )}
+              {form.vendor_type && <span>· {form.vendor_type}</span>}
+              {form.country_id && countryLabel.get(form.country_id) && (
+                <span>· {countryLabel.get(form.country_id)}</span>
+              )}
+            </>
+          ),
+          right: (
+            <>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Category
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+                {activeCategories.length === 0 ? (
+                  <span className="text-xs text-muted-foreground">None set</span>
+                ) : (
+                  activeCategories.map((f) => (
+                    <span
+                      key={f.key}
+                      className="inline-flex items-center rounded-full border border-border bg-surface-muted px-2.5 py-1 text-xs"
+                    >
+                      {f.label}
+                    </span>
+                  ))
+                )}
+              </div>
+            </>
+          ),
+        }}
+        sections={SECTIONS.map((s) => ({
+          key: s.key,
+          label: s.label,
+          icon: s.icon,
+          done: done[s.key],
+          content: SECTION_CONTENT[s.key],
+        }))}
+        footer={{
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New vendor",
+          onCancel: () => setOpen(false),
+          onSave: () => submit(false),
+          saveLabel: "Save vendor",
+          canSave: !!form.name.trim(),
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          draftLabel: "Save as Draft",
+          isPending,
+        }}
+      />
     </div>
   );
 }
 
 /** A titled content block inside the editor's content pane. */
-function SectionBody({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <h2 className="text-[15px] font-bold tracking-tight text-foreground">{title}</h2>
-      <p className="mb-4 mt-0.5 text-[12.5px] text-muted-foreground">{hint}</p>
-      {children}
-    </div>
-  );
-}

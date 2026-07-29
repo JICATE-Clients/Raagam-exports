@@ -15,6 +15,12 @@ type Handler = () => void;
 
 export interface ShortcutsApi {
   register: (id: ShortcutId, fn: Handler) => () => void;
+  /**
+   * Run the topmost handler for `id`; false when nothing is registered. Exposed
+   * because Enter-to-save (lib/focus.ts `submitSurface`) has to reach exactly the
+   * same handler Ctrl+S does — an editor must not have two different saves.
+   */
+  fire: (id: ShortcutId) => boolean;
   openHelp: () => void;
 }
 

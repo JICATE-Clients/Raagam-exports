@@ -66,6 +66,7 @@ export default async function AssetDetailPage({
         assetId={assetId}
         status={asset.status}
         assignments={assignments}
+        itemName={asset.item_name}
         canEdit={canEdit}
         canDelete={canDelete}
       />

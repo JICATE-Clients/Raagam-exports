@@ -19,6 +19,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
+import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { createBrand, updateBrand, deleteBrand } from "@/lib/masters/brand-actions";
 import type { Brand, BrandInput } from "@/lib/masters/brand-types";
 import type { Country } from "@/lib/masters/country-types";
@@ -31,13 +32,17 @@ const BLANK = {
   country_id: "",
   website: "",
   phone: "",
-  fax: "",
+  mobile: "",
+  // `as string | null` because this object's type is inferred: a bare `null`
+  // would widen to the `null` literal and reject a typed number later.
+  // null = "same as mobile" (tick on); "" = tick off, nothing typed yet.
+  whatsapp: null as string | null,
   inactive: false,
 };
 
 /**
  * Brand master (Materials): Short Name · Name (req) · Country (opt, via the
- * ⓘ CountryPicker with Add/Modify) · Website · Phone · Fax · Blocked.
+ * ⓘ CountryPicker with Add/Modify) · Website · Phone · Mobile · WhatsApp · Blocked.
  * Dense table on desktop, cards on mobile, shared <Sheet> editor.
  */
 export function BrandMasterScreen({
@@ -52,6 +57,7 @@ export function BrandMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const isdOf = useIsdLookup(countries);
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -102,7 +108,9 @@ export function BrandMasterScreen({
       country_id: r.country_id ?? "",
       website: r.website ?? "",
       phone: r.phone ?? "",
-      fax: r.fax ?? "",
+      mobile: r.mobile ?? "",
+      // NOT `?? ""` — a stored NULL is the "same as mobile" state.
+      whatsapp: r.whatsapp,
       inactive: r.inactive,
     });
     setOpen(true);
@@ -116,7 +124,9 @@ export function BrandMasterScreen({
         country_id: form.country_id || null,
         website: form.website.trim() || null,
         phone: form.phone.trim() || null,
-        fax: form.fax.trim() || null,
+        mobile: form.mobile.trim() || null,
+        // "" collapses to null — an empty WhatsApp box means "same as mobile".
+        whatsapp: form.whatsapp?.trim() || null,
         inactive: form.inactive,
       };
       const res = editId ? await updateBrand(editId, payload) : await createBrand(payload);
@@ -338,15 +348,14 @@ export function BrandMasterScreen({
                 className="text-base md:text-sm"
               />
             </div>
-            <div>
-              <Label htmlFor="brd-fax">Fax</Label>
-              <Input
-                id="brd-fax"
-                value={form.fax}
-                onChange={(e) => set({ fax: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
+            <MobileWhatsAppFields
+              idPrefix="brd"
+              mobile={form.mobile}
+              whatsapp={form.whatsapp}
+              isdCode={isdOf.get(form.country_id) ?? null}
+              onMobileChange={(v) => set({ mobile: v })}
+              onWhatsAppChange={(v) => set({ whatsapp: v })}
+            />
           </DetailSection>
 
           {editId && (

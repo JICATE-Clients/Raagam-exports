@@ -4,7 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -238,9 +239,29 @@ export function MerchandisingTeamMasterScreen({
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+        {/* Two fields — one flat section (LAYOUT.md §4). */}
+        <DetailSection label="Details" cols={12}>
+          <Field label="Name" size="lg" required htmlFor="mt-name">
+            <Input
+              id="mt-name"
+              uppercase
+              value={form.name}
+              onChange={(e) => set({ name: e.target.value })}
+              required
+            />
+          </Field>
+          {/* LocationPicker renders its own <Label> (defaulting to "Location"),
+              so the screen's outer one was a duplicate — it rendered two labels
+              stacked above a single control. Dropped, not moved. */}
+          <Field size="md">
+            <LocationPicker
+              locations={locations}
+              value={form.location_id || null}
+              onChange={(id) => set({ location_id: id ?? "" })}
+            />
+          </Field>
           {editId && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
+            <Field size="md">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
@@ -250,30 +271,9 @@ export function MerchandisingTeamMasterScreen({
                 />
                 <span className="text-sm text-foreground">Inactive</span>
               </label>
-            </div>
+            </Field>
           )}
-          <div>
-            <Label htmlFor="mt-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="mt-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div>
-            <Label>Location</Label>
-            <LocationPicker
-              locations={locations}
-              value={form.location_id || null}
-              onChange={(id) => set({ location_id: id ?? "" })}
-            />
-          </div>
-        </div>
+        </DetailSection>
       </Sheet>
     </div>
   );

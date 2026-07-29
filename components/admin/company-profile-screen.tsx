@@ -1,14 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
+import { MobileWhatsAppFields } from "@/components/masters/contact-fields";
 import { saveCompanyProfile } from "@/lib/admin/company-actions";
+import { GSTIN_RE, type FormatKind } from "@/lib/validation/formats";
+import { isGstinChecksumValid } from "@/lib/validation/gstin";
 import type { CompanyProfile, CompanyProfileInput } from "@/lib/admin/company-types";
 
 type Props = {
@@ -29,7 +34,9 @@ function toForm(p: CompanyProfile | null): CompanyProfileInput {
     state: p?.state ?? "",
     country_code: p?.country_code ?? "",
     phone: p?.phone ?? "",
-    fax: p?.fax ?? "",
+    mobile: p?.mobile ?? "",
+    // NOT `?? ""` — a stored NULL is the "same as mobile" state.
+    whatsapp: p?.whatsapp ?? null,
     email: p?.email ?? "",
     website: p?.website ?? "",
     reg_street1: p?.reg_street1 ?? "",
@@ -77,13 +84,23 @@ function toForm(p: CompanyProfile | null): CompanyProfileInput {
   };
 }
 
-function Field({ id, label, value, onChange, disabled, type = "text" }: {
+function Field({ id, label, value, onChange, disabled, type = "text", format, children }: {
   id: string; label: string; value: string; onChange: (v: string) => void; disabled?: boolean; type?: string;
+  /** Wires the shared format rule: uppercase/digits as you type + an inline
+   *  error on blur. Same kind the server checks, so the two can't disagree. */
+  format?: FormatKind;
+  /** Advisory line under the box (a checksum note), rendered below any format error. */
+  children?: React.ReactNode;
 }) {
   return (
     <div>
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} type={type} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="text-base md:text-sm" />
+      {format ? (
+        <ValidatedInput id={id} format={format} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="text-base md:text-sm" />
+      ) : (
+        <Input id={id} type={type} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="text-base md:text-sm" />
+      )}
+      {children}
     </div>
   );
 }
@@ -99,7 +116,12 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
 
   function submit() {
     startTransition(async () => {
-      const res = await saveCompanyProfile(form);
+      // Collapse an empty WhatsApp box back to NULL — that IS the "same as
+      // mobile" state, and this screen submits `form` wholesale.
+      const res = await saveCompanyProfile({
+        ...form,
+        whatsapp: (form.whatsapp as string | null)?.trim() || null,
+      });
       if (res.ok) {
         success("Company profile saved.");
         router.refresh();
@@ -110,6 +132,16 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
   }
 
   const dis = !canEdit;
+
+  // Advisory only — the GSTIN box itself validates shape (see the field). This is
+  // our OWN number and it prints on every invoice, so a failed check digit is
+  // worth saying out loud; it still must not block the save, because the profile
+  // is one wide form and a bad GSTIN would otherwise freeze every other field on
+  // it (client 2026-07-28).
+  const gstinCheckFails = useMemo(() => {
+    const v = ((form.gstin as string) ?? "").trim().toUpperCase();
+    return GSTIN_RE.test(v) && !isGstinChecksumValid(v);
+  }, [form.gstin]);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -133,7 +165,17 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
           <Field id="cp-state" label="State" value={(form.state as string) ?? ""} onChange={(v) => set("state", v)} disabled={dis} />
           <Field id="cp-country" label="Country" value={(form.country_code as string) ?? ""} onChange={(v) => set("country_code", v)} disabled={dis} />
           <Field id="cp-phone" label="Phone" value={(form.phone as string) ?? ""} onChange={(v) => set("phone", v)} disabled={dis} />
-          <Field id="cp-fax" label="Fax" value={(form.fax as string) ?? ""} onChange={(v) => set("fax", v)} disabled={dis} />
+          {/* Own company, so the strict India-only rule applies (format="mobile"),
+              unlike the buyer-facing masters which are international-tolerant. */}
+          <MobileWhatsAppFields
+            idPrefix="cp"
+            format="mobile"
+            mobile={(form.mobile as string) ?? ""}
+            whatsapp={(form.whatsapp as string | null) ?? null}
+            onMobileChange={(v) => set("mobile", v)}
+            onWhatsAppChange={(v) => set("whatsapp", v)}
+            disabled={dis}
+          />
           <Field id="cp-email" label="Email" value={(form.email as string) ?? ""} onChange={(v) => set("email", v)} disabled={dis} />
           <Field id="cp-website" label="Website" value={(form.website as string) ?? ""} onChange={(v) => set("website", v)} disabled={dis} />
         </div>
@@ -154,10 +196,19 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
       {/* Statutory */}
       <DetailSection label="Statutory & Registration">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field id="cp-pan" label="PAN No" value={(form.pan_no as string) ?? ""} onChange={(v) => set("pan_no", v)} disabled={dis} />
-          <Field id="cp-gstin" label="GSTIN" value={(form.gstin as string) ?? ""} onChange={(v) => set("gstin", v)} disabled={dis} />
-          <Field id="cp-cin" label="CIN No" value={(form.cin_no as string) ?? ""} onChange={(v) => set("cin_no", v)} disabled={dis} />
-          <Field id="cp-ie" label="IE Code" value={(form.ie_code as string) ?? ""} onChange={(v) => set("ie_code", v)} disabled={dis} />
+          <Field id="cp-pan" label="PAN No" value={(form.pan_no as string) ?? ""} onChange={(v) => set("pan_no", v)} disabled={dis} format="pan" />
+          {/* Shape-only, like every other GSTIN box in the app: the check digit is
+              the amber note below, a warning rather than a block. */}
+          <Field id="cp-gstin" label="GSTIN" value={(form.gstin as string) ?? ""} onChange={(v) => set("gstin", v)} disabled={dis} format="gstin">
+            {gstinCheckFails && (
+              <p className="mt-1 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                <TriangleAlert className="h-4 w-4 shrink-0" />
+                Check digit doesn&apos;t match — re-check this against the GST certificate.
+              </p>
+            )}
+          </Field>
+          <Field id="cp-cin" label="CIN No" value={(form.cin_no as string) ?? ""} onChange={(v) => set("cin_no", v)} disabled={dis} format="cin" />
+          <Field id="cp-ie" label="IE Code" value={(form.ie_code as string) ?? ""} onChange={(v) => set("ie_code", v)} disabled={dis} format="iec" />
           <Field id="cp-rbi" label="RBI Code" value={(form.rbi_code as string) ?? ""} onChange={(v) => set("rbi_code", v)} disabled={dis} />
           <Field id="cp-reg" label="Reg No" value={(form.reg_no as string) ?? ""} onChange={(v) => set("reg_no", v)} disabled={dis} />
           <Field id="cp-cu" label="CU Licence No" value={(form.cu_licence_no as string) ?? ""} onChange={(v) => set("cu_licence_no", v)} disabled={dis} />

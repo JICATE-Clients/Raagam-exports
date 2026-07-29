@@ -23,6 +23,7 @@ import { listCustomers } from "@/lib/masters/customer-service";
 import { CustomerMasterScreen } from "@/components/masters/customer-master-screen";
 import { getVendorsForPicker } from "@/lib/purchase/po-service";
 import { getCourierOptions } from "@/lib/admin/extras-service";
+import { getCompanyProfile } from "@/lib/admin/company-service";
 import { listNotifies } from "@/lib/masters/notify-service";
 import { NotifyMasterScreen } from "@/components/masters/notify-master-screen";
 import { listEmployees, listEmployeeLocations } from "@/lib/masters/employee-service";
@@ -271,6 +272,7 @@ export default async function SubEntityPage({
         deptRows,
         desigRows,
         stateRows,
+        company,
       ] = await Promise.all([
         listCustomers(),
         listApplicants(),
@@ -285,6 +287,11 @@ export default async function SubEntityPage({
         listDepartments(),
         listDesignations(),
         listStates(),
+        // Our own GSTIN — the reference point for classifying the customer's
+        // GSTIN as within-state or other-state, i.e. IGST vs CGST+SGST. Same
+        // source the Vendor branch below already uses; null is fine (the strip
+        // just omits the supply fact).
+        getCompanyProfile(),
       ]);
       // Fetch packing column configs for all formats in use
       const formatIds = [...new Set(customers.map((c) => c.packing_list_format_id).filter(Boolean))] as string[];
@@ -299,6 +306,7 @@ export default async function SubEntityPage({
           departments={departmentsAsLookups(deptRows)}
           designations={designationsAsLookups(desigRows)}
           internalDepartments={all.filter((l) => l.kind === "internal_department")}
+          companyGstin={company?.gstin ?? null}
           currencies={currencies}
           shipTypes={all.filter((l) => l.kind === "ship_type")}
           categories={all.filter((l) => l.kind === "material_category")}
@@ -407,7 +415,7 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "consignee") {
-      const [consignees, countries, all, customers, currencies, banks, notifies, deptRows, desigRows, stateRows, ptRows] = await Promise.all([
+      const [consignees, countries, all, customers, currencies, banks, notifies, deptRows, desigRows, stateRows, ptRows, company] = await Promise.all([
         listConsignees(),
         listCountries(),
         listConfigLookups(),
@@ -419,6 +427,9 @@ export default async function SubEntityPage({
         listDesignations(),
         listStates(),
         listPaymentTerms(),
+        // Our own GSTIN — see the Customer and Vendor branches. Drives the
+        // within-state / other-state fact on the GSTIN strip.
+        getCompanyProfile(),
       ]);
       screen = (
         <ConsigneeMasterScreen
@@ -435,16 +446,20 @@ export default async function SubEntityPage({
           shipTypes={all.filter((l) => l.kind === "ship_type")}
           paymentTerms={paymentTermsAsLookups(ptRows)}
           notifies={notifies}
+          companyGstin={company?.gstin ?? null}
           perms={perms}
         />
       );
     } else if (child.custom === "vendor") {
-      const [vendors, countries, all, accountGroups, stateRows] = await Promise.all([
+      const [vendors, countries, all, accountGroups, stateRows, company] = await Promise.all([
         listVendors(),
         listCountries(),
         listConfigLookups(),
         listAccountGroups(),
         listStates(),
+        // Our own GSTIN — the reference point for classifying a vendor's GSTIN
+        // as within-state or other-state. Null is fine (the strip just omits it).
+        getCompanyProfile(),
       ]);
       screen = (
         <VendorMasterScreen
@@ -454,6 +469,7 @@ export default async function SubEntityPage({
           states={statesAsLookups(stateRows)}
           groups={all.filter((l) => l.kind === "vendor_group")}
           accountGroups={accountGroups}
+          companyGstin={company?.gstin ?? null}
           perms={perms}
         />
       );
