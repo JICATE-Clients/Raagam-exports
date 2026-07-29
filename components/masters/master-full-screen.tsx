@@ -299,7 +299,16 @@ export function SectionBody({
         <h2 className="text-[15px] font-bold tracking-tight text-foreground @2xl/editor:shrink-0">{title}</h2>
         <p className="mt-0.5 text-[12.5px] text-muted-foreground @2xl/editor:mt-0 @2xl/editor:truncate">{hint}</p>
       </div>
-      {children}
+      {/* Space the section's cards apart. A section often holds more than one
+          `DetailSection` — Address + Communication, Currencies + Shipping —
+          and two bordered cards as direct siblings meet flush, reading as one
+          card with a rule through it (found on applicant/notify/courier after
+          their rail conversion, 2026-07-29).
+          Costs nothing where a section has a single child: `space-y` sets a top
+          margin on every child EXCEPT the first, so one child is untouched. That
+          is why this is safe to put here rather than at each call site, and why
+          the screens that already wrap their own cards do not double up. */}
+      <div className="space-y-4">{children}</div>
     </div>
   );
 }

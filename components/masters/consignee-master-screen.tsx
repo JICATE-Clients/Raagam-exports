@@ -1,9 +1,8 @@
 "use client";
 
-import { TriangleAlert, X } from "lucide-react";
+import { Bell, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
@@ -12,10 +11,10 @@ import { ValidatedInput } from "@/components/ui/validated-input";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Sheet } from "@/components/ui/sheet";
+import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -42,7 +41,6 @@ import type { Bank } from "@/lib/masters/bank-types";
 import type { Notify } from "@/lib/masters/notify-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
-type Section = "address" | "general" | "notify";
 
 type HeaderForm = {
   code: string;
@@ -135,6 +133,24 @@ const blankContact = (key: string): ContactRow => ({
   internal_department_id: "",
 });
 
+/**
+ * The whole editor as one string, for the unsaved-work compare. Whole-object,
+ * the same shape company-profile-screen uses: every `set`/`setXAt` spreads, so
+ * key order is stable and two snapshots differ only when a value does. Cheaper
+ * than threading a `setDirty(true)` through every handler on a 29-field form,
+ * and it cannot be forgotten on a new one.
+ *
+ * The child rows carry their `key`, which is fine — a key is minted once when
+ * the row appears and never changes, so it moves the string only when a row is
+ * genuinely added or removed.
+ */
+const snapshot = (
+  form: HeaderForm,
+  contacts: ContactRow[],
+  markings: MarkingRow[],
+  notifyRefs: NotifyRefRow[],
+) => JSON.stringify({ form, contacts, markings, notifyRefs });
+
 // Alternate spellings a hand-typed State master row might carry, keyed by GST
 // state code. Only consulted when the row has no `code` to match on. Twin of the
 // map in vendor-master-screen.tsx — kept local rather than shared because it is
@@ -156,7 +172,7 @@ const STATE_ALIASES: Record<string, string[]> = {
  * the last field wraps onto a line of its own with the rest of that line empty
  * beneath it. Widen one of these and something else on the same row has to give.
  *
- *   header    name 4 + country 3 + customer 3 + also_notify 2                = 12
+ *   identity  name 4 + country 3 + customer 3 + also_notify 2                = 12
  *   address   street 12
  *             city 3 + state 3 + pin 2 + address_country 4                   = 12
  *             land_line 3 + mobile 3 + whatsapp 3                            =  9
@@ -176,23 +192,31 @@ const STATE_ALIASES: Record<string, string[]> = {
  * "USD — US DOLLAR": the trigger truncates, the CODE is what identifies the
  * currency, and three of them are not worth a row of a form this long.
  */
+/**
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29). The
+ * client picked the City / State / Pin / Country row out as the correct shape
+ * and asked for the rest of the masters to match it, so nothing is sized to its
+ * own data any more — Name, E-Mail and Web site lost the width they had, and
+ * Street lost the full row its Textarea stood on. See applicant-master-screen
+ * for the full statement of the rule and what it trades away.
+ */
 const FIELD_SIZE = {
-  // header — always visible, above the tabs
-  name: "md",
+  // Identity section
+  name: "sm",
   country_id: "sm",
   customer_id: "sm",
-  also_notify: "xs",
-  // Address tab
-  street: "full", // textarea
+  also_notify: "sm",
+  // Address section
+  street: "sm", // a single-line Input now — a Textarea sets the row's height
   city_id: "sm",
   state_id: "sm",
-  pin: "xs", // 6 digits
-  address_country_id: "md",
+  pin: "sm",
+  address_country_id: "sm",
   land_line: "sm",
-  email: "lg",
-  web_site: "lg",
-  // General tab
-  currency: "xs", // 3-letter ISO code
+  email: "sm",
+  web_site: "sm",
+  // General section
+  currency: "sm",
   ship_mode: "sm",
   ship_type_id: "sm",
   pay_mode: "sm",
@@ -202,8 +226,8 @@ const FIELD_SIZE = {
   // Registration card
   tin_no: "sm",
   tin_no_2: "sm",
-  pan_no: "sm", // 10 chars
-  gst_no: "sm", // 15 chars
+  pan_no: "sm",
+  gst_no: "sm",
 } satisfies Record<string, FieldSize>;
 
 /**
@@ -218,11 +242,17 @@ const FIELD_SIZE = {
 const CONTACT_CELL = "@lg/section:col-span-3";
 
 /**
- * Master-detail CRUD for the legacy "Consignee" master (Associates): a header
- * (Short Name · Name · Inactive · Country · Also Notify · Customer) + three tabs
- * (Address | General | Notify) + a Contact child grid on the Address tab. Only
- * the header + Address tab + Contact grid are built here; the General and Notify
- * tabs are deferred (need legacy screenshots).
+ * Master-detail CRUD for the legacy "Consignee" master (Associates). The editor
+ * is a `MasterFullScreen` with a left section rail —
+ * `Identity` (Name · Country · Customer · Also Notify · Inactive) ·
+ * `Address` (address, phones, and the Contact card) ·
+ * `General` (currencies, ship/pay, bank, the Marking card and the Registration
+ * card) · `Notify` (the Notify Parties card).
+ *
+ * It used to be a `Sheet` that split itself with a hand-rolled mid-form
+ * `Address | General | Notify` tab bar — the same pattern the client asked to be
+ * taken off Applicant. The rail replaces it: one section at a time, named down
+ * the left instead of across the middle, with a completion dot per section.
  *
  * City / State and the grid's Department / Designation / Internal Department are
  * config_lookups pickers (searchable dialog + Add/Modify); both Country fields
@@ -274,7 +304,6 @@ export function ConsigneeMasterScreen({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("address");
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [markings, setMarkings] = useState<MarkingRow[]>([]);
@@ -311,10 +340,6 @@ export function ConsigneeMasterScreen({
     () => decodeGstin(form.gst_no, { companyGstin }),
     [form.gst_no, companyGstin],
   );
-
-  // Read the current PAN without making it an effect dependency (see below).
-  const panRef = useRef(form.pan_no);
-  panRef.current = form.pan_no;
 
   /**
    * The GSTIN as loaded, so merely OPENING a record never auto-fills — that
@@ -353,10 +378,13 @@ export function ConsigneeMasterScreen({
   useEffect(() => {
     if (!gstin?.checksumValid) return;
     if (gstin.gstin === loadedGstin.current) return;
-    if (panRef.current.trim()) return;
-    set({ pan_no: gstin.pan });
-    // Deliberately NOT depending on form.pan_no: that would re-run on every PAN
-    // keystroke and silently re-fill a field the user had just cleared.
+    // The "is the PAN box empty?" test reads the CURRENT form through the
+    // updater rather than through `form.pan_no`, which would have to be a
+    // dependency: this effect must not re-run on every PAN keystroke and
+    // silently re-fill a field the user had just cleared. It used to hold the
+    // PAN in a ref written during render, which `react-hooks/refs` rejects —
+    // a ref read at render time gives React nothing to re-render on.
+    setForm((f) => (f.pan_no.trim() ? f : { ...f, pan_no: gstin.pan }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstin?.gstin, gstin?.checksumValid]);
 
@@ -381,9 +409,9 @@ export function ConsigneeMasterScreen({
         label: `Set State = ${gstinState.name}`,
         onApply: () => {
           set({ state_id: gstinState.id });
-          // Toasted because the State box lives on the Address tab, which the
-          // user is not looking at while typing the GST number on General.
-          success(`State set to ${gstinState.name} on the Address tab`);
+          // Toasted because the State box lives in the Address section, which
+          // the user is not looking at while typing the GST number in General.
+          success(`State set to ${gstinState.name} in the Address section`);
         },
       });
     }
@@ -429,15 +457,19 @@ export function ConsigneeMasterScreen({
     setEditId(null);
     setForm(BLANK);
     loadedGstin.current = "";
-    setContacts([blankContact(newKey())]);
+    const blankContacts = [blankContact(newKey())];
+    setContacts(blankContacts);
     setMarkings([]);
     setNotifyRefs([]);
-    setSection("address");
+    // Baseline for `dirty`. A brand-new consignee starts clean even though it
+    // already holds one empty contact row — that row is scaffolding the form put
+    // there, not something the user typed.
+    setPristine(snapshot(BLANK, blankContacts, [], []));
     setOpen(true);
   }
   function openEdit(r: Consignee) {
     setEditId(r.id);
-    setForm({
+    const nextForm: HeaderForm = {
       code: r.code ?? "",
       name: r.name,
       inactive: r.inactive,
@@ -469,24 +501,32 @@ export function ConsigneeMasterScreen({
       tin_no_3: r.tin_no_3 ?? "",
       pan_no: r.pan_no ?? "",
       gst_no: r.gst_no ?? "",
-    });
+    };
     // Baseline for the PAN auto-fill: opening a record must never write to it.
     loadedGstin.current = normalizeGstin(r.gst_no);
-    setContacts(
-      r.contacts.map((c) => ({
-        key: newKey(),
-        department_id: c.department_id ?? "",
-        contact_name: c.contact_name ?? "",
-        designation_id: c.designation_id ?? "",
-        land_line: c.land_line ?? "",
-        mobile: c.mobile ?? "",
-        email_id: c.email_id ?? "",
-        internal_department_id: c.internal_department_id ?? "",
-      })),
-    );
-    setMarkings(r.markings.map((m) => ({ key: newKey(), marking: m.marking ?? "" })));
-    setNotifyRefs(r.notify_refs.map((n) => ({ key: newKey(), notify_id: n.notify_id ?? "" })));
-    setSection("address");
+    const nextContacts: ContactRow[] = r.contacts.map((c) => ({
+      key: newKey(),
+      department_id: c.department_id ?? "",
+      contact_name: c.contact_name ?? "",
+      designation_id: c.designation_id ?? "",
+      land_line: c.land_line ?? "",
+      mobile: c.mobile ?? "",
+      email_id: c.email_id ?? "",
+      internal_department_id: c.internal_department_id ?? "",
+    }));
+    const nextMarkings: MarkingRow[] = r.markings.map((m) => ({
+      key: newKey(),
+      marking: m.marking ?? "",
+    }));
+    const nextNotifyRefs: NotifyRefRow[] = r.notify_refs.map((n) => ({
+      key: newKey(),
+      notify_id: n.notify_id ?? "",
+    }));
+    setForm(nextForm);
+    setContacts(nextContacts);
+    setMarkings(nextMarkings);
+    setNotifyRefs(nextNotifyRefs);
+    setPristine(snapshot(nextForm, nextContacts, nextMarkings, nextNotifyRefs));
     setOpen(true);
   }
 
@@ -645,20 +685,63 @@ export function ConsigneeMasterScreen({
     },
   ];
 
-  const tabBtn = (id: Section, label: string) => (
-    <button
-      type="button"
-      onClick={() => setSection(id)}
-      className={cn(
-        "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-        section === id
-          ? "bg-surface text-foreground shadow-sm"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {label}
-    </button>
-  );
+  /**
+   * Unsaved-work tracking. The editor is a `MasterFullScreen`, which registers
+   * itself with the reload guard as an open MODAL — but "a modal is open" is not
+   * "there is work to lose", and this screen never declared the second
+   * (AGENTS.md, STANDING). A deploy landing on a half-keyed consignee would take
+   * it silently.
+   *
+   * `useState`, never a `useRef`: the baseline changes on an EVENT (opening a
+   * record), and a ref read during render gives React nothing to re-render on,
+   * so the `● Unsaved` badge would go stale.
+   */
+  const [pristine, setPristine] = useState("");
+  // Gated on `open`: the baseline is only taken when an editor opens, so on a
+  // closed list page `pristine` is still "" and the compare would report the
+  // untouched BLANK form as dirty — arming the reload guard for a screen with
+  // nothing to lose.
+  const dirty = open && snapshot(form, contacts, markings, notifyRefs) !== pristine;
+  useUnsavedGuard(dirty || isPending);
+
+  const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
+
+  // Completion dots on the rail — "this section has data", not "this section is
+  // valid". Name is the only required field on the whole form.
+  const done = {
+    identity: !!(form.name.trim() || form.country_id || form.customer_id || form.also_notify),
+    address: !!(
+      form.street.trim() ||
+      form.city_id ||
+      form.state_id ||
+      form.pin.trim() ||
+      form.address_country_id ||
+      form.land_line.trim() ||
+      form.mobile.trim() ||
+      form.email.trim() ||
+      form.web_site.trim() ||
+      contacts.some(
+        (c) => c.contact_name.trim() || c.department_id || c.designation_id || c.email_id.trim(),
+      )
+    ),
+    general: !!(
+      form.currency_1 ||
+      form.currency_2 ||
+      form.currency_3 ||
+      form.ship_mode ||
+      form.ship_type_id ||
+      form.pay_mode ||
+      form.payment_term_id ||
+      form.bank_id ||
+      form.ac_no.trim() ||
+      form.tin_no.trim() ||
+      form.tin_no_2.trim() ||
+      form.pan_no.trim() ||
+      form.gst_no.trim() ||
+      markings.some((m) => m.marking.trim())
+    ),
+    notify: notifyRefs.some((n) => n.notify_id),
+  };
 
   return (
     <div className="space-y-4">
@@ -715,596 +798,661 @@ export function ConsigneeMasterScreen({
       </div>
 
       {/* editor */}
-      <Sheet
+      <MasterFullScreen
         open={open}
         onClose={() => setOpen(false)}
-        title={editId ? "Edit Consignee" : "New Consignee"}
-        footer={
+        modeLabel={
           <>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            {perms.canCreate && (
-              <Button
-                variant="outline"
-                size="md"
-                disabled={isPending || !form.name.trim()}
-                onClick={() => submit(true)}
-              >
-                Save as Draft
-              </Button>
-            )}
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={() => submit(false)}>
-              {isPending ? "Saving…" : "Save"}
-            </Button>
+            {editId ? "Editing" : "New"}{" "}
+            <span className="font-semibold text-foreground">{form.name.trim() || "consignee"}</span>
           </>
         }
-      >
-        <div className="space-y-4">
-          {/* ---- Header (shown across all tabs) ----
-              Four controls, one flush row. Every label is `Field`'s, so the
-              pickers are all `compact`: CountryPicker and CustomerPicker render
-              their OWN <Label> otherwise, and this screen used to mix the two
-              idioms — Country self-labelled while Customer was wrapped, so the
-              two labels sat at different offsets. */}
-          <FieldGrid>
-            <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cn-name">
-              <Input
-                id="cn-name"
-                uppercase
-                value={form.name}
-                onChange={(e) => set({ name: e.target.value })}
-                required
-              />
-            </Field>
-            {/* No `required` marker, unlike the asterisk CountryPicker prints
-                for itself: `country_id` is nullable in consigneeInput and Save
-                is gated on the name alone, so the marker was never true here. */}
-            <Field label="Country" size={FIELD_SIZE.country_id}>
-              <CountryPicker
-                countries={countries}
-                value={form.country_id || null}
-                onChange={(id) => set({ country_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                compact
-              />
-            </Field>
-            <Field label="Customer" size={FIELD_SIZE.customer_id}>
-              <CustomerPicker
-                customers={customers}
-                value={form.customer_id || null}
-                onChange={(id) => set({ customer_id: id ?? "" })}
-                compact
-              />
-            </Field>
-            <Field label="Also Notify" size={FIELD_SIZE.also_notify} htmlFor="cn-alsonotify">
-              <Select
-                id="cn-alsonotify"
-                value={form.also_notify ? "yes" : "no"}
-                onChange={(e) => set({ also_notify: e.target.value === "yes" })}
-              >
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
-              </Select>
-            </Field>
-          </FieldGrid>
-          {/* Outside the track on purpose: a bare checkbox has no label above it,
-              so as a grid cell it would line up with its neighbours' LABELS
-              rather than their controls. */}
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
-
-          {/* ---- Address | General | Notify tabs ---- */}
-          <div className="flex gap-1 rounded-lg border border-border bg-surface-muted p-1">
-            {tabBtn("address", "Address")}
-            {tabBtn("general", "General")}
-            {tabBtn("notify", "Notify")}
-          </div>
-
-          {section === "address" && (
-            <div className="space-y-4">
-              {/* Four rows of the 12-col track: the street block, then the
-                  address line (City · State · Pin · Country) the way it is
-                  printed, then the phones, then the online channels. Street is
-                  `full` — it was `sm:col-span-2`, which on this track would mean
-                  one SIXTH, not full width (LAYOUT.md §2). */}
-              <FieldGrid>
-                <Field label="Street" size={FIELD_SIZE.street} htmlFor="cn-street">
-                  <Textarea
-                    id="cn-street"
-                    rows={3}
-                    value={form.street}
-                    onChange={(e) => set({ street: e.target.value })}
-                  />
-                </Field>
-                <Field label="City" size={FIELD_SIZE.city_id}>
-                  <LookupDialogPicker
-                    kind="city"
-                    label="City"
-                    options={cities}
-                    value={form.city_id || null}
-                    onChange={(id) => set({ city_id: id })}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                    compact
-                  />
-                </Field>
-                <Field label="State" size={FIELD_SIZE.state_id}>
-                  <LookupDialogPicker
-                    kind="state"
-                    label="State"
-                    options={states}
-                    value={form.state_id || null}
-                    onChange={(id) => set({ state_id: id })}
-                    compact
-                  />
-                </Field>
-                <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cn-pin">
-                  <Input
-                    id="cn-pin"
-                    value={form.pin}
-                    onChange={(e) => set({ pin: e.target.value })}
-                  />
-                </Field>
-                <Field label="Country" size={FIELD_SIZE.address_country_id}>
-                  <CountryPicker
-                    countries={countries}
-                    value={form.address_country_id || null}
-                    onChange={(id) => set({ address_country_id: id })}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                    compact
-                  />
-                </Field>
-                <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cn-landline">
-                  <Input
-                    id="cn-landline"
-                    value={form.land_line}
-                    onChange={(e) => set({ land_line: e.target.value })}
-                  />
-                </Field>
-                {/* Two cells, not one — hence `cellClassName` rather than a
-                    `<Field size>` wrapper. The WhatsApp half is taller than its
-                    neighbours by design: it carries the "Same as mobile" tick. */}
-                <MobileWhatsAppFields
-                  idPrefix="cn"
-                  mobile={form.mobile}
-                  whatsapp={form.whatsapp}
-                  isdCode={isdOf.get(form.address_country_id) ?? null}
-                  onMobileChange={(v) => set({ mobile: v })}
-                  onWhatsAppChange={(v) => set({ whatsapp: v })}
-                  cellClassName={CONTACT_CELL}
-                />
-                <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="cn-email">
-                  <ValidatedInput
-                    format="email"
-                    id="cn-email"
-                    value={form.email}
-                    onChange={(e) => set({ email: e.target.value })}
-                  />
-                </Field>
-                <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="cn-web">
-                  <ValidatedInput
-                    format="website"
-                    id="cn-web"
-                    value={form.web_site}
-                    onChange={(e) => set({ web_site: e.target.value })}
-                  />
-                </Field>
-              </FieldGrid>
-
-              {/* Contact grid */}
-              <div className="rounded-lg border border-border">
-                <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-                  Contact
-                </div>
-                <div className="space-y-3 p-3">
-                  {contacts.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No contacts yet.</p>
-                  )}
-                  {/* row area capped — a growing grid scrolls instead of pushing
-                      the content below (Add button stays pinned) */}
-                  <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="max-h-56 space-y-3 overflow-y-auto">
-                  {contacts.map((c, i) => (
-                    <div data-grid-row key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-muted-foreground">
-                          Contact #{i + 1}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-muted-foreground hover:text-danger"
-                          onClick={() => removeContact(c.key)}
-                          aria-label="Remove contact"
-                        >
-                          <X className="h-4 w-4 shrink-0" />
-                        </Button>
-                      </div>
-                      <div>
-                        <Label>Department</Label>
-                        <LookupDialogPicker
-                          kind="department"
-                          label="Department"
-                          options={departments}
-                          value={c.department_id || null}
-                          onChange={(id) => setContactAt(c.key, { department_id: id })}
-                          compact
-                        />
-                      </div>
-                      <Input
-                        placeholder="Contact Name"
-                        value={c.contact_name}
-                        onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                      <div>
-                        <Label>Designation</Label>
-                        <LookupDialogPicker
-                          kind="designation"
-                          label="Designation"
-                          options={designations}
-                          value={c.designation_id || null}
-                          onChange={(id) => setContactAt(c.key, { designation_id: id })}
-                          compact
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <Input
-                          placeholder="Land Line"
-                          value={c.land_line}
-                          onChange={(e) => setContactAt(c.key, { land_line: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                        <Input
-                          placeholder="Mobile"
-                          value={c.mobile}
-                          onChange={(e) => setContactAt(c.key, { mobile: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <ValidatedInput
-                        format="email"
-                        placeholder="Email ID"
-                        value={c.email_id}
-                        onChange={(e) => setContactAt(c.key, { email_id: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                      <div>
-                        <Label>Internal Department</Label>
-                        <LookupDialogPicker
-                          kind="internal_department"
-                          label="Internal Department"
-                          options={internalDepartments}
-                          value={c.internal_department_id || null}
-                          onChange={(id) => setContactAt(c.key, { internal_department_id: id })}
-                          canCreate={perms.canCreate}
-                          canEdit={perms.canEdit}
-                          compact
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  </div>
-                  <Button type="button" variant="outline" size="sm" onClick={addContact}>
-                    + Add contact
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {section === "general" && (
-            <div className="space-y-4">
-              {/* ONE FieldGrid, not the four stacked grids this replaced. They
-                  were rows of the same form, so they should share one track's
-                  left edge AND its vertical rhythm — between two separate grids
-                  the gap is the parent's `space-y-4`, inside one it is the
-                  track's `gap-y`, so stacked grids lined up horizontally and
-                  drifted vertically. Same reasoning as the attribute screen's
-                  `specCell`.
-                  Two rows of 12: the three currency codes now take 2 each and
-                  share their row with Ship Mode and Ship Type, instead of three
-                  `sm:grid-cols-3` cells eating a full row on their own. */}
-              <FieldGrid>
-                <Field label="Currency 1" size={FIELD_SIZE.currency}>
-                  <CurrencyPicker
-                    label="Currency"
-                    compact
-                    currencies={currencies}
-                    value={form.currency_1 || null}
-                    onChange={(code) => set({ currency_1: code })}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                  />
-                </Field>
-                <Field label="Currency 2" size={FIELD_SIZE.currency}>
-                  <CurrencyPicker
-                    label="Currency"
-                    compact
-                    currencies={currencies}
-                    value={form.currency_2 || null}
-                    onChange={(code) => set({ currency_2: code })}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                  />
-                </Field>
-                <Field label="Currency 3" size={FIELD_SIZE.currency}>
-                  <CurrencyPicker
-                    label="Currency"
-                    compact
-                    currencies={currencies}
-                    value={form.currency_3 || null}
-                    onChange={(code) => set({ currency_3: code })}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                  />
-                </Field>
-                <Field label="Ship Mode" size={FIELD_SIZE.ship_mode} htmlFor="cn-shipmode">
-                  <Select
-                    id="cn-shipmode"
-                    value={form.ship_mode}
-                    onChange={(e) => set({ ship_mode: e.target.value })}
-                  >
-                    <option value="">— Select —</option>
-                    {SHIP_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                {/* `compact` — NOT `label=""` — on every picker below. Both hide
-                    the picker's own <Label> so only <Field>'s remains (that is
-                    the one carrying htmlFor and aligning the required marker),
-                    but they are not interchangeable:
-                      - `compact` suppresses the <Label> element entirely.
-                      - `label=""` leaves the element rendering EMPTY, and an
-                        empty <Label> still contributes its line-height, so the
-                        control drops a row below its neighbours
-                        (see lookup-picker.tsx:247).
-                    And `label` is read for much more than the visible label —
-                    the trigger placeholder ("— Select Ship Type —"), the
-                    aria-label, the dialog title, the Add/Modify toasts and the
-                    empty-state text. Blanking it degrades all five. Keep the
-                    real text and pass `compact`. */}
-                <Field label="Ship Type" size={FIELD_SIZE.ship_type_id}>
-                  <LookupDialogPicker
-                    kind="ship_type"
-                    label="Ship Type"
-                    options={shipTypes}
-                    value={form.ship_type_id || null}
-                    onChange={(id) => set({ ship_type_id: id })}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                    compact
-                  />
-                </Field>
-
-                <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cn-paymode">
-                  <Select
-                    id="cn-paymode"
-                    value={form.pay_mode}
-                    onChange={(e) => set({ pay_mode: e.target.value })}
-                  >
-                    <option value="">— Select —</option>
-                    {PAY_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                {/* Payment Terms was a bare full-width child of the old
-                    `space-y-4` — the widest control on the tab for a value like
-                    "60 Days DA". */}
-                <Field label="Payment Terms" size={FIELD_SIZE.payment_term_id}>
-                  <LookupDialogPicker
-                    kind="payment_term"
-                    label="Payment Term"
-                    options={paymentTerms}
-                    value={form.payment_term_id || null}
-                    onChange={(id) => set({ payment_term_id: id })}
-                    compact
-                  />
-                </Field>
-                <Field label="Bank" size={FIELD_SIZE.bank_id}>
-                  <BankPicker
-                    banks={banks}
-                    value={form.bank_id || null}
-                    onChange={(id) => set({ bank_id: id })}
-                    canCreate={perms.canCreate}
-                    canEdit={perms.canEdit}
-                    compact
-                  />
-                </Field>
-                <Field label="A/c No." size={FIELD_SIZE.ac_no} htmlFor="cn-acno">
-                  <Input
-                    id="cn-acno"
-                    value={form.ac_no}
-                    onChange={(e) => set({ ac_no: e.target.value })}
-                  />
-                </Field>
-              </FieldGrid>
-
-              {/* Marking grid */}
-              <div className="rounded-lg border border-border">
-                <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-                  Marking
-                </div>
-                <div className="space-y-2 p-3">
-                  {markings.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No markings yet.</p>
-                  )}
-                  {/* row area capped (Add stays pinned) */}
-                  <div className="max-h-56 space-y-2 overflow-y-auto">
-                  {markings.map((m, i) => (
-                    <div key={m.key} className="flex items-center gap-2">
-                      <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">
-                        {i + 1}
-                      </span>
-                      <Input
-                        placeholder="Marking"
-                        value={m.marking}
-                        onChange={(e) => setMarkingAt(m.key, e.target.value)}
-                        className="text-base md:text-sm"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 text-muted-foreground hover:text-danger"
-                        onClick={() => removeMarking(m.key)}
-                        aria-label="Remove marking"
-                      >
-                        <X className="h-4 w-4 shrink-0" />
-                      </Button>
-                    </div>
-                  ))}
-                  </div>
-                  <Button type="button" variant="outline" size="sm" onClick={addMarking}>
-                    + Add marking
-                  </Button>
-                </div>
-              </div>
-
-              {/* Registration */}
-              <div className="rounded-lg border border-border">
-                <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-                  Registration
-                </div>
-                {/* The four registration numbers on ONE row: 3+3+3+3 = 12. They
-                    were two stacked `sm:grid-cols-2` grids, so four fixed-width
-                    identifiers — none longer than a 15-character GSTIN — each got
-                    half the card.
-                    The two strips below them are `full`. They were
-                    `sm:col-span-2`, which meant "both columns" under the old
-                    2-col grid but would mean ONE SIXTH on this track — the exact
-                    collision documented in field.tsx's header. */}
-                <div className="p-3">
-                  <FieldGrid>
-                    <Field label="TIN No." size={FIELD_SIZE.tin_no}>
-                      <Input value={form.tin_no} onChange={(e) => set({ tin_no: e.target.value })} />
-                    </Field>
-                    <Field label="CST No." size={FIELD_SIZE.tin_no_2}>
-                      <Input value={form.tin_no_2} onChange={(e) => set({ tin_no_2: e.target.value })} />
-                    </Field>
-                    <Field label="PAN No" size={FIELD_SIZE.pan_no} htmlFor="cn-pan">
-                      <ValidatedInput
-                        id="cn-pan"
-                        format="pan"
-                        value={form.pan_no}
-                        onChange={(e) => set({ pan_no: e.target.value })}
-                      />
-                    </Field>
-                    <Field label="GST No" size={FIELD_SIZE.gst_no} htmlFor="cn-gst">
-                      <ValidatedInput
-                        id="cn-gst"
-                        // Shape-only on purpose. The check digit is verified by
-                        // the strip below as a WARNING, not a block — a bad
-                        // GSTIN copied off a shipping document still has to be
-                        // savable while the party is chased. Switch this to
-                        // "gstin_strict" to make it a hard block instead.
-                        format="gstin"
-                        value={form.gst_no}
-                        onChange={(e) => set({ gst_no: e.target.value })}
-                      />
-                    </Field>
-
-                    {gstin && (
-                      <Field size="full" className="-mt-1">
-                        <GstinInsight
-                          decoded={gstin}
-                          panValue={form.pan_no}
-                          suggestions={gstinSuggestions}
-                        />
-                      </Field>
-                    )}
-
-                    {gstDup && (
-                      <Field size="full" className="-mt-1">
-                        <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
-                          <TriangleAlert className="h-4 w-4 shrink-0" />
-                          Another consignee already carries this GST number — check you are not
-                          keying the same party twice.
-                        </p>
-                      </Field>
-                    )}
-                  </FieldGrid>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {section === "notify" && (
-            <div className="rounded-lg border border-border">
-              <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
-                Notify Parties
-              </div>
-              <div className="space-y-3 p-3">
-                {notifyRefs.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No notify parties yet.</p>
+        header={{
+          initials,
+          title: form.name.trim() || "Untitled consignee",
+          badges: (
+            <>
+              {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
+            </>
+          ),
+          meta: (
+            <>
+              <span>
+                {form.code ? (
+                  <span className="font-mono font-semibold text-foreground">{form.code}</span>
+                ) : (
+                  "No short name"
                 )}
-                {/* row area capped (Add stays pinned) */}
-                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addNotifyRef)} className="max-h-56 space-y-3 overflow-y-auto">
-                {notifyRefs.map((n, i) => (
-                  <div data-grid-row key={n.key} className="space-y-2 rounded-md border border-border p-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Notify #{i + 1}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-danger"
-                        onClick={() => removeNotifyRef(n.key)}
-                        aria-label="Remove notify party"
-                      >
-                        <X className="h-4 w-4 shrink-0" />
-                      </Button>
-                    </div>
-                    <div>
-                      <Label>Notify Short Name</Label>
-                      <NotifyPicker
-                        notifies={notifies}
-                        value={n.notify_id || null}
-                        onChange={(id) => setNotifyRefAt(n.key, id ?? "")}
+              </span>
+              {form.country_id && countryLabel.get(form.country_id) && (
+                <span>· {countryLabel.get(form.country_id)}</span>
+              )}
+              {form.also_notify && <span>· Also notify</span>}
+              {form.customer_id && customerLabel.get(form.customer_id) && (
+                <span>· {customerLabel.get(form.customer_id)}</span>
+              )}
+            </>
+          ),
+        }}
+        footer={{
+          status: dirty ? "Unsaved changes" : undefined,
+          onCancel: () => setOpen(false),
+          onSave: () => submit(false),
+          saveLabel: "Save consignee",
+          canSave: !!form.name.trim(),
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          draftLabel: "Save as Draft",
+          isPending,
+        }}
+        sections={[
+          {
+            key: "identity",
+            label: "Identity",
+            icon: User,
+            done: done.identity,
+            content: (
+              <SectionBody
+                title="Identity"
+                hint="Who this consignee is, and the customer they ship for."
+              >
+                <div className="space-y-4">
+                  {/* Four controls, one flush row. Every label is `Field`'s, so
+                      the pickers are all `compact`: CountryPicker and
+                      CustomerPicker render their OWN <Label> otherwise, and this
+                      screen used to mix the two idioms — Country self-labelled
+                      while Customer was wrapped, so the two labels sat at
+                      different offsets. */}
+                  <FieldGrid>
+                    <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cn-name">
+                      <Input
+                        id="cn-name"
+                        uppercase
+                        value={form.name}
+                        onChange={(e) => set({ name: e.target.value })}
+                        required
+                      />
+                    </Field>
+                    {/* No `required` marker, unlike the asterisk CountryPicker
+                        prints for itself: `country_id` is nullable in
+                        consigneeInput and Save is gated on the name alone, so
+                        the marker was never true here. */}
+                    <Field label="Country" size={FIELD_SIZE.country_id}>
+                      <CountryPicker
+                        countries={countries}
+                        value={form.country_id || null}
+                        onChange={(id) => set({ country_id: id })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
                         compact
                       />
-                    </div>
-                    <div>
-                      <Label>Country</Label>
-                      <Input
-                        value={n.notify_id ? (notifyCountryLabel.get(n.notify_id) ?? "—") : ""}
-                        readOnly
-                        tabIndex={-1}
-                        placeholder="— from Notify —"
-                        className="text-base md:text-sm"
+                    </Field>
+                    <Field label="Customer" size={FIELD_SIZE.customer_id}>
+                      <CustomerPicker
+                        customers={customers}
+                        value={form.customer_id || null}
+                        onChange={(id) => set({ customer_id: id ?? "" })}
+                        compact
                       />
+                    </Field>
+                    <Field label="Also Notify" size={FIELD_SIZE.also_notify} htmlFor="cn-alsonotify">
+                      <Select
+                        id="cn-alsonotify"
+                        value={form.also_notify ? "yes" : "no"}
+                        onChange={(e) => set({ also_notify: e.target.value === "yes" })}
+                      >
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </Select>
+                    </Field>
+                  </FieldGrid>
+                  {/* Outside the track on purpose: a bare checkbox has no label
+                      above it, so as a grid cell it would line up with its
+                      neighbours' LABELS rather than their controls. */}
+                  {editId && (
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                        checked={form.inactive}
+                        onChange={(e) => set({ inactive: e.target.checked })}
+                      />
+                      <span className="text-sm text-foreground">Inactive</span>
+                    </label>
+                  )}
+                </div>
+              </SectionBody>
+            ),
+          },
+          {
+            key: "address",
+            label: "Address",
+            icon: MapPin,
+            done: done.address,
+            content: (
+              <SectionBody title="Address" hint="Where the goods go, and who to deal with there.">
+                <div className="space-y-4">
+                  {/* Four rows of the 12-col track: the street block, then the
+                      address line (City · State · Pin · Country) the way it is
+                      printed, then the phones, then the online channels. Street is
+                      `full` — it was `sm:col-span-2`, which on this track would mean
+                      one SIXTH, not full width (LAYOUT.md §2). */}
+                  <FieldGrid>
+                    {/* A single-line Input, not the 3-row Textarea this used to be:
+                        every grid row is as tall as its tallest item, so a textarea
+                        sharing the row would leave City / State / Pin above a band
+                        of dead space. Stored newlines survive. */}
+                    <Field label="Street" size={FIELD_SIZE.street} htmlFor="cn-street">
+                      <Input
+                        uppercase
+                        id="cn-street"
+                        value={form.street}
+                        onChange={(e) => set({ street: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="City" size={FIELD_SIZE.city_id}>
+                      <LookupDialogPicker
+                        kind="city"
+                        label="City"
+                        options={cities}
+                        value={form.city_id || null}
+                        onChange={(id) => set({ city_id: id })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        compact
+                      />
+                    </Field>
+                    <Field label="State" size={FIELD_SIZE.state_id}>
+                      <LookupDialogPicker
+                        kind="state"
+                        label="State"
+                        options={states}
+                        value={form.state_id || null}
+                        onChange={(id) => set({ state_id: id })}
+                        compact
+                      />
+                    </Field>
+                    <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cn-pin">
+                      <Input
+                        id="cn-pin"
+                        value={form.pin}
+                        onChange={(e) => set({ pin: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Country" size={FIELD_SIZE.address_country_id}>
+                      <CountryPicker
+                        countries={countries}
+                        value={form.address_country_id || null}
+                        onChange={(id) => set({ address_country_id: id })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        compact
+                      />
+                    </Field>
+                    <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cn-landline">
+                      <Input
+                        id="cn-landline"
+                        value={form.land_line}
+                        onChange={(e) => set({ land_line: e.target.value })}
+                      />
+                    </Field>
+                    {/* Two cells, not one — hence `cellClassName` rather than a
+                        `<Field size>` wrapper. The WhatsApp half is taller than its
+                        neighbours by design: it carries the "Same as mobile" tick. */}
+                    <MobileWhatsAppFields
+                      idPrefix="cn"
+                      mobile={form.mobile}
+                      whatsapp={form.whatsapp}
+                      isdCode={isdOf.get(form.address_country_id) ?? null}
+                      onMobileChange={(v) => set({ mobile: v })}
+                      onWhatsAppChange={(v) => set({ whatsapp: v })}
+                      cellClassName={CONTACT_CELL}
+                    />
+                    <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="cn-email">
+                      <ValidatedInput
+                        format="email"
+                        id="cn-email"
+                        value={form.email}
+                        onChange={(e) => set({ email: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="cn-web">
+                      <ValidatedInput
+                        format="website"
+                        id="cn-web"
+                        value={form.web_site}
+                        onChange={(e) => set({ web_site: e.target.value })}
+                      />
+                    </Field>
+                  </FieldGrid>
+
+                  {/* Contact grid */}
+                  <div className="rounded-lg border border-border">
+                    <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
+                      Contact
+                    </div>
+                    <div className="space-y-3 p-3">
+                      {contacts.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No contacts yet.</p>
+                      )}
+                      {/* row area capped — a growing grid scrolls instead of pushing
+                          the content below (Add button stays pinned) */}
+                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="max-h-56 space-y-3 overflow-y-auto">
+                      {contacts.map((c, i) => (
+                        <div data-grid-row key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Contact #{i + 1}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-muted-foreground hover:text-danger"
+                              onClick={() => removeContact(c.key)}
+                              aria-label="Remove contact"
+                            >
+                              <X className="h-4 w-4 shrink-0" />
+                            </Button>
+                          </div>
+                          <div>
+                            <Label>Department</Label>
+                            <LookupDialogPicker
+                              kind="department"
+                              label="Department"
+                              options={departments}
+                              value={c.department_id || null}
+                              onChange={(id) => setContactAt(c.key, { department_id: id })}
+                              compact
+                            />
+                          </div>
+                          <Input
+                            uppercase
+                            placeholder="Contact Name"
+                            value={c.contact_name}
+                            onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })}
+                            className="text-base md:text-sm"
+                          />
+                          <div>
+                            <Label>Designation</Label>
+                            <LookupDialogPicker
+                              kind="designation"
+                              label="Designation"
+                              options={designations}
+                              value={c.designation_id || null}
+                              onChange={(id) => setContactAt(c.key, { designation_id: id })}
+                              compact
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Input
+                              placeholder="Land Line"
+                              value={c.land_line}
+                              onChange={(e) => setContactAt(c.key, { land_line: e.target.value })}
+                              className="text-base md:text-sm"
+                            />
+                            <Input
+                              placeholder="Mobile"
+                              value={c.mobile}
+                              onChange={(e) => setContactAt(c.key, { mobile: e.target.value })}
+                              className="text-base md:text-sm"
+                            />
+                          </div>
+                          <ValidatedInput
+                            format="email"
+                            placeholder="Email ID"
+                            value={c.email_id}
+                            onChange={(e) => setContactAt(c.key, { email_id: e.target.value })}
+                            className="text-base md:text-sm"
+                          />
+                          <div>
+                            <Label>Internal Department</Label>
+                            <LookupDialogPicker
+                              kind="internal_department"
+                              label="Internal Department"
+                              options={internalDepartments}
+                              value={c.internal_department_id || null}
+                              onChange={(id) => setContactAt(c.key, { internal_department_id: id })}
+                              canCreate={perms.canCreate}
+                              canEdit={perms.canEdit}
+                              compact
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={addContact}>
+                        + Add contact
+                      </Button>
                     </div>
                   </div>
-                ))}
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={addNotifyRef}>
-                  + Add notify party
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </Sheet>
+              </SectionBody>
+            ),
+          },
+          {
+            key: "general",
+            label: "General",
+            icon: SlidersHorizontal,
+            done: done.general,
+            content: (
+              <SectionBody
+                title="General"
+                hint="Currencies, shipping and payment defaults, markings and tax registration."
+              >
+                <div className="space-y-4">
+                  {/* ONE FieldGrid, not the four stacked grids this replaced. They
+                      were rows of the same form, so they should share one track's
+                      left edge AND its vertical rhythm — between two separate grids
+                      the gap is the parent's `space-y-4`, inside one it is the
+                      track's `gap-y`, so stacked grids lined up horizontally and
+                      drifted vertically. Same reasoning as the attribute screen's
+                      `specCell`.
+                      Two rows of 12: the three currency codes now take 2 each and
+                      share their row with Ship Mode and Ship Type, instead of three
+                      `sm:grid-cols-3` cells eating a full row on their own. */}
+                  <FieldGrid>
+                    <Field label="Currency 1" size={FIELD_SIZE.currency}>
+                      <CurrencyPicker
+                        label="Currency"
+                        compact
+                        currencies={currencies}
+                        value={form.currency_1 || null}
+                        onChange={(code) => set({ currency_1: code })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                      />
+                    </Field>
+                    <Field label="Currency 2" size={FIELD_SIZE.currency}>
+                      <CurrencyPicker
+                        label="Currency"
+                        compact
+                        currencies={currencies}
+                        value={form.currency_2 || null}
+                        onChange={(code) => set({ currency_2: code })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                      />
+                    </Field>
+                    <Field label="Currency 3" size={FIELD_SIZE.currency}>
+                      <CurrencyPicker
+                        label="Currency"
+                        compact
+                        currencies={currencies}
+                        value={form.currency_3 || null}
+                        onChange={(code) => set({ currency_3: code })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                      />
+                    </Field>
+                    <Field label="Ship Mode" size={FIELD_SIZE.ship_mode} htmlFor="cn-shipmode">
+                      <Select
+                        id="cn-shipmode"
+                        value={form.ship_mode}
+                        onChange={(e) => set({ ship_mode: e.target.value })}
+                      >
+                        <option value="">— Select —</option>
+                        {SHIP_MODES.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    {/* `compact` — NOT `label=""` — on every picker below. Both hide
+                        the picker's own <Label> so only <Field>'s remains (that is
+                        the one carrying htmlFor and aligning the required marker),
+                        but they are not interchangeable:
+                          - `compact` suppresses the <Label> element entirely.
+                          - `label=""` leaves the element rendering EMPTY, and an
+                            empty <Label> still contributes its line-height, so the
+                            control drops a row below its neighbours
+                            (see lookup-picker.tsx:247).
+                        And `label` is read for much more than the visible label —
+                        the trigger placeholder ("— Select Ship Type —"), the
+                        aria-label, the dialog title, the Add/Modify toasts and the
+                        empty-state text. Blanking it degrades all five. Keep the
+                        real text and pass `compact`. */}
+                    <Field label="Ship Type" size={FIELD_SIZE.ship_type_id}>
+                      <LookupDialogPicker
+                        kind="ship_type"
+                        label="Ship Type"
+                        options={shipTypes}
+                        value={form.ship_type_id || null}
+                        onChange={(id) => set({ ship_type_id: id })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        compact
+                      />
+                    </Field>
+
+                    <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cn-paymode">
+                      <Select
+                        id="cn-paymode"
+                        value={form.pay_mode}
+                        onChange={(e) => set({ pay_mode: e.target.value })}
+                      >
+                        <option value="">— Select —</option>
+                        {PAY_MODES.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    {/* Payment Terms was a bare full-width child of the old
+                        `space-y-4` — the widest control on the tab for a value like
+                        "60 Days DA". */}
+                    <Field label="Payment Terms" size={FIELD_SIZE.payment_term_id}>
+                      <LookupDialogPicker
+                        kind="payment_term"
+                        label="Payment Term"
+                        options={paymentTerms}
+                        value={form.payment_term_id || null}
+                        onChange={(id) => set({ payment_term_id: id })}
+                        compact
+                      />
+                    </Field>
+                    <Field label="Bank" size={FIELD_SIZE.bank_id}>
+                      <BankPicker
+                        banks={banks}
+                        value={form.bank_id || null}
+                        onChange={(id) => set({ bank_id: id })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        compact
+                      />
+                    </Field>
+                    <Field label="A/c No." size={FIELD_SIZE.ac_no} htmlFor="cn-acno">
+                      <Input
+                        uppercase
+                        id="cn-acno"
+                        value={form.ac_no}
+                        onChange={(e) => set({ ac_no: e.target.value })}
+                      />
+                    </Field>
+                  </FieldGrid>
+
+                  {/* Marking grid */}
+                  <div className="rounded-lg border border-border">
+                    <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
+                      Marking
+                    </div>
+                    <div className="space-y-2 p-3">
+                      {markings.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No markings yet.</p>
+                      )}
+                      {/* row area capped (Add stays pinned) */}
+                      <div className="max-h-56 space-y-2 overflow-y-auto">
+                      {markings.map((m, i) => (
+                        <div key={m.key} className="flex items-center gap-2">
+                          <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">
+                            {i + 1}
+                          </span>
+                          <Input
+                            uppercase
+                            placeholder="Marking"
+                            value={m.marking}
+                            onChange={(e) => setMarkingAt(m.key, e.target.value)}
+                            className="text-base md:text-sm"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 text-muted-foreground hover:text-danger"
+                            onClick={() => removeMarking(m.key)}
+                            aria-label="Remove marking"
+                          >
+                            <X className="h-4 w-4 shrink-0" />
+                          </Button>
+                        </div>
+                      ))}
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={addMarking}>
+                        + Add marking
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Registration */}
+                  <div className="rounded-lg border border-border">
+                    <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
+                      Registration
+                    </div>
+                    {/* The four registration numbers on ONE row: 3+3+3+3 = 12. They
+                        were two stacked `sm:grid-cols-2` grids, so four fixed-width
+                        identifiers — none longer than a 15-character GSTIN — each got
+                        half the card.
+                        The two strips below them are `full`. They were
+                        `sm:col-span-2`, which meant "both columns" under the old
+                        2-col grid but would mean ONE SIXTH on this track — the exact
+                        collision documented in field.tsx's header. */}
+                    <div className="p-3">
+                      <FieldGrid>
+                        <Field label="TIN No." size={FIELD_SIZE.tin_no}>
+                          <Input uppercase value={form.tin_no} onChange={(e) => set({ tin_no: e.target.value })} />
+                        </Field>
+                        <Field label="CST No." size={FIELD_SIZE.tin_no_2}>
+                          <Input uppercase value={form.tin_no_2} onChange={(e) => set({ tin_no_2: e.target.value })} />
+                        </Field>
+                        <Field label="PAN No" size={FIELD_SIZE.pan_no} htmlFor="cn-pan">
+                          <ValidatedInput
+                            id="cn-pan"
+                            format="pan"
+                            value={form.pan_no}
+                            onChange={(e) => set({ pan_no: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="GST No" size={FIELD_SIZE.gst_no} htmlFor="cn-gst">
+                          <ValidatedInput
+                            id="cn-gst"
+                            // Shape-only on purpose. The check digit is verified by
+                            // the strip below as a WARNING, not a block — a bad
+                            // GSTIN copied off a shipping document still has to be
+                            // savable while the party is chased. Switch this to
+                            // "gstin_strict" to make it a hard block instead.
+                            format="gstin"
+                            value={form.gst_no}
+                            onChange={(e) => set({ gst_no: e.target.value })}
+                          />
+                        </Field>
+
+                        {gstin && (
+                          <Field size="full" className="-mt-1">
+                            <GstinInsight
+                              decoded={gstin}
+                              panValue={form.pan_no}
+                              suggestions={gstinSuggestions}
+                            />
+                          </Field>
+                        )}
+
+                        {gstDup && (
+                          <Field size="full" className="-mt-1">
+                            <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                              <TriangleAlert className="h-4 w-4 shrink-0" />
+                              Another consignee already carries this GST number — check you are not
+                              keying the same party twice.
+                            </p>
+                          </Field>
+                        )}
+                      </FieldGrid>
+                    </div>
+                  </div>
+                </div>
+              </SectionBody>
+            ),
+          },
+          {
+            key: "notify",
+            label: "Notify",
+            icon: Bell,
+            done: done.notify,
+            content: (
+              <SectionBody
+                title="Notify"
+                hint="The parties told when a shipment goes out to this consignee."
+              >
+                <div className="rounded-lg border border-border">
+                  <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
+                    Notify Parties
+                  </div>
+                  <div className="space-y-3 p-3">
+                    {notifyRefs.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No notify parties yet.</p>
+                    )}
+                    {/* row area capped (Add stays pinned) */}
+                    <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addNotifyRef)} className="max-h-56 space-y-3 overflow-y-auto">
+                    {notifyRefs.map((n, i) => (
+                      <div data-grid-row key={n.key} className="space-y-2 rounded-md border border-border p-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            Notify #{i + 1}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-danger"
+                            onClick={() => removeNotifyRef(n.key)}
+                            aria-label="Remove notify party"
+                          >
+                            <X className="h-4 w-4 shrink-0" />
+                          </Button>
+                        </div>
+                        <div>
+                          <Label>Notify Short Name</Label>
+                          <NotifyPicker
+                            notifies={notifies}
+                            value={n.notify_id || null}
+                            onChange={(id) => setNotifyRefAt(n.key, id ?? "")}
+                            compact
+                          />
+                        </div>
+                        <div>
+                          <Label>Country</Label>
+                          <Input
+                            value={n.notify_id ? (notifyCountryLabel.get(n.notify_id) ?? "—") : ""}
+                            readOnly
+                            tabIndex={-1}
+                            placeholder="— from Notify —"
+                            className="text-base md:text-sm"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={addNotifyRef}>
+                      + Add notify party
+                    </Button>
+                  </div>
+                </div>
+              </SectionBody>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

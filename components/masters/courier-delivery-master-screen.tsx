@@ -2,18 +2,18 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { MapPin, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
-import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
-import { Textarea } from "@/components/ui/textarea";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Sheet } from "@/components/ui/sheet";
+import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -92,55 +92,50 @@ const blankContact = (key: string): ContactRow => ({
 /**
  * How wide each header field is on the 12-column track (LAYOUT.md §3).
  *
- * Sized to the data, and to FOUR per row. `md` was the size eight of these
- * fields had inherited by omission rather than by choice, which put three on a
- * row and spread a 13-field header down a laptop screen (client 2026-07-29). A
- * city, a state and a country are ordinary place names picked from a list —
- * none of them earns a third of the row.
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29). The
+ * client picked the City / State / Pin / Country row out as the correct shape
+ * and asked for the rest of the masters to match it, so nothing is sized to its
+ * own data any more — Name, E-Mail and Web site gave up the 6 they had, and
+ * Street gave up the full row its Textarea stood on. See applicant-master-screen
+ * for the full statement of the rule and what it trades away.
  *
- * THE SPANS OF ONE ROW MUST SUM TO 12. A row totalling 13+ does not shrink: its
- * last field wraps onto a line of its own and the rest of that line is left
- * empty, and nothing in the build catches it. Two rows here were doing exactly
- * that. The arithmetic, row by row:
+ * THE SPANS OF ONE ROW MUST SUM TO 12 OR LESS. A row totalling 13+ does not
+ * shrink: its last field wraps onto a line of its own and the rest of that line
+ * is left empty, and nothing in the build catches it. The arithmetic:
  *
- *   Details        name 6 + country 3 + inactive 3           = 12   was 6+4+4 = 14 on Edit, Inactive wrapped
- *   Address        street 12                                 = 12
- *                  city 3 + state 3 + pin 3 + addr ctry 3    = 12   was 4+4+3+4 = 15, Country wrapped
- *   Communication  land line 3 + mobile 3 + whatsapp 3       =  9
- *                  e-mail 6 + web site 6                     = 12
+ *   Details        name 3 + country 3 + inactive 3           =  9
+ *   Address        street 3 + city 3 + state 3 + pin 3       = 12
+ *                  addr country 3                           =  3
+ *   Communication  land line 3 + mobile 3 + whatsapp 3 + e-mail 3 = 12
+ *                  web site 3                               =  3
  *
- * Seven field rows became four, and both silent wraps are gone.
- *
- * The Communication row stopping at 9 is deliberate. Five fields split 3 + 2
- * because the last two genuinely earn `lg` — an e-mail and a URL are the
- * longest values on the form after the party name. Widening the three phones
- * back to `md` just to close the row would be sizing to the cell, not to the
- * data, which is the habit this map exists to break.
+ * The editor gives each field its full width for this to mean anything. It now
+ * does so by construction: the editor is a `MasterFullScreen`, which renders ONE
+ * section at a time across a 1180px content pane, so `sm` is the ~278px of the
+ * row the client pointed at. The earlier caveat here — that a section sharing a
+ * `SectionGrid` gets a ~566px track where the same `sm` is only ~132px, half the
+ * reference row — no longer applies to this screen: there is no `SectionGrid`
+ * left in it, and the rail cannot put two sections side by side. The two phone
+ * cells still give ~32px of their width to a call/chat chip.
  *
  * Identical to Notify's map by design, not by copy-paste drift: the two masters
  * hold the same address-plus-contacts record with no statutory columns between
- * them, so a field that is `sm` on one has no reason to be `md` on the other.
- * Change one and change both. One caveat before comparing either to
- * `bank-master-screen.tsx`, the reference for four-across: these sections sit in
- * a half-width `SectionColumn` (the contact grid is beside them), so the track
- * is ~566px and `sm` is ~132px — bank's card spans the full 1180px, where the
- * same `sm` is ~278px. The two phone cells also give ~32px of that to their
- * call/chat chip.
+ * them. Change one and change both.
  */
 const FIELD_SIZE = {
-  name: "lg", // 6 — the party name, the one genuinely long free text here
-  country: "sm", // 3 — a country name, picked from a list rather than typed
-  inactive: "sm", // 3 — a tick; it sits last in the row, so it takes the remainder
-  street: "full", // 12 — a 3-row Textarea stands alone (§3)
-  city: "sm", // 3
-  state: "sm", // 3
-  pin: "sm", // 3 — 6 digits would fit `xs`, but that leaves the row at 11
-  address_country: "sm", // 3
-  land_line: "sm", // 3
-  mobile: "sm", // 3
-  whatsapp: "sm", // 3 — the "Same as mobile" tick under it still fits at ~132px
-  email: "lg", // 6 — free text, routinely past 30 characters
-  web_site: "lg", // 6 — same, and it pairs with e-mail on one flush row
+  name: "sm",
+  country: "sm",
+  inactive: "sm", // a tick; it sits last in the row, so it takes the remainder
+  street: "sm", // a single-line Input now — a Textarea sets the row's height
+  city: "sm",
+  state: "sm",
+  pin: "sm",
+  address_country: "sm",
+  land_line: "sm",
+  mobile: "sm",
+  whatsapp: "sm", // the "Same as mobile" tick under it still fits at ~132px
+  email: "sm",
+  web_site: "sm",
 } satisfies Record<string, FieldSize>;
 
 /**
@@ -195,13 +190,18 @@ export function CourierDeliveryAddressMasterScreen({
 
   function openAdd() {
     setEditId(null);
+    const blankContacts = [blankContact(newKey())];
     setForm(BLANK);
-    setContacts([blankContact(newKey())]);
+    setContacts(blankContacts);
+    // Baseline for `dirty`. A brand-new address starts clean even though it
+    // already holds one empty contact row — that row is scaffolding the form
+    // put there, not something the user typed.
+    setPristine(JSON.stringify({ form: BLANK, contacts: blankContacts }));
     setOpen(true);
   }
   function openEdit(r: CourierDeliveryAddress) {
     setEditId(r.id);
-    setForm({
+    const nextForm: HeaderForm = {
       code: r.code ?? "",
       name: r.name,
       inactive: r.inactive,
@@ -217,19 +217,20 @@ export function CourierDeliveryAddressMasterScreen({
       whatsapp: r.whatsapp,
       email: r.email ?? "",
       web_site: r.web_site ?? "",
-    });
-    setContacts(
-      r.contacts.map((c) => ({
-        key: newKey(),
-        department_id: c.department_id ?? "",
-        contact_name: c.contact_name ?? "",
-        designation_id: c.designation_id ?? "",
-        land_line: c.land_line ?? "",
-        mobile: c.mobile ?? "",
-        email_id: c.email_id ?? "",
-        internal_department_id: c.internal_department_id ?? "",
-      })),
-    );
+    };
+    const nextContacts: ContactRow[] = r.contacts.map((c) => ({
+      key: newKey(),
+      department_id: c.department_id ?? "",
+      contact_name: c.contact_name ?? "",
+      designation_id: c.designation_id ?? "",
+      land_line: c.land_line ?? "",
+      mobile: c.mobile ?? "",
+      email_id: c.email_id ?? "",
+      internal_department_id: c.internal_department_id ?? "",
+    }));
+    setForm(nextForm);
+    setContacts(nextContacts);
+    setPristine(JSON.stringify({ form: nextForm, contacts: nextContacts }));
     setOpen(true);
   }
 
@@ -339,6 +340,49 @@ export function CourierDeliveryAddressMasterScreen({
     },
   ];
 
+  /**
+   * Unsaved-work tracking. The editor is a `MasterFullScreen`, which registers
+   * itself with the reload guard as an open MODAL — but "a modal is open" is not
+   * "there is work to lose", and this screen never declared the second
+   * (AGENTS.md, STANDING). A deploy landing on a half-keyed address would take
+   * it silently.
+   *
+   * Whole-object compare against the record as loaded, the same shape Applicant
+   * uses: `set` spreads, so key order is stable and the two strings differ only
+   * when a value does. `useState`, NOT a ref — the baseline moves on an event,
+   * and a ref read during render gives React nothing to re-render on, so the
+   * `● Unsaved` badge would go stale.
+   */
+  const [pristine, setPristine] = useState("");
+  // Gated on `open`: with the editor CLOSED, `pristine` is still "" while the
+  // blank form stringifies to a real object, so this would read dirty forever
+  // and arm the reload guard on a list page with nothing to lose — permanently
+  // blocking the silent PWA auto-update (found on consignee, 2026-07-29).
+  const dirty = open && JSON.stringify({ form, contacts }) !== pristine;
+  useUnsavedGuard(dirty || isPending);
+
+  const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
+
+  // Completion dots on the rail — "this section has data", not "this section is
+  // valid". Name is the only required field on the whole form.
+  const done = {
+    identity: !!(form.name.trim() || form.country_id),
+    address: !!(
+      form.street.trim() ||
+      form.city_id ||
+      form.state_id ||
+      form.pin.trim() ||
+      form.address_country_id ||
+      form.land_line.trim() ||
+      form.mobile.trim() ||
+      form.email.trim() ||
+      form.web_site.trim()
+    ),
+    contacts: contacts.some(
+      (c) => c.contact_name.trim() || c.department_id || c.designation_id || c.email_id.trim(),
+    ),
+  };
+
   return (
     <div className="space-y-4">
       <MasterListShell
@@ -367,28 +411,76 @@ export function CourierDeliveryAddressMasterScreen({
       />
 
       {/* editor */}
-      <Sheet
+      <MasterFullScreen
         open={open}
         onClose={() => setOpen(false)}
-        title={editId ? "Edit Courier Address" : "New Courier Address"}
-        footer={
+        modeLabel={
           <>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
-              {isPending ? "Saving…" : "Save"}
-            </Button>
+            {editId ? "Editing" : "New"}{" "}
+            <span className="font-semibold text-foreground">
+              {form.name.trim() || "courier address"}
+            </span>
           </>
         }
-      >
-        {/* Identity + address LEFT, contacts RIGHT. The address block splits
-            into "Address" (where it is) and "Communication" (how to reach it):
-            as one card it held 10 fields, well past the 5-7 a section should
-            carry (LAYOUT.md §4). Both were hand-rolled bordered cards with their
-            own header bands — they are DetailSections. */}
-        <SectionGrid>
-          <SectionColumn>
+        header={{
+          initials,
+          title: form.name.trim() || "Untitled courier address",
+          badges: (
+            <>
+              {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
+            </>
+          ),
+          meta: (
+            <>
+              <span>
+                {form.code ? (
+                  <span className="font-mono font-semibold text-foreground">{form.code}</span>
+                ) : (
+                  "No short name"
+                )}
+              </span>
+              {form.country_id && countryLabel.get(form.country_id) && (
+                <span>· {countryLabel.get(form.country_id)}</span>
+              )}
+            </>
+          ),
+        }}
+        footer={{
+          status: dirty ? "Unsaved changes" : undefined,
+          onCancel: () => setOpen(false),
+          onSave: submit,
+          saveLabel: "Save courier address",
+          canSave: !!form.name.trim(),
+          // No `onSaveDraft`: unlike Applicant, `courier_delivery_addresses` has
+          // no is_draft column, so there is nothing a draft could be saved as.
+          isPending,
+        }}
+        /* Three rail entries, the same split as Applicant and Notify, whose
+           editor this screen now shares. The section rail replaces one long
+           scroll through twenty fields: `MasterFullScreen` renders ONE section at
+           a time across the full 1180px pane and owns the active section, the
+           modal guard, the body-scroll lock, Escape and the per-section autofocus.
+
+           No field inside changed in the swap — every `DetailSection cols={12}`
+           and `<Field size>` is exactly as the four-per-row work left it.
+
+           The address block still splits into "Address" (where it is) and
+           "Communication" (how to reach it) INSIDE one rail entry: as one card
+           it held 10 fields, well past the 5-7 a section should carry
+           (LAYOUT.md §4), but as two rail entries it would split an address from
+           its own phone number. */
+        sections={[
+          {
+            key: "identity",
+            label: "Identity",
+            icon: User,
+            done: done.identity,
+            content: (
+              <SectionBody
+                title="Identity"
+                hint="Who this courier address is for, and the country it sits in."
+              >
             <DetailSection label="Details" cols={12}>
               <Field label="Name" size={FIELD_SIZE.name} required htmlFor="cda-name">
                 <Input
@@ -423,12 +515,26 @@ export function CourierDeliveryAddressMasterScreen({
                 </Field>
               )}
             </DetailSection>
-
+              </SectionBody>
+            ),
+          },
+          {
+            key: "address",
+            label: "Address",
+            icon: MapPin,
+            done: done.address,
+            content: (
+              <SectionBody title="Address" hint="Where the courier delivers, and how to reach them.">
             <DetailSection label="Address" cols={12}>
+              {/* A single-line Input, not the 3-row Textarea this used to be:
+                  every grid row is as tall as its tallest item, so a textarea
+                  sharing the row would leave City / State / Pin above a band of
+                  dead space. Stored newlines survive; an <input> just shows them
+                  on one line. */}
               <Field label="Street" size={FIELD_SIZE.street} htmlFor="cda-street">
-                <Textarea
+                <Input
+                  uppercase
                   id="cda-street"
-                  rows={3}
                   value={form.street}
                   onChange={(e) => set({ street: e.target.value })}
                 />
@@ -517,9 +623,16 @@ export function CourierDeliveryAddressMasterScreen({
                 />
               </Field>
             </DetailSection>
-          </SectionColumn>
-
-          <SectionColumn>
+              </SectionBody>
+            ),
+          },
+          {
+            key: "contacts",
+            label: "Contacts",
+            icon: Users,
+            done: done.contacts,
+            content: (
+              <SectionBody title="Contacts" hint="People to deal with at this courier address.">
             {/* Seven fields per row, so stacked cards (LAYOUT.md §6) with a
                 FieldGrid inside: the card body gets the same 12-col track as the
                 sections beside it, instead of seven controls stacked one per
@@ -531,10 +644,13 @@ export function CourierDeliveryAddressMasterScreen({
                 6+6 / 4+4+4 spent on a department name, a person's name and a
                 phone number:
                   department 3 + designation 3 + contact name 3 + internal 3 = 12
-                  land line 3 + mobile 3 + e-mail 6                          = 12
-                E-Mail keeps `lg`: it is the one value here that routinely runs
-                past 30 characters, and it closes the second row. Kept in step
-                with notify-master-screen.tsx, which has the same contact card. */}
+                  land line 3 + mobile 3 + e-mail 3                          =  9
+                The second row stops at 9. E-Mail was `lg` here when fields were
+                sized to their own data — it is the one value that routinely runs
+                past 30 characters — but the screen since moved to one size for
+                every field (client 2026-07-29), and an exception for a single
+                cell is the ragged edge that decision exists to remove. Kept in
+                step with notify-master-screen.tsx, same contact card. */}
             <ChildGrid<ContactRow>
               label="Contact"
               rows={contacts}
@@ -574,6 +690,7 @@ export function CourierDeliveryAddressMasterScreen({
                   </Field>
                   <Field label="Contact Name" size="sm">
                     <Input
+                      uppercase
                       value={c.contact_name}
                       onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })}
                     />
@@ -602,7 +719,7 @@ export function CourierDeliveryAddressMasterScreen({
                       onChange={(e) => setContactAt(c.key, { mobile: e.target.value })}
                     />
                   </Field>
-                  <Field label="Email ID" size="lg">
+                  <Field label="Email ID" size="sm">
                     <ValidatedInput
                       format="email"
                       value={c.email_id}
@@ -612,9 +729,11 @@ export function CourierDeliveryAddressMasterScreen({
                 </FieldGrid>
               )}
             />
-          </SectionColumn>
-        </SectionGrid>
-      </Sheet>
+              </SectionBody>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

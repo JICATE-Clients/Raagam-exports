@@ -489,7 +489,11 @@ export function ApplicantMasterScreen({
    * forgotten on a new one.
    */
   const [pristine, setPristine] = useState("");
-  const dirty = JSON.stringify({ form, contacts }) !== pristine;
+  // Gated on `open`: with the editor CLOSED, `pristine` is still "" while the
+  // blank form stringifies to a real object, so this would read dirty forever
+  // and arm the reload guard on a list page with nothing to lose — permanently
+  // blocking the silent PWA auto-update (found on consignee, 2026-07-29).
+  const dirty = open && JSON.stringify({ form, contacts }) !== pristine;
   useUnsavedGuard(dirty || isPending);
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();

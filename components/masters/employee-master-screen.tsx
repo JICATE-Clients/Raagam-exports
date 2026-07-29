@@ -2,15 +2,16 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { TriangleAlert } from "lucide-react";
+import { Calendar, IdCard, Landmark, MapPin, TriangleAlert, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
-import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
+import { Field, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Sheet } from "@/components/ui/sheet";
+import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { LocationPicker } from "@/components/masters/location-picker";
@@ -293,10 +294,25 @@ const FIELD_SIZE: Record<SizedField, FieldSize> = {
 
 /**
  * CRUD for the legacy "Employee" master (Associates). A flat (single-row)
- * record: a header (ID · Name · guardian · Category/Department/Location/
- * Designation/Team ⓘ pickers · Manager ⓘ · Inactive) + titled sections —
- * Personal · Dates (incl. DOB + derived Age) · Statutory IDs · Bank Details ·
- * Photo · Permanent Address · Correspondence Address · Other Details.
+ * record, edited in a `MasterFullScreen` — the left section rail customer,
+ * vendor and applicant already use.
+ *
+ * At 43 fields this is the biggest form in Associates and the one that most
+ * needed the rail: it was ONE scroll, and LAYOUT.md §5 puts anything past ~15
+ * fields on a rail. Six entries, one shown at a time:
+ *
+ *   Identity      the old untitled header block (ID · Name · guardian ·
+ *                 Category/Department/Location/Designation/Team ⓘ · Manager ⓘ ·
+ *                 Inactive) + Photo
+ *   Personal      family & contact + the demographic "Other Details"
+ *   Dates         DOB + derived Age · joining · confirmation · filing
+ *   Statutory IDs ESI · UAN · PAN · Aadhaar · PF
+ *   Bank Details  pay mode · bank · account
+ *   Addresses     Permanent + Correspondence
+ *
+ * Six rather than the eight the sections map to one-for-one: Photo is one
+ * control and a face is identity, and "Other Details" is personal by any
+ * reading — both would have been rail entries the eye has to rule out.
  *
  * Every ⓘ field lists stored data: Category/Department/Designation/Team via the
  * shared LookupDialogPicker (config_lookups, with Add/Modify); Location via the
@@ -350,6 +366,7 @@ export function EmployeeMasterScreen({
       <>
         <Field label="Address line 1" size={FIELD_SIZE.addr1} htmlFor={`emp-${prefix}-addr1`}>
           <Input
+            uppercase
             id={`emp-${prefix}-addr1`}
             value={form[`${prefix}_addr1`]}
             onChange={(e) => setAddr(`${prefix}_addr1`, e.target.value)}
@@ -357,6 +374,7 @@ export function EmployeeMasterScreen({
         </Field>
         <Field label="Address line 2" size={FIELD_SIZE.addr2} htmlFor={`emp-${prefix}-addr2`}>
           <Input
+            uppercase
             id={`emp-${prefix}-addr2`}
             value={form[`${prefix}_addr2`]}
             onChange={(e) => setAddr(`${prefix}_addr2`, e.target.value)}
@@ -364,6 +382,7 @@ export function EmployeeMasterScreen({
         </Field>
         <Field label="Address line 3" size={FIELD_SIZE.addr3} htmlFor={`emp-${prefix}-addr3`}>
           <Input
+            uppercase
             id={`emp-${prefix}-addr3`}
             value={form[`${prefix}_addr3`]}
             onChange={(e) => setAddr(`${prefix}_addr3`, e.target.value)}
@@ -379,6 +398,7 @@ export function EmployeeMasterScreen({
         </Field>
         <Field label="Phone" size={FIELD_SIZE.phone} htmlFor={`emp-${prefix}-phone`}>
           <Input
+            uppercase
             id={`emp-${prefix}-phone`}
             value={form[`${prefix}_phone`]}
             onChange={(e) => setAddr(`${prefix}_phone`, e.target.value)}
@@ -422,11 +442,13 @@ export function EmployeeMasterScreen({
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
+    // Baseline for `dirty` — see the note beside the `pristine` state below.
+    setPristine(JSON.stringify(BLANK));
     setOpen(true);
   }
   function openEdit(r: Employee) {
     setEditId(r.id);
-    setForm({
+    const nextForm: Form = {
       code: r.code ?? "",
       name: r.name,
       guardian_relation: r.guardian_relation ?? "S/O",
@@ -478,7 +500,9 @@ export function EmployeeMasterScreen({
       date_of_confirmation: r.date_of_confirmation ?? "",
       date_of_filing: r.date_of_filing ?? "",
       employee_type: r.employee_type ?? "S",
-    });
+    };
+    setForm(nextForm);
+    setPristine(JSON.stringify(nextForm));
     setOpen(true);
   }
 
@@ -626,6 +650,93 @@ export function EmployeeMasterScreen({
     return AADHAAR_RE.test(v) && !isAadhaarChecksumValid(v);
   }, [form.aadhar_no]);
 
+  /**
+   * Unsaved-work tracking. The editor is a `MasterFullScreen`, which registers
+   * itself with the reload guard as an open MODAL — but "a modal is open" is not
+   * "there is work to lose", and this screen never declared the second
+   * (AGENTS.md, STANDING). A deploy landing on a half-keyed employee — 43 fields,
+   * the longest form in Associates — would take it silently.
+   *
+   * Whole-object compare against the record as loaded, the shape applicant and
+   * company-profile use: `set` spreads, so key order is stable and the two
+   * strings differ only when a value does. Cheaper than threading a
+   * `setDirty(true)` through every one of this form's handlers, and it cannot be
+   * forgotten on a new one.
+   *
+   * `useState`, NOT a ref: the baseline changes on an EVENT (opening the
+   * editor), and a value read during render has to be state or React never
+   * knows to re-render — the `● Unsaved` badge would go stale.
+   */
+  const [pristine, setPristine] = useState("");
+  // Gated on `open`: with the editor CLOSED, `pristine` is still "" while the
+  // blank form stringifies to a real object, so this would read dirty forever
+  // and arm the reload guard on a list page with nothing to lose — permanently
+  // blocking the silent PWA auto-update (found on consignee, 2026-07-29).
+  const dirty = open && JSON.stringify(form) !== pristine;
+  useUnsavedGuard(dirty || isPending);
+
+  // NAME first, unlike applicant/customer where `code` is a short name. An
+  // employee's code is a sequential ID (EMP0142), so taking it would print the
+  // same "EM" block on every record in the master — the one thing an avatar
+  // must not do. Code stays as the fallback for a record saved without a name.
+  const initials = (form.name || form.code || "?").slice(0, 2).toUpperCase();
+
+  // Completion dots on the rail — "this section has data", not "this section is
+  // valid". Name is the only required field on the whole form. Fields that
+  // BLANK gives a value (employee_type, marital_status, sex, pay_mode) are left
+  // out: they are true from the moment the form opens, so counting them would
+  // light a dot that never means anything.
+  const done = {
+    identity: !!(
+      form.name.trim() ||
+      form.code.trim() ||
+      form.category_id ||
+      form.department_id ||
+      form.designation_id ||
+      form.location_id ||
+      form.team_id ||
+      form.manager_id ||
+      form.guardian_name.trim() ||
+      form.photo_url
+    ),
+    personal: !!(
+      form.spouse_type ||
+      form.spouse_name.trim() ||
+      form.mobile.trim() ||
+      form.father_name.trim() ||
+      form.mother_name.trim() ||
+      form.email.trim() ||
+      form.qualification.trim() ||
+      form.blood_group.trim() ||
+      form.nationality.trim() ||
+      form.religion.trim()
+    ),
+    dates: !!(form.dob || form.doj || form.date_of_confirmation || form.date_of_filing),
+    statutory: !!(
+      form.esi_no.trim() ||
+      form.uan.trim() ||
+      form.pan_no.trim() ||
+      form.aadhar_no.trim() ||
+      form.pf_no.trim()
+    ),
+    bank: !!(form.bank_name.trim() || form.bank_acc_no.trim()),
+    addresses: !!(
+      form.perm_addr1.trim() ||
+      form.perm_addr2.trim() ||
+      form.perm_addr3.trim() ||
+      form.perm_pin.trim() ||
+      form.perm_phone.trim() ||
+      form.perm_mobile.trim() ||
+      form.corr_same_as_perm ||
+      form.corr_addr1.trim() ||
+      form.corr_addr2.trim() ||
+      form.corr_addr3.trim() ||
+      form.corr_pin.trim() ||
+      form.corr_phone.trim() ||
+      form.corr_mobile.trim()
+    ),
+  };
+
   return (
     <div className="space-y-4">
       {/* toolbar */}
@@ -681,41 +792,83 @@ export function EmployeeMasterScreen({
       </div>
 
       {/* editor */}
-      <Sheet
+      <MasterFullScreen
         open={open}
         onClose={() => setOpen(false)}
-        title={editId ? "Edit Employee" : "New Employee"}
-        footer={
+        modeLabel={
           <>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            {perms.canCreate && (
-              <Button
-                variant="outline"
-                size="md"
-                disabled={isPending || !form.name.trim()}
-                onClick={() => submit(true)}
-              >
-                Save as Draft
-              </Button>
-            )}
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={() => submit(false)}>
-              {isPending ? "Saving…" : "Save"}
-            </Button>
+            {editId ? "Editing" : "New"}{" "}
+            <span className="font-semibold text-foreground">{form.name.trim() || "employee"}</span>
           </>
         }
-      >
-        <div className="space-y-4">
-          {/* ---- Header ----
-              No DetailSection: this block is the record's identity and carries
-              no title or border. `FieldGrid` is the same 12-col track a section
-              declares, minus the chrome — and it is what establishes the
-              `@container/section` the spans query. Bare <Field>s dropped into a
-              plain <div> would find no container and each take one twelfth. */}
-          <FieldGrid>
+        header={{
+          initials,
+          title: form.name.trim() || "Untitled employee",
+          badges: (
+            <>
+              {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
+            </>
+          ),
+          // Employee ID first — it is what a payroll clerk searches by and the
+          // only value on the record that is unique to the eye. Then where they
+          // sit: designation, then department.
+          meta: (
+            <>
+              <span>
+                {form.code ? (
+                  <span className="font-mono font-semibold text-foreground">{form.code}</span>
+                ) : (
+                  "No employee ID"
+                )}
+              </span>
+              {form.designation_id && desigLabel.get(form.designation_id) && (
+                <span>· {desigLabel.get(form.designation_id)}</span>
+              )}
+              {form.department_id && deptLabel.get(form.department_id) && (
+                <span>· {deptLabel.get(form.department_id)}</span>
+              )}
+            </>
+          ),
+        }}
+        footer={{
+          status: dirty ? "Unsaved changes" : undefined,
+          onCancel: () => setOpen(false),
+          onSave: () => submit(false),
+          saveLabel: "Save employee",
+          canSave: !!form.name.trim(),
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          draftLabel: "Save as Draft",
+          isPending,
+        }}
+        sections={[
+          {
+            key: "identity",
+            label: "Identity",
+            icon: User,
+            done: done.identity,
+            content: (
+              <SectionBody
+                title="Identity"
+                hint="Who this employee is, and where they sit in the organisation."
+              >
+                {/* The untitled header block of the old single-scroll form. It
+                    was a bare `FieldGrid` — the 12-col track minus the chrome —
+                    because it carried the record's identity and a titled card
+                    around it would have been noise above the sections. Under the
+                    rail the block IS a section, so it takes a `DetailSection
+                    cols={12}`: same track (both render `FIELD_TRACK`), so no
+                    field moves, and it now sits beside Photo as a peer rather
+                    than floating above it.
+                    Photo joins it here rather than taking a seventh rail entry
+                    of its own for ONE control — a face is identity. The
+                    `space-y-4` is the gap the old single-scroll form put between
+                    every section; without it two bordered cards meet flush. */}
+                <div className="space-y-4">
+                <DetailSection label="Details" cols={12}>
             <Field label="ID" size={FIELD_SIZE.code} htmlFor="emp-code">
               <Input
+                uppercase
                 id="emp-code"
                 value={form.code}
                 onChange={(e) => set({ code: e.target.value })}
@@ -833,9 +986,37 @@ export function EmployeeMasterScreen({
                 </label>
               </Field>
             )}
-          </FieldGrid>
+          </DetailSection>
 
-          {/* ---- Personal ---- */}
+                <DetailSection label="Photo">
+                  <PhotoUpload
+                    value={form.photo_url}
+                    onChange={(url) => set({ photo_url: url })}
+                    disabled={!perms.canEdit}
+                  />
+                </DetailSection>
+                </div>
+              </SectionBody>
+            ),
+          },
+          {
+            key: "personal",
+            label: "Personal",
+            icon: Users,
+            done: done.personal,
+            content: (
+              <SectionBody
+                title="Personal"
+                hint="Family, contact and the demographic details HR keeps on file."
+              >
+                {/* Two cards, so the `space-y-4` the old single-scroll form put
+                    between every section is kept here rather than letting two
+                    bordered cards meet flush. "Other Details" joins Personal
+                    instead of taking a rail entry of its own: blood group,
+                    religion, nationality and marital status ARE personal, and a
+                    rail reading "Personal · Other Details" would make anyone
+                    open both to find out which held what. */}
+                <div className="space-y-4">
           <DetailSection label="Personal" cols={12}>
             <Field label="Employee Type" size={FIELD_SIZE.employee_type} htmlFor="emp-employee-type">
               <Select
@@ -898,10 +1079,109 @@ export function EmployeeMasterScreen({
             </Field>
           </DetailSection>
 
+          {/* "Other Details", not "Personal Details" — the section above already
+              owns "Personal", and two near-identical titles on one form is worse
+              than a plain one. Moved up from the foot of the old scroll to sit
+              under the same rail entry as the section it belongs with. */}
+          <DetailSection label="Other Details" cols={12}>
+            <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="emp-email">
+              <ValidatedInput
+                id="emp-email"
+                format="email"
+                value={form.email}
+                onChange={(e) => set({ email: e.target.value })}
+              />
+            </Field>
+            <Field label="Qualification" size={FIELD_SIZE.qualification} htmlFor="emp-qual">
+              <Input
+                uppercase
+                id="emp-qual"
+                value={form.qualification}
+                onChange={(e) => set({ qualification: e.target.value })}
+              />
+            </Field>
+            <Field label="Blood Group" size={FIELD_SIZE.blood_group} htmlFor="emp-blood">
+              <Input
+                uppercase
+                id="emp-blood"
+                value={form.blood_group}
+                onChange={(e) => set({ blood_group: e.target.value })}
+              />
+            </Field>
+
+            {/* `min-h-9 items-center` on both radio rows so they centre on the
+                same 36px control height as the inputs above and beside them —
+                otherwise they share a label baseline but not a control one. */}
+            <Field label="Marital Status" size={FIELD_SIZE.marital_status}>
+              <div className="flex min-h-9 flex-wrap items-center gap-4">
+                {MARITAL_STATUSES.map((m) => (
+                  <label key={m} className="flex cursor-pointer items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="emp-marital"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.marital_status === m}
+                      onChange={() => set({ marital_status: m })}
+                    />
+                    <span className="text-sm text-foreground">{m}</span>
+                  </label>
+                ))}
+              </div>
+            </Field>
+            <Field label="Sex" size={FIELD_SIZE.sex}>
+              <div className="flex min-h-9 flex-wrap items-center gap-4">
+                {SEXES.map((sx) => (
+                  <label key={sx} className="flex cursor-pointer items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="emp-sex"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.sex === sx}
+                      onChange={() => set({ sex: sx })}
+                    />
+                    <span className="text-sm text-foreground">{sx}</span>
+                  </label>
+                ))}
+              </div>
+            </Field>
+            <Field label="Nationality" size={FIELD_SIZE.nationality} htmlFor="emp-nat">
+              <Input
+                uppercase
+                id="emp-nat"
+                value={form.nationality}
+                onChange={(e) => set({ nationality: e.target.value })}
+              />
+            </Field>
+            <Field label="Religion" size={FIELD_SIZE.religion} htmlFor="emp-rel">
+              <Input
+                uppercase
+                id="emp-rel"
+                value={form.religion}
+                onChange={(e) => set({ religion: e.target.value })}
+              />
+            </Field>
+          </DetailSection>
+                </div>
+              </SectionBody>
+            ),
+          },
+          {
+            key: "dates",
+            label: "Dates",
+            icon: Calendar,
+            done: done.dates,
+            content: (
+              <SectionBody
+                title="Dates"
+                hint="Birth, joining, confirmation and filing — the record's whole timeline."
+              >
           {/* ---- Dates ----
               DOB and its derived Age moved here out of the header block: this
               section is where someone looking for a date looks, and the header
-              was pairing DOB with Manager for no reason but to fill a row. */}
+              was pairing DOB with Manager for no reason but to fill a row.
+              It keeps a rail entry of its own rather than folding into Personal:
+              only DOB is personal — joining, confirmation and filing are
+              employment dates, and payroll looks all four up together. */}
           <DetailSection label="Dates" cols={12}>
             <Field label="DOB" size={FIELD_SIZE.dob} htmlFor="emp-dob">
               <Input
@@ -948,6 +1228,19 @@ export function EmployeeMasterScreen({
             </Field>
           </DetailSection>
 
+              </SectionBody>
+            ),
+          },
+          {
+            key: "statutory",
+            label: "Statutory IDs",
+            icon: IdCard,
+            done: done.statutory,
+            content: (
+              <SectionBody
+                title="Statutory IDs"
+                hint="ESI, UAN, PAN, Aadhaar and PF — the numbers returns and filings are made against."
+              >
           {/* ---- Statutory IDs ----
               ESI(10) + UAN(12) + PAN(10) + Aadhaar(12) are four fixed-length
               document numbers, so they are four `sm` = one flush row. PF is
@@ -1015,6 +1308,7 @@ export function EmployeeMasterScreen({
                 would only reject numbers that are correct. */}
             <Field label="PF No" size={FIELD_SIZE.pf_no} htmlFor="emp-pf">
               <Input
+                uppercase
                 id="emp-pf"
                 value={form.pf_no}
                 onChange={(e) => set({ pf_no: e.target.value })}
@@ -1022,6 +1316,19 @@ export function EmployeeMasterScreen({
             </Field>
           </DetailSection>
 
+              </SectionBody>
+            ),
+          },
+          {
+            key: "bank",
+            label: "Bank Details",
+            icon: Landmark,
+            done: done.bank,
+            content: (
+              <SectionBody
+                title="Bank Details"
+                hint="Where this employee's salary is paid."
+              >
           {/* ---- Bank Details ---- */}
           <DetailSection label="Bank Details" cols={12}>
             <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="emp-paymode">
@@ -1047,6 +1354,7 @@ export function EmployeeMasterScreen({
             </Field>
             <Field label="Account No" size={FIELD_SIZE.bank_acc_no} htmlFor="emp-bankacc">
               <Input
+                uppercase
                 id="emp-bankacc"
                 value={form.bank_acc_no}
                 onChange={(e) => set({ bank_acc_no: e.target.value })}
@@ -1054,22 +1362,30 @@ export function EmployeeMasterScreen({
             </Field>
           </DetailSection>
 
-          {/* Photo */}
-          <DetailSection label="Photo">
-            <PhotoUpload
-              value={form.photo_url}
-              onChange={(url) => set({ photo_url: url })}
-              disabled={!perms.canEdit}
-            />
-          </DetailSection>
-
+              </SectionBody>
+            ),
+          },
+          {
+            key: "addresses",
+            label: "Addresses",
+            icon: MapPin,
+            done: done.addresses,
+            content: (
+              <SectionBody
+                title="Addresses"
+                hint="Permanent address, and the correspondence address when it differs."
+              >
+                <div className="space-y-4">
           {/* ---- What used to be "General" ----
               One `cols={1}` section wrapping a hand-rolled `space-y-4` that
               re-implemented a layout system for 21 controls. LAYOUT.md §4 puts
-              5-7 fields in a section, so it is three: the two addresses (6 each)
-              and the demographic remainder (7). The addresses stay SEPARATE
-              sections rather than one "Addresses" — they are peers, each already
-              carried its own heading, and together they are 12 controls. */}
+              5-7 fields in a section, so it became three: the two addresses (6
+              each) and the demographic remainder (7, now under Personal).
+
+              The two addresses stay SEPARATE cards under one "Addresses" rail
+              entry — they are peers, each already carried its own heading, and
+              together they are 12 controls. The rail entry groups them; it does
+              not merge them. */}
           <DetailSection label="Permanent Address" cols={12}>
             {addressFields("perm")}
           </DetailSection>
@@ -1103,85 +1419,12 @@ export function EmployeeMasterScreen({
             )}
           </DetailSection>
 
-          {/* "Other Details", not "Personal Details" — the section above already
-              owns "Personal", and two near-identical titles on one form is worse
-              than a plain one. */}
-          <DetailSection label="Other Details" cols={12}>
-            <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="emp-email">
-              <ValidatedInput
-                id="emp-email"
-                format="email"
-                value={form.email}
-                onChange={(e) => set({ email: e.target.value })}
-              />
-            </Field>
-            <Field label="Qualification" size={FIELD_SIZE.qualification} htmlFor="emp-qual">
-              <Input
-                id="emp-qual"
-                value={form.qualification}
-                onChange={(e) => set({ qualification: e.target.value })}
-              />
-            </Field>
-            <Field label="Blood Group" size={FIELD_SIZE.blood_group} htmlFor="emp-blood">
-              <Input
-                id="emp-blood"
-                value={form.blood_group}
-                onChange={(e) => set({ blood_group: e.target.value })}
-              />
-            </Field>
-
-            {/* `min-h-9 items-center` on both radio rows so they centre on the
-                same 36px control height as the inputs above and beside them —
-                otherwise they share a label baseline but not a control one. */}
-            <Field label="Marital Status" size={FIELD_SIZE.marital_status}>
-              <div className="flex min-h-9 flex-wrap items-center gap-4">
-                {MARITAL_STATUSES.map((m) => (
-                  <label key={m} className="flex cursor-pointer items-center gap-1.5">
-                    <input
-                      type="radio"
-                      name="emp-marital"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.marital_status === m}
-                      onChange={() => set({ marital_status: m })}
-                    />
-                    <span className="text-sm text-foreground">{m}</span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <Field label="Sex" size={FIELD_SIZE.sex}>
-              <div className="flex min-h-9 flex-wrap items-center gap-4">
-                {SEXES.map((sx) => (
-                  <label key={sx} className="flex cursor-pointer items-center gap-1.5">
-                    <input
-                      type="radio"
-                      name="emp-sex"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.sex === sx}
-                      onChange={() => set({ sex: sx })}
-                    />
-                    <span className="text-sm text-foreground">{sx}</span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <Field label="Nationality" size={FIELD_SIZE.nationality} htmlFor="emp-nat">
-              <Input
-                id="emp-nat"
-                value={form.nationality}
-                onChange={(e) => set({ nationality: e.target.value })}
-              />
-            </Field>
-            <Field label="Religion" size={FIELD_SIZE.religion} htmlFor="emp-rel">
-              <Input
-                id="emp-rel"
-                value={form.religion}
-                onChange={(e) => set({ religion: e.target.value })}
-              />
-            </Field>
-          </DetailSection>
-        </div>
-      </Sheet>
+                </div>
+              </SectionBody>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }
