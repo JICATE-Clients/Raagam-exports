@@ -113,39 +113,39 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
           return (
             <div key={item.href}>
               <div className="flex items-center gap-0.5">
-                {hasChildren ? (
-                  <button
-                    type="button"
-                    onClick={() => toggle(item.href)}
-                    aria-expanded={isExpanded}
-                    className={cn(
-                      "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors",
-                      parentStrong
-                        ? "bg-primary/10 text-primary hover:bg-primary/20"
-                        : moduleActive
-                          ? "text-primary hover:bg-primary/10"
-                          : "text-muted-foreground hover:bg-border hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {item.label}
-                  </button>
-                ) : (
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                      parentStrong
-                        ? "bg-primary/10 text-primary hover:bg-primary/20"
-                        : moduleActive
-                          ? "text-primary hover:bg-primary/10"
-                          : "text-muted-foreground hover:bg-border hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {item.label}
-                  </Link>
-                )}
+                {/* The label ALWAYS navigates — including for a module that has
+                    sub-modules. It used to be a <button> that only toggled when
+                    `hasChildren`, so a module with children carried no href at
+                    all and its hub page could not be reached from the sidebar.
+                    That hit all twelve modules with sub-modules (Masters,
+                    Purchase, Sales, Finance, …), every one of which has a real
+                    hub page, and the reported symptom was "clicking Masters
+                    just lists the sub-modules, the page never opens"
+                    (client 2026-07-29).
+
+                    Expanding is the chevron's job — that button already exists
+                    below and already carries `aria-expanded`, which is why the
+                    two branches were duplicating each other rather than
+                    dividing the work. Label navigates, chevron discloses; the
+                    same split VS Code and GitHub use.
+
+                    Clicking the label also REVEALS the children, with no code
+                    here: the effect above re-expands the active group whenever
+                    `pathname` changes, and only ever adds. */}
+                <Link
+                  href={item.href}
+                  className={cn(
+                    "flex flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    parentStrong
+                      ? "bg-primary/10 text-primary hover:bg-primary/20"
+                      : moduleActive
+                        ? "text-primary hover:bg-primary/10"
+                        : "text-muted-foreground hover:bg-border hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {item.label}
+                </Link>
 
                 {hasChildren && (
                   <button
