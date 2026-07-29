@@ -240,12 +240,27 @@ interface MobileWhatsAppFieldsProps {
   bare?: boolean;
   format?: PhoneFormat;
   disabled?: boolean;
+  /**
+   * Class applied to EACH of the two cells — this is how a caller on the 12-col
+   * field track hands both halves their span, e.g. `"@lg/section:col-span-3"`.
+   *
+   * It exists because the fragment below is two GRID CHILDREN, not one. On
+   * `DetailSection cols={12}` a child with no span class takes 1 of 12 (~73px),
+   * so without this the pair renders as two slivers — and the caller cannot fix
+   * it from outside, because there is no wrapper element to put a class on
+   * (that missing wrapper is the whole point of the component).
+   *
+   * A static string, never interpolated: Tailwind v4 scans source text, so a
+   * computed span class produces no CSS at all.
+   */
+  cellClassName?: string;
 }
 
 /**
  * Both halves as two sibling cells — drops straight into an existing
- * `sm:grid-cols-2` header grid or a branch/address row without adding a wrapper
- * that would break the parent grid's rhythm.
+ * `sm:grid-cols-2` header grid, a branch/address row, or a 12-col field track
+ * (pass `cellClassName`), without adding a wrapper that would break the parent
+ * grid's rhythm.
  */
 export function MobileWhatsAppFields({
   idPrefix,
@@ -257,6 +272,7 @@ export function MobileWhatsAppFields({
   bare,
   format,
   disabled,
+  cellClassName,
 }: MobileWhatsAppFieldsProps) {
   return (
     <>
@@ -267,6 +283,7 @@ export function MobileWhatsAppFields({
         bare={bare}
         format={format}
         disabled={disabled}
+        className={cellClassName}
       />
       <WhatsAppField
         id={`${idPrefix}-whatsapp`}
@@ -277,6 +294,7 @@ export function MobileWhatsAppFields({
         bare={bare}
         format={format}
         disabled={disabled}
+        className={cellClassName}
       />
     </>
   );

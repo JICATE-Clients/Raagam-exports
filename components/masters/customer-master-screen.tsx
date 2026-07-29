@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
+import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { type Column } from "@/components/ui/data-table";
@@ -126,6 +127,80 @@ const BLANK: HeaderForm = {
   tcs_applicable: false,
   gst_no: "",
 };
+
+/**
+ * How wide each scalar field is, on the 12-column track (LAYOUT.md §3).
+ *
+ * Every section used to hand-roll `sm:grid-cols-2`, so a 3-letter currency code
+ * got the same ~560px box as a customer name (client 2026-07-24 #3). Sizes here
+ * follow the DATA — `xs`=2 · `sm`=3 · `md`=4 · `lg`=6 · `full`=12, out of 12.
+ * Adjust here, not at the call sites.
+ *
+ * THE SPANS OF ONE ROW MUST SUM TO 12 — at 13 the last field wraps onto a row of
+ * its own with the rest of that row left empty under it. The rows, in DOM order:
+ *
+ *   Identity  Name 6 + Doc Prefix 3 + ID 3                                = 12
+ *             Also Consignee 2 + Also Notify 2 + Country 4 + Entity 4     = 12
+ *             In-house Unit ID 3                                          (tail)
+ *             `inactive` is `full` above all of it: it renders only while
+ *             editing, so anything sharing its row would reflow on Add.
+ *
+ *   Address   Street 12 (a 3-row textarea stands alone)                   = 12
+ *             City 3 + State 3 + Pin 2 + Country 4                        = 12
+ *             Land Line 3 + Mobile 3 + WhatsApp 3 + E-Mail 3              = 12
+ *             Web site 6                                                  (tail)
+ *             Mobile/WhatsApp are `MobileWhatsAppFields` — a fragment of two
+ *             cells, so their 3 is passed as a literal `cellClassName` rather
+ *             than from this map (Tailwind v4 scans source text).
+ *
+ *   General   Currency 1/2/3 2+2+2 + Ship Mode 2 + Ship Type 4            = 12
+ *             Pay Mode 2 + Receivable Terms 6 + Pref. Courier 4           = 12
+ *             Port of Loading 4 + Port of Discharge 4 + Destination 4     = 12
+ *             Packing List Format 6 + Commercial Invoice Format 6         = 12
+ *             Color Spec 3 + TCS 2 + GST No 3                             = 8
+ *             GstinInsight 12 — the fact strip decoded from the GST number
+ *             above it, which is why that row stops at 8 rather than filling.
+ */
+const FIELD_SIZE = {
+  // ---- Identity ----
+  inactive: "full",
+  name: "lg", // free text, the longest value on the form
+  doc_prefix: "sm",
+  doc_id: "sm",
+  also_consignee: "xs", // Yes / No
+  also_notify: "xs", // a single tick
+  country_id: "md", // picker — country names run long ("UNITED ARAB EMIRATES")
+  business_entity: "md", // "Proprietorship"
+  inhouse_unit_id: "sm",
+  // ---- Address ----
+  street: "full",
+  city_id: "sm",
+  state_id: "sm",
+  pin: "xs", // 6 digits
+  address_country_id: "md",
+  land_line: "sm",
+  email: "sm", // one of four contact channels on a flush row
+  web_site: "lg", // a URL is long free text
+  // ---- General ----
+  currency_1: "xs", // 3-letter code. The picker shows "USD — US Dollar" and
+  currency_2: "xs", // truncates the name; the code is the part that matters.
+  currency_3: "xs",
+  ship_mode: "xs", // AIR · ROAD · SEA · SEA/AIR
+  ship_type_id: "md", // free config value, e.g. "FCL 20 FT CONTAINER"
+  pay_mode: "xs", // CAD · LC · DP · OTH
+  receivable_term_id: "lg", // a whole sentence — "60 DAYS FROM BL DATE"
+  pref_courier_id: "md",
+  port_of_loading_id: "md",
+  port_of_discharge_id: "md",
+  final_destination_id: "md",
+  packing_list_format_id: "lg", // holds the picker AND its "Columns" button
+  commercial_invoice_format_id: "lg", // matched to its sibling format picker
+  color_spec_applicable: "sm", // `xs` would wrap the label onto two lines and
+  //                              drop the control below its neighbours
+  tcs_applicable: "xs", // Yes / No
+  gst_no: "sm", // 15 characters
+  gstin_insight: "full",
+} satisfies Record<string, FieldSize>;
 
 type ContactRow = {
   key: string;
@@ -734,51 +809,63 @@ export function CustomerMasterScreen({
             done: done.identity,
             content: (
                   <SectionBody title="Identity" hint="Who this customer is and how their documents are numbered.">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {/* ONE FieldGrid for the whole section — `SectionBody` has no
+                        grid of its own, and two stacked grids would agree on the
+                        left edge but not on the row gap. */}
+                    <FieldGrid>
                       {editId && (
-                        <label className="flex cursor-pointer items-center gap-2">
-                          <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
-                          <span className="text-sm text-foreground">Inactive</span>
-                        </label>
+                        <Field size={FIELD_SIZE.inactive}>
+                          <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
+                            <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.inactive} onChange={(e) => set({ inactive: e.target.checked })} />
+                            <span className="text-sm text-foreground">Inactive</span>
+                          </label>
+                        </Field>
                       )}
-                      <div className="sm:col-span-2">
-                        <Label htmlFor="cu-name">Name <span className="text-danger">*</span></Label>
-                        <Input id="cu-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} required className="text-base md:text-sm" />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-prefix">Doc Prefix</Label>
-                        <Input id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-docid">ID</Label>
-                        <Input id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-alsocons">Also Consignee</Label>
-                        <Select id="cu-alsocons" value={form.also_consignee ? "yes" : "no"} onChange={(e) => set({ also_consignee: e.target.value === "yes" })} className="text-base md:text-sm">
+                      <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cu-name">
+                        <Input id="cu-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} required />
+                      </Field>
+                      <Field label="Doc Prefix" size={FIELD_SIZE.doc_prefix} htmlFor="cu-prefix">
+                        <Input id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
+                      </Field>
+                      <Field label="ID" size={FIELD_SIZE.doc_id} htmlFor="cu-docid">
+                        <Input id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} />
+                      </Field>
+                      <Field label="Also Consignee" size={FIELD_SIZE.also_consignee} htmlFor="cu-alsocons">
+                        <Select id="cu-alsocons" value={form.also_consignee ? "yes" : "no"} onChange={(e) => set({ also_consignee: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
                         </Select>
-                      </div>
-                      <label className="flex cursor-pointer items-center gap-2 sm:pt-6">
-                        <input type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.also_notify} onChange={(e) => set({ also_notify: e.target.checked })} />
-                        <span className="text-sm text-foreground">Also Notify</span>
-                      </label>
-                      <div>
-                        <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-bizentity">Business Entity</Label>
-                        <Select id="cu-bizentity" value={form.business_entity} onChange={(e) => set({ business_entity: e.target.value })} className="text-base md:text-sm">
+                      </Field>
+                      {/* The tick's text moves up into the field label, and the
+                          cell gets `min-h-9 items-center` so it centres on the
+                          same 36px control height as the Select beside it. That
+                          replaces a `sm:pt-6` hack which faked the same offset
+                          at one viewport width only. */}
+                      <Field label="Also Notify" size={FIELD_SIZE.also_notify} htmlFor="cu-alsonotify">
+                        <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
+                          <input id="cu-alsonotify" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.also_notify} onChange={(e) => set({ also_notify: e.target.checked })} />
+                          <span className="text-sm text-foreground">Yes</span>
+                        </label>
+                      </Field>
+                      {/* `compact` + the label on `Field`: the picker renders its
+                          OWN <Label> otherwise, so the cell would show "Country"
+                          twice. Its built-in label also carries a required
+                          asterisk that this form does not honour — country_id is
+                          nullable in customerInput — so `Field`'s label is the
+                          more accurate of the two. Same for every picker below. */}
+                      <Field label="Country" size={FIELD_SIZE.country_id}>
+                        <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                      </Field>
+                      <Field label="Business Entity" size={FIELD_SIZE.business_entity} htmlFor="cu-bizentity">
+                        <Select id="cu-bizentity" value={form.business_entity} onChange={(e) => set({ business_entity: e.target.value })}>
                           <option value="">—</option>
                           {BUSINESS_ENTITIES.map((b) => <option key={b} value={b}>{b}</option>)}
                         </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-inhouseunit">In-house Unit ID</Label>
-                        <Input id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                    </div>
+                      </Field>
+                      <Field label="In-house Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="cu-inhouseunit">
+                        <Input id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
+                      </Field>
+                    </FieldGrid>
                   </SectionBody>
             ),
           },
@@ -789,24 +876,33 @@ export function CustomerMasterScreen({
             done: done.address,
             content: (
                   <SectionBody title="Address" hint="Primary correspondence address for this customer.">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="sm:col-span-2">
-                        <Label htmlFor="cu-street">Street</Label>
-                        <Textarea id="cu-street" rows={3} value={form.street} onChange={(e) => set({ street: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                      <LookupDialogPicker kind="city" label="City" options={cities} value={form.city_id || null} onChange={(id) => set({ city_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
-                      <LookupDialogPicker kind="state" label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} />
-                      <div>
-                        <Label htmlFor="cu-pin">Pin</Label>
-                        <Input id="cu-pin" value={form.pin} onChange={(e) => set({ pin: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                      <div>
-                        <CountryPicker countries={countries} value={form.address_country_id || null} onChange={(id) => set({ address_country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-landline">Land Line</Label>
-                        <Input id="cu-landline" value={form.land_line} onChange={(e) => set({ land_line: e.target.value })} className="text-base md:text-sm" />
-                      </div>
+                    <FieldGrid>
+                      <Field label="Street" size={FIELD_SIZE.street} htmlFor="cu-street">
+                        <Textarea id="cu-street" rows={3} value={form.street} onChange={(e) => set({ street: e.target.value })} />
+                      </Field>
+                      {/* The pickers were the self-labelling idiom while the rest
+                          of the screen used an external <Label> + `compact`. One
+                          idiom now, or half the cells would carry two labels. */}
+                      <Field label="City" size={FIELD_SIZE.city_id}>
+                        <LookupDialogPicker kind="city" label="City" options={cities} value={form.city_id || null} onChange={(id) => set({ city_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                      </Field>
+                      <Field label="State" size={FIELD_SIZE.state_id}>
+                        <LookupDialogPicker kind="state" label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} compact />
+                      </Field>
+                      <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cu-pin">
+                        <Input id="cu-pin" value={form.pin} onChange={(e) => set({ pin: e.target.value })} />
+                      </Field>
+                      <Field label="Country" size={FIELD_SIZE.address_country_id}>
+                        <CountryPicker countries={countries} value={form.address_country_id || null} onChange={(id) => set({ address_country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                      </Field>
+                      <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cu-landline">
+                        <Input id="cu-landline" value={form.land_line} onChange={(e) => set({ land_line: e.target.value })} />
+                      </Field>
+                      {/* Two grid children, not one — so the span goes to EACH
+                          cell via `cellClassName`. A literal string: Tailwind v4
+                          scans source text, so an interpolated span emits no CSS.
+                          It is FIELD_SIZE's `sm` (3) written the only way this
+                          component can take it. */}
                       <MobileWhatsAppFields
                         idPrefix="cu"
                         mobile={form.mobile}
@@ -814,16 +910,15 @@ export function CustomerMasterScreen({
                         isdCode={isdOf.get(form.address_country_id) ?? null}
                         onMobileChange={(v) => set({ mobile: v })}
                         onWhatsAppChange={(v) => set({ whatsapp: v })}
+                        cellClassName="@lg/section:col-span-3"
                       />
-                      <div>
-                        <Label htmlFor="cu-email">E-Mail</Label>
-                        <ValidatedInput format="email" id="cu-email" value={form.email} onChange={(e) => set({ email: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-web">Web site</Label>
-                        <ValidatedInput format="website" id="cu-web" value={form.web_site} onChange={(e) => set({ web_site: e.target.value })} className="text-base md:text-sm" />
-                      </div>
-                    </div>
+                      <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="cu-email">
+                        <ValidatedInput format="email" id="cu-email" value={form.email} onChange={(e) => set({ email: e.target.value })} />
+                      </Field>
+                      <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="cu-web">
+                        <ValidatedInput format="website" id="cu-web" value={form.web_site} onChange={(e) => set({ web_site: e.target.value })} />
+                      </Field>
+                    </FieldGrid>
 
                     {/* contacts */}
                     <div className="mt-6">
@@ -977,101 +1072,104 @@ export function CustomerMasterScreen({
             done: done.general,
             content: (
                   <SectionBody title="General" hint="Trade defaults, shipping, formats and export marking for this customer.">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div>
-                        <Label>Currency 1</Label>
+                    <FieldGrid>
+                      {/* The three currencies were interleaved with Ship Mode /
+                          Type / Pay Mode — the DOM order that drew the legacy
+                          two-column form (currencies left, shipping right). On a
+                          12-col track DOM order IS reading order, so they are
+                          grouped: three codes and the two shipping fields now sit
+                          on one row instead of consuming three half-rows. */}
+                      <Field label="Currency 1" size={FIELD_SIZE.currency_1}>
                         <CurrencyPicker label="Currency 1" currencies={currencies} value={form.currency_1 || null} onChange={(code) => set({ currency_1: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-shipmode">Ship Mode</Label>
-                        <Select id="cu-shipmode" value={form.ship_mode} onChange={(e) => set({ ship_mode: e.target.value })} className="text-base md:text-sm">
+                      </Field>
+                      <Field label="Currency 2" size={FIELD_SIZE.currency_2}>
+                        <CurrencyPicker label="Currency 2" currencies={currencies} value={form.currency_2 || null} onChange={(code) => set({ currency_2: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                      </Field>
+                      <Field label="Currency 3" size={FIELD_SIZE.currency_3}>
+                        <CurrencyPicker label="Currency 3" currencies={currencies} value={form.currency_3 || null} onChange={(code) => set({ currency_3: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                      </Field>
+                      <Field label="Ship Mode" size={FIELD_SIZE.ship_mode} htmlFor="cu-shipmode">
+                        <Select id="cu-shipmode" value={form.ship_mode} onChange={(e) => set({ ship_mode: e.target.value })}>
                           <option value="">—</option>
                           {SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                         </Select>
-                      </div>
-                      <div>
-                        <Label>Currency 2</Label>
-                        <CurrencyPicker label="Currency 2" currencies={currencies} value={form.currency_2 || null} onChange={(code) => set({ currency_2: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-shiptype">Ship Type</Label>
-                        <Select id="cu-shiptype" value={form.ship_type_id} onChange={(e) => set({ ship_type_id: e.target.value })} className="text-base md:text-sm">
+                      </Field>
+                      <Field label="Ship Type" size={FIELD_SIZE.ship_type_id} htmlFor="cu-shiptype">
+                        <Select id="cu-shiptype" value={form.ship_type_id} onChange={(e) => set({ ship_type_id: e.target.value })}>
                           <option value="">—</option>
                           {shipTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </Select>
-                      </div>
-                      <div>
-                        <Label>Currency 3</Label>
-                        <CurrencyPicker label="Currency 3" currencies={currencies} value={form.currency_3 || null} onChange={(code) => set({ currency_3: code })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-paymode">Pay Mode</Label>
-                        <Select id="cu-paymode" value={form.pay_mode} onChange={(e) => set({ pay_mode: e.target.value })} className="text-base md:text-sm">
+                      </Field>
+                      <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cu-paymode">
+                        <Select id="cu-paymode" value={form.pay_mode} onChange={(e) => set({ pay_mode: e.target.value })}>
                           <option value="">—</option>
                           {PAY_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                         </Select>
-                      </div>
-                      <div>
-                        <Label>Receivable Terms</Label>
+                      </Field>
+                      <Field label="Receivable Terms" size={FIELD_SIZE.receivable_term_id}>
                         <RecordPicker label="Receivable Term" items={receivableTerms} value={form.receivable_term_id || null} onChange={(id) => set({ receivable_term_id: id ?? "" })} compact />
-                      </div>
-                      <div>
-                        <Label>Pref. Courier</Label>
+                      </Field>
+                      <Field label="Pref. Courier" size={FIELD_SIZE.pref_courier_id}>
                         <RecordPicker label="Courier" items={couriers} value={form.pref_courier_id || null} onChange={(id) => set({ pref_courier_id: id ?? "" })} compact />
-                      </div>
-                      <div>
-                        <Label>Port of Loading</Label>
+                      </Field>
+                      <Field label="Port of Loading" size={FIELD_SIZE.port_of_loading_id}>
                         <RecordPicker label="Port" items={ports} value={form.port_of_loading_id || null} onChange={(id) => set({ port_of_loading_id: id ?? "" })} compact />
-                      </div>
-                      <div>
-                        <Label>Port of Discharge</Label>
+                      </Field>
+                      <Field label="Port of Discharge" size={FIELD_SIZE.port_of_discharge_id}>
                         <RecordPicker label="Port" items={ports} value={form.port_of_discharge_id || null} onChange={(id) => set({ port_of_discharge_id: id ?? "" })} compact />
-                      </div>
-                      <div>
-                        <Label>Final Destination</Label>
+                      </Field>
+                      <Field label="Final Destination" size={FIELD_SIZE.final_destination_id}>
                         <RecordPicker label="Destination" items={destinations} value={form.final_destination_id || null} onChange={(id) => set({ final_destination_id: id ?? "" })} compact />
-                      </div>
-                      <div className="flex items-end gap-2">
-                        <div className="flex-1">
-                          <Label>Packing List Format</Label>
-                          <LookupDialogPicker kind="packing_list_format" label="Packing List Format" options={packingFormats} value={form.packing_list_format_id || null} onChange={(id) => set({ packing_list_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                      </Field>
+                      {/* ONE cell holding two controls: "Columns" edits the very
+                          format picked beside it, so splitting them into two
+                          spans would put a button under a label of its own.
+                          `items-center` now that the picker's label sits above
+                          the whole cell — it used to be `items-end` to clear the
+                          label the picker drew for itself. */}
+                      <Field label="Packing List Format" size={FIELD_SIZE.packing_list_format_id}>
+                        <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <LookupDialogPicker kind="packing_list_format" label="Packing List Format" options={packingFormats} value={form.packing_list_format_id || null} onChange={(id) => set({ packing_list_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                          </div>
+                          <Button type="button" variant="outline" size="md" disabled={!form.packing_list_format_id} onClick={() => setColsOpen(true)}>Columns</Button>
                         </div>
-                        <Button type="button" variant="outline" size="md" disabled={!form.packing_list_format_id} onClick={() => setColsOpen(true)}>Columns</Button>
-                      </div>
-                      <div>
-                        <Label>Commercial Invoice Format</Label>
+                      </Field>
+                      <Field label="Commercial Invoice Format" size={FIELD_SIZE.commercial_invoice_format_id}>
                         <LookupDialogPicker kind="commercial_invoice_format" label="Commercial Invoice Format" options={commercialFormats} value={form.commercial_invoice_format_id || null} onChange={(id) => set({ commercial_invoice_format_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-colorspec">Color Specification Applicable</Label>
-                        <Select id="cu-colorspec" value={form.color_spec_applicable ? "yes" : "no"} onChange={(e) => set({ color_spec_applicable: e.target.value === "yes" })} className="text-base md:text-sm">
+                      </Field>
+                      <Field label="Color Spec Applicable" size={FIELD_SIZE.color_spec_applicable} htmlFor="cu-colorspec">
+                        <Select id="cu-colorspec" value={form.color_spec_applicable ? "yes" : "no"} onChange={(e) => set({ color_spec_applicable: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
                         </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="cu-tcs">TCS</Label>
-                        <Select id="cu-tcs" value={form.tcs_applicable ? "yes" : "no"} onChange={(e) => set({ tcs_applicable: e.target.value === "yes" })} className="text-base md:text-sm">
+                      </Field>
+                      <Field label="TCS" size={FIELD_SIZE.tcs_applicable} htmlFor="cu-tcs">
+                        <Select id="cu-tcs" value={form.tcs_applicable ? "yes" : "no"} onChange={(e) => set({ tcs_applicable: e.target.value === "yes" })}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
                         </Select>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <Label htmlFor="cu-gst">GST No</Label>
-                        <ValidatedInput
-                          id="cu-gst"
-                          // Shape-only on purpose. The check digit is verified
-                          // by the strip below as a WARNING, not a block — a
-                          // bad GSTIN copied off an invoice still has to be
-                          // savable while the customer is chased. Switch this
-                          // to "gstin_strict" to make it a hard block instead.
-                          format="gstin"
-                          value={form.gst_no}
-                          onChange={(e) => set({ gst_no: e.target.value })}
-                          className="text-base md:text-sm"
-                        />
-                        {gstDupError && <p className="mt-1 text-xs text-danger">{gstDupError}</p>}
-                        {gstin && (
+                      </Field>
+                      <Field label="GST No" size={FIELD_SIZE.gst_no} htmlFor="cu-gst">
+                        <>
+                          <ValidatedInput
+                            id="cu-gst"
+                            // Shape-only on purpose. The check digit is verified
+                            // by the strip below as a WARNING, not a block — a
+                            // bad GSTIN copied off an invoice still has to be
+                            // savable while the customer is chased. Switch this
+                            // to "gstin_strict" to make it a hard block instead.
+                            format="gstin"
+                            value={form.gst_no}
+                            onChange={(e) => set({ gst_no: e.target.value })}
+                          />
+                          {gstDupError && <p className="mt-1 text-xs text-danger">{gstDupError}</p>}
+                        </>
+                      </Field>
+                      {/* A wide fact strip, not a field — its own `full` cell
+                          under the 3-wide GST box rather than crammed inside it. */}
+                      {gstin && (
+                        <Field size={FIELD_SIZE.gstin_insight}>
                           <GstinInsight
                             decoded={gstin}
                             // Customers have no PAN column, so the mismatch
@@ -1080,9 +1178,9 @@ export function CustomerMasterScreen({
                             panValue=""
                             suggestions={gstinSuggestions}
                           />
-                        )}
-                      </div>
-                    </div>
+                        </Field>
+                      )}
+                    </FieldGrid>
 
                     {/* Marking grid */}
                     <div className="mt-6">

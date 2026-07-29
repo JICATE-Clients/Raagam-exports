@@ -6,7 +6,7 @@ import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -162,11 +162,141 @@ function ageFromDob(dob: string): number | null {
   return age >= 0 && age < 150 ? age : null;
 }
 
+/** The six controls each address block repeats, unprefixed. */
+type AddrField = "addr1" | "addr2" | "addr3" | "pin" | "phone" | "addr_mobile";
+/** The two blocks that repeat them. */
+type AddrPrefix = "perm" | "corr";
+/** A real key of `Form` — `perm_addr1`, `corr_pin`, … */
+type AddrKey = `${AddrPrefix}_${"addr1" | "addr2" | "addr3" | "pin" | "phone" | "mobile"}`;
+
+type SizedField =
+  | "code"
+  | "category_id"
+  | "name"
+  | "guardian_relation"
+  | "guardian_name"
+  | "manager_id"
+  | "department_id"
+  | "designation_id"
+  | "location_id"
+  | "team_id"
+  | "employee_type"
+  | "spouse_type"
+  | "spouse_name"
+  | "mobile"
+  | "father_name"
+  | "mother_name"
+  | "dob"
+  | "age"
+  | "doj"
+  | "date_of_confirmation"
+  | "date_of_filing"
+  | "esi_no"
+  | "uan"
+  | "pan_no"
+  | "aadhar_no"
+  | "pf_no"
+  | "pay_mode"
+  | "bank_name"
+  | "bank_acc_no"
+  | AddrField
+  | "email"
+  | "qualification"
+  | "blood_group"
+  | "marital_status"
+  | "sex"
+  | "nationality"
+  | "religion";
+
+/**
+ * How wide each field is, on the 12-column track.
+ *
+ * Sized to the data, not to the grid. This form ran on `DetailSection cols={2}`
+ * / `cols={3}` — VIEWPORT breakpoints producing equal cells — so a 3-character
+ * Spouse Type (S/O · D/O · W/O) got exactly the same half-row box as a free-text
+ * Mother Name (client 2026-07-24 #3). Adjust widths here, never at the call
+ * sites; this map is the single source of truth for the whole screen.
+ *
+ * THE SPANS OF ONE ROW MUST SUM TO 12. A child with no span takes one twelfth
+ * (~73px), and a row summing past 12 wraps its last field onto a line of its own
+ * with the rest of that line left blank. Every row is written out:
+ *
+ *   header      ID 3 + Category 3 + Name 6                          = 12
+ *               Relation 2 + Guardian Name 6 + Manager 4            = 12
+ *               Department 3 + Designation 3 + Location 3 + Team 3  = 12
+ *               Inactive 12 (edit only)                             = 12
+ *   Personal    Employee Type 4 + Spouse Type 2 + Spouse Name 4 + Mobile 2 = 12
+ *               Father Name 6 + Mother Name 6                       = 12
+ *   Dates       DOB 3 + Age 2 + Joining 3 + Confirmation 4          = 12
+ *               Filing 4
+ *   Statutory   ESI 3 + UAN 3 + PAN 3 + Aadhaar 3                   = 12
+ *               PF 6
+ *   Bank        Pay Mode 2 + Bank Name 6 + Account No 4             = 12
+ *   Address ×2  line 1 6 + line 2 6                                 = 12
+ *               line 3 6 + Pin 2 + Phone 2 + Mobile 2               = 12
+ *   Other       E-Mail 6 + Qualification 4 + Blood Group 2          = 12
+ *               Marital Status 4 + Sex 3 + Nationality 3 + Religion 2 = 12
+ *
+ * Widen one entry and something else on its row has to give.
+ */
+const FIELD_SIZE: Record<SizedField, FieldSize> = {
+  // ---- header ----
+  code: "sm", // employee number — EMP0142
+  category_id: "sm", // picker: STAFF / WORKER
+  name: "lg", // free-text person name
+  guardian_relation: "xs", // S/O · D/O · W/O · C/O — 3 characters, was a 7rem hard-coded track
+  guardian_name: "lg",
+  manager_id: "md", // joins the guardian row now that DOB left the header (see Dates)
+  department_id: "sm", // four pickers on one row, so `sm` rather than the `md` default;
+  designation_id: "sm", // the trigger truncates its placeholder and the value is one word
+  location_id: "sm",
+  team_id: "sm",
+  // ---- Personal ----
+  employee_type: "md", // Staff / Temporary — a select, and 4 is what closes this row
+  spouse_type: "xs", // S/O · D/O · W/O
+  spouse_name: "md", // `md`, not the `lg` its parents get below: it shares a row with
+  mobile: "xs", // three others. 10 digits ≈ 80px, so `xs` is generous already.
+  father_name: "lg", // a matched pair alone on their own row, so both can take the
+  mother_name: "lg", // full half-width a person's name deserves
+  // ---- Dates ----
+  dob: "sm", // a native <input type="date"> renders ~9-10 characters — `xs` is too tight
+  age: "xs", // derived from DOB, renders at most 3 digits
+  doj: "sm",
+  date_of_confirmation: "md", // the 0279 pair take `md` together: 4 closes the DOB row
+  date_of_filing: "md", // exactly, and splitting the pair would be arbitrary
+  // ---- Statutory IDs ----
+  esi_no: "sm", // 10 digits
+  uan: "sm", // 12 digits
+  pan_no: "sm", // 10 characters
+  aadhar_no: "sm", // 12 digits — the four above are one flush row, 3+3+3+3
+  pf_no: "lg", // the odd one out: a slashed establishment string, TN/MAS/12345/000/0001234
+  // ---- Bank ----
+  pay_mode: "xs", // Bank / Cash
+  bank_name: "lg",
+  bank_acc_no: "md", // up to 17 digits
+  // ---- Address (both blocks) ----
+  addr1: "lg",
+  addr2: "lg",
+  addr3: "lg",
+  pin: "xs", // 6 digits
+  phone: "xs", // landline, 0422-2345678
+  addr_mobile: "xs", // 10 digits
+  // ---- Other Details ----
+  email: "lg",
+  qualification: "md", // B.E (MECH), M.SC (TEXTILES)
+  blood_group: "xs", // O+VE
+  marital_status: "md", // three radios inline — Single · Married · Divorced
+  sex: "sm", // two radios inline. A radio row cannot shrink the way text can, so
+  nationality: "sm", // these two hold their width and Religion gives up the twelfth.
+  religion: "xs", // HINDU · MUSLIM — text, and it degrades gracefully if it runs long
+};
+
 /**
  * CRUD for the legacy "Employee" master (Associates). A flat (single-row)
  * record: a header (ID · Name · guardian · Category/Department/Location/
- * Designation/Team ⓘ pickers · DOB+Age · Manager ⓘ · Inactive) + a General
- * panel (Permanent + Correspondence addresses · personal details).
+ * Designation/Team ⓘ pickers · Manager ⓘ · Inactive) + titled sections —
+ * Personal · Dates (incl. DOB + derived Age) · Statutory IDs · Bank Details ·
+ * Photo · Permanent Address · Correspondence Address · Other Details.
  *
  * Every ⓘ field lists stored data: Category/Department/Designation/Team via the
  * shared LookupDialogPicker (config_lookups, with Add/Modify); Location via the
@@ -198,6 +328,73 @@ export function EmployeeMasterScreen({
   const [form, setForm] = useState<Form>(BLANK);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
+  const setAddr = (key: AddrKey, value: string) => set({ [key]: value } as Partial<Form>);
+
+  /**
+   * The six controls of ONE address block. Permanent and Correspondence were
+   * byte-identical markup differing only in a `perm_`/`corr_` key prefix, so a
+   * fix to one (these inputs were placeholder-only, with no <Label> at all)
+   * had to be made twice or it silently applied to half the screen.
+   *
+   * It takes the prefix and nothing else: each block's title and its "Same as
+   * Permanent" checkbox belong to the `DetailSection` around it, not in here.
+   *
+   * IT MUST NOT MIRROR VALUES. `corr_same_as_perm` only hides this block —
+   * nothing copies `perm_*` into `corr_*` while typing; `submit()` substitutes
+   * at save time and the corr_* state stays as the user last left it. Reading
+   * `perm_*` here when the box is ticked would look like the same behaviour and
+   * would quietly overwrite a correspondence address the moment it was unticked.
+   */
+  function addressFields(prefix: AddrPrefix) {
+    return (
+      <>
+        <Field label="Address line 1" size={FIELD_SIZE.addr1} htmlFor={`emp-${prefix}-addr1`}>
+          <Input
+            id={`emp-${prefix}-addr1`}
+            value={form[`${prefix}_addr1`]}
+            onChange={(e) => setAddr(`${prefix}_addr1`, e.target.value)}
+          />
+        </Field>
+        <Field label="Address line 2" size={FIELD_SIZE.addr2} htmlFor={`emp-${prefix}-addr2`}>
+          <Input
+            id={`emp-${prefix}-addr2`}
+            value={form[`${prefix}_addr2`]}
+            onChange={(e) => setAddr(`${prefix}_addr2`, e.target.value)}
+          />
+        </Field>
+        <Field label="Address line 3" size={FIELD_SIZE.addr3} htmlFor={`emp-${prefix}-addr3`}>
+          <Input
+            id={`emp-${prefix}-addr3`}
+            value={form[`${prefix}_addr3`]}
+            onChange={(e) => setAddr(`${prefix}_addr3`, e.target.value)}
+          />
+        </Field>
+        <Field label="Pin Code" size={FIELD_SIZE.pin} htmlFor={`emp-${prefix}-pin`}>
+          <ValidatedInput
+            id={`emp-${prefix}-pin`}
+            format="pincode"
+            value={form[`${prefix}_pin`]}
+            onChange={(e) => setAddr(`${prefix}_pin`, e.target.value)}
+          />
+        </Field>
+        <Field label="Phone" size={FIELD_SIZE.phone} htmlFor={`emp-${prefix}-phone`}>
+          <Input
+            id={`emp-${prefix}-phone`}
+            value={form[`${prefix}_phone`]}
+            onChange={(e) => setAddr(`${prefix}_phone`, e.target.value)}
+          />
+        </Field>
+        <Field label="Mobile" size={FIELD_SIZE.addr_mobile} htmlFor={`emp-${prefix}-mobile`}>
+          <ValidatedInput
+            id={`emp-${prefix}-mobile`}
+            format="mobile"
+            value={form[`${prefix}_mobile`]}
+            onChange={(e) => setAddr(`${prefix}_mobile`, e.target.value)}
+          />
+        </Field>
+      </>
+    );
+  }
 
   const managerPool: EmployeeRef[] = useMemo(
     () => rows.map((r) => ({ id: r.id, code: r.code, name: r.name })),
@@ -510,19 +707,23 @@ export function EmployeeMasterScreen({
         }
       >
         <div className="space-y-4">
-          {/* ---- Header ---- */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="emp-code">ID</Label>
+          {/* ---- Header ----
+              No DetailSection: this block is the record's identity and carries
+              no title or border. `FieldGrid` is the same 12-col track a section
+              declares, minus the chrome — and it is what establishes the
+              `@container/section` the spans query. Bare <Field>s dropped into a
+              plain <div> would find no container and each take one twelfth. */}
+          <FieldGrid>
+            <Field label="ID" size={FIELD_SIZE.code} htmlFor="emp-code">
               <Input
                 id="emp-code"
                 value={form.code}
                 onChange={(e) => set({ code: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label>Category</Label>
+            </Field>
+            {/* The label is `Field`'s, so it lines up with the inputs beside it;
+                `compact` stops the picker rendering a second one of its own. */}
+            <Field label="Category" size={FIELD_SIZE.category_id}>
               <LookupDialogPicker
                 kind="employee_category"
                 label="Category"
@@ -531,32 +732,25 @@ export function EmployeeMasterScreen({
                 onChange={(id) => set({ category_id: id })}
                 compact
               />
-            </div>
-          </div>
+            </Field>
+            <Field label="Name" required size={FIELD_SIZE.name} htmlFor="emp-name">
+              <Input
+                id="emp-name"
+                uppercase
+                value={form.name}
+                onChange={(e) => set({ name: e.target.value })}
+                required
+              />
+            </Field>
 
-          <div>
-            <Label htmlFor="emp-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="emp-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-
-          {/* Guardian (S/O …) */}
-          <div className="grid grid-cols-[7rem_1fr] gap-2">
-            <div>
-              <Label htmlFor="emp-grel">Relation</Label>
+            {/* Guardian (S/O …) — was a hard-coded `grid-cols-[7rem_1fr]`, a
+                third width system fighting the track. `xs` is the same idea
+                expressed in the one the rest of the screen uses. */}
+            <Field label="Relation" size={FIELD_SIZE.guardian_relation} htmlFor="emp-grel">
               <Select
                 id="emp-grel"
                 value={form.guardian_relation}
                 onChange={(e) => set({ guardian_relation: e.target.value })}
-                className="text-base md:text-sm"
               >
                 {GUARDIAN_RELATIONS.map((g) => (
                   <option key={g} value={g}>
@@ -564,22 +758,26 @@ export function EmployeeMasterScreen({
                   </option>
                 ))}
               </Select>
-            </div>
-            <div>
-              <Label htmlFor="emp-gname">Guardian Name</Label>
+            </Field>
+            <Field label="Guardian Name" size={FIELD_SIZE.guardian_name} htmlFor="emp-gname">
               <Input
                 id="emp-gname"
                 uppercase
                 value={form.guardian_name}
                 onChange={(e) => set({ guardian_name: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-          </div>
+            </Field>
+            <Field label="Manager" size={FIELD_SIZE.manager_id}>
+              <EmployeePicker
+                employees={managerPool}
+                value={form.manager_id || null}
+                onChange={(id) => set({ manager_id: id ?? "" })}
+                excludeId={editId}
+                compact
+              />
+            </Field>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label>Department</Label>
+            <Field label="Department" size={FIELD_SIZE.department_id}>
               <LookupDialogPicker
                 kind="department"
                 label="Department"
@@ -588,9 +786,8 @@ export function EmployeeMasterScreen({
                 onChange={(id) => set({ department_id: id })}
                 compact
               />
-            </div>
-            <div>
-              <Label>Designation</Label>
+            </Field>
+            <Field label="Designation" size={FIELD_SIZE.designation_id}>
               <LookupDialogPicker
                 kind="designation"
                 label="Designation"
@@ -599,18 +796,16 @@ export function EmployeeMasterScreen({
                 onChange={(id) => set({ designation_id: id })}
                 compact
               />
-            </div>
-            <div>
-              <Label>Location</Label>
+            </Field>
+            <Field label="Location" size={FIELD_SIZE.location_id}>
               <LocationPicker
                 locations={locations}
                 value={form.location_id || null}
                 onChange={(id) => set({ location_id: id ?? "" })}
                 compact
               />
-            </div>
-            <div>
-              <Label>Team</Label>
+            </Field>
+            <Field label="Team" size={FIELD_SIZE.team_id}>
               <LookupDialogPicker
                 kind="team"
                 label="Team"
@@ -621,60 +816,32 @@ export function EmployeeMasterScreen({
                 canEdit={perms.canEdit}
                 compact
               />
-            </div>
-          </div>
+            </Field>
 
-          {/* DOB+Age pairs with Manager on one row (dense grid) */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="grid grid-cols-[1fr_5rem] gap-2">
-              <div>
-                <Label htmlFor="emp-dob">DOB</Label>
-                <Input
-                  id="emp-dob"
-                  type="date"
-                  value={form.dob}
-                  onChange={(e) => set({ dob: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-              <div>
-                <Label htmlFor="emp-age">Age</Label>
-                <Input id="emp-age" value={age ?? ""} readOnly tabIndex={-1} className="text-base md:text-sm" />
-              </div>
-            </div>
-            <div>
-              <Label>Manager</Label>
-              <EmployeePicker
-                employees={managerPool}
-                value={form.manager_id || null}
-                onChange={(id) => set({ manager_id: id ?? "" })}
-                excludeId={editId}
-                compact
-              />
-            </div>
-          </div>
-
-          {editId && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 cursor-pointer accent-primary"
-                checked={form.inactive}
-                onChange={(e) => set({ inactive: e.target.checked })}
-              />
-              <span className="text-sm text-foreground">Inactive</span>
-            </label>
-          )}
+            {editId && (
+              // `min-h-9` so the checkbox line sits on the same 36px control
+              // baseline as any input that lands beside it on the track.
+              <Field size="full">
+                <label className="flex min-h-9 cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => set({ inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              </Field>
+            )}
+          </FieldGrid>
 
           {/* ---- Personal ---- */}
-          <DetailSection label="Personal" cols={2}>
-            <div>
-              <Label htmlFor="emp-employee-type">Employee Type</Label>
+          <DetailSection label="Personal" cols={12}>
+            <Field label="Employee Type" size={FIELD_SIZE.employee_type} htmlFor="emp-employee-type">
               <Select
                 id="emp-employee-type"
                 value={form.employee_type}
                 onChange={(e) => set({ employee_type: e.target.value })}
-                className="text-base md:text-sm"
               >
                 {EMPLOYEE_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -682,14 +849,12 @@ export function EmployeeMasterScreen({
                   </option>
                 ))}
               </Select>
-            </div>
-            <div>
-              <Label htmlFor="emp-spouse-type">Spouse Type</Label>
+            </Field>
+            <Field label="Spouse Type" size={FIELD_SIZE.spouse_type} htmlFor="emp-spouse-type">
               <Select
                 id="emp-spouse-type"
                 value={form.spouse_type}
                 onChange={(e) => set({ spouse_type: e.target.value })}
-                className="text-base md:text-sm"
               >
                 <option value="">— None —</option>
                 {SPOUSE_TYPES.map((t) => (
@@ -698,166 +863,172 @@ export function EmployeeMasterScreen({
                   </option>
                 ))}
               </Select>
-            </div>
-            <div>
-              <Label htmlFor="emp-spouse-name">Spouse Name</Label>
+            </Field>
+            <Field label="Spouse Name" size={FIELD_SIZE.spouse_name} htmlFor="emp-spouse-name">
               <Input
                 id="emp-spouse-name"
                 uppercase
                 value={form.spouse_name}
                 onChange={(e) => set({ spouse_name: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-mobile">Mobile</Label>
+            </Field>
+            <Field label="Mobile" size={FIELD_SIZE.mobile} htmlFor="emp-mobile">
               <ValidatedInput
                 id="emp-mobile"
                 format="mobile"
                 value={form.mobile}
                 onChange={(e) => set({ mobile: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-father">Father Name</Label>
+            </Field>
+            <Field label="Father Name" size={FIELD_SIZE.father_name} htmlFor="emp-father">
               <Input
                 id="emp-father"
                 uppercase
                 value={form.father_name}
                 onChange={(e) => set({ father_name: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-mother">Mother Name</Label>
+            </Field>
+            <Field label="Mother Name" size={FIELD_SIZE.mother_name} htmlFor="emp-mother">
               <Input
                 id="emp-mother"
                 uppercase
                 value={form.mother_name}
                 onChange={(e) => set({ mother_name: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
+            </Field>
           </DetailSection>
 
-          {/* ---- Dates ---- */}
-          <DetailSection label="Dates" cols={3}>
-            <div>
-              <Label htmlFor="emp-doj">Date of Joining</Label>
+          {/* ---- Dates ----
+              DOB and its derived Age moved here out of the header block: this
+              section is where someone looking for a date looks, and the header
+              was pairing DOB with Manager for no reason but to fill a row. */}
+          <DetailSection label="Dates" cols={12}>
+            <Field label="DOB" size={FIELD_SIZE.dob} htmlFor="emp-dob">
+              <Input
+                id="emp-dob"
+                type="date"
+                value={form.dob}
+                onChange={(e) => set({ dob: e.target.value })}
+              />
+            </Field>
+            {/* Derived from DOB, so Tab skips it — via `skipTab`, which clones a
+                real tabIndex onto the control, NOT a hand-written one here (the
+                prop only applies when the child has none, so writing both would
+                work by accident and defeat the point). LAYOUT.md §8. */}
+            <Field label="Age" size={FIELD_SIZE.age} htmlFor="emp-age" skipTab>
+              <Input id="emp-age" value={age ?? ""} readOnly />
+            </Field>
+            <Field label="Date of Joining" size={FIELD_SIZE.doj} htmlFor="emp-doj">
               <Input
                 id="emp-doj"
                 type="date"
                 value={form.doj}
                 onChange={(e) => set({ doj: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-doc">Date of Confirmation</Label>
+            </Field>
+            <Field
+              label="Date of Confirmation"
+              size={FIELD_SIZE.date_of_confirmation}
+              htmlFor="emp-doc"
+            >
               <Input
                 id="emp-doc"
                 type="date"
                 value={form.date_of_confirmation}
                 onChange={(e) => set({ date_of_confirmation: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-dof">Date of Filing</Label>
+            </Field>
+            <Field label="Date of Filing" size={FIELD_SIZE.date_of_filing} htmlFor="emp-dof">
               <Input
                 id="emp-dof"
                 type="date"
                 value={form.date_of_filing}
                 onChange={(e) => set({ date_of_filing: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
+            </Field>
           </DetailSection>
 
-          {/* ---- Statutory IDs ---- */}
-          <DetailSection label="Statutory IDs" cols={2}>
-            <div>
-              <Label htmlFor="emp-pf">PF No</Label>
-              {/* Left unvalidated deliberately. A PF account number is a slashed
-                  establishment string (TN/MAS/12345/000/0001234) whose region and
-                  office segments vary in length and are re-issued as offices are
-                  renamed, so there is no one national shape to test — a regex here
-                  would only reject numbers that are correct. */}
-              <Input
-                id="emp-pf"
-                value={form.pf_no}
-                onChange={(e) => set({ pf_no: e.target.value })}
-                className="text-base md:text-sm"
-              />
-            </div>
-            <div>
-              <Label htmlFor="emp-esi">ESI No</Label>
-              {/* "esi_ip", NOT "esi" — the two are easy to swap and only one is
-                  right here. `esi` is the 17-digit ESIC EMPLOYER code (the
-                  factory's); what an employee carries is the 10-digit Insurance
-                  (IP) number off their Pehchan card. */}
+          {/* ---- Statutory IDs ----
+              ESI(10) + UAN(12) + PAN(10) + Aadhaar(12) are four fixed-length
+              document numbers, so they are four `sm` = one flush row. PF is
+              listed last, out of its legacy position at the top: it is the one
+              long free-form value here, and leading with it left six empty
+              twelfths beside it before the row that matters. */}
+          <DetailSection label="Statutory IDs" cols={12}>
+            {/* "esi_ip", NOT "esi" — the two are easy to swap and only one is
+                right here. `esi` is the 17-digit ESIC EMPLOYER code (the
+                factory's); what an employee carries is the 10-digit Insurance
+                (IP) number off their Pehchan card. */}
+            <Field label="ESI No" size={FIELD_SIZE.esi_no} htmlFor="emp-esi">
               <ValidatedInput
                 id="emp-esi"
                 format="esi_ip"
                 value={form.esi_no}
                 onChange={(e) => set({ esi_no: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-uan">UAN</Label>
+            </Field>
+            <Field label="UAN" size={FIELD_SIZE.uan} htmlFor="emp-uan">
               <ValidatedInput
                 id="emp-uan"
                 format="uan"
                 value={form.uan}
                 onChange={(e) => set({ uan: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-pan">PAN No</Label>
+            </Field>
+            <Field label="PAN No" size={FIELD_SIZE.pan_no} htmlFor="emp-pan">
               <ValidatedInput
                 id="emp-pan"
                 format="pan"
                 value={form.pan_no}
                 onChange={(e) => set({ pan_no: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-aadhar">Aadhar No</Label>
-              <ValidatedInput
-                id="emp-aadhar"
-                // Shape-only on purpose. The check digit is reported by the note
-                // below as a WARNING, never a block: Aadhaar has been stored
-                // unvalidated until now, so an employee already on file may hold
-                // a number that fails it — and that must not stand between you
-                // and correcting their phone number. Switch this to
-                // "aadhaar_strict" to make it a hard block instead.
-                format="aadhaar"
-                value={form.aadhar_no}
-                onChange={(e) => set({ aadhar_no: e.target.value })}
-                className="text-base md:text-sm"
+            </Field>
+            {/* The advisory is a fragment child of this Field, not a cell of its
+                own — a sibling on the track would claim its own twelfth and push
+                Aadhaar's row past 12. */}
+            <Field label="Aadhar No" size={FIELD_SIZE.aadhar_no} htmlFor="emp-aadhar">
+              <>
+                <ValidatedInput
+                  id="emp-aadhar"
+                  // Shape-only on purpose. The check digit is reported by the note
+                  // below as a WARNING, never a block: Aadhaar has been stored
+                  // unvalidated until now, so an employee already on file may hold
+                  // a number that fails it — and that must not stand between you
+                  // and correcting their phone number. Switch this to
+                  // "aadhaar_strict" to make it a hard block instead.
+                  format="aadhaar"
+                  value={form.aadhar_no}
+                  onChange={(e) => set({ aadhar_no: e.target.value })}
+                />
+                {aadhaarCheckFails && (
+                  <p className="mt-1 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                    <TriangleAlert className="h-4 w-4 shrink-0" />
+                    Check digit doesn&apos;t match — verify this number with the employee.
+                  </p>
+                )}
+              </>
+            </Field>
+            {/* Left unvalidated deliberately. A PF account number is a slashed
+                establishment string (TN/MAS/12345/000/0001234) whose region and
+                office segments vary in length and are re-issued as offices are
+                renamed, so there is no one national shape to test — a regex here
+                would only reject numbers that are correct. */}
+            <Field label="PF No" size={FIELD_SIZE.pf_no} htmlFor="emp-pf">
+              <Input
+                id="emp-pf"
+                value={form.pf_no}
+                onChange={(e) => set({ pf_no: e.target.value })}
               />
-              {aadhaarCheckFails && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
-                  <TriangleAlert className="h-4 w-4 shrink-0" />
-                  Check digit doesn&apos;t match — verify this number with the employee.
-                </p>
-              )}
-            </div>
+            </Field>
           </DetailSection>
 
           {/* ---- Bank Details ---- */}
-          <DetailSection label="Bank Details" cols={3}>
-            <div>
-              <Label htmlFor="emp-paymode">Pay Mode</Label>
+          <DetailSection label="Bank Details" cols={12}>
+            <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="emp-paymode">
               <Select
                 id="emp-paymode"
                 value={form.pay_mode}
                 onChange={(e) => set({ pay_mode: e.target.value })}
-                className="text-base md:text-sm"
               >
                 {PAY_MODES.map((m) => (
                   <option key={m} value={m}>
@@ -865,26 +1036,22 @@ export function EmployeeMasterScreen({
                   </option>
                 ))}
               </Select>
-            </div>
-            <div>
-              <Label htmlFor="emp-bankname">Bank Name</Label>
+            </Field>
+            <Field label="Bank Name" size={FIELD_SIZE.bank_name} htmlFor="emp-bankname">
               <Input
                 id="emp-bankname"
                 uppercase
                 value={form.bank_name}
                 onChange={(e) => set({ bank_name: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
-            <div>
-              <Label htmlFor="emp-bankacc">Account No</Label>
+            </Field>
+            <Field label="Account No" size={FIELD_SIZE.bank_acc_no} htmlFor="emp-bankacc">
               <Input
                 id="emp-bankacc"
                 value={form.bank_acc_no}
                 onChange={(e) => set({ bank_acc_no: e.target.value })}
-                className="text-base md:text-sm"
               />
-            </div>
+            </Field>
           </DetailSection>
 
           {/* Photo */}
@@ -896,209 +1063,122 @@ export function EmployeeMasterScreen({
             />
           </DetailSection>
 
-          {/* ---- General ---- */}
-          <DetailSection label="General">
-            <div className="space-y-4">
-              {/* Permanent Address */}
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">Permanent Address</p>
-                <Input
-                  placeholder="Address line 1"
-                  value={form.perm_addr1}
-                  onChange={(e) => set({ perm_addr1: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-                <Input
-                  placeholder="Address line 2"
-                  value={form.perm_addr2}
-                  onChange={(e) => set({ perm_addr2: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-                <Input
-                  placeholder="Address line 3"
-                  value={form.perm_addr3}
-                  onChange={(e) => set({ perm_addr3: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <ValidatedInput
-                    format="pincode"
-                    placeholder="Pin"
-                    value={form.perm_pin}
-                    onChange={(e) => set({ perm_pin: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                  <Input
-                    placeholder="Ph"
-                    value={form.perm_phone}
-                    onChange={(e) => set({ perm_phone: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                  <ValidatedInput
-                    format="mobile"
-                    placeholder="Mobile"
-                    value={form.perm_mobile}
-                    onChange={(e) => set({ perm_mobile: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-              </div>
+          {/* ---- What used to be "General" ----
+              One `cols={1}` section wrapping a hand-rolled `space-y-4` that
+              re-implemented a layout system for 21 controls. LAYOUT.md §4 puts
+              5-7 fields in a section, so it is three: the two addresses (6 each)
+              and the demographic remainder (7). The addresses stay SEPARATE
+              sections rather than one "Addresses" — they are peers, each already
+              carried its own heading, and together they are 12 controls. */}
+          <DetailSection label="Permanent Address" cols={12}>
+            {addressFields("perm")}
+          </DetailSection>
 
-              {/* Correspondence Address */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-muted-foreground">Correspondence Address</p>
-                  <label className="flex cursor-pointer items-center gap-1.5">
+          <DetailSection
+            label="Correspondence Address"
+            cols={12}
+            // The section header's own right-hand slot, which is where this
+            // checkbox already sat visually — it belongs to the section, not to
+            // the field track, and putting it on the track would cost a cell.
+            action={
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                  checked={form.corr_same_as_perm}
+                  onChange={(e) => set({ corr_same_as_perm: e.target.checked })}
+                />
+                <span className="text-xs text-foreground">Same as Permanent</span>
+              </label>
+            }
+          >
+            {form.corr_same_as_perm ? (
+              <Field size="full">
+                <p className="rounded-md bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
+                  Uses the permanent address.
+                </p>
+              </Field>
+            ) : (
+              addressFields("corr")
+            )}
+          </DetailSection>
+
+          {/* "Other Details", not "Personal Details" — the section above already
+              owns "Personal", and two near-identical titles on one form is worse
+              than a plain one. */}
+          <DetailSection label="Other Details" cols={12}>
+            <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="emp-email">
+              <ValidatedInput
+                id="emp-email"
+                format="email"
+                value={form.email}
+                onChange={(e) => set({ email: e.target.value })}
+              />
+            </Field>
+            <Field label="Qualification" size={FIELD_SIZE.qualification} htmlFor="emp-qual">
+              <Input
+                id="emp-qual"
+                value={form.qualification}
+                onChange={(e) => set({ qualification: e.target.value })}
+              />
+            </Field>
+            <Field label="Blood Group" size={FIELD_SIZE.blood_group} htmlFor="emp-blood">
+              <Input
+                id="emp-blood"
+                value={form.blood_group}
+                onChange={(e) => set({ blood_group: e.target.value })}
+              />
+            </Field>
+
+            {/* `min-h-9 items-center` on both radio rows so they centre on the
+                same 36px control height as the inputs above and beside them —
+                otherwise they share a label baseline but not a control one. */}
+            <Field label="Marital Status" size={FIELD_SIZE.marital_status}>
+              <div className="flex min-h-9 flex-wrap items-center gap-4">
+                {MARITAL_STATUSES.map((m) => (
+                  <label key={m} className="flex cursor-pointer items-center gap-1.5">
                     <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                      checked={form.corr_same_as_perm}
-                      onChange={(e) => set({ corr_same_as_perm: e.target.checked })}
+                      type="radio"
+                      name="emp-marital"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.marital_status === m}
+                      onChange={() => set({ marital_status: m })}
                     />
-                    <span className="text-xs text-foreground">Same as Permanent</span>
+                    <span className="text-sm text-foreground">{m}</span>
                   </label>
-                </div>
-                {form.corr_same_as_perm ? (
-                  <p className="rounded-md bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
-                    Uses the permanent address.
-                  </p>
-                ) : (
-                  <>
-                    <Input
-                      placeholder="Address line 1"
-                      value={form.corr_addr1}
-                      onChange={(e) => set({ corr_addr1: e.target.value })}
-                      className="text-base md:text-sm"
+                ))}
+              </div>
+            </Field>
+            <Field label="Sex" size={FIELD_SIZE.sex}>
+              <div className="flex min-h-9 flex-wrap items-center gap-4">
+                {SEXES.map((sx) => (
+                  <label key={sx} className="flex cursor-pointer items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="emp-sex"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.sex === sx}
+                      onChange={() => set({ sex: sx })}
                     />
-                    <Input
-                      placeholder="Address line 2"
-                      value={form.corr_addr2}
-                      onChange={(e) => set({ corr_addr2: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
-                    <Input
-                      placeholder="Address line 3"
-                      value={form.corr_addr3}
-                      onChange={(e) => set({ corr_addr3: e.target.value })}
-                      className="text-base md:text-sm"
-                    />
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      <ValidatedInput
-                        format="pincode"
-                        placeholder="Pin"
-                        value={form.corr_pin}
-                        onChange={(e) => set({ corr_pin: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                      <Input
-                        placeholder="Ph"
-                        value={form.corr_phone}
-                        onChange={(e) => set({ corr_phone: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                      <ValidatedInput
-                        format="mobile"
-                        placeholder="Mobile"
-                        value={form.corr_mobile}
-                        onChange={(e) => set({ corr_mobile: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                    </div>
-                  </>
-                )}
+                    <span className="text-sm text-foreground">{sx}</span>
+                  </label>
+                ))}
               </div>
-
-              <div>
-                <Label htmlFor="emp-email">E-Mail</Label>
-                <ValidatedInput
-                  id="emp-email"
-                  format="email"
-                  value={form.email}
-                  onChange={(e) => set({ email: e.target.value })}
-                  className="text-base md:text-sm"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="emp-qual">Qualification</Label>
-                  <Input
-                    id="emp-qual"
-                    value={form.qualification}
-                    onChange={(e) => set({ qualification: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="emp-blood">Blood Group</Label>
-                  <Input
-                    id="emp-blood"
-                    value={form.blood_group}
-                    onChange={(e) => set({ blood_group: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-              </div>
-
-              {/* Marital Status + Sex pair up on one row (dense grid) */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Marital Status</Label>
-                  <div className="mt-1 flex flex-wrap gap-4">
-                    {MARITAL_STATUSES.map((m) => (
-                      <label key={m} className="flex cursor-pointer items-center gap-1.5">
-                        <input
-                          type="radio"
-                          name="emp-marital"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={form.marital_status === m}
-                          onChange={() => set({ marital_status: m })}
-                        />
-                        <span className="text-sm text-foreground">{m}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Label>Sex</Label>
-                  <div className="mt-1 flex flex-wrap gap-4">
-                    {SEXES.map((sx) => (
-                      <label key={sx} className="flex cursor-pointer items-center gap-1.5">
-                        <input
-                          type="radio"
-                          name="emp-sex"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={form.sex === sx}
-                          onChange={() => set({ sex: sx })}
-                        />
-                        <span className="text-sm text-foreground">{sx}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="emp-nat">Nationality</Label>
-                  <Input
-                    id="emp-nat"
-                    value={form.nationality}
-                    onChange={(e) => set({ nationality: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="emp-rel">Religion</Label>
-                  <Input
-                    id="emp-rel"
-                    value={form.religion}
-                    onChange={(e) => set({ religion: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-              </div>
-            </div>
+            </Field>
+            <Field label="Nationality" size={FIELD_SIZE.nationality} htmlFor="emp-nat">
+              <Input
+                id="emp-nat"
+                value={form.nationality}
+                onChange={(e) => set({ nationality: e.target.value })}
+              />
+            </Field>
+            <Field label="Religion" size={FIELD_SIZE.religion} htmlFor="emp-rel">
+              <Input
+                id="emp-rel"
+                value={form.religion}
+                onChange={(e) => set({ religion: e.target.value })}
+              />
+            </Field>
           </DetailSection>
         </div>
       </Sheet>

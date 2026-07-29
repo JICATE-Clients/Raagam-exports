@@ -9,6 +9,7 @@ import { gridKeyNav } from "@/components/masters/child-grid";
 import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
+import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -143,6 +144,78 @@ const STATE_ALIASES: Record<string, string[]> = {
   "07": ["NCT of Delhi", "New Delhi"],
   "21": ["Orissa"],
 };
+
+/**
+ * How wide each field of this form is, on the 12-column track (LAYOUT.md §3).
+ * Sized to the DATA it holds, not to the cell it landed in: this form used to
+ * hand-roll `sm:grid-cols-2` / `-3`, so three 3-letter currency codes ate a
+ * whole row while a 6-digit PIN got the same box as a website URL
+ * (client 2026-07-24 #3). Adjust here, not at the call sites.
+ *
+ * THE SPANS OF ONE ROW MUST SUM TO 12. A row that totals 13+ does not shrink —
+ * the last field wraps onto a line of its own with the rest of that line empty
+ * beneath it. Widen one of these and something else on the same row has to give.
+ *
+ *   header    name 4 + country 3 + customer 3 + also_notify 2                = 12
+ *   address   street 12
+ *             city 3 + state 3 + pin 2 + address_country 4                   = 12
+ *             land_line 3 + mobile 3 + whatsapp 3                            =  9
+ *             email 6 + web_site 6                                           = 12
+ *   general   currency ×3 (2 each) + ship_mode 3 + ship_type 3               = 12
+ *             pay_mode 3 + payment_term 3 + bank 3 + ac_no 3                 = 12
+ *   registr.  tin_no 3 + tin_no_2 3 + pan_no 3 + gst_no 3                    = 12
+ *
+ * Two rows are deliberately short of 12 rather than padded:
+ *  - `name` would prefer `lg` (a consignee is a company name), but 6+3+3+2 = 14
+ *    wraps Also Notify onto its own line. At `md` it is ~384px — long enough for
+ *    the names actually keyed, and the box scrolls past that.
+ *  - the phone row stops at 9 because there are only three phone fields; pulling
+ *    E-Mail up to fill it would push Web site onto an otherwise empty row.
+ *
+ * `currency_1/2/3` are `xs` on purpose even though the picker shows
+ * "USD — US DOLLAR": the trigger truncates, the CODE is what identifies the
+ * currency, and three of them are not worth a row of a form this long.
+ */
+const FIELD_SIZE = {
+  // header — always visible, above the tabs
+  name: "md",
+  country_id: "sm",
+  customer_id: "sm",
+  also_notify: "xs",
+  // Address tab
+  street: "full", // textarea
+  city_id: "sm",
+  state_id: "sm",
+  pin: "xs", // 6 digits
+  address_country_id: "md",
+  land_line: "sm",
+  email: "lg",
+  web_site: "lg",
+  // General tab
+  currency: "xs", // 3-letter ISO code
+  ship_mode: "sm",
+  ship_type_id: "sm",
+  pay_mode: "sm",
+  payment_term_id: "sm",
+  bank_id: "sm",
+  ac_no: "sm",
+  // Registration card
+  tin_no: "sm",
+  tin_no_2: "sm",
+  pan_no: "sm", // 10 chars
+  gst_no: "sm", // 15 chars
+} satisfies Record<string, FieldSize>;
+
+/**
+ * The Mobile / WhatsApp pair's span. `MobileWhatsAppFields` is a fragment of
+ * TWO grid children with no wrapper to hang a size on, so the class goes to each
+ * cell via `cellClassName` instead of through `<Field size>`. Keep it in step
+ * with `FIELD_SIZE.land_line` — the three phone fields share one row.
+ *
+ * A literal string, never interpolated: Tailwind v4 scans source text, so a
+ * computed span class produces no CSS at all.
+ */
+const CONTACT_CELL = "@lg/section:col-span-3";
 
 /**
  * Master-detail CRUD for the legacy "Consignee" master (Associates): a header
@@ -668,50 +741,57 @@ export function ConsigneeMasterScreen({
         }
       >
         <div className="space-y-4">
-          {/* ---- Header (shown across all tabs) ---- */}
-          <div>
-            <Label htmlFor="cn-name">
-              Name <span className="text-danger">*</span>
-            </Label>
-            <Input
-              id="cn-name"
-              uppercase
-              value={form.name}
-              onChange={(e) => set({ name: e.target.value })}
-              required
-              className="text-base md:text-sm"
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <CountryPicker
-              countries={countries}
-              value={form.country_id || null}
-              onChange={(id) => set({ country_id: id })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-            />
-            <div>
-              <Label htmlFor="cn-alsonotify">Also Notify</Label>
+          {/* ---- Header (shown across all tabs) ----
+              Four controls, one flush row. Every label is `Field`'s, so the
+              pickers are all `compact`: CountryPicker and CustomerPicker render
+              their OWN <Label> otherwise, and this screen used to mix the two
+              idioms — Country self-labelled while Customer was wrapped, so the
+              two labels sat at different offsets. */}
+          <FieldGrid>
+            <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cn-name">
+              <Input
+                id="cn-name"
+                uppercase
+                value={form.name}
+                onChange={(e) => set({ name: e.target.value })}
+                required
+              />
+            </Field>
+            {/* No `required` marker, unlike the asterisk CountryPicker prints
+                for itself: `country_id` is nullable in consigneeInput and Save
+                is gated on the name alone, so the marker was never true here. */}
+            <Field label="Country" size={FIELD_SIZE.country_id}>
+              <CountryPicker
+                countries={countries}
+                value={form.country_id || null}
+                onChange={(id) => set({ country_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                compact
+              />
+            </Field>
+            <Field label="Customer" size={FIELD_SIZE.customer_id}>
+              <CustomerPicker
+                customers={customers}
+                value={form.customer_id || null}
+                onChange={(id) => set({ customer_id: id ?? "" })}
+                compact
+              />
+            </Field>
+            <Field label="Also Notify" size={FIELD_SIZE.also_notify} htmlFor="cn-alsonotify">
               <Select
                 id="cn-alsonotify"
                 value={form.also_notify ? "yes" : "no"}
                 onChange={(e) => set({ also_notify: e.target.value === "yes" })}
-                className="text-base md:text-sm"
               >
                 <option value="no">No</option>
                 <option value="yes">Yes</option>
               </Select>
-            </div>
-          </div>
-          <div>
-            <Label>Customer</Label>
-            <CustomerPicker
-              customers={customers}
-              value={form.customer_id || null}
-              onChange={(id) => set({ customer_id: id ?? "" })}
-              compact
-            />
-          </div>
+            </Field>
+          </FieldGrid>
+          {/* Outside the track on purpose: a bare checkbox has no label above it,
+              so as a grid cell it would line up with its neighbours' LABELS
+              rather than their controls. */}
           {editId && (
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -733,61 +813,69 @@ export function ConsigneeMasterScreen({
 
           {section === "address" && (
             <div className="space-y-4">
-              {/* dense 2-per-row address fields (organized layout) */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <Label htmlFor="cn-street">Street</Label>
+              {/* Four rows of the 12-col track: the street block, then the
+                  address line (City · State · Pin · Country) the way it is
+                  printed, then the phones, then the online channels. Street is
+                  `full` — it was `sm:col-span-2`, which on this track would mean
+                  one SIXTH, not full width (LAYOUT.md §2). */}
+              <FieldGrid>
+                <Field label="Street" size={FIELD_SIZE.street} htmlFor="cn-street">
                   <Textarea
                     id="cn-street"
                     rows={3}
                     value={form.street}
                     onChange={(e) => set({ street: e.target.value })}
-                    className="text-base md:text-sm"
                   />
-                </div>
-                <LookupDialogPicker
-                  kind="city"
-                  label="City"
-                  options={cities}
-                  value={form.city_id || null}
-                  onChange={(id) => set({ city_id: id })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-                <LookupDialogPicker
-                  kind="state"
-                  label="State"
-                  options={states}
-                  value={form.state_id || null}
-                  onChange={(id) => set({ state_id: id })}
-                />
-                <div>
-                  <Label htmlFor="cn-pin">Pin</Label>
+                </Field>
+                <Field label="City" size={FIELD_SIZE.city_id}>
+                  <LookupDialogPicker
+                    kind="city"
+                    label="City"
+                    options={cities}
+                    value={form.city_id || null}
+                    onChange={(id) => set({ city_id: id })}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                    compact
+                  />
+                </Field>
+                <Field label="State" size={FIELD_SIZE.state_id}>
+                  <LookupDialogPicker
+                    kind="state"
+                    label="State"
+                    options={states}
+                    value={form.state_id || null}
+                    onChange={(id) => set({ state_id: id })}
+                    compact
+                  />
+                </Field>
+                <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cn-pin">
                   <Input
                     id="cn-pin"
                     value={form.pin}
                     onChange={(e) => set({ pin: e.target.value })}
-                    className="text-base md:text-sm"
                   />
-                </div>
-                <div>
+                </Field>
+                <Field label="Country" size={FIELD_SIZE.address_country_id}>
                   <CountryPicker
                     countries={countries}
                     value={form.address_country_id || null}
                     onChange={(id) => set({ address_country_id: id })}
                     canCreate={perms.canCreate}
                     canEdit={perms.canEdit}
+                    compact
                   />
-                </div>
-                <div>
-                  <Label htmlFor="cn-landline">Land Line</Label>
+                </Field>
+                <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cn-landline">
                   <Input
                     id="cn-landline"
                     value={form.land_line}
                     onChange={(e) => set({ land_line: e.target.value })}
-                    className="text-base md:text-sm"
                   />
-                </div>
+                </Field>
+                {/* Two cells, not one — hence `cellClassName` rather than a
+                    `<Field size>` wrapper. The WhatsApp half is taller than its
+                    neighbours by design: it carries the "Same as mobile" tick. */}
                 <MobileWhatsAppFields
                   idPrefix="cn"
                   mobile={form.mobile}
@@ -795,28 +883,25 @@ export function ConsigneeMasterScreen({
                   isdCode={isdOf.get(form.address_country_id) ?? null}
                   onMobileChange={(v) => set({ mobile: v })}
                   onWhatsAppChange={(v) => set({ whatsapp: v })}
+                  cellClassName={CONTACT_CELL}
                 />
-                <div>
-                  <Label htmlFor="cn-email">E-Mail</Label>
+                <Field label="E-Mail" size={FIELD_SIZE.email} htmlFor="cn-email">
                   <ValidatedInput
                     format="email"
                     id="cn-email"
                     value={form.email}
                     onChange={(e) => set({ email: e.target.value })}
-                    className="text-base md:text-sm"
                   />
-                </div>
-                <div>
-                  <Label htmlFor="cn-web">Web site</Label>
+                </Field>
+                <Field label="Web site" size={FIELD_SIZE.web_site} htmlFor="cn-web">
                   <ValidatedInput
                     format="website"
                     id="cn-web"
                     value={form.web_site}
                     onChange={(e) => set({ web_site: e.target.value })}
-                    className="text-base md:text-sm"
                   />
-                </div>
-              </div>
+                </Field>
+              </FieldGrid>
 
               {/* Contact grid */}
               <div className="rounded-lg border border-border">
@@ -922,43 +1007,52 @@ export function ConsigneeMasterScreen({
 
           {section === "general" && (
             <div className="space-y-4">
-              {/* Currencies (up to 3) */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <CurrencyPicker
-                  label="Currency 1"
-                  currencies={currencies}
-                  value={form.currency_1 || null}
-                  onChange={(code) => set({ currency_1: code })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-                <CurrencyPicker
-                  label="Currency 2"
-                  currencies={currencies}
-                  value={form.currency_2 || null}
-                  onChange={(code) => set({ currency_2: code })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-                <CurrencyPicker
-                  label="Currency 3"
-                  currencies={currencies}
-                  value={form.currency_3 || null}
-                  onChange={(code) => set({ currency_3: code })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-              </div>
-
-              {/* Ship + pay mode dropdowns */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div>
-                  <Label htmlFor="cn-shipmode">Ship Mode</Label>
+              {/* ONE FieldGrid, not the four stacked grids this replaced. They
+                  were rows of the same form, so they should share one track's
+                  left edge AND its vertical rhythm — between two separate grids
+                  the gap is the parent's `space-y-4`, inside one it is the
+                  track's `gap-y`, so stacked grids lined up horizontally and
+                  drifted vertically. Same reasoning as the attribute screen's
+                  `specCell`.
+                  Two rows of 12: the three currency codes now take 2 each and
+                  share their row with Ship Mode and Ship Type, instead of three
+                  `sm:grid-cols-3` cells eating a full row on their own. */}
+              <FieldGrid>
+                <Field label="Currency 1" size={FIELD_SIZE.currency}>
+                  <CurrencyPicker
+                    label=""
+                    currencies={currencies}
+                    value={form.currency_1 || null}
+                    onChange={(code) => set({ currency_1: code })}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                  />
+                </Field>
+                <Field label="Currency 2" size={FIELD_SIZE.currency}>
+                  <CurrencyPicker
+                    label=""
+                    currencies={currencies}
+                    value={form.currency_2 || null}
+                    onChange={(code) => set({ currency_2: code })}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                  />
+                </Field>
+                <Field label="Currency 3" size={FIELD_SIZE.currency}>
+                  <CurrencyPicker
+                    label=""
+                    currencies={currencies}
+                    value={form.currency_3 || null}
+                    onChange={(code) => set({ currency_3: code })}
+                    canCreate={perms.canCreate}
+                    canEdit={perms.canEdit}
+                  />
+                </Field>
+                <Field label="Ship Mode" size={FIELD_SIZE.ship_mode} htmlFor="cn-shipmode">
                   <Select
                     id="cn-shipmode"
                     value={form.ship_mode}
                     onChange={(e) => set({ ship_mode: e.target.value })}
-                    className="text-base md:text-sm"
                   >
                     <option value="">— Select —</option>
                     {SHIP_MODES.map((m) => (
@@ -967,12 +1061,14 @@ export function ConsigneeMasterScreen({
                       </option>
                     ))}
                   </Select>
-                </div>
-                <div>
-                  <Label>Ship Type</Label>
+                </Field>
+                {/* `label=""` on every picker below: they print their own <Label>
+                    otherwise, and the one from <Field> is the one that carries
+                    htmlFor and lines its required marker up with the row. */}
+                <Field label="Ship Type" size={FIELD_SIZE.ship_type_id}>
                   <LookupDialogPicker
                     kind="ship_type"
-                    label="Ship Type"
+                    label=""
                     options={shipTypes}
                     value={form.ship_type_id || null}
                     onChange={(id) => set({ ship_type_id: id })}
@@ -980,14 +1076,13 @@ export function ConsigneeMasterScreen({
                     canEdit={perms.canEdit}
                     compact
                   />
-                </div>
-                <div>
-                  <Label htmlFor="cn-paymode">Pay Mode</Label>
+                </Field>
+
+                <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cn-paymode">
                   <Select
                     id="cn-paymode"
                     value={form.pay_mode}
                     onChange={(e) => set({ pay_mode: e.target.value })}
-                    className="text-base md:text-sm"
                   >
                     <option value="">— Select —</option>
                     {PAY_MODES.map((m) => (
@@ -996,20 +1091,21 @@ export function ConsigneeMasterScreen({
                       </option>
                     ))}
                   </Select>
-                </div>
-              </div>
-
-              <LookupDialogPicker
-                kind="payment_term"
-                label="Payment Terms"
-                options={paymentTerms}
-                value={form.payment_term_id || null}
-                onChange={(id) => set({ payment_term_id: id })}
-              />
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Bank</Label>
+                </Field>
+                {/* Payment Terms was a bare full-width child of the old
+                    `space-y-4` — the widest control on the tab for a value like
+                    "60 Days DA". */}
+                <Field label="Payment Terms" size={FIELD_SIZE.payment_term_id}>
+                  <LookupDialogPicker
+                    kind="payment_term"
+                    label=""
+                    options={paymentTerms}
+                    value={form.payment_term_id || null}
+                    onChange={(id) => set({ payment_term_id: id })}
+                    compact
+                  />
+                </Field>
+                <Field label="Bank" size={FIELD_SIZE.bank_id}>
                   <BankPicker
                     banks={banks}
                     value={form.bank_id || null}
@@ -1018,17 +1114,15 @@ export function ConsigneeMasterScreen({
                     canEdit={perms.canEdit}
                     compact
                   />
-                </div>
-                <div>
-                  <Label htmlFor="cn-acno">A/c No.</Label>
+                </Field>
+                <Field label="A/c No." size={FIELD_SIZE.ac_no} htmlFor="cn-acno">
                   <Input
                     id="cn-acno"
                     value={form.ac_no}
                     onChange={(e) => set({ ac_no: e.target.value })}
-                    className="text-base md:text-sm"
                   />
-                </div>
-              </div>
+                </Field>
+              </FieldGrid>
 
               {/* Marking grid */}
               <div className="rounded-lg border border-border">
@@ -1076,38 +1170,31 @@ export function ConsigneeMasterScreen({
                 <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
                   Registration
                 </div>
-                <div className="space-y-3 p-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <Label>TIN No.</Label>
-                      <Input
-                        value={form.tin_no}
-                        onChange={(e) => set({ tin_no: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                    </div>
-                    <div>
-                      <Label>CST No.</Label>
-                      <Input
-                        value={form.tin_no_2}
-                        onChange={(e) => set({ tin_no_2: e.target.value })}
-                        className="text-base md:text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <Label htmlFor="cn-pan">PAN No</Label>
+                {/* The four registration numbers on ONE row: 3+3+3+3 = 12. They
+                    were two stacked `sm:grid-cols-2` grids, so four fixed-width
+                    identifiers — none longer than a 15-character GSTIN — each got
+                    half the card.
+                    The two strips below them are `full`. They were
+                    `sm:col-span-2`, which meant "both columns" under the old
+                    2-col grid but would mean ONE SIXTH on this track — the exact
+                    collision documented in field.tsx's header. */}
+                <div className="p-3">
+                  <FieldGrid>
+                    <Field label="TIN No." size={FIELD_SIZE.tin_no}>
+                      <Input value={form.tin_no} onChange={(e) => set({ tin_no: e.target.value })} />
+                    </Field>
+                    <Field label="CST No." size={FIELD_SIZE.tin_no_2}>
+                      <Input value={form.tin_no_2} onChange={(e) => set({ tin_no_2: e.target.value })} />
+                    </Field>
+                    <Field label="PAN No" size={FIELD_SIZE.pan_no} htmlFor="cn-pan">
                       <ValidatedInput
                         id="cn-pan"
                         format="pan"
                         value={form.pan_no}
                         onChange={(e) => set({ pan_no: e.target.value })}
-                        className="text-base md:text-sm"
                       />
-                    </div>
-                    <div>
-                      <Label htmlFor="cn-gst">GST No</Label>
+                    </Field>
+                    <Field label="GST No" size={FIELD_SIZE.gst_no} htmlFor="cn-gst">
                       <ValidatedInput
                         id="cn-gst"
                         // Shape-only on purpose. The check digit is verified by
@@ -1118,28 +1205,29 @@ export function ConsigneeMasterScreen({
                         format="gstin"
                         value={form.gst_no}
                         onChange={(e) => set({ gst_no: e.target.value })}
-                        className="text-base md:text-sm"
                       />
-                    </div>
+                    </Field>
 
                     {gstin && (
-                      <div className="sm:col-span-2 -mt-1">
+                      <Field size="full" className="-mt-1">
                         <GstinInsight
                           decoded={gstin}
                           panValue={form.pan_no}
                           suggestions={gstinSuggestions}
                         />
-                      </div>
+                      </Field>
                     )}
 
                     {gstDup && (
-                      <p className="sm:col-span-2 -mt-1 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
-                        <TriangleAlert className="h-4 w-4 shrink-0" />
-                        Another consignee already carries this GST number — check you are not
-                        keying the same party twice.
-                      </p>
+                      <Field size="full" className="-mt-1">
+                        <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                          <TriangleAlert className="h-4 w-4 shrink-0" />
+                          Another consignee already carries this GST number — check you are not
+                          keying the same party twice.
+                        </p>
+                      </Field>
                     )}
-                  </div>
+                  </FieldGrid>
                 </div>
               </div>
             </div>
