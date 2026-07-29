@@ -1,0 +1,121 @@
+import Link from "next/link";
+import {
+  FileText,
+  Scissors,
+  Shirt,
+  Gem,
+  AlertTriangle,
+  ArrowRightLeft,
+} from "lucide-react";
+import { requirePermission } from "@/lib/auth/server";
+import { createClient } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card, CardBody } from "@/components/ui/card";
+import { Stat } from "@/components/ui/stat";
+
+async function safeCount(
+  table: string,
+  filter?: (
+    q: ReturnType<Awaited<ReturnType<typeof createClient>>["from"]>,
+  ) => unknown,
+): Promise<number> {
+  void filter;
+  try {
+    const supabase = await createClient();
+    const { count } = await supabase
+      .from(table)
+      .select("id", { count: "exact", head: true });
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+const areas = [
+  {
+    href: "/planning/material-bom",
+    label: "Material BOM",
+    desc: "Production BOM — cloths, yarn process, fabric process sequences.",
+    icon: FileText,
+  },
+  {
+    href: "/planning/fabric-bom",
+    label: "Fabric BOM",
+    desc: "Fabric BOM — style-level fabric construction and costing.",
+    icon: Scissors,
+  },
+  {
+    href: "/planning/garment-bom",
+    label: "Garment BOM",
+    desc: "Garment BOM — component and garment process operations.",
+    icon: Shirt,
+  },
+  {
+    href: "/planning/accessory-bom",
+    label: "Accessories BOM",
+    desc: "Accessory BOM — purchased and in-factory trims, packing.",
+    icon: Gem,
+  },
+  {
+    href: "/planning/bom-shortage",
+    label: "BOM Shortage",
+    desc: "Shortage requisitions — additional material against BOM.",
+    icon: AlertTriangle,
+  },
+  {
+    href: "/planning/bom-transfer",
+    label: "BOM Transfer",
+    desc: "Transfer BOM quantities between sales orders.",
+    icon: ArrowRightLeft,
+  },
+];
+
+export default async function PlanningPage() {
+  await requirePermission("planning", "view");
+
+  const [materialBoms, fabricBoms, garmentBoms] = await Promise.all([
+    safeCount("material_boms"),
+    safeCount("fabric_boms"),
+    safeCount("garment_boms"),
+  ]);
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Planning"
+        description="Bill of materials — material, fabric, garment, accessories, shortage and transfers"
+      />
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <Stat label="Material BOMs" value={materialBoms} tone="info" />
+        <Stat label="Fabric BOMs" value={fabricBoms} />
+        <Stat label="Garment BOMs" value={garmentBoms} tone="warning" />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {areas.map((a) => {
+          const Icon = a.icon;
+          return (
+            <Link key={a.href} href={a.href} className="block">
+              <Card className="h-full transition-colors hover:border-primary">
+                <CardBody className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-foreground">
+                      {a.label}
+                    </h2>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {a.desc}
+                    </p>
+                  </div>
+                </CardBody>
+              </Card>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

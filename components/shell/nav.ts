@@ -70,7 +70,20 @@ export const NAV: NavItem[] = [
       { href: "/orders/ta", label: "Time & Action (TA)" },
     ],
   },
-  // Planning module removed — pending rebuild from VB.NET source of truth
+  {
+    href: "/planning",
+    label: "Planning",
+    module: "planning",
+    icon: LineChart,
+    children: [
+      { href: "/planning/fabric-bom", label: "Fabric BOM" },
+      { href: "/planning/garment-bom", label: "Garment BOM" },
+      { href: "/planning/material-bom", label: "Material BOM" },
+      { href: "/planning/accessory-bom", label: "Accessories BOM" },
+      { href: "/planning/bom-shortage", label: "BOM Shortage" },
+      { href: "/planning/bom-transfer", label: "BOM Transfer" },
+    ],
+  },
   {
     href: "/purchase",
     label: "Purchase",
