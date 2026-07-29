@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -23,7 +24,8 @@ import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/ma
 import { createSubCategory } from "@/lib/masters/category-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import { LookupDialogPicker, CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid, SectionColumn, IdentityRow } from "@/components/masters/section-grid";
 import { ChildGrid } from "@/components/masters/child-grid";
@@ -1475,7 +1477,7 @@ export function MaterialMasterScreen({
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Created User", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_by ?? "—"}</span> },
-    { header: "Created Dt", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_at ? r.created_at.slice(0, 10) : "—"}</span> },
+    { header: "Created Dt", cell: (r) => <span className="text-xs text-muted-foreground">{fmtDate(r.created_at)}</span> },
     {
       header: "Status",
       cell: (r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>,

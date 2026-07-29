@@ -37,6 +37,7 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { SizeGroup } from "@/lib/masters/size-group-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -330,7 +331,7 @@ export function CategoryMasterScreen({
         </span>
       ),
     },
-    { header: "Created Dt", cell: (r) => <span className="text-sm">{r.created_at.slice(0, 10)}</span> },
+    { header: "Created Dt", cell: (r) => <span className="text-sm">{fmtDate(r.created_at)}</span> },
     { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by_name || "—"}</span> },
     {
       header: "Inactive",

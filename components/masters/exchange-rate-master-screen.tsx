@@ -27,6 +27,7 @@ import {
   type ExchangeRateRegister,
 } from "@/lib/masters/exchange-rate-types";
 import type { Currency } from "@/lib/masters/types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type LineRow = { key: string; currency_code: string; ex_rate: string };
@@ -169,7 +170,7 @@ export function ExchangeRateMasterScreen({
 
   const columns: Column<ExchangeRateEntry>[] = [
     { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.entry_date}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.entry_date)}</span> },
     { header: "For", cell: (r) => <span className="text-sm">{r.rate_for ?? "—"}</span> },
     {
       header: "Period",
@@ -212,7 +213,7 @@ export function ExchangeRateMasterScreen({
         empty="No exchange-rate entries yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · ${r.rate_for ?? "—"}`,
-          meta: (r) => `${r.entry_date} · ${periodLabel(r)} · ${r.lines.length} currencies`,
+          meta: (r) => `${fmtDate(r.entry_date)} · ${periodLabel(r)} · ${r.lines.length} currencies`,
           onEdit: openEdit,
           onDelete: remove,
         }}

@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,7 @@ const blankForm = () => ({
 
 /** Human-readable holiday date (single, or from → to). */
 function datePhrase(r: Pick<Holiday, "is_date_range" | "holiday_date" | "end_date">): string {
-  return r.is_date_range && r.end_date ? `${r.holiday_date} → ${r.end_date}` : r.holiday_date;
+  return r.is_date_range && r.end_date ? `${fmtDate(r.holiday_date)} → ${fmtDate(r.end_date)}` : fmtDate(r.holiday_date);
 }
 
 /**

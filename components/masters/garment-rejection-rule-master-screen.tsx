@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -158,7 +159,7 @@ export function GarmentRejectionRuleMasterScreen({
     { header: "Rule", cell: (r) => <span className="text-sm">{r.rule ?? "—"}</span> },
     {
       header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Tiers",

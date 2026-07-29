@@ -20,6 +20,7 @@ import {
 } from "@/lib/masters/grid-master-actions";
 import { Select } from "@/components/ui/select";
 import type { YarnDebitRate, YarnDebitRateInput } from "@/lib/masters/grid-master-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type LookupOption = { id: string; code: string; name: string };
@@ -115,7 +116,7 @@ export function YarnDebitRateMasterScreen({
 
   const columns: Column<YarnDebitRate>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span> },
+    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span> },
     { header: "Rows", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
     {
       header: "",

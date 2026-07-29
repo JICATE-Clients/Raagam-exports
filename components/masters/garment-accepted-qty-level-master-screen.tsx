@@ -184,11 +184,11 @@ export function GarmentAcceptedQtyLevelMasterScreen({
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     {
       header: "Entry Date",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.entry_date}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.entry_date)}</span>,
     },
     {
       header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Rows",
@@ -263,7 +263,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
                   {r.code}
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
-                  Entry: {r.entry_date} · Effective: {r.effective_from} · {r.details.length} row
+                  Entry: {fmtDate(r.entry_date)} · Effective: {fmtDate(r.effective_from)} · {r.details.length} row
                   {r.details.length === 1 ? "" : "s"}
                 </div>
               </div>

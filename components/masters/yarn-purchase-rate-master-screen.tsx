@@ -20,6 +20,7 @@ import {
   deleteYarnPurchaseRate,
 } from "@/lib/masters/grid-master-actions";
 import type { YarnPurchaseRate, YarnPurchaseRateInput } from "@/lib/masters/grid-master-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type LookupOption = { id: string; code: string; name: string };
@@ -123,7 +124,7 @@ export function YarnPurchaseRateMasterScreen({
 
   const columns: Column<YarnPurchaseRate>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span> },
+    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span> },
     { header: "Rates", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
     {
       header: "",

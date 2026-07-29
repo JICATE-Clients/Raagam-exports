@@ -24,6 +24,7 @@ import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type SubRow = { key: string; sub_category: string; short_description: string; hsn_code: string };
@@ -266,7 +267,7 @@ export function ProcessMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.sl_no}</span>,
     },
-    { header: "Created Dt", cell: (r) => <span className="text-sm">{r.created_at.slice(0, 10)}</span> },
+    { header: "Created Dt", cell: (r) => <span className="text-sm">{fmtDate(r.created_at)}</span> },
     { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by || "—"}</span> },
     {
       header: "Status",

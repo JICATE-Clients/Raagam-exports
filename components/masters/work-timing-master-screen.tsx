@@ -23,6 +23,7 @@ import {
 import type { WorkTiming, WorkTimingInput } from "@/lib/masters/work-timing-types";
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -163,14 +164,14 @@ export function WorkTimingMasterScreen({
 
   const columns: Column<WorkTiming>[] = [
     { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.date?.slice(0, 10)}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
     {
       header: "Location",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.location?.name ?? "—"}</span>,
     },
     {
       header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from?.slice(0, 10)}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Shifts",

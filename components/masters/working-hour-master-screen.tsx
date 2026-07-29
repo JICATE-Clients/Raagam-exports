@@ -17,6 +17,7 @@ import {
   deleteWorkingHour,
 } from "@/lib/masters/working-hour-actions";
 import type { WorkingHour, WorkingHourInput } from "@/lib/masters/working-hour-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -144,7 +145,7 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
 
   const columns: Column<WorkingHour>[] = [
     { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.date?.slice(0, 10)}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
     {
       header: "Morning In",
       cell: (r) => <span className="text-sm text-muted-foreground">{hhmm(r.morning_in) || "—"}</span>,

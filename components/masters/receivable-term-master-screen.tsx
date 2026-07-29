@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -87,7 +88,8 @@ const FIELD_SIZE = {
   description: "full", // 12 — a textarea stands alone (LAYOUT.md §3)
   at_basis: "sm", // 3 — SIGHT · OPEN · DAYS
   at_when: "sm", // 3 — AFTER · FROM
-  at_event: "lg", // 6 — "RECEIPT OF DOCUMENTS" is 20 characters
+  at_event: "sm", // 3 — "RECEIPT OF DOCUMENTS" now scrolls inside the box
+  //                     (uniform 4-per-row, client 2026-07-29)
 } satisfies Record<string, FieldSize>;
 
 /** Human-readable "AT" phrase from the three dropdowns. */
@@ -177,7 +179,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
 
   const columns: Column<ReceivableTerm>[] = [
     { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.entry_date}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.entry_date)}</span> },
     { header: "Pay Mode", cell: (r) => <span className="text-sm">{r.pay_mode ?? "—"}</span> },
     { header: "AT", cell: (r) => <span className="text-sm text-muted-foreground">{atPhrase(r)}</span> },
     {

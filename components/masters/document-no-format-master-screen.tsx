@@ -24,6 +24,7 @@ import type {
   DocumentNoFormatInput,
 } from "@/lib/masters/document-no-format-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -285,7 +286,7 @@ export function DocumentNoFormatMasterScreen({
 
   const columns: Column<DocumentNoFormat>[] = [
     { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.date?.slice(0, 10)}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
     {
       header: "Track",
       cell: (r) => (
@@ -370,7 +371,7 @@ export function DocumentNoFormatMasterScreen({
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-semibold text-foreground">#{r.entry_no}</div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.date?.slice(0, 10)} · {r.menus.length} menu{r.menus.length === 1 ? "" : "s"}
+                    {fmtDate(r.date)} · {r.menus.length} menu{r.menus.length === 1 ? "" : "s"}
                     {r.track_id ? ` · ${trackLabel.get(r.track_id) ?? ""}` : ""}
                   </div>
                 </div>

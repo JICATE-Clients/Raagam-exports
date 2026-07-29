@@ -21,6 +21,7 @@ import {
 } from "@/lib/masters/grid-master-actions";
 import { Select } from "@/components/ui/select";
 import type { SizingRate, SizingRateInput } from "@/lib/masters/grid-master-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type LookupOption = { id: string; code: string; name: string };
@@ -122,7 +123,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
 
   const columns: Column<SizingRate>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span> },
+    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span> },
     { header: "Base Rate", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.base_rate}</span> },
     { header: "Yarns", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
     {
@@ -164,7 +165,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-mono text-[15px] font-semibold text-foreground">{r.code}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">Effective: {r.effective_from} · Base: {r.base_rate}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Effective: {fmtDate(r.effective_from)} · Base: {r.base_rate}</div>
               </div>
               <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
             </div>
