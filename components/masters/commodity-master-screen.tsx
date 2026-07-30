@@ -11,7 +11,7 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";

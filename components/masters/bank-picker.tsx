@@ -1,27 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Info, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { createBank, updateBank } from "@/lib/masters/bank-actions";
+import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
+import { createBank, updateBank, deleteBank } from "@/lib/masters/bank-actions";
 import { BANK_TYPES, type Bank, type BankInput, type BankType } from "@/lib/masters/bank-types";
-import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
-import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker-keys";
 
 /**
- * The legacy blue ⓘ Bank popup, over the `banks` master (master-detail): a
- * searchable grid with Add / Modify / OK / Cancel. `value` is the bank **id**.
+ * The Bank field (Applicant, Consignee, Customer …).
  *
- * Add/Modify here only edit the bank *header* (Code · Foreign/Local · Name ·
- * Inactive) — the branch grid is edited on the full Bank master screen. On
- * Modify the bank's existing branches are passed back unchanged so the
- * wholesale branch-replace in updateBank does not wipe them.
+ * A `DataPicker` plus a quick-create sheet for Add / Modify: a Bank owns a type
+ * and a branch list, so the picker's inline name-only form would create one no
+ * payment could actually use. Config lists take the inline path; anything with
+ * real fields takes this one (client 2026-07-29).
  */
 export function BankPicker({
   label = "Bank",
@@ -30,6 +27,7 @@ export function BankPicker({
   onChange,
   canCreate,
   canEdit,
+  canDelete,
   compact = false,
 }: {
   label?: string;
@@ -38,72 +36,70 @@ export function BankPicker({
   onChange: (id: string) => void;
   canCreate: boolean;
   canEdit: boolean;
+  /** Defaults to `canEdit` — see the note in `lookup-dialog-picker.tsx`. */
+  canDelete?: boolean;
   compact?: boolean;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, start] = useTransition();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
-  const [open, setOpen] = useState(false);
-  // Hand the cursor back to this picker's trigger when the dialog closes —
-  // removing the focused node strands focus on <body>. See picker-keys.ts.
-  usePickerFocusReturn(open);
-  const [query, setQuery] = useState("");
-  const [highlight, setHighlight] = useState<string | null>(null);
-  const [mode, setMode] = useState<"list" | "form">("list");
+  const [extra, setExtra] = useState<Bank[]>([]);
+  const [removed, setRemoved] = useState<string[]>([]);
+
+  const all = useMemo(() => {
+    const byId = new Map<string, Bank>();
+    for (const b of banks) byId.set(b.id, b);
+    for (const b of extra) byId.set(b.id, b);
+    for (const id of removed) byId.delete(id);
+    return [...byId.values()];
+  }, [banks, extra, removed]);
+
+  const rows: PickerRow[] = useMemo(
+    () =>
+      [...all]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((b) => ({ id: b.id, label: b.name, sublabel: b.bank_type })),
+    [all],
+  );
+
+  const [formOpen, setFormOpen] = useState(false);
   const [formEditId, setFormEditId] = useState<string | null>(null);
   const [code, setCode] = useState("");
-  const [bankType, setBankType] = useState<"" | BankType>("");
   const [name, setName] = useState("");
-  const [inactive, setBlocked] = useState(false);
+  const [bankType, setBankType] = useState<"" | BankType>("");
+  const [inactive, setInactive] = useState(false);
+  // The picker hands us its `commit` so a save selects the row and closes the
+  // list in one step. A ref because the sheet outlives the callback.
+  const commitRef = useRef<((id: string) => void) | null>(null);
 
-  const selected = banks.find((b) => b.id === value) ?? null;
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const rows = q
-      ? banks.filter((b) => [b.code, b.name].filter(Boolean).join(" ").toLowerCase().includes(q))
-      : banks;
-    return [...rows].sort((a, b) => a.name.localeCompare(b.name));
-  }, [banks, query]);
-
-  function openDialog() {
-    setHighlight(value);
-    setQuery("");
-    setMode("list");
-    setOpen(true);
-  }
-  function close() {
-    setOpen(false);
-    setMode("list");
-  }
-
-  function startAdd() {
+  function openAdd(commit: (id: string) => void) {
+    commitRef.current = commit;
     setFormEditId(null);
     setCode("");
-    setBankType("");
     setName("");
-    setBlocked(false);
-    setMode("form");
+    setBankType("");
+    setInactive(false);
+    setFormOpen(true);
   }
-  function startModify(id: string) {
-    const b = banks.find((x) => x.id === id);
+  function openEdit(row: PickerRow, commit: (id: string) => void) {
+    const b = all.find((x) => x.id === row.id);
     if (!b) return;
-    setHighlight(id);
+    commitRef.current = commit;
     setFormEditId(b.id);
     setCode(b.code ?? "");
-    setBankType(b.bank_type ?? "");
     setName(b.name);
-    setBlocked(b.inactive);
-    setMode("form");
+    setBankType(b.bank_type ?? "");
+    setInactive(b.inactive);
+    setFormOpen(true);
   }
 
   function saveForm() {
     start(async () => {
-      // Preserve existing branches on Modify (updateBank replaces them wholesale).
-      const base = formEditId ? banks.find((b) => b.id === formEditId) : null;
+      // Branches are carried over by hand because `updateBank` replaces them
+      // wholesale — this sheet edits the header only, and passing an empty list
+      // would silently delete every IFSC on the bank.
+      const base = formEditId ? all.find((b) => b.id === formEditId) : null;
       const branches: BankInput["branches"] = (base?.branches ?? []).map((br) => ({
         sno: br.sno,
         country_id: br.country_id,
@@ -126,239 +122,133 @@ export function BankPicker({
         inactive,
         branches,
       };
-      const res = formEditId ? await updateBank(formEditId, payload) : await createBank(payload);
-      if (!res.ok) return error(res.error);
-      if (formEditId) setHighlight(formEditId);
-      success(formEditId ? `${label} updated.` : `${label} added.`);
-      setMode("list");
-      router.refresh(); // new/edited bank flows back in via the refreshed `banks` prop
+      if (formEditId) {
+        const res = await updateBank(formEditId, payload);
+        if (!res.ok) return error(res.error);
+        if (base) {
+          setExtra((xs) => [
+            ...xs.filter((b) => b.id !== formEditId),
+            { ...base, ...payload, id: formEditId, branches: base.branches },
+          ]);
+        }
+        success(`${label} updated.`);
+      } else {
+        const res = await createBank(payload);
+        if (!res.ok) return error(res.error);
+        const newId = res.id;
+        if (newId) {
+          setExtra((xs) => [
+            ...xs,
+            { ...payload, id: newId, branches: [], created_at: "", updated_at: "" } as unknown as Bank,
+          ]);
+          commitRef.current?.(newId);
+        }
+        success(`${label} added.`);
+      }
+      setFormOpen(false);
+      router.refresh();
     });
   }
 
-  const onListKeyDown = pickerKeyDown({
-    items: filtered,
-    keyOf: (r) => r.id,
-    highlight: highlight,
-    setHighlight: setHighlight,
-    onPick: onChange,
-    // One layer per Escape: out of the Add/Modify form back to the list, and
-    // only then out of the dialog.
-    onClose: () => (mode === "form" ? setMode("list") : close()),
-    active: mode === "list",
-  });
-
-  const selectedLabel = selected ? selected.name : `— Select ${label} —`;
+  const manage: ManageConfig = {
+    canCreate,
+    canEdit,
+    canDelete: canDelete ?? canEdit,
+    // Unreachable — both overrides below intercept first. Present because
+    // ManageConfig is also what decides which row icons render.
+    onCreate: async () => ({ ok: false, error: "Use the Bank form." }),
+    onUpdate: async () => ({ ok: false, error: "Use the Bank form." }),
+    onDelete: (id) => deleteBank(id),
+    onCreated: () => {},
+    onUpdated: () => {},
+    onDeleted: (id, wasDeactivated) => {
+      setRemoved((xs) => [...xs, id]);
+      if (!wasDeactivated) setExtra((xs) => xs.filter((b) => b.id !== id));
+      router.refresh();
+    },
+    draftOf: (r) => ({ code: all.find((b) => b.id === r.id)?.code ?? "", name: r.label }),
+  };
 
   return (
-    <div>
-      {!compact && <Label>{label}</Label>}
-      <button
-        type="button"
-        onClick={openDialog}
+    <>
+      <DataPicker
+        label={label}
+        rows={rows}
+        value={value}
+        onChange={(id) => onChange(id ?? "")}
+        clearable={false}
+        compact={compact}
+        manage={manage}
+        onAddOverride={openAdd}
+        onEditOverride={openEdit}
+      />
 
-        data-field-trigger
-        className={PICKER_TRIGGER_CLASS}
+      <Sheet
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        size="sm"
+        title={formEditId ? `Modify ${label}` : `Add ${label}`}
+        footer={
+          <>
+            <Button type="button" variant="outline" size="md" onClick={() => setFormOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" size="md" disabled={isPending || !name.trim()} onClick={saveForm}>
+              {isPending ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
       >
-        <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
-          {selectedLabel}
-        </span>
-        <Info className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-      </button>
-
-      {mounted &&
-        open &&
-        createPortal(
-          <div className="fixed inset-0 z-[100] flex items-start justify-center">
-            <div className="absolute inset-0 bg-black/40" onClick={close} aria-hidden />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-label={`Select ${label}`}
-              // ↑/↓/Enter/Escape/Tab for the whole dialog — bound here rather than
-              // on the search box so the keys still work once focus has moved on
-              // to a row or to Cancel. See picker-keys.ts.
-              onKeyDown={onListKeyDown}
-              className="relative mt-[8vh] flex max-h-[80vh] w-[94%] max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
-            >
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-sm font-semibold">
-                  {mode === "list"
-                    ? `Select ${label}`
-                    : formEditId
-                      ? `Modify ${label}`
-                      : `Add ${label}`}
-                </h2>
-                <button
-                  type="button"
-                  onClick={close}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-                  aria-label="Close"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              {mode === "list" ? (
-                <>
-                  <div className="border-b border-border p-3">
-                    <Input
-                      autoFocus
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search code or name…"
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-auto">
-                    {filtered.length === 0 ? (
-                      <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                        No banks found.
-                      </p>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
-                          <tr>
-                            <th className="px-4 py-2 text-left font-medium">Name</th>
-                            <th className="w-20 px-4 py-2 text-left font-medium">Type</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filtered.map((b) => (
-                            <tr
-                              key={b.id}
-                              ref={
-                                highlight === b.id
-                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
-                                  : undefined
-                              }
-                              onClick={() => {
-                                onChange(b.id);
-                                close();
-                              }}
-                              onMouseEnter={() => setHighlight(b.id)}
-                              className={
-                                "group cursor-pointer border-t border-border " +
-                                (highlight === b.id ? "bg-primary/10" : "hover:bg-surface-muted")
-                              }
-                            >
-                              <td className="px-4 py-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span>{b.name}</span>
-                                  {canEdit && (
-                                    <button
-                                      type="button"
-                                      aria-label="Modify"
-                                      title="Modify"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        startModify(b.id);
-                                      }}
-                                      className="shrink-0 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:text-foreground group-hover:opacity-100"
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 text-muted-foreground">{b.bank_type ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-                    {canCreate && (
-                      <Button type="button" variant="outline" size="md" onClick={startAdd}>
-                        Add
-                      </Button>
-                    )}
-                    <div className="flex-1" />
-                    <Button type="button" variant="outline" size="md" onClick={close}>
-                      Cancel
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-                    {formEditId && (
-                      <p className="rounded-md bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
-                        Editing the bank header only. Branch details are edited on the Bank master.
-                      </p>
-                    )}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="bp-code">Code</Label>
-                        <Input
-                          id="bp-code"
-                          uppercase
-                          value={code}
-                          onChange={(e) => setCode(e.target.value)}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="bp-type">Type</Label>
-                        <Select
-                          id="bp-type"
-                          value={bankType}
-                          onChange={(e) => setBankType(e.target.value as "" | BankType)}
-                          className="text-base md:text-sm"
-                        >
-                          <option value="">— Select —</option>
-                          {BANK_TYPES.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="bp-name">
-                        Name <span className="text-danger">*</span>
-                      </Label>
-                      <Input
-                        id="bp-name"
-                        autoFocus
-                        uppercase
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="text-base md:text-sm"
-                      />
-                    </div>
-                    {formEditId && (
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={inactive}
-                          onChange={(e) => setBlocked(e.target.checked)}
-                        />
-                        <span className="text-sm text-foreground">Inactive</span>
-                      </label>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-                    <Button type="button" variant="outline" size="md" onClick={() => setMode("list")}>
-                      Back
-                    </Button>
-                    <Button
-                      type="button"
-                      size="md"
-                      disabled={isPending || !name.trim()}
-                      onClick={saveForm}
-                    >
-                      {isPending ? "Saving…" : "Save"}
-                    </Button>
-                  </div>
-                </>
-              )}
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="bp-name">
+              Name <span className="text-danger">*</span>
+            </Label>
+            <Input
+              id="bp-name"
+              autoFocus
+              uppercase
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="bp-code">Code</Label>
+              <Input id="bp-code" uppercase value={code} onChange={(e) => setCode(e.target.value)} />
             </div>
-          </div>,
-          document.body,
-        )}
-    </div>
+            <div>
+              <Label htmlFor="bp-type">Type</Label>
+              <Select
+                id="bp-type"
+                value={bankType}
+                onChange={(e) => setBankType(e.target.value as "" | BankType)}
+              >
+                <option value="">— Select —</option>
+                {BANK_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={inactive}
+              onChange={(e) => setInactive(e.target.checked)}
+            />
+            <span className="text-sm text-foreground">Inactive</span>
+          </label>
+          {/* Saying where the branch fields are beats an operator hunting this
+              sheet for the IFSC box. */}
+          <p className="text-xs text-muted-foreground">
+            Branches and IFSC codes are maintained on the Bank master.
+          </p>
+        </div>
+      </Sheet>
+    </>
   );
 }

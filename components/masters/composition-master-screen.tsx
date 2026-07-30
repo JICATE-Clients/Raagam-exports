@@ -21,7 +21,7 @@ import {
   updateComposition,
   deleteComposition,
 } from "@/lib/masters/composition-actions";
-import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";

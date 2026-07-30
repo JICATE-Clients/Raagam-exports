@@ -24,7 +24,7 @@ export function usePickerFocusReturn(open: boolean): void {
 }
 
 /**
- * The keyboard half of a dialog picker, in one place.
+ * The keyboard half of a MODAL picker surface, in one place.
  *
  * Every `components/masters/*-picker.tsx` used to carry its own hand-copied
  * ↑/↓/Enter block, which produced two long-lived bugs. The block was bound to the
@@ -36,6 +36,19 @@ export function usePickerFocusReturn(open: boolean): void {
  * Bind the returned handler on the DIALOG element, not the input:
  *
  *   <div role="dialog" aria-modal="true" onKeyDown={onListKeyDown}>
+ *
+ * ## Its one caller today, and why the list keys are not here
+ *
+ * Those 14 pickers are now adapters over `components/ui/data-picker.tsx`, which
+ * is the sole consumer. It uses this for FORM mode only — Add / Modify / Delete,
+ * where the panel really is a modal — passing `active: false` so only the Escape
+ * ladder and the Tab trap apply.
+ *
+ * Its LIST mode is a dropdown, not a modal, and owns its own ↑/↓/Enter/Tab: the
+ * Tab branch below traps focus, which is exactly wrong for a list you must be
+ * able to Tab straight past. `Combobox` sets the same precedent. Do not "unify"
+ * the two by routing list mode through here — Tab would stop moving, which is
+ * the one thing the contract says it must always do.
  *
  * See `.claude/skills/raagam-keyboard-contract`.
  */

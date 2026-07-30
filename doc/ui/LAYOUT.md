@@ -113,30 +113,46 @@ adopter across 92 screens — nobody could migrate without silently shredding th
 
 ## 3. Field width
 
-`<Field size>` inside `<DetailSection cols={12}>`. Size to the **data**, not the cell.
+`<Field size>` inside `<DetailSection cols={12}>`.
 
 | Size | Span | Fields/row | Use |
 |---|---|---|---|
-| `xs` | 2 | 6 | 2-4 chars — %, qty, a code, Yes/No |
-| `sm` | 3 | **4** | **the working default** — short codes, identifiers, dates, most pickers |
-| `md` | 4 | 3 | a picker whose value visibly truncates at `sm` |
-| `lg` | 6 | 2 | long free text — entity names, addresses, emails, URLs |
-| `full` | 12 | 1 | stands alone — child grids, textareas, fact strips |
+| `xs` | 2 | 6 | — *retired on the masters; see below* |
+| `sm` | 3 | **4** | **every field, on a full-width section** |
+| `md` | 4 | 3 | — *retired on the masters* |
+| `lg` | 6 | 2 | **every field, inside a `SectionColumn`** |
+| `full` | 12 | 1 | the things that are **not fields** — child grids, textareas, fact strips |
 
-A 3-character "Mixing %" must not inherit the same ~490px box as a free-text Name.
+**ONE WIDTH, EVERY FIELD (client 2026-07-29).** The rule used to be "size to the data":
+a 6-digit PIN took `xs`, a company name `lg`. The client reviewed the result on the
+Applicant screen, pointed at the City · State · Pin · Country row and asked for the rest of
+the module to match it — a screen of one repeated ~280px box reads as a grid, where mixed
+2/3/4/6/12 spans read as ragged whitespace.
 
-**Aim for four fields per row (client 2026-07-29).** `md` is the component's default
-only because a span has to be *some* number when the caller omits one; it is **not** the
-size to reach for. Three-per-row across a 20-field master is a screen the operator scrolls
-instead of reads, and most values — a PAN, a GSTIN, a date, a phone number, a picked city —
-sit comfortably in `sm`.
+So the target is a **width**, not a span: **~280px**, four across a full-width sheet.
+Which span produces it depends on the track the section sits in:
 
-So: **start at `sm`, and move only when the data makes you.** Down to `xs` for a currency
-code or a Yes/No; up to `lg` for a company name or an address line. `md` is a deliberate
-choice about one picker, not a default you inherit by omitting the prop.
+| Section sits in | Track | Use | Fields across the sheet |
+|---|---|---|---|
+| the sheet, stacked full width | ~1150px | `sm` (3) | 4 |
+| one column of a `SectionGrid` | ~566px | `lg` (6) | 2 per column = 4 |
 
-Reference: `components/masters/bank-master-screen.tsx` — 15 of its 17 fields are `sm`,
-so every row is flush at four.
+Getting this wrong is the commonest layout bug on these screens: `sm` inside a
+`SectionColumn` is ~132px, *half* the reference, and the fields look starved rather than
+compact. If a screen wants four genuinely-flush fields on one row, stack its sections full
+width (`applicant`, `bank`, `courier-delivery`, `notify`) rather than splitting the sheet.
+
+**What stays wide.** `full` is for things that are not fields: a `ChildGrid`, a GSTIN fact
+strip, a multi-line `Textarea`. A textarea in particular must never share a row — every
+grid row is as tall as its tallest item, so the fields beside it end up floating above a
+band of dead space. Address "Street" is a single-line `Input` for exactly this reason.
+
+**What this trades away.** E-Mail, Web site and long entity names now scroll inside a
+~280px box instead of showing whole. That was the client's call, made with the trade-off
+stated. Undoing it for one field means undoing it for the screen.
+
+Reference: `components/masters/applicant-master-screen.tsx` — every field `sm`, with the
+row arithmetic written into its `FIELD_SIZE` comment.
 
 **Rows must still sum to 12.** A row totalling 13+ does not shrink; the last field wraps
 onto a line of its own with the rest of that line left empty. Write the arithmetic into
@@ -184,6 +200,63 @@ past 8 fields it graduates to the full editor — it does not just get taller.
 
 Avoid modals for tasks users perform **repeatedly** or that run >30s
 ([Smashing](https://www.smashingmagazine.com/2026/03/modal-separate-page-ux-decision-tree/)).
+
+---
+
+## 5a. Picking stored data
+
+**Every field that references stored data uses `<DataPicker>` (`components/ui/data-picker.tsx`).
+One shape, whole app (client 2026-07-29).** There is no second way to list data, and a screen
+that hand-rolls one is a bug.
+
+It used to be three ways, decided by nothing more than when the field was built: a modal
+dialog (`lookup-dialog-picker`, 78 fields), a select-only modal (`record-picker`, 17), a nested
+Sheet with CRUD (`lookup-picker`, 8), a dozen bespoke clones — while plain enums dropped a list
+down under the field. One form could show all three: City opened a modal, Ship Mode dropped
+down, Category opened a second Sheet.
+
+### The shape
+
+A `role="combobox"` input. Typing filters in place; the list is a portaled panel anchored to the
+field. Add / Modify / Delete happen **in the panel** — the operator never leaves the form they
+are filling to create the City they need.
+
+| Mode | Modal? | Tab | Escape |
+|---|---|---|---|
+| **List** (browsing) | no | closes without choosing, focus moves on | closes the list only |
+| **Form** (Add/Modify/Delete) | **yes** — scrim, focus trap, `useModalGuard` | trapped inside | back to the list |
+
+The mode split is the design. A dropdown that traps Tab is a dialog in disguise; a form that
+does not is one a stray click can discard.
+
+Keyboard is the standing contract (`.claude/skills/raagam-keyboard-contract`) plus three keys
+that only exist here — **Ins** add, **F2** modify, **Ctrl+Del** delete. They are the keyboard
+path to the row icons, which Tab deliberately cannot reach in a non-modal panel.
+
+**Touch** gets `Sheet size="sm"` instead of the anchored panel: same rows, same search, same
+CRUD. A ~280px panel with 16px row icons is not hittable on a phone, and this ships as an
+installed PWA.
+
+### What "+ Add" does
+
+| The entity is | Add | Where |
+|---|---|---|
+| a **config list** (City, State, Department, Ship Type …) | inline name-only form in the panel | `lookup-dialog-picker.tsx` |
+| a **rich master** (Country, Currency, Bank, Commodity, Category, Yarn) | `onAddOverride` → a quick-create sheet (§5) | that entity's picker |
+| a **transaction-scale master** (Customer, Vendor, Applicant, Employee, Location) | nothing — select-only | `record-picker.tsx` and friends |
+
+The middle row is the one that gets skipped. A Country created name-only has no ISD code, which
+the contact fields on half a dozen masters read off it; a Bank has no IFSC. If the record's other
+fields *do* something, it does not get a name-only add.
+
+**Delete always routes through the delete-or-deactivate guard**, never a raw delete: a value any
+record references comes back deactivated with the referencing table named in the toast
+(`deletedToast`). That guard is the reason Delete is safe to expose on a dropdown at all.
+
+### Enums are not this
+
+`<Select>` / `Combobox` over a fixed code list (AIR · SEA · ROAD, Yes/No) stays as it is. There
+is nothing to create, and it already drops down and already searches.
 
 ---
 

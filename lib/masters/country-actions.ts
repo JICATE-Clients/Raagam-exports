@@ -49,20 +49,25 @@ export async function deleteCountry(id: string): Promise<DeleteResult> {
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
-/** Inline "+ New" country add from a Country picker (e.g. Destination) — returns
- *  the new id so the caller can immediately select it. */
+/**
+ * "+ Add country" from inside a Country picker — same insert as `createCountry`,
+ * but it RETURNS THE NEW ID so the picker can select what the operator just
+ * created and close. Without the id the new row only appears after
+ * `router.refresh()` lands, and the field they opened the picker to fill is
+ * still empty.
+ *
+ * Takes the full `CountryInput` (ECGC, ISD, group, flags) rather than just a
+ * name: a country created name-only is missing the ISD code that the contact
+ * fields on half a dozen masters read off it.
+ */
 export async function createCountryQuick(
-  input: { code: string | null; name: string },
+  input: CountryInput,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!(await can("masters", "create"))) return { ok: false, error: "Forbidden" };
-  const name = input.name.trim();
-  if (!name) return { ok: false, error: "Name is required" };
+  const p = countryInput.safeParse(input);
+  if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Validation failed" };
   const s = await createClient();
-  const { data, error } = await s
-    .from("countries")
-    .insert({ code: input.code?.trim() || null, name })
-    .select("id")
-    .single();
+  const { data, error } = await s.from("countries").insert(p.data).select("id").single();
   if (error) return { ok: false, error: error.message };
   rev();
   return { ok: true, id: data.id };
