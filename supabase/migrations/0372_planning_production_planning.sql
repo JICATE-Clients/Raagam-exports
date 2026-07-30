@@ -144,6 +144,8 @@ create table if not exists public.production_plan_orders (
   with_learning_curve boolean default false,
   is_split            boolean default false,
   sam                 numeric(10,3) default 0,
+  m_os                numeric(10,3) default 0,    -- Machines on Style
+  qty_100_pct         int default 0,              -- calculated
   target_qty          int default 0,
   target_efficiency   numeric(8,2) default 0,
   location_name       text,

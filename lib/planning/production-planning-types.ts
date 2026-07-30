@@ -122,6 +122,8 @@ export interface ProductionPlanOrder {
   with_learning_curve: boolean;
   is_split: boolean;
   sam: number;
+  m_os: number;
+  qty_100_pct: number;
   target_qty: number;
   target_efficiency: number;
   location_name: string | null;
@@ -235,6 +237,8 @@ export const productionPlanOrderSchema = z.object({
   with_learning_curve: z.boolean().default(false),
   is_split: z.boolean().default(false),
   sam: z.coerce.number().min(0).default(0),
+  m_os: z.coerce.number().min(0).default(0),
+  qty_100_pct: z.coerce.number().int().min(0).default(0),
   target_qty: z.coerce.number().int().min(0).default(0),
   target_efficiency: z.coerce.number().min(0).default(0),
   location_name: z.string().optional(),
