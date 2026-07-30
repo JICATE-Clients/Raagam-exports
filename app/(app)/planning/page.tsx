@@ -16,6 +16,8 @@ import {
   Layers,
   Grid,
   PackagePlus,
+  CalendarRange,
+  Factory,
 } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
@@ -143,6 +145,18 @@ const areas = [
     label: "Excess Order",
     desc: "Requisitions for material shortage against PPMs.",
     icon: PackagePlus,
+  },
+  {
+    href: "/planning/capacity-planning",
+    label: "Capacity Planning",
+    desc: "Pre-production capacity allocation by location and team.",
+    icon: CalendarRange,
+  },
+  {
+    href: "/planning/production-planning",
+    label: "Production Planning",
+    desc: "Production line scheduling with work order assignments.",
+    icon: Factory,
   },
 ];
 
