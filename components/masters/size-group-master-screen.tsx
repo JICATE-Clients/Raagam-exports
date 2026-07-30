@@ -342,8 +342,8 @@ export function SizeGroupMasterScreen({
               {childRows.length === 0 && (
                 <p className="text-xs text-muted-foreground">No sizes yet.</p>
               )}
-              {/* row area capped with internal scroll — header + Add stay pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addChildRow)} className="max-h-56 space-y-2 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addChildRow)} className="space-y-2">
               {childRows.map((row, i) => (
                 <div data-grid-row key={row.key} className="flex items-center gap-2">
                   <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">

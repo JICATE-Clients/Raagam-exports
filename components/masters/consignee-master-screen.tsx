@@ -1151,9 +1151,11 @@ export function ConsigneeMasterScreen({
                       {contacts.length === 0 && (
                         <p className="text-xs text-muted-foreground">No contacts yet.</p>
                       )}
-                      {/* row area capped — a growing grid scrolls instead of pushing
-                          the content below (Add button stays pinned) */}
-                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="max-h-56 space-y-3 overflow-y-auto">
+                      {/* No inner scroll — see ChildGrid's `pageSize` note: no
+                          scroll-in-a-box. One contact card is already taller than
+                          the old max-h-56, so even a single contact had to be
+                          scrolled to be read (client 2026-07-30). */}
+                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="space-y-3">
                       {contacts.map((c, i) => (
                         <div data-grid-row key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                           <div className="flex items-center justify-between">
@@ -1398,8 +1400,8 @@ export function ConsigneeMasterScreen({
                       {markings.length === 0 && (
                         <p className="text-xs text-muted-foreground">No markings yet.</p>
                       )}
-                      {/* row area capped (Add stays pinned) */}
-                      <div className="max-h-56 space-y-2 overflow-y-auto">
+                      {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+                      <div className="space-y-2">
                       {markings.map((m, i) => (
                         <div key={m.key} className="flex items-center gap-2">
                           <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">
@@ -1518,8 +1520,8 @@ export function ConsigneeMasterScreen({
                     {notifyRefs.length === 0 && (
                       <p className="text-xs text-muted-foreground">No notify parties yet.</p>
                     )}
-                    {/* row area capped (Add stays pinned) */}
-                    <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addNotifyRef)} className="max-h-56 space-y-3 overflow-y-auto">
+                    {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+                    <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addNotifyRef)} className="space-y-3">
                     {notifyRefs.map((n, i) => (
                       <div data-grid-row key={n.key} className="space-y-2 rounded-md border border-border p-2.5">
                         <div className="flex items-center justify-between">

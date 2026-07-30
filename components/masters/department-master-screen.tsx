@@ -382,9 +382,9 @@ export function DepartmentMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {locs.length === 0 && <p className="text-xs text-muted-foreground">No locations yet.</p>}
-              {/* Row area capped with an internal scroll (same rule as ChildGrid
-                  maxBodyHeight) — a growing list never pushes the Add button away. */}
-              <div className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
+                  no longer exists; the pager replaced it.) */}
+              <div className="space-y-3">
               {locs.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">

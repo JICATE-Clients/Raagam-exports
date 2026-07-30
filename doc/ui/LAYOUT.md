@@ -279,6 +279,21 @@ Inline edit is for fast, low-risk single-field changes. Anything touching severa
 or needing cross-field validation gets a deliberate save
 ([NN/g](https://www.nngroup.com/articles/data-tables/)).
 
+**No scroll-in-a-box (client 2026-07-25, enforced 2026-07-30).** A child grid never gets its
+own `max-h-… overflow-y-auto`. The rows open in full and the editor pane — the one scroller on
+the screen — takes the height. Where a list can genuinely run long, `ChildGrid`'s `pageSize`
+pages it; the pager self-hides when everything fits.
+
+The retired rule was "cap the row area so the Add button stays pinned", and it read worst
+exactly where it was used most: a Contact card is a ~6-field sub-form, so on Consignee a
+**single** contact did not fit inside `max-h-56` and had to be scrolled to be read
+(client 2026-07-30). A capped box also hides how many rows exist, puts a second scrollbar a few
+millimetres from the page's own, and traps the wheel. `ChildGrid.maxBodyHeight` no longer
+exists — if a comment cites it, that comment predates the pager.
+
+Still legitimately capped, because none of them is a form: dropdown and picker panels, the
+notifications popover, and overlays sized against the **viewport** (`max-h-[80vh]`).
+
 ---
 
 ## 6a. Row actions (STANDING)

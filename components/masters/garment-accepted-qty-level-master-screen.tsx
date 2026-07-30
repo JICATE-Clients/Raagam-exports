@@ -405,10 +405,10 @@ export function GarmentAcceptedQtyLevelMasterScreen({
               {lines.length === 0 && (
                 <p className="text-xs text-muted-foreground">No rows yet. Add at least one.</p>
               )}
-              {/* row area capped with internal scroll — Add button stays pinned.
-                  Taller cap than the usual max-h-56: each card is a ~5-row
-                  sub-form (same reasoning as bank branches). */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-96 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. This one had
+                  the taller max-h-96 cap because each card is a ~5-row sub-form;
+                  that is exactly the case where a cap reads worst. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="rounded-md border border-border p-2.5 space-y-2">
                   <div className="flex items-center justify-between">

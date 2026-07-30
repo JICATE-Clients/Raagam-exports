@@ -219,8 +219,8 @@ export function WarpLengthAllowanceMasterScreen({
           <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Ranges</div>
             <div className="space-y-3 p-3">
-              {/* row area capped with internal scroll — Add button stays pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
                   <div className="flex items-center gap-2">
