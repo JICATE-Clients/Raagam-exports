@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { Field, FieldGrid } from "@/components/ui/field";
@@ -17,11 +18,13 @@ import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { RowActions } from "@/components/masters/row-actions";
+import { RecordViewSheet, ViewPairs, type ViewPair } from "@/components/masters/record-view-sheet";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
+import { effectiveWhatsApp, isWhatsAppSameAsMobile } from "@/lib/validation/contact";
 import { useFormDraft } from "@/lib/use-form-draft";
 import { createBank, updateBank, deleteBank } from "@/lib/masters/bank-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
-import { BANK_TYPES, type Bank, type BankInput, type BankType } from "@/lib/masters/bank-types";
+import { BANK_TYPES, type Bank, type BankBranch, type BankInput, type BankType } from "@/lib/masters/bank-types";
 import type { Country } from "@/lib/masters/country-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -63,6 +66,44 @@ const blankBranch = (key: string): BranchRow => ({
 });
 
 /**
+ * The one column whose LABEL depends on the header: `swift_rtgs_code` dual-holds
+ * a SWIFT code (Foreign) and an RTGS/NIFT one (Local). Module-level so the
+ * editor's branch card and the read-only view cannot label the same digits
+ * differently — "Swift Code" on a local bank would simply be wrong.
+ */
+function codeLabelFor(t: BankType | null): string {
+  return t === "Local" ? "RTGS/NIFT Code" : "Swift Code";
+}
+
+/**
+ * WHERE — CODE for one branch, so a collapsed card (or a line in the view sheet)
+ * says which branch it is without being read in full. Place falls back down
+ * country → state → city because a branch is keyed by its town in conversation
+ * ("the Chennai one"); the code falls back to SWIFT because a Foreign bank has
+ * no IFSC. Returns "" when the row is blank — the caller decides what to say.
+ *
+ * Takes the nullable shape so the stored `BankBranch` and the editor's
+ * all-strings `BranchRow` can both be passed.
+ */
+function branchSummary(
+  b: {
+    country_id: string | null;
+    state: string | null;
+    city: string | null;
+    ifs_code: string | null;
+    swift_rtgs_code: string | null;
+  },
+  countryLabel: Map<string, string>,
+): string {
+  const place =
+    (b.city ?? "").trim() ||
+    (b.state ?? "").trim() ||
+    (b.country_id ? countryLabel.get(b.country_id) ?? "" : "");
+  const code = (b.ifs_code ?? "").trim() || (b.swift_rtgs_code ?? "").trim();
+  return [place, code].filter(Boolean).join(" — ");
+}
+
+/**
  * Master-detail CRUD for the legacy "Bank" master: header (Code · Foreign/Local ·
  * Name · Inactive) + a "Bank Detail" branch grid. The single code column reads
  * "Swift Code" for Foreign banks and "RTGS/NIFT Code" for Local ones.
@@ -83,11 +124,13 @@ export function BankMasterScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
   const [branches, setBranches] = useState<BranchRow[]>([]);
+  // The record being LOOKED at, as opposed to edited. Null = closed.
+  const [viewRow, setViewRow] = useState<Bank | null>(null);
   const keySeq = useRef(0);
   const newKey = () => `b${keySeq.current++}`;
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
-  const codeLabel = form.bank_type === "Local" ? "RTGS/NIFT Code" : "Swift Code";
+  const codeLabel = codeLabelFor(form.bank_type);
 
   // Autosave the in-progress form to localStorage; offer to restore it if the
   // editor is re-opened after an accidental close/refresh (checklist Auto Save).
@@ -108,6 +151,32 @@ export function BankMasterScreen({
   }, [countries]);
 
   const isdOf = useIsdLookup(countries);
+
+  /**
+   * One stored branch as label→value rows for the view sheet. The country is
+   * folded into the address line rather than given a row of its own — a reader
+   * scanning branches wants one place, not five fragments — and every FK is
+   * resolved through `countryLabel`, the same map the editor's Combobox uses.
+   */
+  function branchPairs(bank: Bank, b: BankBranch): ViewPair[] {
+    const address = [b.street, b.city, b.state, b.pin, b.country_id ? countryLabel.get(b.country_id) : null]
+      .map((v) => (v ?? "").trim())
+      .filter(Boolean)
+      .join(", ");
+    return [
+      ["Address", address],
+      ["Land Line", b.land_line],
+      ["Mobile", b.mobile],
+      // NULL = "same as mobile" (lib/validation/contact), and the Mobile row
+      // directly above already shows that number — so only an explicitly
+      // DIFFERENT WhatsApp number earns a row.
+      ["WhatsApp", isWhatsAppSameAsMobile(b) ? null : effectiveWhatsApp(b)],
+      ["E-Mail", b.email],
+      [codeLabelFor(bank.bank_type), b.swift_rtgs_code],
+      ["IFS Code", b.ifs_code],
+      ["Current Acc No", b.current_acc_no],
+    ];
+  }
 
   function openAdd() {
     setEditId(null);
@@ -249,6 +318,11 @@ export function BankMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex items-center justify-end gap-1">
+          {/* Look without editing — a bank's branches (IFSC, account number,
+              contacts) were reachable only by opening the editor. */}
+          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <RowActions
               onEdit={() => openEdit(r)}
@@ -440,19 +514,16 @@ export function BankMasterScreen({
               { header: "City", cell: (b) => b.city },
               { header: "IFS Code", cell: (b) => b.ifs_code },
             ]}
-            // WHERE — CODE, so a paged card says which branch it is without
-            // being read. Place falls back down country → state → city because
-            // a branch is keyed by its town in conversation ("the Chennai
-            // one"); the code falls back to SWIFT because a Foreign bank has no
-            // IFSC. A brand-new row has neither and says so rather than
-            // rendering an empty band.
+            // WHERE — CODE (see `branchSummary`, shared with the view sheet so
+            // a branch reads the same collapsed as it does read-only). A
+            // brand-new row has neither and says so rather than rendering an
+            // empty band.
             rowSummary={(b) => {
-              const place = b.city.trim() || b.state.trim() || countryLabel.get(b.country_id) || "";
-              const code = b.ifs_code.trim() || b.swift_rtgs_code.trim();
-              if (!place && !code) {
+              const summary = branchSummary(b, countryLabel);
+              if (!summary) {
                 return <span className="font-normal text-muted-foreground">New branch</span>;
               }
-              return [place, code].filter(Boolean).join(" — ");
+              return summary;
             }}
             // Every field is `sm` (3 of 12), so the twelve fall into three
             // flush rows of FOUR — where / address + phones / email + codes.
@@ -571,6 +642,63 @@ export function BankMasterScreen({
           />
         </div>
       </Sheet>
+
+      {/* Read-only view — the same record, nothing editable, Edit in the footer
+          hands off to the editor above. Renders straight off the list row; a
+          bank arrives with its branches already attached, so nothing is
+          fetched here. */}
+      {viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          canEdit={perms.canEdit}
+          onEdit={() => {
+            const r = viewRow;
+            setViewRow(null);
+            openEdit(r);
+          }}
+          title={viewRow.name}
+          subtitle={viewRow.code}
+          status={
+            <StatusPill tone={viewRow.inactive ? "danger" : "success"}>
+              {viewRow.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          }
+          sections={[
+            {
+              label: "Details",
+              pairs: [
+                ["Type", viewRow.bank_type],
+                ["Branches", viewRow.branches.length],
+              ],
+            },
+            {
+              label: "Bank Detail",
+              // `content`, not `pairs`: a branch is twelve fields, and the
+              // reader's first question is WHICH branch — so each one leads
+              // with the same "place — code" line the editor's collapsed card
+              // shows, then lists what it holds. An empty list is worth saying
+              // out loud here: a bank with no branch has no account number and
+              // cannot be paid.
+              content:
+                viewRow.branches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No branches recorded.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {viewRow.branches.map((b) => (
+                      <div key={b.id} className="space-y-1.5 rounded-md border border-border p-2">
+                        <div className="text-sm font-medium text-foreground">
+                          {branchSummary(b, countryLabel) || `Branch ${b.sno}`}
+                        </div>
+                        <ViewPairs pairs={branchPairs(viewRow, b)} />
+                      </div>
+                    ))}
+                  </div>
+                ),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

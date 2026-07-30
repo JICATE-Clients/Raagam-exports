@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, IdCard, Landmark, MapPin, TriangleAlert, User, Users } from "lucide-react";
+import { Calendar, Eye, IdCard, Landmark, MapPin, TriangleAlert, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -34,7 +34,9 @@ import {
   type EmployeeRef,
 } from "@/lib/masters/employee-types";
 import { DetailSection } from "@/components/masters/detail-section";
+import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { PhotoUpload } from "@/components/ui/photo-upload";
+import { fmtDate } from "@/lib/format";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -161,6 +163,52 @@ function ageFromDob(dob: string): number | null {
   const m = now.getMonth() - d.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
   return age >= 0 && age < 150 ? age : null;
+}
+
+/**
+ * One address, written the way an address is written, for the read-only view.
+ *
+ * The six columns behind it would be six label→value rows — "Address line 2",
+ * "Pin Code" — which is a database dump of the one thing on this record every
+ * reader can already parse at a glance. The street lines stack, the PIN closes
+ * the last of them, and the two numbers sit underneath. Returns null when the
+ * block is empty, so the caller can decide whether the section is worth showing.
+ */
+function AddressBlock({
+  title,
+  lines,
+  pin,
+  phone,
+  mobile,
+}: {
+  title: string;
+  lines: (string | null)[];
+  pin: string | null;
+  phone: string | null;
+  mobile: string | null;
+}) {
+  const street = lines.map((l) => l?.trim()).filter((l): l is string => !!l);
+  const contact = [
+    phone?.trim() ? `Phone ${phone.trim()}` : null,
+    mobile?.trim() ? `Mobile ${mobile.trim()}` : null,
+  ].filter(Boolean);
+  if (street.length === 0 && !pin?.trim() && contact.length === 0) return null;
+  return (
+    <div className="text-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
+      <address className="mt-1 not-italic text-foreground">
+        {street.map((l, i) => (
+          // Index key: two lines of one address can legitimately read the same
+          // ("2ND FLOOR" twice), and nothing here reorders.
+          <div key={`${i}-${l}`}>{l}</div>
+        ))}
+        {pin?.trim() && <div>{pin.trim()}</div>}
+      </address>
+      {contact.length > 0 && (
+        <p className="mt-1 text-muted-foreground">{contact.join(" · ")}</p>
+      )}
+    </div>
+  );
 }
 
 /** The six controls each address block repeats, unprefixed. */
@@ -342,6 +390,8 @@ export function EmployeeMasterScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(BLANK);
+  /** The row being READ. Null = the view sheet is closed. */
+  const [viewRow, setViewRow] = useState<Employee | null>(null);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const setAddr = (key: AddrKey, value: string) => set({ [key]: value } as Partial<Form>);
@@ -430,6 +480,29 @@ export function EmployeeMasterScreen({
     for (const d of designations) m.set(d.id, d.name);
     return m;
   }, [designations]);
+  // The four the list columns never needed, built for the read-only view from
+  // the props this screen is already given — a uuid must never reach the page.
+  const catLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of categories) m.set(c.id, c.name);
+    return m;
+  }, [categories]);
+  const teamLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of teams) m.set(t.id, t.name);
+    return m;
+  }, [teams]);
+  const locLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of locations) m.set(l.id, l.name);
+    return m;
+  }, [locations]);
+  /** Managers resolve out of the employee list itself — same pool the picker uses. */
+  const empLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of rows) m.set(e.id, e.name);
+    return m;
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -586,6 +659,142 @@ export function EmployeeMasterScreen({
     });
   }
 
+  /**
+   * The record as a reader wants it, for `RecordViewSheet`. The six sections
+   * are the six rail entries of the editor above, in the same order and under
+   * the same names, so the view and the form tell the same story about where a
+   * field lives.
+   *
+   * Nothing is fetched: `rows` already carries all 43 columns — the list only
+   * ever showed 6 of them. Empty values and all-empty sections are dropped by
+   * the sheet, so a record is never a wall of "—"; that is also why `fmtDate`
+   * is guarded rather than called on a null (it returns "—", which the sheet
+   * would read as a value worth printing).
+   */
+  function viewSections(r: Employee): ViewSection[] {
+    const age = ageFromDob(r.dob ?? "");
+    const guardian = [r.guardian_relation, r.guardian_name].filter(Boolean).join(" ").trim();
+    const spouse = [r.spouse_type, r.spouse_name].filter(Boolean).join(" ").trim();
+    const empType = r.employee_type
+      ? (EMPLOYEE_TYPE_LABELS[r.employee_type as keyof typeof EMPLOYEE_TYPE_LABELS] ?? r.employee_type)
+      : null;
+
+    const perm = (
+      <AddressBlock
+        title="Permanent"
+        lines={[r.perm_addr1, r.perm_addr2, r.perm_addr3]}
+        pin={r.perm_pin}
+        phone={r.perm_phone}
+        mobile={r.perm_mobile}
+      />
+    );
+    // "Same as permanent" is worth saying out loud — a blank block would read
+    // as "we never asked", which is the opposite of what the tick means.
+    const corr = r.corr_same_as_perm ? (
+      <p className="text-sm text-muted-foreground">Correspondence address is the same as permanent.</p>
+    ) : (
+      <AddressBlock
+        title="Correspondence"
+        lines={[r.corr_addr1, r.corr_addr2, r.corr_addr3]}
+        pin={r.corr_pin}
+        phone={r.corr_phone}
+        mobile={r.corr_mobile}
+      />
+    );
+    const hasPerm = !!(
+      r.perm_addr1 ||
+      r.perm_addr2 ||
+      r.perm_addr3 ||
+      r.perm_pin ||
+      r.perm_phone ||
+      r.perm_mobile
+    );
+    const hasCorr =
+      r.corr_same_as_perm ||
+      !!(r.corr_addr1 || r.corr_addr2 || r.corr_addr3 || r.corr_pin || r.corr_phone || r.corr_mobile);
+
+    return [
+      {
+        label: "Identity",
+        pairs: [
+          ["Employee ID", r.code],
+          ["Category", r.category_id ? catLabel.get(r.category_id) : null],
+          ["Guardian", guardian],
+          ["Manager", r.manager_id ? empLabel.get(r.manager_id) : null],
+          ["Department", r.department_id ? deptLabel.get(r.department_id) : null],
+          ["Designation", r.designation_id ? desigLabel.get(r.designation_id) : null],
+          ["Location", r.location_id ? locLabel.get(r.location_id) : null],
+          ["Team", r.team_id ? teamLabel.get(r.team_id) : null],
+        ],
+        // Only when there is one — passing `content` unconditionally would keep
+        // this section on screen for a record with nothing in it.
+        content: r.photo_url ? (
+          <div className="mt-3 h-24 w-24 overflow-hidden rounded-lg border border-border bg-surface-muted">
+            {/* eslint-disable-next-line @next/next/no-img-element -- a Supabase
+                storage public URL, same as the editor's PhotoUpload preview. */}
+            <img src={r.photo_url} alt={`Photo of ${r.name}`} className="h-full w-full object-cover" />
+          </div>
+        ) : undefined,
+      },
+      {
+        label: "Personal",
+        pairs: [
+          ["Employee Type", empType],
+          ["Spouse", spouse],
+          ["Mobile", r.mobile],
+          ["Father Name", r.father_name],
+          ["Mother Name", r.mother_name],
+          ["E-Mail", r.email],
+          ["Qualification", r.qualification],
+          ["Blood Group", r.blood_group],
+          ["Marital Status", r.marital_status],
+          ["Sex", r.sex],
+          ["Nationality", r.nationality],
+          ["Religion", r.religion],
+        ],
+      },
+      {
+        label: "Dates",
+        pairs: [
+          // Age beside the date it comes from, the way the editor shows it —
+          // on its own row it would look like a stored field.
+          ["Date of Birth", r.dob ? `${fmtDate(r.dob)}${age != null ? ` · ${age} yrs` : ""}` : null],
+          ["Date of Joining", r.doj ? fmtDate(r.doj) : null],
+          ["Date of Confirmation", r.date_of_confirmation ? fmtDate(r.date_of_confirmation) : null],
+          ["Date of Filing", r.date_of_filing ? fmtDate(r.date_of_filing) : null],
+        ],
+      },
+      {
+        label: "Statutory IDs",
+        pairs: [
+          ["ESI No", r.esi_no],
+          ["UAN", r.uan],
+          ["PAN No", r.pan_no],
+          ["Aadhar No", r.aadhar_no],
+          ["PF No", r.pf_no],
+        ],
+      },
+      {
+        label: "Bank Details",
+        pairs: [
+          ["Pay Mode", r.pay_mode],
+          ["Bank Name", r.bank_name],
+          ["Account No", r.bank_acc_no],
+        ],
+      },
+      {
+        label: "Addresses",
+        content:
+          hasPerm || hasCorr ? (
+            <div className="space-y-3">
+              {hasPerm && perm}
+              {hasCorr && corr}
+            </div>
+          ) : undefined,
+      },
+    ];
+  }
+
   const columns: Column<Employee>[] = [
     { header: "ID", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
@@ -618,6 +827,11 @@ export function EmployeeMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — reading an employee used to mean opening
+              the editor and remembering not to touch anything. */}
+          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -768,10 +982,16 @@ export function EmployeeMasterScreen({
           </div>
         ) : (
           filtered.map((r) => (
+            // Tapping a card OPENS THE VIEW, not the editor. A phone has no room
+            // for a row of actions beside the name, and a nested <button> inside
+            // this one is invalid markup — so the card carries the read, and Edit
+            // is one tap further on in the view's footer (gated on `canEdit`
+            // there). It also un-breaks the card for a read-only user, for whom
+            // this handler previously did nothing at all.
             <button
               key={r.id}
               type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
+              onClick={() => setViewRow(r)}
               className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
             >
               <div className="flex items-start justify-between gap-3">
@@ -1424,6 +1644,39 @@ export function EmployeeMasterScreen({
             ),
           },
         ]}
+      />
+
+      {/* Read-only view — the same record, nothing editable, and Edit in the
+          footer hands off to the editor above. */}
+      <RecordViewSheet
+        open={!!viewRow}
+        onClose={() => setViewRow(null)}
+        canEdit={perms.canEdit}
+        onEdit={() => {
+          const r = viewRow;
+          setViewRow(null);
+          if (r) openEdit(r);
+        }}
+        title={viewRow?.name ?? ""}
+        subtitle={
+          viewRow
+            ? [
+                viewRow.code,
+                viewRow.designation_id ? desigLabel.get(viewRow.designation_id) : null,
+                viewRow.department_id ? deptLabel.get(viewRow.department_id) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined
+            : undefined
+        }
+        status={
+          viewRow && (
+            <StatusPill tone={viewRow.is_draft ? "warning" : viewRow.inactive ? "danger" : "success"}>
+              {viewRow.is_draft ? "Draft" : viewRow.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          )
+        }
+        sections={viewRow ? viewSections(viewRow) : []}
       />
     </div>
   );

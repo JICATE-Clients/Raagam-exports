@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MapPin, SlidersHorizontal, User, Users } from "lucide-react";
+import { Eye, MapPin, SlidersHorizontal, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -14,6 +14,7 @@ import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
+import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
@@ -263,6 +264,8 @@ export function ApplicantMasterScreen({
   const isdOf = useIsdLookup(countries);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  /** The record being LOOKED at — read-only, never the editor's record. */
+  const [viewRow, setViewRow] = useState<Applicant | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -423,6 +426,128 @@ export function ApplicantMasterScreen({
     });
   }
 
+  /** An id → its name, for any of the lists this screen is handed. Small lists
+      and ONE record on screen, so it resolves on demand instead of building
+      half a dozen maps. */
+  const nameOf = (options: { id: string; name: string }[], id: string | null) =>
+    (id ? options.find((o) => o.id === id)?.name : null) ?? null;
+  /** Currencies key off `code`, not id — the row stores the code itself. */
+  const currencyName = (code: string | null) =>
+    code ? (currencies.find((c) => c.code === code)?.name ?? code) : null;
+
+  /**
+   * The record as a reader wants it, laid out the way the editor's rail reads:
+   * Identity · Address (Address + Communication) · Contacts · General
+   * (Currencies + Shipping & Payment). Every FK is resolved to a NAME here — a
+   * uuid on screen tells the reader nothing — from the same lists the editor's
+   * pickers are handed, so nothing is fetched.
+   */
+  function viewSections(r: Applicant): ViewSection[] {
+    const filled = r.contacts.filter(
+      (c) =>
+        c.contact_name ||
+        c.department_id ||
+        c.designation_id ||
+        c.internal_department_id ||
+        c.land_line ||
+        c.mobile ||
+        c.email_id,
+    );
+    const sections: ViewSection[] = [
+      {
+        label: "Identity",
+        pairs: [
+          ["Country", r.country_id ? (countryLabel.get(r.country_id) ?? null) : null],
+          // Yes AND No both say something here — "this applicant is not also a
+          // customer" is an answer, not a blank.
+          ["Also Customer", r.also_customer ? "Yes" : "No"],
+          ["Also Consignee", r.also_consignee ? "Yes" : "No"],
+        ],
+      },
+      {
+        label: "Address",
+        pairs: [
+          ["Street", r.street],
+          ["City", r.city_id ? (cityLabel.get(r.city_id) ?? null) : null],
+          ["State", nameOf(states, r.state_id)],
+          ["Pin", r.pin],
+          [
+            "Country",
+            r.address_country_id ? (countryLabel.get(r.address_country_id) ?? null) : null,
+          ],
+        ],
+      },
+      {
+        label: "Communication",
+        pairs: [
+          ["Land Line", r.land_line],
+          ["Mobile", r.mobile],
+          // A stored NULL means "the mobile IS the WhatsApp number" (0353).
+          // Left blank it would read as "not provided" — the opposite.
+          ["WhatsApp", r.whatsapp ?? (r.mobile ? "Same as mobile" : null)],
+          ["E-Mail", r.email],
+          ["Web site", r.web_site],
+        ],
+      },
+    ];
+    // A section with `content` is never auto-hidden, so a record with no
+    // contacts drops the card here rather than showing an empty one. Each
+    // contact is three short lines — who they are, then how to reach them —
+    // because seven label→value rows apiece would bury everything around it.
+    if (filled.length > 0) {
+      sections.push({
+        label: "Contacts",
+        content: (
+          <ul className="space-y-2.5 text-sm">
+            {filled.map((c) => {
+              const role = [
+                nameOf(designations, c.designation_id),
+                nameOf(departments, c.department_id),
+                nameOf(internalDepartments, c.internal_department_id),
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              const reach = [c.land_line, c.mobile, c.email_id].filter(Boolean).join(" · ");
+              return (
+                <li key={c.id} className="border-t border-border pt-2.5 first:border-0 first:pt-0">
+                  <div className="font-medium text-foreground">
+                    {c.contact_name || <span className="text-muted-foreground">Unnamed contact</span>}
+                  </div>
+                  {role && <div className="text-muted-foreground">{role}</div>}
+                  {reach && <div className="text-muted-foreground">{reach}</div>}
+                </li>
+              );
+            })}
+          </ul>
+        ),
+      });
+    }
+    sections.push(
+      {
+        label: "Currencies",
+        pairs: [
+          ["Currency 1", currencyName(r.currency_1)],
+          ["Currency 2", currencyName(r.currency_2)],
+          ["Currency 3", currencyName(r.currency_3)],
+        ],
+      },
+      {
+        label: "Shipping & Payment",
+        pairs: [
+          // Ship / pay mode are fixed lists stored as their own label — nothing
+          // to resolve, unlike the two config_lookups beside them.
+          ["Ship Mode", r.ship_mode],
+          ["Ship Type", nameOf(shipTypes, r.ship_type_id)],
+          ["Pay Mode", r.pay_mode],
+          ["Payment Terms", nameOf(paymentTerms, r.payment_term_id)],
+          ["Bank", nameOf(banks, r.bank_id)],
+          ["A/c No.", r.ac_no],
+        ],
+      },
+    );
+    return sections;
+  }
+
   const columns: Column<Applicant>[] = [
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
@@ -454,6 +579,17 @@ export function ApplicantMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — reading an applicant used to mean opening
+              the editor and remembering not to touch anything. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`View ${r.name}`}
+            title="View"
+            onClick={() => setViewRow(r)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -1062,6 +1198,30 @@ export function ApplicantMasterScreen({
             ),
           },
         ]}
+      />
+
+      {/* Read-only view — the same record, nothing editable, and Edit in the
+          footer hands off to the editor above. */}
+      <RecordViewSheet
+        open={!!viewRow}
+        onClose={() => setViewRow(null)}
+        canEdit={perms.canEdit}
+        onEdit={() => {
+          const r = viewRow;
+          setViewRow(null);
+          if (r) openEdit(r);
+        }}
+        title={viewRow?.name ?? ""}
+        status={
+          viewRow && (
+            <StatusPill
+              tone={viewRow.is_draft ? "warning" : viewRow.inactive ? "danger" : "success"}
+            >
+              {viewRow.is_draft ? "Draft" : viewRow.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          )
+        }
+        sections={viewRow ? viewSections(viewRow) : []}
       />
     </div>
   );

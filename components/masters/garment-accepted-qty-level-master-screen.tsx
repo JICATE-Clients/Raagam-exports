@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Eye, X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -20,11 +20,14 @@ import {
 } from "@/lib/masters/garment-accepted-qty-level-actions";
 import type {
   GarmentAcceptedQtyLevel,
+  GarmentAcceptedQtyLevelDetail,
   GarmentAcceptedQtyLevelInput,
   RangeType,
 } from "@/lib/masters/garment-accepted-qty-level-types";
 import { RANGE_TYPES, RANGE_TYPE_LABELS } from "@/lib/masters/garment-accepted-qty-level-types";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RecordViewSheet } from "@/components/masters/record-view-sheet";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -54,6 +57,40 @@ const blankLine = (key: string): LineRow => ({
   allowed: "",
 });
 
+/** A blank number reads as "not set", never as zero. */
+const num = (v: number | null) => (v == null ? "—" : v);
+
+/**
+ * The detail row as a reader sees it — every column the editor holds, in the
+ * editor's own order, with `range_type` spelled out (Under / Between / Above)
+ * instead of the stored letter.
+ */
+const DETAIL_VIEW_COLUMNS: Column<GarmentAcceptedQtyLevelDetail>[] = [
+  {
+    header: "Range",
+    cell: (d) => (
+      <span className="text-sm">{d.range_type ? RANGE_TYPE_LABELS[d.range_type] : "—"}</span>
+    ),
+  },
+  ...(
+    [
+      ["From", "from_qty"],
+      ["To", "to_qty"],
+      ["Pieces", "no_of_pieces"],
+      ["Major", "major_allowed"],
+      ["Minor", "minor_allowed"],
+      ["Critical", "critical_allowed"],
+      ["Allowed", "allowed"],
+    ] as const
+  ).map(([header, key]) => ({
+    header,
+    align: "right" as const,
+    cell: (d: GarmentAcceptedQtyLevelDetail) => (
+      <span className="tabular-nums text-sm">{num(d[key])}</span>
+    ),
+  })),
+];
+
 /**
  * Garment Accepted Qty Level master — header + detail grid.
  * Header: code (auto), entry_date (<= today, required), effective_from (required).
@@ -77,6 +114,8 @@ export function GarmentAcceptedQtyLevelMasterScreen({
   const [entryDate, setEntryDate] = useState(todayISO());
   const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
   const [lines, setLines] = useState<LineRow[]>([]);
+  // The record being LOOKED at, as opposed to edited. Null = closed.
+  const [viewRow, setViewRow] = useState<GarmentAcceptedQtyLevel | null>(null);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
@@ -200,6 +239,11 @@ export function GarmentAcceptedQtyLevelMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — the list counts the detail rows but shows
+              none of them, and the rows ARE the record. */}
+          <Button variant="ghost" size="sm" aria-label={`View ${r.code}`} title="View" onClick={() => setViewRow(r)}>
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -483,6 +527,48 @@ export function GarmentAcceptedQtyLevelMasterScreen({
           </div>
         </div>
       </Sheet>
+
+      {/* Read-only view — same record, nothing editable. The detail rows come
+          attached to the list row, so nothing is fetched here. */}
+      {viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          canEdit={perms.canEdit}
+          onEdit={() => {
+            const r = viewRow;
+            setViewRow(null);
+            openEdit(r);
+          }}
+          title={viewRow.code}
+          sections={[
+            {
+              label: "Details",
+              pairs: [
+                ["Entry Date", fmtDate(viewRow.entry_date)],
+                ["Effective From", fmtDate(viewRow.effective_from)],
+              ],
+            },
+            {
+              label: "Detail Rows",
+              // A table, not pairs: eight numbers per row only mean anything
+              // read DOWN a column — "how many majors are allowed at 500
+              // pieces" is a comparison BETWEEN rows, and label→value stacks
+              // would hide it. `bare` because the DetailSection already draws
+              // the border this would otherwise double up on.
+              content: (
+                <DataTable
+                  columns={DETAIL_VIEW_COLUMNS}
+                  rows={viewRow.details.slice().sort((a, b) => a.sno - b.sno)}
+                  getKey={(d) => d.id}
+                  empty="No detail rows."
+                  bare
+                />
+              ),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

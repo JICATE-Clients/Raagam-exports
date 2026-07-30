@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
+import { Bell, Eye, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
 import { NotifyPicker } from "@/components/masters/notify-picker";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
+import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { createConsignee, updateConsignee, deleteConsignee } from "@/lib/masters/consignee-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
@@ -303,6 +304,8 @@ export function ConsigneeMasterScreen({
   const isdOf = useIsdLookup(countries);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  /** The row being READ. Separate from `editId` — a view must never arm Save. */
+  const [viewRow, setViewRow] = useState<Consignee | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -331,6 +334,41 @@ export function ConsigneeMasterScreen({
     for (const c of customers) m.set(c.id, c.name);
     return m;
   }, [customers]);
+
+  /**
+   * id → name across every option list the editor's pickers already receive.
+   * One map for all of them because these ids are uuids, so they cannot
+   * collide — and the read-only view resolves an FK the same way the picker
+   * does, out of props, never with a query of its own.
+   */
+  const optionName = useMemo(() => {
+    const m = new Map<string, string>();
+    const lists: { id: string; name: string }[][] = [
+      cities,
+      states,
+      departments,
+      designations,
+      internalDepartments,
+      shipTypes,
+      paymentTerms,
+      banks,
+      notifies,
+    ];
+    for (const list of lists) for (const o of list) m.set(o.id, o.name);
+    return m;
+  }, [
+    cities,
+    states,
+    departments,
+    designations,
+    internalDepartments,
+    shipTypes,
+    paymentTerms,
+    banks,
+    notifies,
+  ]);
+  /** Never renders a raw uuid: an id we cannot name reads as nothing at all. */
+  const nameOf = (id: string | null | undefined) => (id ? (optionName.get(id) ?? "") : "");
 
   // ---------------------------------------------------------------- GSTIN ----
   // Everything below is decoded from the GST number itself — no lookup, no
@@ -664,6 +702,11 @@ export function ConsigneeMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — reading a consignee used to mean opening the
+              editor and remembering not to touch anything. */}
+          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -705,6 +748,119 @@ export function ConsigneeMasterScreen({
   useUnsavedGuard(dirty || isPending);
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
+
+  /**
+   * The record as a READER sees it. Mirrors the editor's rail — Identity ·
+   * Address · General · Notify — so the view and the form tell the same story,
+   * and every FK is resolved to the name the picker would have shown.
+   *
+   * Nothing here filters empties: `RecordViewSheet` drops an empty value and an
+   * all-empty section on its own. The three child cards are the exception —
+   * they are `content`, which is never auto-hidden, so each is built as
+   * `undefined` when the card holds nothing rather than as an empty list.
+   */
+  function viewSectionsFor(r: Consignee): ViewSection[] {
+    const contactRows = r.contacts
+      .map((c) => {
+        const who = [c.contact_name?.trim(), nameOf(c.designation_id), nameOf(c.department_id)]
+          .filter(Boolean)
+          .join(" · ");
+        const reach = [
+          c.mobile?.trim(),
+          c.land_line?.trim(),
+          c.email_id?.trim(),
+          nameOf(c.internal_department_id),
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        // A contact with no name at all still has to say something, so its
+        // phone/email is promoted to the main line rather than sitting alone
+        // in the muted column.
+        return { key: c.id, main: who || reach, detail: who ? reach : "" };
+      })
+      .filter((c) => c.main);
+
+    const markingRows = r.markings
+      .map((m) => ({ key: m.id, main: m.marking?.trim() ?? "" }))
+      .filter((m) => m.main);
+
+    const notifyRows = r.notify_refs
+      .map((n) => {
+        const country = n.notify_id ? (notifyCountryLabel.get(n.notify_id) ?? "") : "";
+        return {
+          key: n.id,
+          main: nameOf(n.notify_id),
+          // notifyCountryLabel prints "—" for a notify with no country; that is
+          // a placeholder for an input, not a fact worth repeating here.
+          detail: country === "—" ? "" : country,
+        };
+      })
+      .filter((n) => n.main);
+
+    return [
+      {
+        label: "Identity",
+        pairs: [
+          ["Country", r.country_id ? (countryLabel.get(r.country_id) ?? "") : ""],
+          ["Customer", r.customer_id ? (customerLabel.get(r.customer_id) ?? "") : ""],
+          ["Also Notify", r.also_notify ? "Yes" : "No"],
+        ],
+      },
+      {
+        label: "Address",
+        pairs: [
+          ["Street", r.street],
+          ["City", nameOf(r.city_id)],
+          ["State", nameOf(r.state_id)],
+          ["Pin", r.pin],
+          ["Country", r.address_country_id ? (countryLabel.get(r.address_country_id) ?? "") : ""],
+          ["Land Line", r.land_line],
+          ["Mobile", r.mobile],
+          // A stored NULL means "same as mobile" — saying so beats printing the
+          // same number twice, and beats an empty row that reads as "unknown".
+          ["WhatsApp", r.whatsapp ?? (r.mobile ? "Same as mobile" : "")],
+          ["E-Mail", r.email],
+          ["Web site", r.web_site],
+        ],
+        content:
+          contactRows.length > 0 ? (
+            <ChildList label="Contact" rows={contactRows} />
+          ) : undefined,
+      },
+      {
+        label: "General",
+        pairs: [
+          // The three currency columns store the CODE, which is what identifies
+          // a currency on a document — no lookup needed, and none wanted.
+          ["Currency 1", r.currency_1],
+          ["Currency 2", r.currency_2],
+          ["Currency 3", r.currency_3],
+          ["Ship Mode", r.ship_mode],
+          ["Ship Type", nameOf(r.ship_type_id)],
+          ["Pay Mode", r.pay_mode],
+          ["Payment Terms", nameOf(r.payment_term_id)],
+          ["Bank", nameOf(r.bank_id)],
+          ["A/c No.", r.ac_no],
+          ["TIN No.", r.tin_no],
+          ["CST No.", r.tin_no_2],
+          ["PAN No", r.pan_no],
+          // The number itself, not the GstinInsight strip: that strip is an
+          // input-time aid (decode, mismatch, "apply this") and none of it is a
+          // fact about the record.
+          ["GST No", r.gst_no],
+        ],
+        content:
+          markingRows.length > 0 ? <ChildList label="Marking" rows={markingRows} /> : undefined,
+      },
+      {
+        label: "Notify",
+        content:
+          notifyRows.length > 0 ? (
+            <ChildList label="Notify Parties" rows={notifyRows} />
+          ) : undefined,
+      },
+    ];
+  }
 
   // Completion dots on the rail — "this section has data", not "this section is
   // valid". Name is the only required field on the whole form.
@@ -1453,6 +1609,72 @@ export function ConsigneeMasterScreen({
           },
         ]}
       />
+
+      {/* Read-only view — same record, nothing editable, Edit in the footer
+          hands off to the editor above. */}
+      <RecordViewSheet
+        open={!!viewRow}
+        onClose={() => setViewRow(null)}
+        canEdit={perms.canEdit}
+        onEdit={() => {
+          const r = viewRow;
+          setViewRow(null);
+          if (r) openEdit(r);
+        }}
+        title={viewRow?.name ?? ""}
+        subtitle={
+          viewRow
+            ? [
+                viewRow.country_id ? countryLabel.get(viewRow.country_id) : null,
+                viewRow.customer_id ? customerLabel.get(viewRow.customer_id) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : undefined
+        }
+        status={
+          viewRow && (
+            <StatusPill
+              tone={viewRow.is_draft ? "warning" : viewRow.inactive ? "danger" : "success"}
+            >
+              {viewRow.is_draft ? "Draft" : viewRow.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          )
+        }
+        sections={viewRow ? viewSectionsFor(viewRow) : []}
+      />
+    </div>
+  );
+}
+
+/**
+ * A child card, read-only: one line per row, the muted half on the right the way
+ * `material-view-sheet` renders its Mixing rows. Not a `ChildGrid` — there is
+ * nothing to edit, add or paginate, and a grid of disabled pickers would read as
+ * a form the user is not allowed to use.
+ */
+function ChildList({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: { key: string; main: string; detail?: string }[];
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <ul className="space-y-1 text-sm text-foreground">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 break-words">{r.main}</span>
+            {r.detail && (
+              <span className="shrink-0 text-xs text-muted-foreground">{r.detail}</span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

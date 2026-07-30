@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MapPin, User, Users } from "lucide-react";
+import { Eye, MapPin, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
@@ -17,6 +17,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { createNotify, updateNotify, deleteNotify } from "@/lib/masters/notify-actions";
@@ -168,6 +169,8 @@ export function NotifyMasterScreen({
   const [isPending, startTransition] = useTransition();
   const isdOf = useIsdLookup(countries);
   const [open, setOpen] = useState(false);
+  /** The record being LOOKED at — read-only, never the editor's record. */
+  const [viewRow, setViewRow] = useState<Notify | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -297,6 +300,97 @@ export function NotifyMasterScreen({
     });
   }
 
+  /** A config_lookups id → its name. The lists are small and the view renders
+      ONE record, so this resolves on demand rather than building four maps. */
+  const nameOf = (options: ConfigLookup[], id: string | null) =>
+    (id ? options.find((o) => o.id === id)?.name : null) ?? null;
+
+  /**
+   * The record as a reader wants it, laid out the way the editor's rail reads:
+   * Identity · Address · Communication · Contacts. Every FK is resolved to a
+   * NAME here — a uuid on screen tells the reader nothing — using the same
+   * lists the editor's pickers are handed, so nothing is fetched.
+   *
+   * Identical to courier-delivery-master-screen's by design, not by copy-paste
+   * drift: the two masters hold the same record. Change one, change both.
+   */
+  function viewSections(r: Notify): ViewSection[] {
+    const filled = r.contacts.filter(
+      (c) =>
+        c.contact_name ||
+        c.department_id ||
+        c.designation_id ||
+        c.internal_department_id ||
+        c.land_line ||
+        c.mobile ||
+        c.email_id,
+    );
+    const sections: ViewSection[] = [
+      {
+        label: "Identity",
+        pairs: [["Country", r.country_id ? (countryLabel.get(r.country_id) ?? null) : null]],
+      },
+      {
+        label: "Address",
+        pairs: [
+          ["Street", r.street],
+          ["City", r.city_id ? (cityLabel.get(r.city_id) ?? null) : null],
+          ["State", nameOf(states, r.state_id)],
+          ["Pin", r.pin],
+          [
+            "Country",
+            r.address_country_id ? (countryLabel.get(r.address_country_id) ?? null) : null,
+          ],
+        ],
+      },
+      {
+        label: "Communication",
+        pairs: [
+          ["Land Line", r.land_line],
+          ["Mobile", r.mobile],
+          // A stored NULL means "the mobile IS the WhatsApp number" (0353).
+          // Left blank it would read as "not provided" — the opposite.
+          ["WhatsApp", r.whatsapp ?? (r.mobile ? "Same as mobile" : null)],
+          ["E-Mail", r.email],
+          ["Web site", r.web_site],
+        ],
+      },
+    ];
+    // A section with `content` is never auto-hidden, so a record with no
+    // contacts drops the card here rather than showing an empty one. Each
+    // contact is three short lines — who they are, then how to reach them —
+    // because seven label→value rows apiece would bury the address above it.
+    if (filled.length > 0) {
+      sections.push({
+        label: "Contacts",
+        content: (
+          <ul className="space-y-2.5 text-sm">
+            {filled.map((c) => {
+              const role = [
+                nameOf(designations, c.designation_id),
+                nameOf(departments, c.department_id),
+                nameOf(internalDepartments, c.internal_department_id),
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              const reach = [c.land_line, c.mobile, c.email_id].filter(Boolean).join(" · ");
+              return (
+                <li key={c.id} className="border-t border-border pt-2.5 first:border-0 first:pt-0">
+                  <div className="font-medium text-foreground">
+                    {c.contact_name || <span className="text-muted-foreground">Unnamed contact</span>}
+                  </div>
+                  {role && <div className="text-muted-foreground">{role}</div>}
+                  {reach && <div className="text-muted-foreground">{reach}</div>}
+                </li>
+              );
+            })}
+          </ul>
+        ),
+      });
+    }
+    return sections;
+  }
+
   const columns: Column<Notify>[] = [
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
@@ -326,6 +420,17 @@ export function NotifyMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — reading a notify party used to mean opening
+              the editor and remembering not to touch anything. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`View ${r.name}`}
+            title="View"
+            onClick={() => setViewRow(r)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -723,6 +828,28 @@ export function NotifyMasterScreen({
             ),
           },
         ]}
+      />
+
+      {/* Read-only view — the same record, nothing editable, and Edit in the
+          footer hands off to the editor above. */}
+      <RecordViewSheet
+        open={!!viewRow}
+        onClose={() => setViewRow(null)}
+        canEdit={perms.canEdit}
+        onEdit={() => {
+          const r = viewRow;
+          setViewRow(null);
+          if (r) openEdit(r);
+        }}
+        title={viewRow?.name ?? ""}
+        status={
+          viewRow && (
+            <StatusPill tone={viewRow.inactive ? "danger" : "success"}>
+              {viewRow.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          )
+        }
+        sections={viewRow ? viewSections(viewRow) : []}
       />
     </div>
   );

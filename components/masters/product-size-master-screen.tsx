@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +18,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
+import { RecordViewSheet } from "@/components/masters/record-view-sheet";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createProductSize, updateProductSize, deleteProductSize } from "@/lib/masters/product-size-actions";
 import { SIZE_FOR, type ProductSize, type ProductSizeInput } from "@/lib/masters/product-size-types";
@@ -63,6 +65,8 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
+  // The record being LOOKED at, as opposed to edited. Null = closed.
+  const [viewRow, setViewRow] = useState<ProductSize | null>(null);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -196,6 +200,17 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — the three descriptions never reach the
+              list, and reading them used to mean opening the editor. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`View ${r.prod_size_id}`}
+            title="View"
+            onClick={() => setViewRow(r)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -477,6 +492,51 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
           )}
         </div>
       </Sheet>
+
+      {/* Read-only view — same record, nothing editable. Everything here comes
+          off the list row; nothing is fetched. */}
+      {viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          canEdit={perms.canEdit}
+          onEdit={() => {
+            const r = viewRow;
+            setViewRow(null);
+            openEdit(r);
+          }}
+          title={viewRow.prod_size_id}
+          subtitle={<span className="font-mono">{rowSize(viewRow)}</span>}
+          status={
+            <StatusPill tone={viewRow.is_active ? "success" : "danger"}>
+              {viewRow.is_active ? "Active" : "Inactive"}
+            </StatusPill>
+          }
+          sections={[
+            {
+              label: "Details",
+              pairs: [
+                ["Size For", viewRow.size_for === "P" ? "Product" : viewRow.size_for === "F" ? "Fabric" : null],
+                ["Width", viewRow.width],
+                // A zero here is "not set", not a measurement — Fabric zeroes
+                // both on save, and Product leaves them 0 when unused. Showing
+                // "0" would read as a real dimension.
+                ["Length", viewRow.length > 0 ? viewRow.length : null],
+                ["Height", viewRow.height > 0 ? viewRow.height : null],
+                ["Cut Size", viewRow.prod_cut_size],
+              ],
+            },
+            {
+              label: "Description",
+              pairs: [
+                ["Description 1", viewRow.desc1],
+                ["Description 2", viewRow.desc2],
+                ["Description 3", viewRow.desc3],
+              ],
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

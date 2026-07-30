@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { User, MapPin, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { Eye, User, MapPin, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
@@ -21,7 +21,9 @@ import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
+import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { decodeGstin, normalizeGstin } from "@/lib/validation/gstin";
+import { effectiveWhatsApp } from "@/lib/validation/contact";
 import { createVendor, updateVendor, deleteVendor } from "@/lib/masters/vendor-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
@@ -74,9 +76,17 @@ type CategoryKey = (typeof CATEGORY_FLAGS)[number]["key"];
  * screen was `md`-dominant, so every entry below is deliberate, including the
  * ones that agree with it.
  */
+/**
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29). The
+ * client picked the City / State / Pin / Country row out as the correct shape
+ * and asked for the rest of the masters to match it, so Name, Web site and
+ * Email ID gave up the 6 they were sized to. The only survivors at `full` are
+ * the two things that are NOT fields — the GSTIN fact strip stands alone by
+ * nature. See applicant-master-screen for the rule and what it trades away.
+ */
 const FIELD_SIZE = {
   // ---- Identity ----
-  name: "lg", // 6 — "SREE LAKSHMI TEXTILE PROCESSORS PVT LTD"
+  name: "sm", // 3 — "SREE LAKSHMI TEXTILE PROCESSORS PVT LTD" scrolls in the box
   vendor_type: "sm", // 3 — With in State · Other State · Foreign Vendor
   status: "sm", // 3 — longest is "Under Evaluation"
   country_id: "sm", // 3 — a picked country name
@@ -88,7 +98,7 @@ const FIELD_SIZE = {
   pan_no: "sm", // 3 — exactly 10 characters
   reg_caption: "sm", // 3 — a short caption, not a sentence
   reg_no_dt: "sm", // 3 — a registration number and date
-  web_site: "lg", // 6 — a URL; wraps or truncates at anything narrower
+  web_site: "sm", // 3 — a URL; it scrolls inside the box (see the note above)
   // ---- Other Details · Banking ----
   bank_name: "sm", // 3 — "STATE BANK OF INDIA"
   branch: "sm", // 3 — "PEELAMEDU"
@@ -117,7 +127,7 @@ const FIELD_SIZE = {
   land_line: "sm", // 3 — a phone number
   mobile: "sm", // 3 — a phone number
   whatsapp: "sm", // 3 — beside its mobile, same as bank-master-screen
-  email_id: "lg", // 6 — an address like accounts@sreelakshmitextiles.co.in
+  email_id: "sm", // 3 — accounts@sreelakshmitextiles.co.in scrolls in the box
 } satisfies Record<string, FieldSize>;
 
 // Alternate spellings a hand-typed State master row might carry, keyed by GST
@@ -223,6 +233,60 @@ const blankAddress = (key: string, country_id = ""): AddressRow => ({
   whatsapp: null,
   email_id: "",
 });
+/**
+ * One stored address, written the way an address is written, for the read-only
+ * view. Ten label→value rows per address — and a vendor routinely carries three
+ * — is a database dump of the one block on this record every reader can already
+ * parse at a glance, so the locality lines run together and the contact
+ * channels sit under them.
+ *
+ * Takes resolved NAMES, not ids: city, state and country are uuids on the row
+ * and the caller owns the lookup maps.
+ */
+function AddressCard({
+  title,
+  street,
+  city,
+  state,
+  country,
+  pin,
+  landLine,
+  mobile,
+  whatsapp,
+  email,
+}: {
+  title: string;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  pin: string | null;
+  landLine: string | null;
+  mobile: string | null;
+  whatsapp: string | null;
+  email: string | null;
+}) {
+  const locality = [city, state, country, pin].map((v) => v?.trim()).filter(Boolean);
+  const contact = [
+    landLine?.trim() ? `Phone ${landLine.trim()}` : null,
+    mobile?.trim() ? `Mobile ${mobile.trim()}` : null,
+    // Only when it differs — effectiveWhatsApp() falls back to the mobile, and
+    // printing the same number twice reads as two numbers.
+    whatsapp?.trim() && whatsapp.trim() !== mobile?.trim() ? `WhatsApp ${whatsapp.trim()}` : null,
+    email?.trim(),
+  ].filter(Boolean);
+  return (
+    <div className="text-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
+      <address className="mt-1 not-italic text-foreground">
+        {street?.trim() && <div>{street.trim()}</div>}
+        {locality.length > 0 && <div>{locality.join(", ")}</div>}
+      </address>
+      {contact.length > 0 && <p className="mt-1 text-muted-foreground">{contact.join(" · ")}</p>}
+    </div>
+  );
+}
+
 const addressHasData = (a: AddressRow) =>
   !!(
     a.address_type.trim() ||
@@ -270,6 +334,8 @@ export function VendorMasterScreen({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  /** The row being READ. Null = the view sheet is closed. */
+  const [viewRow, setViewRow] = useState<Vendor | null>(null);
   const [dirty, setDirty] = useState(false);
   const isdOf = useIsdLookup(countries);
 
@@ -307,6 +373,28 @@ export function VendorMasterScreen({
     for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
+  // The four the list columns never needed, built for the read-only view out of
+  // the props this screen is already given — a uuid must never reach the page.
+  const cityLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of cities) m.set(c.id, c.name);
+    return m;
+  }, [cities]);
+  const stateLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of states) m.set(s.id, s.name);
+    return m;
+  }, [states]);
+  const groupLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of groups) m.set(g.id, g.name);
+    return m;
+  }, [groups]);
+  const acctGroupLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of accountGroups) m.set(g.id, g.name);
+    return m;
+  }, [accountGroups]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -594,6 +682,103 @@ export function VendorMasterScreen({
   const statusTone = (s: VendorStatus): "success" | "warning" | "danger" | "neutral" =>
     s === "Approved" ? "success" : s === "Hold" ? "warning" : s === "Terminated" ? "danger" : "neutral";
 
+  /**
+   * The record as a reader wants it, for `RecordViewSheet`. The sections follow
+   * the editor's own cards, in its order — Identity · Registration · Address ·
+   * Banking · GST & Ledger Groups · Additional Details — so the view and the
+   * form tell the same story about where a field lives.
+   *
+   * Nothing is fetched: `rows` already carries all 28 header columns AND the
+   * address children (the list only ever showed 4 of them). Empty values and
+   * all-empty sections are dropped by the sheet, so a Foreign Vendor is not a
+   * page of "—" where a domestic one has GST and IFSC.
+   */
+  function viewSections(r: Vendor): ViewSection[] {
+    const categories = CATEGORY_FLAGS.filter((f) => r[f.key]).map((f) => f.label);
+    const addresses = r.addresses;
+
+    return [
+      {
+        label: "Identity",
+        pairs: [
+          ["Type", r.vendor_type],
+          // The pill beside the title already says Draft / Inactive; on those
+          // two it replaces the approval status rather than showing both, so
+          // the status is spelled out here instead of being lost.
+          ["Approval Status", r.is_draft || r.inactive ? r.status : null],
+          ["Country", r.country_id ? countryLabel.get(r.country_id) : null],
+          ["Group Name", r.group_id ? groupLabel.get(r.group_id) : null],
+          // One line, not four Yes/No rows — the editor shows these as a strip
+          // of chips for the same reason.
+          ["Category", categories.join(" · ")],
+        ],
+      },
+      {
+        label: "Registration",
+        pairs: [
+          ["TIN No.", r.tin_no],
+          ["PAN No", r.pan_no],
+          ["Reg. Caption", r.reg_caption],
+          ["Reg. No / Dt", r.reg_no_dt],
+          ["Web site", r.web_site],
+        ],
+      },
+      {
+        label: "Address",
+        content:
+          addresses.length > 0 ? (
+            <div className="space-y-3">
+              {addresses.map((a, i) => (
+                <AddressCard
+                  key={a.id}
+                  title={a.address_type?.trim() || `Address ${i + 1}`}
+                  street={a.street}
+                  city={a.city_id ? (cityLabel.get(a.city_id) ?? null) : null}
+                  state={a.state_id ? (stateLabel.get(a.state_id) ?? null) : null}
+                  country={a.country_id ? (countryLabel.get(a.country_id) ?? null) : null}
+                  pin={a.pin}
+                  landLine={a.land_line}
+                  mobile={a.mobile}
+                  // NEVER `a.whatsapp` — a stored NULL means "same as mobile",
+                  // which is how ~90% of these rows are saved.
+                  whatsapp={effectiveWhatsApp(a)}
+                  email={a.email_id}
+                />
+              ))}
+            </div>
+          ) : undefined,
+      },
+      {
+        label: "Banking",
+        pairs: [
+          ["Bank Name", r.bank_name],
+          ["Branch", r.branch],
+          ["A/c No", r.ac_no],
+          ["IFSC Code", r.ifsc_code],
+          ["A/c Type", r.ac_type],
+        ],
+      },
+      {
+        label: "GST & Ledger Groups",
+        pairs: [
+          ["GST Status", r.gst_reg_status],
+          ["GST Number", r.gst_no],
+          ["Debit Group", r.debit_group_id ? acctGroupLabel.get(r.debit_group_id) : null],
+          ["Credit Group", r.credit_group_id ? acctGroupLabel.get(r.credit_group_id) : null],
+        ],
+      },
+      {
+        label: "Additional Details",
+        pairs: [
+          ["Enterprise Status", r.enterprise_status],
+          ["Memorandum No", r.memorandum_no],
+          ["Inhouse Unit ID", r.inhouse_unit_id],
+          ["Duty Against", r.duty_against],
+        ],
+      },
+    ];
+  }
+
   const columns: Column<Vendor>[] = [
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Type", cell: (r) => <span className="text-sm text-muted-foreground">{r.vendor_type ?? "—"}</span> },
@@ -621,6 +806,11 @@ export function VendorMasterScreen({
       align: "right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          {/* Look without editing — reading a vendor used to mean opening the
+              editor and remembering not to touch anything. */}
+          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
+            <Eye className="h-4 w-4" />
+          </Button>
           {perms.canEdit && (
             <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
               Edit
@@ -1116,10 +1306,16 @@ export function VendorMasterScreen({
           </div>
         ) : (
           filtered.map((r) => (
+            // Tapping a card OPENS THE VIEW, not the editor. A phone has no room
+            // for a row of actions beside the name, and a nested <button> inside
+            // this one is invalid markup — so the card carries the read, and Edit
+            // is one tap further on in the view's footer (gated on `canEdit`
+            // there). It also un-breaks the card for a read-only user, for whom
+            // this handler previously did nothing at all.
             <button
               key={r.id}
               type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
+              onClick={() => setViewRow(r)}
               className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
             >
               <div className="flex items-start justify-between gap-3">
@@ -1216,6 +1412,41 @@ export function VendorMasterScreen({
           draftLabel: "Save as Draft",
           isPending,
         }}
+      />
+
+      {/* Read-only view — the same record, nothing editable, and Edit in the
+          footer hands off to the editor above. */}
+      <RecordViewSheet
+        open={!!viewRow}
+        onClose={() => setViewRow(null)}
+        canEdit={perms.canEdit}
+        onEdit={() => {
+          const r = viewRow;
+          setViewRow(null);
+          if (r) openEdit(r);
+        }}
+        title={viewRow?.name ?? ""}
+        subtitle={
+          viewRow
+            ? [
+                viewRow.vendor_type,
+                viewRow.country_id ? countryLabel.get(viewRow.country_id) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined
+            : undefined
+        }
+        status={
+          viewRow &&
+          (viewRow.is_draft ? (
+            <StatusPill tone="warning">Draft</StatusPill>
+          ) : viewRow.inactive ? (
+            <StatusPill tone="danger">Inactive</StatusPill>
+          ) : (
+            <StatusPill tone={statusTone(viewRow.status)}>{viewRow.status}</StatusPill>
+          ))
+        }
+        sections={viewRow ? viewSections(viewRow) : []}
       />
     </div>
   );
