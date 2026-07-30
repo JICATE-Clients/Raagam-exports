@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requirePermission, can, getAppUser } from "@/lib/auth/server";
-import { listConfigLookups, listAttributes, listItemClasses } from "@/lib/masters/extras-service";
+import { listConfigLookups, listAttributes } from "@/lib/masters/extras-service";
 import {
   findMaterialChild,
   isLinkChild,
@@ -441,7 +441,10 @@ export default async function MaterialEntityPage({
       const [rows, sequences] = await Promise.all([listProcessSequenceGroups(), listProcessSequences()]);
       screen = <ProcessSequenceGroupMasterScreen rows={rows} sequences={sequences} perms={perms} />;
     } else if (child.custom === "item_class") {
-      const rows = await listItemClasses();
+      // listAttributes(), not listItemClasses(): same table, same filter, one
+      // join more — it brings each class's attribute values along so the view
+      // sheet can answer "which attributes?" without a second query.
+      const rows = await listAttributes();
       screen = <ItemClassMasterScreen rows={rows} perms={perms} />;
     } else {
       const attributes = await listAttributes();
