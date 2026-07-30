@@ -89,6 +89,11 @@ export const NAV: NavItem[] = [
       { href: "/planning/ppm-cancel", label: "PPM Cancel" },
       { href: "/planning/ppm-completion", label: "PPM Completion" },
       { href: "/planning/garment-ppm-cancel", label: "Garment PPM Cancel" },
+      { href: "/planning/material-excess-plan", label: "Material Excess Plan" },
+      { href: "/planning/material-rate", label: "Material Rate" },
+      { href: "/planning/fabric-order", label: "Fabric Order" },
+      { href: "/planning/fabric-consumption", label: "Fabric Consumption" },
+      { href: "/planning/excess-order", label: "Excess Order" },
     ],
   },
   {

@@ -11,6 +11,11 @@ import {
   ShoppingCart,
   XCircle,
   CheckCircle2,
+  BarChart2,
+  DollarSign,
+  Layers,
+  Grid,
+  PackagePlus,
 } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
@@ -108,6 +113,36 @@ const areas = [
     label: "Garment PPM Cancel",
     desc: "Garment PPM cancellations with style/size breakdown.",
     icon: ClipboardCheck,
+  },
+  {
+    href: "/planning/material-excess-plan",
+    label: "Material Excess Plan",
+    desc: "Excess allowance planning for BOM items.",
+    icon: BarChart2,
+  },
+  {
+    href: "/planning/material-rate",
+    label: "Material Rate",
+    desc: "Rate fixing for sewing thread and tape items.",
+    icon: DollarSign,
+  },
+  {
+    href: "/planning/fabric-order",
+    label: "Fabric Order",
+    desc: "Fabric purchase orders with style/color/size breakdown.",
+    icon: Layers,
+  },
+  {
+    href: "/planning/fabric-consumption",
+    label: "Fabric Consumption",
+    desc: "Fabric consumption setup per style.",
+    icon: Grid,
+  },
+  {
+    href: "/planning/excess-order",
+    label: "Excess Order",
+    desc: "Requisitions for material shortage against PPMs.",
+    icon: PackagePlus,
   },
 ];
 
