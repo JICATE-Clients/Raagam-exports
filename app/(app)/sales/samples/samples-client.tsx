@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { useToast } from "@/components/ui/toast";
@@ -153,8 +154,8 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
     });
   }
 
+  /* No `confirm()` here — <RowActions> asks in the row itself (LAYOUT.md §6a). */
   function remove(s: SampleRegisterRow) {
-    if (!window.confirm(`Delete sample ${s.code ?? ""}? This cannot be undone.`)) return;
     start(async () => {
       const res = await deleteSample(s.id);
       if (res.ok) {
@@ -192,24 +193,16 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
       header: "Status",
       cell: (s) => <StatusPill tone={STATUS_TONE[s.status] ?? "neutral"}>{titleCase(s.status)}</StatusPill>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (s) => (
-        <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-          {perms.canEdit && (
-            <Button variant="outline" size="sm" onClick={() => openEdit(s)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button variant="outline" size="sm" disabled={isPending} onClick={() => remove(s)}>
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((s) => (
+      <RowActions
+        label={s.code}
+        onEdit={() => openEdit(s)}
+        onDelete={() => remove(s)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

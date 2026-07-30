@@ -281,6 +281,72 @@ or needing cross-field validation gets a deliberate save
 
 ---
 
+## 6a. Row actions (STANDING)
+
+Every listing table ends with the same cell, and **no screen writes it.**
+`components/ui/row-actions.tsx` owns it — three ghost icon buttons, right-aligned:
+
+| Action | Icon | Behaviour |
+|---|---|---|
+| View | `Eye` | Read-only sheet. **No Edit button inside it** — View is a dead end. |
+| Edit | `Pencil` | Opens the editor (or starts the inline row edit). |
+| Delete | `Trash2` | Two-step: the cluster becomes `Delete? [Cancel] [Confirm]`. |
+
+Extras — Duplicate, Export row — go behind a `⋮` (`menu`). **Delete never does.** It is a
+first-class icon with its confirm inline, because burying the one irreversible action one click
+deeper than the reversible ones inverts the risk.
+
+**Icons, not text links,** and the reason is consistency rather than taste: `data-picker.tsx`
+already renders row CRUD as `Pencil` ("Modify (F2)") and `Trash2` ("Delete (Ctrl+Del)"), so a
+picker row and a table row now read identically. It also gives every table ONE action-column
+width. Discoverability comes from `components/ui/tooltip.tsx` plus an `aria-label` carrying the
+record's name — `label` is not optional decoration, it is what stops a screen reader announcing
+"Edit" forty times with no way to tell the rows apart.
+
+**How to declare it:**
+
+- On `MasterListShell` → pass `actions={{ onView, onEdit, onDelete, menu }}`. The shell appends
+  the column, gates it on `perms`, derives aria-labels from `mobile.title`, and feeds the mobile
+  card the *same* handlers — so a View cannot exist on desktop and be missing on mobile.
+- On `SimpleMasterScreen` → nothing to do; the engine owns the cell. Add `view` to the
+  descriptor to light up the eye.
+- Rendering `DataTable` directly → `rowActionsColumn((r) => <RowActions … />)`. Never write
+  `{ header: "", align: "right", cell: … }` by hand; that is what produced six different action
+  dialects and four ways of confirming a delete across 131 files.
+
+**THE EYE IS ON BY DEFAULT — a screen gets a View by doing nothing.** There are three
+derivations, and they win in this order:
+
+1. **`onView`** — the screen's own sheet (`MaterialViewSheet`, the 9 bespoke masters).
+2. **Columns-derived** — `MasterListShell` pairs each `header` with its `cell(row)`, so FKs
+   arrive already resolved by the screen's own renderers.
+3. **Row-derived** — `lib/record-pairs.ts` reads the record itself. This is the one every other
+   table gets, and it shows the fields the list does *not*: humanized keys, dates through
+   `fmtDate`, `*_id` UUIDs and empty values dropped, joined relations flattened to their name,
+   child collections reduced to a row count.
+
+`view={false}` on `RowActions` opts out — for a grid whose columns already *are* the whole
+record, where the sheet would just repeat the row back.
+
+This default is not a convenience, it is the mechanism. The first attempt made the eye opt-in;
+**102 of 111 tables promptly shipped without one**, which is the exact gap this section exists to
+close. The row is what the view is built from because `rowActionsColumn` already receives it —
+`DataTable` would be the natural home (it alone knows the columns) but cannot hold client state:
+42 **server** components render it and pass `cell` functions in `columns`, and functions cannot
+cross the server→client boundary.
+
+**Mobile does not use this cell.** Tables are `hidden md:block`; phones get `MobileCardList`,
+whose footer uses `DeleteConfirmButton` and a text "View" — a 32px icon is not a touch target,
+and this ships as an installed PWA.
+
+**Never** `window.confirm`. The two-step is the app's only delete confirmation. And never a raw
+delete: `lib/masters/delete-guard.ts` decides delete-vs-deactivate server-side, which is why the
+button cannot promise which one happens — `deletedToast` reports which one did.
+
+Checked by `python scripts/audit_layout.py . --check row-actions`.
+
+---
+
 ## 7. Labels, spacing, validation
 
 **Labels: top-aligned, `font-medium`, never bold.** Penzo's eye-tracking: label above = ~50ms
@@ -318,7 +384,10 @@ The contract lives in `.claude/skills/raagam-keyboard-contract` and is implement
 `lib/focus.ts`, wired globally by `components/shell/keyboard-nav-provider.tsx`. Screens do **not**
 bind their own `onKeyDown` for field navigation.
 
-- Tab → next field, and nothing else — it never opens a list
+- Tab → next field, and nothing else — it never opens a list. On a `MasterFullScreen` rail
+  editor the "next field" after a section's last one is **the next section**, which opens with
+  the cursor in its first field (Shift+Tab goes back, landing on the previous section's last
+  field); on the last section Tab carries on to the footer's Cancel/Save
 - ↓ on a picker/dropdown → open its list · ↓/↑ otherwise → the field below / above, **spatially**
 - ←/→ → the field left / right, once the text caret is at the edge
 - Enter → pick the highlighted row if a list is open, tick a focused checkbox/radio, else
@@ -346,6 +415,7 @@ bind their own `onKeyDown` for field navigation.
 - [ ] No `grid-cols-*`, `col-span-*`, `gap-*` or `<table>` written in the screen
 - [ ] Child grids: mode chosen by fields-per-row (§6)
 - [ ] List uses `MasterListShell` + `DataTable`, not a hand-rolled table + pagination
+- [ ] Row actions via `actions` / `rowActionsColumn`, never a hand-written `header: ""` cell (§6a)
 - [ ] Pickers via `record-picker` / `lookup-picker`, never a bespoke dialog
 - [ ] Tested at 375px: one column, no horizontal page scroll
 - [ ] Derived / auto-generated fields carry `<Field skipTab>` (§8)

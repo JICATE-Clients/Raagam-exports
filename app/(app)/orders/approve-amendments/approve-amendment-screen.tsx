@@ -144,7 +144,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
       ),
     },
     {
-      header: "",
+      header: "Decision",
       align: "right",
       cell: (r) => (
         <div className="flex items-center justify-end gap-1 whitespace-nowrap">

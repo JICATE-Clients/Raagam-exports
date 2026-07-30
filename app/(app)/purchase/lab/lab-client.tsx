@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
@@ -129,13 +130,12 @@ export function LabClient(props: Props) {
     { header: "Applies", cell: (r) => <span className="text-sm">{LAB_APPLIES_LABELS[r.applies_to]}</span> },
     ...(canDelete
       ? [
-          {
-            header: "",
-            cell: (r: LabTestStandard) => (
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger"
-                disabled={isPending} onClick={() => run(() => deleteLabStandard(r.id), "Deleted")}>Del</Button>
-            ),
-          } satisfies Column<LabTestStandard>,
+          rowActionsColumn<LabTestStandard>((r) => (
+            <RowActions
+              onDelete={() => run(() => deleteLabStandard(r.id), "Deleted")}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

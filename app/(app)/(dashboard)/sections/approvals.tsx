@@ -55,7 +55,8 @@ const columns: Column<ApprovalRow>[] = [
     ),
   },
   {
-    header: "",
+    /* Navigation to the record's own screen, not row CRUD (LAYOUT.md §6a). */
+    header: "Action",
     align: "right",
     cell: (r) => (
       <Link href={r.href} className="text-xs text-primary hover:underline">

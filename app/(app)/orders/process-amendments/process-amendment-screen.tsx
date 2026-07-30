@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs } from "@/components/ui/tabs";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
@@ -136,7 +137,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
   }
 
   function del(r: GarmentProcessAmendment) {
-    if (!confirm(`Delete amendment ${r.code ?? ""}?`)) return;
+    /* No confirm() — <RowActions> asks in the row (LAYOUT.md §6a). */
     start(async () => {
       const res = await deleteProcessAmendment(r.id);
       if (res.ok) {
@@ -172,20 +173,16 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
         ),
       },
       { header: "Order No", cell: (r) => <span className="text-sm">{r.order_no ?? "—"}</span> },
-      {
-        header: "",
-        align: "right",
-        cell: (r) => (
-          <div className="flex justify-end gap-1">
-            {perms.canEdit && (
-              <Button variant="outline" size="sm" onClick={() => openEdit(r)}>Edit</Button>
-            )}
-            {perms.canDelete && (
-              <Button variant="outline" size="sm" onClick={() => del(r)}>Delete</Button>
-            )}
-          </div>
-        ),
-      },
+      rowActionsColumn((r) => (
+        <RowActions
+          label={r.code}
+          onEdit={() => openEdit(r)}
+          canEdit={perms.canEdit}
+          onDelete={() => del(r)}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      )),
     ];
     return (
       <div className="space-y-4">

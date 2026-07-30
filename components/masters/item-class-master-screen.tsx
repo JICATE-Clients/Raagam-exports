@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +16,7 @@ import type { Attribute } from "@/lib/masters/extras-types";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { Select } from "@/components/ui/select";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { RecordViewSheet } from "@/components/masters/record-view-sheet";
@@ -157,31 +156,17 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex items-center justify-end gap-1">
-          {/* Look without editing — opening the editor was the only way to read
-              a class, and every look risked a save. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`View ${r.name}`}
-            title="View"
-            onClick={() => setViewRow(r)}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -344,12 +329,6 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         <RecordViewSheet
           open
           onClose={() => setViewRow(null)}
-          canEdit={perms.canEdit}
-          onEdit={() => {
-            const r = viewRow;
-            setViewRow(null);
-            openEdit(r);
-          }}
           title={viewRow.name}
           status={
             <StatusPill tone={viewRow.is_active ? "success" : "danger"}>

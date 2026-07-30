@@ -1,10 +1,16 @@
 "use client";
 
-import { useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn, type RowMenuItem } from "@/components/ui/row-actions";
+import {
+  RecordViewSheet,
+  type ViewPair,
+  type ViewSection,
+} from "@/components/masters/record-view-sheet";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
@@ -45,8 +51,54 @@ export type MasterListShellProps<Row> = {
   addLabel?: string;
   /** Opens the screen's editor; also the `?new=1` create-intent target. */
   onAdd?: () => void;
-  /** Desktop table columns, including the row-actions column. */
+  /**
+   * Desktop table columns — DATA columns only. Pass `rowActions` for the
+   * trailing View/Edit/Delete cell rather than appending it here, so every list
+   * in the app shares one action-column geometry.
+   */
   columns: Column<Row>[];
+  /**
+   * Row CRUD. Hand over the HANDLERS, not a rendered cell: the shell builds the
+   * `<RowActions>` itself, appends it through `rowActionsColumn()`, gates it on
+   * `perms`, derives the aria-labels from `rowLabel`, and feeds the same three
+   * handlers to the mobile card. A screen therefore cannot give its rows a
+   * different action set, a different confirm step or a different column width
+   * from every other list — which is exactly how 131 screens drifted into six
+   * dialects when each one rendered its own cell.
+   *
+   * `onView` is what puts an eye on the row; omit it only when the table already
+   * shows everything the record holds.
+   */
+  actions?: {
+    onView?: (r: Row) => void;
+    onEdit?: (r: Row) => void;
+    onDelete?: (r: Row) => void;
+    /** Extra items behind a `⋮` — Duplicate, Export row. Never Delete. */
+    menu?: (r: Row) => RowMenuItem[];
+  };
+  /**
+   * The row's name, folded into every action's aria-label ("Edit CHENNAI").
+   * Defaults to `mobile.title` when that returns a plain string — set it when
+   * the mobile title is JSX, or when a different field reads better aloud.
+   */
+  rowLabel?: (r: Row) => string;
+  /**
+   * The read-only view behind the row's eye.
+   *
+   * DOING NOTHING GIVES YOU ONE. Every list gets a view built from `columns` —
+   * each header becomes a label and each `cell(row)` its value — because the
+   * alternative was the status quo: 12 of ~62 master screens had a View and on
+   * the other 50 the only way to read a record was to open its editor. A
+   * columns-derived view is shallower than a hand-written one, and still
+   * strictly better than that.
+   *
+   * `sections` appends the fields the LIST does not show, which is where the
+   * real value is — the record behind six columns routinely holds forty.
+   * `false` suppresses the eye, for a register whose columns already are the
+   * whole record. A screen with a bespoke sheet passes `actions.onView`
+   * instead, and that always wins.
+   */
+  view?: false | { sections?: (r: Row) => ViewSection[] };
   empty?: ReactNode;
   mobile: {
     title: (r: Row) => ReactNode;
@@ -55,6 +107,13 @@ export type MasterListShellProps<Row> = {
     meta?: (r: Row) => ReactNode;
     onEdit?: (r: Row) => void;
     onDelete?: (r: Row) => void;
+    /**
+     * Read-only view (eye in the card footer). Wire it wherever the desktop
+     * table has one — on a phone the card tap IS edit, so without this there is
+     * no way to just look at a record. `MobileCardList` has supported it since
+     * it was extracted; the shell simply never passed it through.
+     */
+    onView?: (r: Row) => void;
   };
   isPending?: boolean;
   /** Rare per-screen extra toolbar buttons (rendered next to Add). */
@@ -72,10 +131,14 @@ export type MasterListShellProps<Row> = {
 /**
  * Standard list chrome for a master screen: FilterBar (search + Status +
  * extra facets), DataIoToolbar, Add button, desktop DataTable, mobile
- * MobileCardList (with delete), PaginationBar — plus the module's single
+ * MobileCardList (with view + delete), PaginationBar — plus the module's single
  * `useCreateIntent` hookup so the mobile ＋ (`?new=1`) opens the editor.
- * The screen keeps owning its editor surface (Sheet / MasterFullScreen) and
- * its row actions; this component only owns the list around it.
+ *
+ * The screen keeps owning its editor surface (Sheet / MasterFullScreen). It no
+ * longer owns the row-actions COLUMN: it hands over a `rowActions` renderer and
+ * the shell appends `rowActionsColumn()` itself (client 2026-07-30). Letting
+ * each screen append that column is how 131 of them ended up with six different
+ * action dialects and four ways of confirming a delete.
  */
 export function MasterListShell<Row>({
   rows,
@@ -89,6 +152,9 @@ export function MasterListShell<Row>({
   addLabel,
   onAdd,
   columns,
+  actions,
+  rowLabel,
+  view,
   empty = "No records yet.",
   mobile,
   isPending = false,
@@ -100,6 +166,44 @@ export function MasterListShell<Row>({
     () => !!statusOf && rows.some((r) => statusOf(r) === "draft"),
     [rows, statusOf],
   );
+
+  // Row opened in the auto-built view sheet. Holds the row itself — the sheet
+  // renders what the list already selected, so there is nothing to fetch.
+  const [viewRow, setViewRow] = useState<Row | null>(null);
+
+  const nameOf = useCallback(
+    (r: Row) => {
+      if (rowLabel) return rowLabel(r);
+      const t = mobile.title(r);
+      return typeof t === "string" ? t : "";
+    },
+    [rowLabel, mobile],
+  );
+
+  // A screen's own view sheet wins; otherwise the columns-derived one fills in.
+  const autoView = view !== false && !actions?.onView;
+  const onView = actions?.onView ?? (autoView ? setViewRow : undefined);
+
+  // The actions column is appended here, not declared by the screen, so its
+  // header/alignment/width are the same on every list in the app.
+  const tableColumns = useMemo(() => {
+    if (!actions && !autoView) return columns;
+    return [
+      ...columns,
+      rowActionsColumn<Row>((r) => (
+        <RowActions
+          label={nameOf(r)}
+          onView={onView && (() => onView(r))}
+          onEdit={actions?.onEdit && (() => actions.onEdit!(r))}
+          onDelete={actions?.onDelete && (() => actions.onDelete!(r))}
+          canEdit={perms.canEdit}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+          menu={actions?.menu?.(r) ?? []}
+        />
+      )),
+    ];
+  }, [columns, actions, autoView, onView, nameOf, perms.canEdit, perms.canDelete, isPending]);
 
   const filterConfig = useMemo(() => {
     const filters: Record<string, (r: Row, v: string) => boolean> = {};
@@ -254,7 +358,7 @@ export function MasterListShell<Row>({
           />
         )}
         <DataTable
-          columns={columns}
+          columns={tableColumns}
           rows={pg.paged}
           getKey={(r) => getKey(r)}
           empty={empty}
@@ -265,6 +369,10 @@ export function MasterListShell<Row>({
         />
       </div>
 
+      {/* Desktop and mobile read the SAME handlers, so a screen cannot ship a
+          View on one and not the other — which is how only 2 of ~62 screens
+          ended up with a mobile view. `mobile.*` stays as the fallback for
+          screens not yet moved onto `actions`. */}
       <div className={cn("transition-opacity md:hidden", isStale && "opacity-60")}>
         <MobileCardList
           rows={pg.paged}
@@ -273,9 +381,10 @@ export function MasterListShell<Row>({
           subtitle={mobile.subtitle}
           pill={mobile.pill}
           meta={mobile.meta}
-          onEdit={perms.canEdit ? mobile.onEdit : undefined}
+          onView={actions?.onView ?? mobile.onView}
+          onEdit={perms.canEdit ? actions?.onEdit ?? mobile.onEdit : undefined}
           canDelete={perms.canDelete}
-          onDelete={mobile.onDelete}
+          onDelete={actions?.onDelete ?? mobile.onDelete}
           isPending={isPending}
           empty={empty}
         />
@@ -289,6 +398,26 @@ export function MasterListShell<Row>({
         onPageChange={pg.setPage}
         onPageSizeChange={pg.setPageSize}
       />
+
+      {/* Columns-derived read-only view. Headerless columns are skipped — an
+          unlabelled column is a control or a spacer, not a field. No Edit in the
+          footer; see record-view-sheet.tsx. */}
+      {autoView && viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          title={nameOf(viewRow) || "Record"}
+          sections={[
+            {
+              label: "Details",
+              pairs: columns
+                .filter((c) => !!c.header)
+                .map((c) => [c.header, c.cell(viewRow)] as ViewPair),
+            },
+            ...(typeof view === "object" ? view.sections?.(viewRow) ?? [] : []),
+          ]}
+        />
+      )}
     </div>
   );
 }

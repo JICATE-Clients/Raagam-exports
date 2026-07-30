@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import type {
   RangeType,
 } from "@/lib/masters/garment-accepted-qty-level-types";
 import { RANGE_TYPES, RANGE_TYPE_LABELS } from "@/lib/masters/garment-accepted-qty-level-types";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { RecordViewSheet } from "@/components/masters/record-view-sheet";
 import { fmtDate } from "@/lib/format";
 
@@ -255,27 +255,17 @@ export function GarmentAcceptedQtyLevelMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — the list counts the detail rows but shows
-              none of them, and the rows ARE the record. */}
-          <Button variant="ghost" size="sm" aria-label={`View ${r.code}`} title="View" onClick={() => setViewRow(r)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -555,12 +545,6 @@ export function GarmentAcceptedQtyLevelMasterScreen({
         <RecordViewSheet
           open
           onClose={() => setViewRow(null)}
-          canEdit={perms.canEdit}
-          onEdit={() => {
-            const r = viewRow;
-            setViewRow(null);
-            openEdit(r);
-          }}
           title={viewRow.code}
           sections={[
             {

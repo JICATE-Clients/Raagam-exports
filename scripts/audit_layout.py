@@ -55,6 +55,16 @@ PRIMITIVES = {
     # The shared picker trigger/clear classes -- the same role input.tsx plays
     # for inputs, so it owns the size and type rules rather than repeating them.
     "components/masters/picker-classes.ts",
+    # Owns the row-action cluster's flex/gap and the action column's fixed width
+    # (LAYOUT.md 6a), so it is the one place those classes are correct.
+    "components/ui/row-actions.tsx",
+    "components/ui/tooltip.tsx",
+    # The mobile two-step delete, and the mobile card that hosts it -- both
+    # legitimately render an action cluster, just not the desktop one.
+    "components/masters/delete-confirm-button.tsx",
+    "components/masters/mobile-card-list.tsx",
+    # The two engines that OWN the desktop cell on behalf of their screens.
+    "components/masters/simple-master-screen.tsx",
 }
 
 # Full-page singleton editors: a settings form that legitimately has no Sheet and
@@ -358,6 +368,76 @@ def check_caps_input(path: Path, code: str, slug: str):
         )
 
 
+def check_row_actions(path: Path, code: str, slug: str):
+    """LAYOUT.md 6a: no screen writes its own View/Edit/Delete cell.
+
+    131 files declared their own `header: ""` action column and drifted into six
+    incompatible dialects with four different delete confirmations -- inline
+    two-step, `window.confirm`, one-click-no-confirm, and Deactivate-only. Three
+    signals, because the dialects do not look alike:
+
+      1. a hand-declared `header: ""` column   -> use rowActionsColumn/actions
+      2. a ghost Edit/Delete/Del/Deactivate    -> the labels the dialects used
+         button inside a table cell
+      3. `window.confirm`                      -> never the delete confirmation
+
+    Signal 2 deliberately looks for the LABEL, not the handler: `remove(r)` is
+    also called from a Sheet footer, which is fine.
+    """
+    if slug in PRIMITIVES:
+        return
+
+    # A headerless column is not automatically an action column -- a colour
+    # swatch or an expand chevron legitimately has no header. Require something
+    # clickable in the next few lines before calling it one.
+    for m in re.finditer(r'header:\s*""', code):
+        window = code[m.start(): m.start() + 600]
+        if not re.search(r"<Button|onClick=|<RowActions", window):
+            continue
+        yield Finding(
+            "row-actions", path, line_of(code, m.start()),
+            'hand-declared `header: ""` action column; use rowActionsColumn() '
+            "or MasterListShell's `actions` (LAYOUT.md 6a)",
+        )
+
+    # A row action's giveaway is the label sitting in a `cell:` renderer. The
+    # `cell:` lookback matters: the same button in a Sheet footer or on a detail
+    # card is not a row action, and flagging it sends the reader somewhere the
+    # rule does not apply.
+    for m in re.finditer(
+        r'<Button[^>]*?>\s*(Edit|Delete|Del|Deactivate|Activate)\s*</Button>', code, re.S
+    ):
+        if "cell:" not in code[max(0, m.start() - 500): m.start()]:
+            continue
+        yield Finding(
+            "row-actions", path, line_of(code, m.start()),
+            f"`{m.group(1)}` rendered as its own button; row CRUD belongs to "
+            "<RowActions> (LAYOUT.md 6a)",
+        )
+
+    # This flags confirm() only where it is guarding a DELETE, which is the thing
+    # standardised here. Two narrowings, both to keep the finding truthful:
+    #
+    #   * a file declaring its own `confirm` is not calling the browser dialog --
+    #     several workflow screens have a local `function confirm(id)` that
+    #     confirms a RECORD;
+    #   * a confirm() in a file with no delete action is guarding something else
+    #     (a status transition that wins an opportunity, say). That may still be
+    #     worth replacing with an in-app dialog, but it is not this rule's claim.
+    #
+    # reload-guard owns the one confirm() that is correct by design.
+    deletes_something = re.search(r"\bdelete[A-Z]\w*\s*\(", code) is not None
+    if slug != "lib/reload-guard.ts" and deletes_something:
+        shadowed = re.search(r"\b(?:function|const|let)\s+confirm\b", code) is not None
+        pattern = r"\bwindow\.confirm\s*\(" if shadowed else r"\b(?:window\.)?confirm\s*\("
+        for m in re.finditer(pattern, code):
+            yield Finding(
+                "row-actions", path, line_of(code, m.start()),
+                "window.confirm as a delete guard; the app's only delete "
+                "confirmation is the two-step in <RowActions> (LAYOUT.md 6a)",
+            )
+
+
 CHECKS = {
     "screen-grid": check_screen_grid,
     "screen-table": check_screen_table,
@@ -365,6 +445,7 @@ CHECKS = {
     "editor-clone": check_editor_clone,
     "text-size-noop": check_text_size_noop,
     "caps-input": check_caps_input,
+    "row-actions": check_row_actions,
 }
 
 

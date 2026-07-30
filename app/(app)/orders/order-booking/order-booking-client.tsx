@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -77,7 +78,13 @@ export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBook
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
     { header: "Delivery", cell: (r) => r.delivery_date ? fmtDate(r.delivery_date) : "—" },
     { header: "Ship", cell: (r) => r.ship_mode ?? "—" },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deleteOrderBooking(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button> },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => startTransition(async () => { const res = await deleteOrderBooking(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

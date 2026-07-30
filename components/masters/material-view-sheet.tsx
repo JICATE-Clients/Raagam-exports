@@ -30,8 +30,6 @@ export function MaterialViewSheet({
   open,
   material,
   onClose,
-  onEdit,
-  canEdit,
   itemClasses,
   categories,
   units,
@@ -47,8 +45,6 @@ export function MaterialViewSheet({
   open: boolean;
   material: Material | null;
   onClose: () => void;
-  onEdit: (r: Material) => void;
-  canEdit: boolean;
   itemClasses: ConfigLookup[];
   categories: Category[];
   units: Uom[];
@@ -139,16 +135,10 @@ export function MaterialViewSheet({
       fullScreen
       title={`Material — ${r.name}`}
       footer={
-        <>
-          <Button variant="outline" size="md" onClick={onClose}>
-            Close
-          </Button>
-          {canEdit && (
-            <Button size="md" onClick={() => onEdit(r)}>
-              Edit
-            </Button>
-          )}
-        </>
+        /* Close only — View is a dead end by design; see record-view-sheet.tsx. */
+        <Button variant="outline" size="md" onClick={onClose}>
+          Close
+        </Button>
       }
     >
       <div className="space-y-4">

@@ -21,6 +21,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -170,21 +171,12 @@ export function EpcgClient({
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (e: EpcgDeclaration) => (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleDelete(e.id)}
-                disabled={isPending}
-                className="h-7 px-2 text-xs text-danger hover:opacity-80"
-              >
-                Delete
-              </Button>
-            ),
-          } satisfies Column<EpcgDeclaration>,
+          rowActionsColumn<EpcgDeclaration>((e) => (
+            <RowActions
+              onDelete={() => handleDelete(e.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

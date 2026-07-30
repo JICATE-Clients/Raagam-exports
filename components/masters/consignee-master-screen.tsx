@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Eye, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
+import { Bell, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -27,7 +28,7 @@ import { RecordViewSheet, type ViewSection } from "@/components/masters/record-v
 import { createConsignee, updateConsignee, deleteConsignee } from "@/lib/masters/consignee-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import { decodeGstin, normalizeGstin } from "@/lib/validation/gstin";
+import { decodeGstin, matchGstinState, normalizeGstin } from "@/lib/validation/gstin";
 import {
   SHIP_MODES,
   PAY_MODES,
@@ -151,16 +152,6 @@ const snapshot = (
   markings: MarkingRow[],
   notifyRefs: NotifyRefRow[],
 ) => JSON.stringify({ form, contacts, markings, notifyRefs });
-
-// Alternate spellings a hand-typed State master row might carry, keyed by GST
-// state code. Only consulted when the row has no `code` to match on. Twin of the
-// map in vendor-master-screen.tsx — kept local rather than shared because it is
-// a stop-gap for unseeded State rows, not a contract.
-const STATE_ALIASES: Record<string, string[]> = {
-  "05": ["Uttaranchal"],
-  "07": ["NCT of Delhi", "New Delhi"],
-  "21": ["Orissa"],
-};
 
 /**
  * How wide each field of this form is, on the 12-column track (LAYOUT.md §3).
@@ -386,22 +377,9 @@ export function ConsigneeMasterScreen({
    */
   const loadedGstin = useRef("");
 
-  // The State row this GSTIN points at. `states.code` IS the GST state code, so
-  // that is the primary match; the name/alias ladder is a fallback because the
-  // table ships unseeded and rows get hand-typed.
-  const gstinState = useMemo(() => {
-    if (!gstin) return null;
-    const byCode = states.find(
-      (s) => (s.code ?? "").trim().padStart(2, "0") === gstin.stateCode,
-    );
-    if (byCode) return byCode;
-    if (!gstin.stateName) return null;
-    const norm = (v: string) => v.toUpperCase().replace(/[^A-Z]/g, "");
-    const wanted = new Set(
-      [gstin.stateName, ...(STATE_ALIASES[gstin.stateCode] ?? [])].map(norm),
-    );
-    return states.find((s) => wanted.has(norm(s.name))) ?? null;
-  }, [gstin, states]);
+  // The State row this GSTIN points at — code first, spelling as a fallback.
+  // Shared with the vendor screen; see matchGstinState.
+  const gstinState = useMemo(() => matchGstinState(gstin, states), [gstin, states]);
 
   // A GSTIN can only belong to an Indian registration, so the country it implies
   // is never in doubt — but it is still offered, never written (see below).
@@ -697,35 +675,17 @@ export function ConsigneeMasterScreen({
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — reading a consignee used to mean opening the
-              editor and remembering not to touch anything. */}
-          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   /**
@@ -1615,12 +1575,6 @@ export function ConsigneeMasterScreen({
       <RecordViewSheet
         open={!!viewRow}
         onClose={() => setViewRow(null)}
-        canEdit={perms.canEdit}
-        onEdit={() => {
-          const r = viewRow;
-          setViewRow(null);
-          if (r) openEdit(r);
-        }}
         title={viewRow?.name ?? ""}
         subtitle={
           viewRow

@@ -223,7 +223,10 @@ export default function RolesClient({
         ),
     },
     {
-      header: "",
+      /* Not row CRUD — this toggles the permission editor open for the row, and
+         its label reports that state. A labelled column says so; the unnamed
+         action cell that <RowActions> owns would not (LAYOUT.md §6a). */
+      header: "Permissions",
       align: "right",
       cell: (r) => (
         <Button

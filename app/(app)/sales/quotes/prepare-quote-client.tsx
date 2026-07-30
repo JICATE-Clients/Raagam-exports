@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { useToast } from "@/components/ui/toast";
@@ -206,8 +207,8 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
     });
   }
 
+  /* No `confirm()` here — <RowActions> asks in the row itself (LAYOUT.md §6a). */
   function del(r: QuoteCosting) {
-    if (!confirm(`Delete costing ${r.code ?? ""}?`)) return;
     start(async () => {
       const res = await deleteQuoteCosting(r.id);
       if (res.ok) {
@@ -258,24 +259,15 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
       header: "Status",
       cell: (r) => <StatusPill tone={qcStatusTone(r.status)}>{QC_STATUS_LABELS[r.status]}</StatusPill>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1 whitespace-nowrap">
-          {perms.canEdit && (
-            <Button variant="outline" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button variant="outline" size="sm" onClick={() => del(r)}>
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onEdit={() => openEdit(r)}
+        onDelete={() => del(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+      />
+    )),
   ];
 
   const cur = form.currency_code || "";

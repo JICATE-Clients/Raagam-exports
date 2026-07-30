@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -79,10 +80,12 @@ export function PackingListDetail({ docId, status, lines, canEdit, canDelete }: 
     { header: "Net wt", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.net_weight != null ? fmtNumber(r.net_weight) : "—"}</span> },
     { header: "Gross wt", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.gross_weight != null ? fmtNumber(r.gross_weight) : "—"}</span> },
     ...(canEdit && editable
-      ? [{ header: "", cell: (r: PackingListLine) => (
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
-            onClick={() => run(() => deletePackingLine(r.id, docId), "Removed")}>Remove</Button>
-        ) } satisfies Column<PackingListLine>]
+      ? [
+        rowActionsColumn<PackingListLine>((r) => (
+          <RowActions onDelete={() => run(() => deletePackingLine(r.id, docId), "Removed")}
+          deleteLabel="Remove" isPending={isPending} />
+        )),
+      ]
       : []),
   ];
 

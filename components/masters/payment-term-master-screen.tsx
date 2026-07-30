@@ -15,7 +15,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createPaymentTerm,
@@ -193,20 +192,6 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -223,6 +208,7 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
         addLabel="+ Add Payment Term"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No payment terms yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · ${r.pay_mode ?? "—"}`,

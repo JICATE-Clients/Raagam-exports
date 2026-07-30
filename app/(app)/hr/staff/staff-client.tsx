@@ -8,6 +8,7 @@ import type { StaffRow, LocationOption } from "@/lib/hr/masters-service";
 import { createStaff, updateStaff } from "@/lib/hr/masters-actions";
 import { fmtMoney } from "@/lib/format";
 import { DataTable } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
@@ -118,15 +119,9 @@ export default function StaffClient({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-          Edit
-        </Button>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions label={r.name} onEdit={() => openEdit(r)} />
+    )),
   ];
 
   return (

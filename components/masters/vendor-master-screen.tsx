@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, User, MapPin, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { User, MapPin, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
@@ -22,7 +23,7 @@ import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
-import { decodeGstin, normalizeGstin } from "@/lib/validation/gstin";
+import { decodeGstin, matchGstinState, normalizeGstin } from "@/lib/validation/gstin";
 import { effectiveWhatsApp } from "@/lib/validation/contact";
 import { createVendor, updateVendor, deleteVendor } from "@/lib/masters/vendor-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
@@ -129,18 +130,6 @@ const FIELD_SIZE = {
   whatsapp: "sm", // 3 — beside its mobile, same as bank-master-screen
   email_id: "sm", // 3 — accounts@sreelakshmitextiles.co.in scrolls in the box
 } satisfies Record<string, FieldSize>;
-
-// Alternate spellings a hand-typed State master row might carry, keyed by GST
-// state code. Only consulted when the row has no `code` to match on.
-const STATE_ALIASES: Record<string, string[]> = {
-  "05": ["Uttaranchal"],
-  "07": ["NCT of Delhi", "New Delhi"],
-  "21": ["Orissa"],
-  "26": ["Dadra & Nagar Haveli", "Daman & Diu"],
-  "33": ["Tamilnadu"],
-  "34": ["Pondicherry"],
-  "35": ["Andaman and Nicobar", "Andamans"],
-};
 
 type HeaderForm = {
   code: string;
@@ -499,22 +488,9 @@ export function VendorMasterScreen({
    */
   const loadedGstin = useRef("");
 
-  // The State-master row this GSTIN points at. `public.states.code` IS the GST
-  // state code, so that is the primary match; the name/alias ladder is a
-  // fallback because the table ships unseeded and rows get hand-typed.
-  const gstinState = useMemo(() => {
-    if (!gstin) return null;
-    const byCode = states.find(
-      (s) => (s.code ?? "").trim().padStart(2, "0") === gstin.stateCode,
-    );
-    if (byCode) return byCode;
-    if (!gstin.stateName) return null;
-    const norm = (v: string) => v.toUpperCase().replace(/[^A-Z]/g, "");
-    const wanted = new Set(
-      [gstin.stateName, ...(STATE_ALIASES[gstin.stateCode] ?? [])].map(norm),
-    );
-    return states.find((s) => wanted.has(norm(s.name))) ?? null;
-  }, [gstin, states]);
+  // The State-master row this GSTIN points at — code first, spelling as a
+  // fallback. Shared with the consignee screen; see matchGstinState.
+  const gstinState = useMemo(() => matchGstinState(gstin, states), [gstin, states]);
 
   // PAN is characters 3-12 of the GSTIN, so filling an EMPTY PAN box cannot
   // lose information. A PAN that is already typed is never overwritten — a
@@ -801,35 +777,17 @@ export function VendorMasterScreen({
           <StatusPill tone={statusTone(r.status)}>{r.status}</StatusPill>
         ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — reading a vendor used to mean opening the
-              editor and remembering not to touch anything. */}
-          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
@@ -1419,12 +1377,6 @@ export function VendorMasterScreen({
       <RecordViewSheet
         open={!!viewRow}
         onClose={() => setViewRow(null)}
-        canEdit={perms.canEdit}
-        onEdit={() => {
-          const r = viewRow;
-          setViewRow(null);
-          if (r) openEdit(r);
-        }}
         title={viewRow?.name ?? ""}
         subtitle={
           viewRow

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { orderedFocusables, focusFirstField, focusField } from "@/lib/focus";
+import { cycleTab, focusFirstField, focusField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { useModalGuard, confirmDiscard } from "@/lib/reload-guard";
 
@@ -172,42 +172,13 @@ export function Sheet({
         e.preventDefault();
         entry();
       } else if (e.key === "Tab") {
-        // Same rule as Escape above: a control that already claimed Tab (an open
-        // list closing itself and stepping on) must not ALSO be moved by the
-        // trap, or focus would jump two fields.
-        if (e.defaultPrevented) return;
-        // Focus trap. We drive the WHOLE cycle rather than only guarding the
-        // two edges: the cycle is region-ordered (fields → footer → ✕) while
-        // native Tab is DOM-ordered (✕ → fields → footer), so edge-only
-        // trapping compared the wrong elements and let Tab off Save escape the
-        // dialog entirely. Owning every Tab keeps the visible order and the
-        // trap boundary as one and the same thing.
-        const root = containerRef.current;
-        if (!root) return;
-        const items = orderedFocusables(root);
-        if (!items.length) return;
-        const active = document.activeElement;
-        const inside = active instanceof HTMLElement && root.contains(active);
-
-        // When focus is orphaned (a picker unmounted, a control blurred
-        // itself) resume from the field the user last stood on instead of
-        // restarting at the top of the form.
-        const from = inside ? (active as HTMLElement) : lastFocusedRef.current;
-        const idx = from ? items.indexOf(from) : -1;
-
-        e.preventDefault();
-        // focusField, not .focus() — it lands the caret at the END of the text.
-        // A bare .focus() left it at 0, and `atCaretEdge` then refused to let →
-        // leave the field until the operator had walked the whole value one
-        // character at a time. Every masters editor tabs through this trap, so
-        // this one call is what "→ doesn't move to the next field" was (client
-        // 2026-07-28).
-        if (idx === -1) {
-          focusField(e.shiftKey ? items[items.length - 1] : items[0]);
-          return;
-        }
-        const next = e.shiftKey ? idx - 1 : idx + 1;
-        focusField(items[(next + items.length) % items.length]);
+        // Focus trap — the shared implementation, so this and the section rail
+        // in master-full-screen.tsx cannot drift apart. It already stands down on
+        // `defaultPrevented` (a control that claimed Tab, e.g. an open list
+        // closing itself and stepping on, must not ALSO be moved by the trap or
+        // focus would jump two fields) and resumes from `lastFocusedRef` when a
+        // picker unmounted and stranded focus on <body>.
+        cycleTab(e, containerRef.current, { resumeFrom: lastFocusedRef.current });
       }
     };
     document.addEventListener("keydown", onKey);

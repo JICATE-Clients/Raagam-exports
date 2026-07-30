@@ -12,7 +12,6 @@ import { type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import {
   createExchangeRateEntry,
@@ -181,20 +180,6 @@ export function ExchangeRateMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm">{r.lines.length}</span>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -210,6 +195,7 @@ export function ExchangeRateMasterScreen({
         addLabel="+ Add Entry"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No exchange-rate entries yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · ${r.rate_for ?? "—"}`,

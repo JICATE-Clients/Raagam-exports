@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
@@ -126,7 +127,7 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
   }
 
   function del(r: TaStyle) {
-    if (!confirm(`Delete TA style ${r.code ?? ""}?`)) return;
+    /* No confirm() — <RowActions> asks in the row (LAYOUT.md §6a). */
     start(async () => {
       const res = await deleteTaStyle(r.id);
       if (res.ok) {
@@ -169,20 +170,16 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
         header: "Status",
         cell: (r) => <StatusPill tone={taStyleStatusTone(r)}>{taStyleStatusLabel(r)}</StatusPill>,
       },
-      {
-        header: "",
-        align: "right",
-        cell: (r) => (
-          <div className="flex justify-end gap-1">
-            {perms.canEdit && (
-              <Button variant="outline" size="sm" onClick={() => loadForm(r)}>Edit</Button>
-            )}
-            {perms.canDelete && (
-              <Button variant="outline" size="sm" onClick={() => del(r)}>Delete</Button>
-            )}
-          </div>
-        ),
-      },
+      rowActionsColumn((r) => (
+        <RowActions
+          label={r.code}
+          onEdit={() => loadForm(r)}
+          canEdit={perms.canEdit}
+          onDelete={() => del(r)}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      )),
     ];
     return (
       <div className="space-y-4">

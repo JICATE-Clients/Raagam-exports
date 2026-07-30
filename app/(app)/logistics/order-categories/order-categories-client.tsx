@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 interface Props {
   assignments: AssignmentRow[];
@@ -103,21 +104,13 @@ export function OrderCategoriesClient({
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (a: AssignmentRow) => (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleUnassign(a.id)}
-                disabled={isPending}
-                className="h-7 px-2 text-xs text-danger hover:opacity-80"
-              >
-                Remove
-              </Button>
-            ),
-          } satisfies Column<AssignmentRow>,
+          rowActionsColumn<AssignmentRow>((a) => (
+            <RowActions
+              onDelete={() => handleUnassign(a.id)}
+              deleteLabel="Remove"
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

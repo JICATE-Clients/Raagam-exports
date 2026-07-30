@@ -7,6 +7,7 @@ import type { ContractorInput } from "@/lib/hr/types";
 import type { ContractorRow, LocationOption } from "@/lib/hr/masters-service";
 import { createContractor, updateContractor } from "@/lib/hr/masters-actions";
 import { DataTable } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
@@ -105,15 +106,9 @@ export default function ContractorsClient({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-          Edit
-        </Button>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions label={r.name} onEdit={() => openEdit(r)} />
+    )),
   ];
 
   return (

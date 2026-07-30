@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -50,13 +51,19 @@ export function ExcessOrdersClient({ rows }: { rows: ExcessOrderRow[] }) {
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
     { header: "Created", cell: (r) => <span className="text-xs tabular-nums">{fmtDate(r.created_at)}</span> },
     {
-      header: "", align: "right", cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {r.status === "draft" && <Button variant="ghost" size="sm" onClick={() => startTransition(async () => { const res = await confirmExcessOrder(r.id); if (res.ok) { success("Confirmed."); router.refresh(); } else error(res.error); })} disabled={isPending}>Confirm</Button>}
-          {r.status === "draft" && <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deleteExcessOrder(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button>}
-        </div>
+      /* Workflow, so it keeps a labelled column of its own (LAYOUT.md §6a). */
+      header: "Confirm", align: "right", cell: (r) => (
+        r.status === "draft" ? <Button variant="outline" size="sm" onClick={() => startTransition(async () => { const res = await confirmExcessOrder(r.id); if (res.ok) { success("Confirmed."); router.refresh(); } else error(res.error); })} disabled={isPending}>Confirm</Button> : null
       ),
     },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => startTransition(async () => { const res = await deleteExcessOrder(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
+        canDelete={r.status === "draft"}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

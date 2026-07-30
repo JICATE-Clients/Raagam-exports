@@ -13,7 +13,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createCountry, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { COUNTRY_GROUPS, type Country, type CountryGroup, type CountryInput } from "@/lib/masters/country-types";
@@ -147,20 +146,6 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
       cell: (r) => (r.default_country ? <span className="text-sm text-primary">✓</span> : <span className="text-sm text-muted-foreground">—</span>),
     },
     { header: "Status", cell: (r) => statusPill(r) },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -177,6 +162,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
         addLabel="+ Add Country"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No country records yet."
         mobile={{
           title: (r) => r.name,

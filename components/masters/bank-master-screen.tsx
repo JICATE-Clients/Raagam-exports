@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Eye } from "lucide-react";
+import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { Field, FieldGrid } from "@/components/ui/field";
@@ -16,8 +16,6 @@ import { Sheet } from "@/components/ui/sheet";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
-import { RowActions } from "@/components/masters/row-actions";
 import { RecordViewSheet, ViewPairs, type ViewPair } from "@/components/masters/record-view-sheet";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { effectiveWhatsApp, isWhatsAppSameAsMobile } from "@/lib/validation/contact";
@@ -313,26 +311,6 @@ export function BankMasterScreen({
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex items-center justify-end gap-1">
-          {/* Look without editing — a bank's branches (IFSC, account number,
-              contacts) were reachable only by opening the editor. */}
-          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <RowActions
-              onEdit={() => openEdit(r)}
-              onDuplicate={perms.canCreate ? () => openDuplicate(r) : undefined}
-            />
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   /**
@@ -366,6 +344,17 @@ export function BankMasterScreen({
         addLabel="+ Add Bank"
         onAdd={openAdd}
         columns={columns}
+        actions={{
+          onView: setViewRow,
+          onEdit: openEdit,
+          onDelete: remove,
+          // Duplicate lives behind the ⋮ — it is a create, not row CRUD, and it
+          // is the only master that offers one.
+          menu: (r) =>
+            perms.canCreate && perms.canEdit
+              ? [{ label: "Duplicate", icon: Copy, onClick: () => openDuplicate(r) }]
+              : [],
+        }}
         empty="No bank records yet."
         mobile={{
           title: (r) => r.name,
@@ -651,12 +640,6 @@ export function BankMasterScreen({
         <RecordViewSheet
           open
           onClose={() => setViewRow(null)}
-          canEdit={perms.canEdit}
-          onEdit={() => {
-            const r = viewRow;
-            setViewRow(null);
-            openEdit(r);
-          }}
           title={viewRow.name}
           subtitle={viewRow.code}
           status={

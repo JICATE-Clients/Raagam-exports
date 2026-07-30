@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, MapPin, SlidersHorizontal, User, Users } from "lucide-react";
+import { MapPin, SlidersHorizontal, User, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
@@ -574,41 +575,17 @@ export function ApplicantMasterScreen({
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — reading an applicant used to mean opening
-              the editor and remembering not to touch anything. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`View ${r.name}`}
-            title="View"
-            onClick={() => setViewRow(r)}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   /**
@@ -1205,12 +1182,6 @@ export function ApplicantMasterScreen({
       <RecordViewSheet
         open={!!viewRow}
         onClose={() => setViewRow(null)}
-        canEdit={perms.canEdit}
-        onEdit={() => {
-          const r = viewRow;
-          setViewRow(null);
-          if (r) openEdit(r);
-        }}
         title={viewRow?.name ?? ""}
         status={
           viewRow && (

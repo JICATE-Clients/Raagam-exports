@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type Column } from "@/components/ui/data-table";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -122,20 +121,6 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
         </span>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -149,6 +134,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
         addLabel="+ Add PF/ESI Control"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No PF/ESI controls yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · effective ${fmtDate(r.effective_from)}`,

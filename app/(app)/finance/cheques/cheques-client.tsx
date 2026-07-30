@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -150,15 +151,12 @@ export function ChequesClient({ cheques, currencies, canCreate, canEdit, canDele
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (c: Cheque) => (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(c.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                Delete
-              </Button>
-            ),
-          } satisfies Column<Cheque>,
+          rowActionsColumn<Cheque>((c) => (
+            <RowActions
+              onDelete={() => handleDelete(c.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

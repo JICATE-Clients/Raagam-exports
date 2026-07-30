@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, MapPin, Package, SlidersHorizontal, Truck, User, Users, X, type LucideIcon } from "lucide-react";
+import { MapPin, Package, SlidersHorizontal, Truck, User, Users, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -15,7 +15,6 @@ import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { ApplicantPicker } from "@/components/masters/applicant-picker";
@@ -923,26 +922,7 @@ export function CustomerMasterScreen({
         const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
-    },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — reading a customer used to mean opening the
-              editor and remembering not to touch anything. */}
-          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    },
   ];
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
@@ -959,6 +939,7 @@ export function CustomerMasterScreen({
         addLabel="+ Add Customer"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onView: setViewRow, onEdit: openEdit, onDelete: remove }}
         empty="No customers yet."
         mobile={{
           title: (r) => r.name,
@@ -1482,12 +1463,6 @@ export function CustomerMasterScreen({
       <RecordViewSheet
         open={!!viewRow}
         onClose={() => setViewRow(null)}
-        canEdit={perms.canEdit}
-        onEdit={() => {
-          const r = viewRow;
-          setViewRow(null);
-          if (r) openEdit(r);
-        }}
         title={viewRow?.name ?? ""}
         subtitle={
           viewRow

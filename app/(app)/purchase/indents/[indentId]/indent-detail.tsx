@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -75,13 +76,13 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
     { header: "Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.quantity)}</span> },
     ...(canEdit && editable
       ? [
-          {
-            header: "",
-            cell: (r: PurchaseIndentLine) => (
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger"
-                disabled={isPending} onClick={() => run(() => deleteIndentLine(r.id, indentId), "Removed")}>Remove</Button>
-            ),
-          } satisfies Column<PurchaseIndentLine>,
+          rowActionsColumn<PurchaseIndentLine>((r) => (
+            <RowActions
+              onDelete={() => run(() => deleteIndentLine(r.id, indentId), "Removed")}
+              deleteLabel="Remove"
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

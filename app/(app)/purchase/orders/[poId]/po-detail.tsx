@@ -29,6 +29,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
@@ -835,51 +836,40 @@ export function PoDetail({
     },
     ...(canMutateLines || (isDraft && canDelete)
       ? [
+          /* Deliveries expands the line in place — a disclosure toggle, not row
+             CRUD — so it keeps its own labelled column (LAYOUT.md §6a). */
           {
-            header: "",
+            header: "Deliveries",
             align: "right" as const,
             cell: (r: PoLineItem) => (
-              <div className="flex items-center justify-end gap-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setExpandedLines((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(r.id)) next.delete(r.id);
-                      else next.add(r.id);
-                      return next;
-                    });
-                  }}
-                >
-                  {expandedLines.has(r.id) ? "Hide" : "Deliveries"}
-                </Button>
-                {canMutateLines && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={isPending}
-                    onClick={() =>
-                      formMode === r.id ? closeForm() : openEdit(r)
-                    }
-                  >
-                    {formMode === r.id ? "Cancel" : "Edit"}
-                  </Button>
-                )}
-                {isDraft && canDelete && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-danger hover:text-danger"
-                    disabled={isPending}
-                    onClick={() => handleDelete(r.id)}
-                  >
-                    Delete
-                  </Button>
-                )}
-              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-expanded={expandedLines.has(r.id)}
+                onClick={() => {
+                  setExpandedLines((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(r.id)) next.delete(r.id);
+                    else next.add(r.id);
+                    return next;
+                  });
+                }}
+              >
+                {expandedLines.has(r.id) ? "Hide" : "Show"}
+              </Button>
             ),
           },
+          rowActionsColumn<PoLineItem>((r) => (
+            <RowActions
+              /* Editing this line means opening the form below it, so Edit also
+                 CLOSES it when it is already this line's form that is open. */
+              onEdit={() => (formMode === r.id ? closeForm() : openEdit(r))}
+              canEdit={canMutateLines}
+              onDelete={() => handleDelete(r.id)}
+              canDelete={isDraft && canDelete}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

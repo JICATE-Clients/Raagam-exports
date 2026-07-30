@@ -11,7 +11,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createHoliday, updateHoliday, deleteHoliday } from "@/lib/masters/holiday-actions";
 import {
   HOLIDAY_CATEGORIES,
@@ -131,20 +130,6 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -162,6 +147,7 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
         addLabel="+ Add Holiday"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No holidays yet."
         mobile={{
           title: (r) => r.name,

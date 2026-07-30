@@ -2,8 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, MapPin, User, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { MapPin, User, Users } from "lucide-react";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
@@ -16,7 +15,6 @@ import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -418,31 +416,6 @@ export function CourierDeliveryAddressMasterScreen({
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — reading a courier address used to mean
-              opening the editor and remembering not to touch anything. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`View ${r.name}`}
-            title="View"
-            onClick={() => setViewRow(r)}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   /**
@@ -500,6 +473,7 @@ export function CourierDeliveryAddressMasterScreen({
         addLabel="+ Add Courier Address"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onView: setViewRow, onEdit: openEdit, onDelete: remove }}
         empty="No courier addresses yet."
         mobile={{
           title: (r) => r.name,
@@ -845,12 +819,6 @@ export function CourierDeliveryAddressMasterScreen({
       <RecordViewSheet
         open={!!viewRow}
         onClose={() => setViewRow(null)}
-        canEdit={perms.canEdit}
-        onEdit={() => {
-          const r = viewRow;
-          setViewRow(null);
-          if (r) openEdit(r);
-        }}
         title={viewRow?.name ?? ""}
         status={
           viewRow && (

@@ -4,7 +4,7 @@ import { fmtDate } from "@/lib/format";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Eye, Info, Plus } from "lucide-react";
+import { ChevronDown, Info, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +29,7 @@ import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid, SectionColumn, IdentityRow } from "@/components/masters/section-grid";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { MaterialViewSheet } from "@/components/masters/material-view-sheet";
 import {
@@ -47,7 +47,12 @@ import {
 } from "@/lib/masters/material-types";
 import type { ConfigLookup, Attribute, AttributeValue } from "@/lib/masters/extras-types";
 import type { MaterialAttribute } from "@/lib/masters/material-attribute-types";
-import { showsSubCategories, type Category, type CategorySubCategory } from "@/lib/masters/category-types";
+import {
+  showsSubCategories,
+  showsUserDefined,
+  type Category,
+  type CategorySubCategory,
+} from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Uom } from "@/lib/masters/types";
@@ -1482,25 +1487,17 @@ export function MaterialMasterScreen({
       header: "Status",
       cell: (r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — the only way to read a material used to be
-              to open the editor and remember not to touch anything. */}
-          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -1761,6 +1758,10 @@ export function MaterialMasterScreen({
                 <DetailSection label="Classification" cols={12}>
                   {formDef?.fields
                     .filter((k) => k !== "sub_category_id" || subCategoryVisible)
+                    // The read-only "User defined" echo only makes sense for the
+                    // classes whose Category actually asks the question — on
+                    // Capital Goods it would sit there saying "No" forever.
+                    .filter((k) => k !== "user_defined" || showsUserDefined(selectedClassCode))
                     .map((k) => detailField(k))}
                 </DetailSection>
               )}
@@ -1988,17 +1989,12 @@ export function MaterialMasterScreen({
         </div>
       </Sheet>
 
-      {/* Read-only view — same record, nothing editable, Edit in the footer
-          hands off to the editor above. */}
+      {/* Read-only view — same record, nothing editable, and no way through to
+          the editor: Close is the only exit (client 2026-07-30). */}
       <MaterialViewSheet
         open={!!viewRow}
         material={viewRow}
         onClose={() => setViewRow(null)}
-        canEdit={perms.canEdit}
-        onEdit={(r) => {
-          setViewRow(null);
-          openEdit(r);
-        }}
         itemClasses={itemClasses}
         categories={categories}
         units={units}

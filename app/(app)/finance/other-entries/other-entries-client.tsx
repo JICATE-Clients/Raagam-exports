@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
@@ -109,15 +110,12 @@ export function OtherEntriesClient({ entries, currencies, canCreate, canDelete }
     { header: "Date", cell: (e) => <span className="tabular-nums text-xs text-muted-foreground">{fmtDate(e.entry_date)}</span> },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (e: OtherEntry) => (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(e.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                Delete
-              </Button>
-            ),
-          } satisfies Column<OtherEntry>,
+          rowActionsColumn<OtherEntry>((e) => (
+            <RowActions
+              onDelete={() => handleDelete(e.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

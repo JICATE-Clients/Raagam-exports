@@ -20,6 +20,14 @@ import { DetailSection } from "@/components/masters/detail-section";
  * `describeConversion` and its Mixing block resolves component yarns, neither of
  * which is a label→value pair.
  *
+ * THERE IS NO EDIT BUTTON, AND `onEdit` IS NOT A PROP (client 2026-07-30). It
+ * used to offer one, which quietly made View a second doorway into the editor —
+ * so "let me just look at this" and "let me change this" started from the same
+ * click and ended in the same place. View is now a dead end by construction:
+ * read it, close it, and open the editor from the row's pencil if you meant to
+ * change something. The prop is deleted rather than merely left unpassed,
+ * because an optional `onEdit` is an invitation to wire it back up.
+ *
  * TWO RULES THAT MAKE THIS WORTH USING:
  *
  * 1. **An empty value is not rendered, and an all-empty section disappears.** A
@@ -77,8 +85,6 @@ export function ViewPairs({ pairs }: { pairs: readonly ViewPair[] }) {
 export function RecordViewSheet({
   open,
   onClose,
-  onEdit,
-  canEdit = false,
   title,
   subtitle,
   status,
@@ -86,9 +92,6 @@ export function RecordViewSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  /** Omit (or pass canEdit=false) and the footer shows Close only. */
-  onEdit?: () => void;
-  canEdit?: boolean;
   /** The record's name — the one thing always shown. */
   title: string;
   /** Muted line under the title: a code, a country, a parent record. */
@@ -110,16 +113,9 @@ export function RecordViewSheet({
       fullScreen
       title={title}
       footer={
-        <>
-          <Button variant="outline" size="md" onClick={onClose}>
-            Close
-          </Button>
-          {onEdit && canEdit && (
-            <Button size="md" onClick={onEdit}>
-              Edit
-            </Button>
-          )}
-        </>
+        <Button variant="outline" size="md" onClick={onClose}>
+          Close
+        </Button>
       }
     >
       <div className="space-y-4">

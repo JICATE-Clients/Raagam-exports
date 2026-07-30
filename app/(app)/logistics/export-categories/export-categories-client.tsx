@@ -15,7 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 
 interface Props {
@@ -117,29 +119,29 @@ export function ExportCategoriesClient({
     },
     ...(canEdit || canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (c: ExportCategory) => (
-              <div className="flex justify-end gap-1">
-                {canEdit && (
-                  <>
-                    <Button size="sm" variant="ghost" onClick={() => openEdit(c)} disabled={isPending} className="h-7 px-2 text-xs">
-                      Edit
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => handleToggle(c)} disabled={isPending} className="h-7 px-2 text-xs">
-                      {c.is_active ? "Deactivate" : "Activate"}
-                    </Button>
-                  </>
-                )}
-                {canDelete && (
-                  <Button size="sm" variant="ghost" onClick={() => handleDelete(c.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                    Delete
-                  </Button>
-                )}
-              </div>
-            ),
-          } satisfies Column<ExportCategory>,
+          rowActionsColumn<ExportCategory>((c) => (
+            <RowActions
+              label={c.name}
+              onEdit={() => openEdit(c)}
+              canEdit={canEdit}
+              onDelete={() => handleDelete(c.id)}
+              canDelete={canDelete}
+              isPending={isPending}
+              /* Activate/Deactivate is a lifecycle toggle, not row CRUD — it
+                 belongs behind the ⋮ rather than competing with Edit. */
+              menu={
+                canEdit
+                  ? [
+                      {
+                        label: c.is_active ? "Deactivate" : "Activate",
+                        icon: c.is_active ? Ban : CheckCircle2,
+                        onClick: () => handleToggle(c),
+                      },
+                    ]
+                  : []
+              }
+            />
+          )),
         ]
       : []),
   ];

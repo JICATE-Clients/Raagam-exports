@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
@@ -111,16 +112,14 @@ export function MaterialsConfigSection({ lookups }: { lookups: ConfigLookup[] })
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Notes", cell: (r) => <span className="text-sm text-muted-foreground">{r.notes ?? "—"}</span> },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>
-          <Button variant="outline" size="sm" className="text-danger hover:border-danger" disabled={isPending} onClick={() => remove(r.id)}>Del</Button>
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r.id)}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -199,7 +198,7 @@ export function TransportersSection({ transporters }: { transporters: Transporte
     { header: "Contact", cell: (r) => <span className="text-sm">{r.contact_person ?? "—"}</span> },
     { header: "Phone", cell: (r) => <span className="text-sm">{r.phone ?? "—"}</span> },
     { header: "Status", cell: (r) => <StatusPill tone={r.is_active ? "success" : "neutral"}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button> },
+    rowActionsColumn((r) => <RowActions label={r.name} onEdit={() => openEdit(r)} />),
   ];
 
   return (
@@ -249,7 +248,7 @@ export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
     { header: "Rate %", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.rate_pct)}</span> },
     { header: "HSN", cell: (r) => <span className="text-sm">{r.hsn_code ?? "—"}</span> },
     { header: "Status", cell: (r) => <StatusPill tone={r.is_active ? "success" : "neutral"}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button> },
+    rowActionsColumn((r) => <RowActions label={r.name} onEdit={() => openEdit(r)} />),
   ];
 
   return (
@@ -297,7 +296,7 @@ export function CurrenciesSection({ currencies }: { currencies: Currency[] }) {
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Symbol", cell: (r) => <span className="text-sm">{r.symbol ?? "—"}</span> },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button> },
+    rowActionsColumn((r) => <RowActions label={r.name} onEdit={() => openEdit(r)} />),
   ];
 
   return (

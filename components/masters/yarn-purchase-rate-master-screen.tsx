@@ -13,7 +13,7 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   createYarnPurchaseRate,
   updateYarnPurchaseRate,
@@ -126,16 +126,16 @@ export function YarnPurchaseRateMasterScreen({
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span> },
     { header: "Rates", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

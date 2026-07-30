@@ -273,13 +273,16 @@ Undo
 
 ## Quick Actions
 
-Right-click or use a three-dot menu for:
+View / Edit / Delete are the row's own icon buttons, not menu items — see
+`doc/ui/LAYOUT.md` §6a. The three-dot menu carries only the extras:
 
-* Edit
 * Duplicate
 * Print
 * Export
-* Delete
+
+> Delete was originally listed here. It is deliberately **not** in the menu: it is the one
+> irreversible action on the row, and putting it a click deeper than Edit inverted the risk.
+> It stays a first-class icon with its confirm step inline.
 
 ---
 

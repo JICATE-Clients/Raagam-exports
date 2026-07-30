@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber, fmtDate } from "@/lib/format";
 
@@ -171,15 +172,12 @@ export function ForwardContractsClient({
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (c: ForwardContract) => (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(c.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                Delete
-              </Button>
-            ),
-          } satisfies Column<ForwardContract>,
+          rowActionsColumn<ForwardContract>((c) => (
+            <RowActions
+              onDelete={() => handleDelete(c.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

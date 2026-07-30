@@ -24,7 +24,7 @@ import { createLevy, updateLevy, deleteLevy } from "@/lib/masters/levy-actions";
 import { AcHeadPicker } from "@/components/masters/ac-head-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { DetailSection } from "@/components/masters/detail-section";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   LEVY_TYPES,
   CESS_MODES,
@@ -334,20 +334,16 @@ export function LevyMasterScreen({
         <StatusPill tone={r.inactive ? "neutral" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={String(r.entry_no)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   const act = activeComponents(form.type);

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -45,7 +46,13 @@ export function DueDateClient({ rows }: { rows: DueDateConfirmationRow[] }) {
     { header: "Entry Date", cell: (r) => <span className="text-xs tabular-nums">{fmtDate(r.entry_date)}</span> },
     { header: "Delivery Date", cell: (r) => r.delivery_date ? <span className="text-xs tabular-nums">{fmtDate(r.delivery_date)}</span> : "—" },
     { header: "Notes", cell: (r) => <span className="text-xs text-muted-foreground line-clamp-1">{r.notes ?? "—"}</span> },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deleteDueDateConfirmation(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button> },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => startTransition(async () => { const res = await deleteDueDateConfirmation(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

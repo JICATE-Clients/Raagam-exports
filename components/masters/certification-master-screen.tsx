@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -174,30 +175,20 @@ export function CertificationMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && !r.inactive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => deactivate(r)}
-            >
-              Deactivate
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    /* This master never hard-deletes — the row is deactivated, so the verb
+       stays "Deactivate" rather than promising something else. Already-inactive
+       rows have nothing left to do. */
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.certification_name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => deactivate(r)}
+        deleteLabel="Deactivate"
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete && !r.inactive}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

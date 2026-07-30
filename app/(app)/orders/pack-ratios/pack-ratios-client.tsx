@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -96,7 +97,13 @@ export function PackRatiosClient({ rows }: { rows: PackRatioRow[] }) {
     { header: "Pcs/Master", align: "right", cell: (r) => <span className="tabular-nums">{r.pcs_per_master}</span> },
     { header: "Total Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.total_qty}</span> },
     { header: "Delivery", cell: (r) => r.delivery_date ? fmtDate(r.delivery_date) : "—" },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deletePackRatio(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button> },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.order_code}
+        onDelete={() => startTransition(async () => { const res = await deletePackRatio(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

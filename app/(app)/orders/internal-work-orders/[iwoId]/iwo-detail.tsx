@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber, fmtDate } from "@/lib/format";
 
@@ -116,21 +117,12 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (l: IwoLine) => (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleDeleteLine(l.id)}
-                disabled={isPending}
-                className="h-7 px-2 text-xs text-danger hover:opacity-80"
-              >
-                Delete
-              </Button>
-            ),
-          } satisfies Column<IwoLine>,
+          rowActionsColumn<IwoLine>((l) => (
+            <RowActions
+              onDelete={() => handleDeleteLine(l.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

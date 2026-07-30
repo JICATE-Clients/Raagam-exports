@@ -19,12 +19,9 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
-import { MATERIAL_SEED_WORDS } from "@/lib/masters/material-dictionary";
-import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
   showsUserDefined,
@@ -115,11 +112,6 @@ export function CategoryMasterScreen({
     for (const c of commodities) m.set(c.id, c.name ?? c.short_name ?? "—");
     return m;
   }, [commodities]);
-  const commodityShortLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of commodities) m.set(c.id, c.short_name ?? "—");
-    return m;
-  }, [commodities]);
   const fabricStructureLabel = useMemo(() => {
     const m = new Map<string, string>();
     for (const f of fabricStructures) m.set(f.id, f.name);
@@ -166,23 +158,8 @@ export function CategoryMasterScreen({
     enabled: !!(form.name && form.item_class_id),
   });
 
-  // Live "did you mean?" on Name — suppressed while a dup error is showing (red
-  // error wins). Scoped to the selected Item Class exactly like the dup check
-  // above (client 2026-07-28): a Packing Accessories name must not be
-  // "corrected" towards an unrelated Yarn category, and the curated fibre words
-  // (COTTON, JERSEY…) are only vocabulary on Yarn/Fabric — everywhere else the
-  // dictionary is the class's own names and nothing more.
-  const knownNames = useMemo(
-    () => rows.filter((r) => r.item_class_id === form.item_class_id).map((r) => r.name ?? ""),
-    [rows, form.item_class_id],
-  );
-  const fibreSeed = selectedClassCode === "YARN" || selectedClassCode === "FABRIC";
-  const nameSuggestions = useSpellSuggest({
-    name: form.name ?? "",
-    names: knownNames,
-    seed: fibreSeed ? MATERIAL_SEED_WORDS : [],
-    enabled: !!form.name && !dupError,
-  });
+  // No "did you mean?" suggestions on Name (client 2026-07-30) — the red
+  // duplicate error above is the only feedback this field gives.
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
@@ -205,9 +182,8 @@ export function CategoryMasterScreen({
         status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
         itemClass: (r, v) => r.item_class_id === v,
         made: (r, v) => r.made === v,
-        levy: (r, v) => r.levy_id === v,
       },
-      initialFilters: { status: "", itemClass: "", made: "", levy: "" },
+      initialFilters: { status: "", itemClass: "", made: "" },
     },
   );
 
@@ -307,30 +283,6 @@ export function CategoryMasterScreen({
         </span>
       ),
     },
-    {
-      header: "Levy Description",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.levy_id ? levyLabel.get(r.levy_id) ?? "—" : "—"}
-        </span>
-      ),
-    },
-    {
-      header: "Commodity",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.commodity_id ? commodityShortLabel.get(r.commodity_id) ?? "—" : "—"}
-        </span>
-      ),
-    },
-    {
-      header: "Commodity Description",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.commodity_id ? commodityLabel.get(r.commodity_id) ?? "—" : "—"}
-        </span>
-      ),
-    },
     { header: "Created Dt", cell: (r) => <span className="text-sm">{fmtDate(r.created_at)}</span> },
     { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by_name || "—"}</span> },
     {
@@ -341,20 +293,16 @@ export function CategoryMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -424,25 +372,6 @@ export function CategoryMasterScreen({
               {MADE_TYPES.map((m) => (
                 <option key={m} value={m}>
                   {m}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="category-filter-levy">Levy</Label>
-            <Select
-              id="category-filter-levy"
-              value={filterValues.levy}
-              onChange={(e) => {
-                setFilter("levy", e.target.value);
-                pg.setPage(1);
-              }}
-              className="text-base md:text-sm"
-            >
-              <option value="">All</option>
-              {levies.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.description || `Entry #${l.entry_no}`}
                 </option>
               ))}
             </Select>
@@ -656,10 +585,6 @@ export function CategoryMasterScreen({
                 className="text-base md:text-sm"
               />
               {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-              <SpellSuggestHint
-                suggestions={nameSuggestions}
-                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
-              />
             </div>
             {/* Short Spec/Short Description dropped from the UI (client 2026-07-24 —
                 "use Description only"). The short_spec column is still round-tripped

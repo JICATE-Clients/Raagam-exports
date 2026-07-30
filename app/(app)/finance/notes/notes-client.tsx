@@ -29,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney } from "@/lib/format";
 
@@ -177,15 +178,12 @@ export function FinanceNotesClient({
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (n: FinanceNoteRow) => (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(n.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                Delete
-              </Button>
-            ),
-          } satisfies Column<FinanceNoteRow>,
+          rowActionsColumn<FinanceNoteRow>((n) => (
+            <RowActions
+              onDelete={() => handleDelete(n.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

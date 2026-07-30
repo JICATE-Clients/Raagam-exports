@@ -3,7 +3,7 @@ import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Pencil, X } from "lucide-react";
+import { Check, Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +19,10 @@ import { useRegisterShortcut } from "@/lib/shortcuts";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import { RowActions, ROW_ACTIONS_WIDTH } from "@/components/ui/row-actions";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
+import { pairsFromRow } from "@/lib/record-pairs";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { validateFormat, type FormatKind } from "@/lib/validation/formats";
 import { cn } from "@/lib/utils";
@@ -74,8 +77,20 @@ export type SimpleMasterDescriptor<Row> = {
   mobileMeta?: (r: Row) => ReactNode;
   /** Field key used as the mobile card title. Defaults to the second field
    *  (historically Name, after a leading Code column), then the first — set
-   *  this when the code field is gone and fields[1] isn't the natural label. */
+   *  this when the code field is gone and fields[1] isn't the natural label.
+   *  Also titles the read-only view sheet. */
   mobileTitleKey?: string;
+  /**
+   * OPTIONAL override for the read-only view behind the row's eye. The engine
+   * owns the sheet, its open/close state and its title either way; the eye is
+   * there whether or not this is declared, falling back to the record's own
+   * fields (`lib/record-pairs.ts`).
+   *
+   * Declare it when the raw field names read badly, or to group the record into
+   * sections. It renders what the row ALREADY holds — no fetching here, same
+   * rule as `record-view-sheet.tsx`.
+   */
+  view?: (r: Row) => ViewSection[];
   /** Row → form values for editing. */
   fromRow: (r: Row) => SimpleValues;
   /** Free-text search haystack. */
@@ -150,6 +165,9 @@ export function SimpleMasterScreen<Row>({
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<Editing | null>(null);
+  // Read-only view (client 2026-07-30). Holds the row itself — everything the
+  // sheet renders is already on it, so there is nothing to fetch.
+  const [viewRow, setViewRow] = useState<Row | null>(null);
 
   // Hold off the silent PWA auto-reload while a row is being added/edited or a
   // save is in flight. This is inline editing with no overlay at all, so
@@ -440,6 +458,19 @@ export function SimpleMasterScreen<Row>({
     );
   }
 
+  /**
+   * The row's human name — used for the mobile card title, the view sheet title
+   * and the row-action aria-labels, so all three agree. Same fallback chain the
+   * mobile card has always used: `mobileTitleKey`, else fields[1] (historically
+   * Name, after a leading Code column), else fields[0].
+   */
+  function rowTitle(r: Row): string {
+    const values = d.fromRow(r);
+    const first = d.fields[0];
+    const key = d.mobileTitleKey ?? d.fields[1]?.key ?? first.key;
+    return String(values[key] ?? "") || String(values[first.key] ?? "");
+  }
+
   function statusPill(r: Row) {
     const s = statusOf(r);
     return (
@@ -576,7 +607,7 @@ export function SimpleMasterScreen<Row>({
               {hasStatus && (
                 <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Status</th>
               )}
-              <th className="w-40 px-3 py-2" />
+              <th className={cn(ROW_ACTIONS_WIDTH, "px-3 py-2")} />
             </tr>
           </thead>
           <tbody>
@@ -642,23 +673,18 @@ export function SimpleMasterScreen<Row>({
                     ))}
                     {hasStatus && <td className="px-3 py-2 align-middle">{statusPill(r)}</td>}
                     <td className="px-3 py-2 align-middle">
-                      <div className="flex items-center justify-end gap-1">
-                        {perms.canEdit && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => startEdit(r)}
-                            disabled={!!editing}
-                            aria-label={`Edit ${d.entityLabel.toLowerCase()}`}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Edit
-                          </Button>
-                        )}
-                        {perms.canDelete && (
-                          <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />
-                        )}
-                      </div>
+                      <RowActions
+                        label={rowTitle(r)}
+                        onView={() => setViewRow(r)}
+                        onEdit={() => startEdit(r)}
+                        onDelete={() => remove(r)}
+                        canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
+                        /* Another row is mid-edit: starting a second one would
+                           silently discard what is being typed. */
+                        editDisabled={!!editing}
+                        isPending={isPending}
+                      />
                     </td>
                   </tr>
                 );
@@ -697,11 +723,7 @@ export function SimpleMasterScreen<Row>({
                 />
               );
             }
-            const values = d.fromRow(r);
-            const first = d.fields[0];
-            const second = d.fields[1];
-            const titleKey = d.mobileTitleKey ?? second?.key ?? first.key;
-            const title = String(values[titleKey] ?? "") || String(values[first.key] ?? "");
+            const title = rowTitle(r);
             return (
               <div key={getId(r)} className="rounded-xl border border-border bg-surface">
                 <button
@@ -720,11 +742,27 @@ export function SimpleMasterScreen<Row>({
                     {hasStatus && statusPill(r)}
                   </div>
                 </button>
-                {perms.canDelete && (
-                  <div className="flex justify-end border-t border-border px-3 py-1.5">
+                {/* Footer controls are SIBLINGS of the tap-to-edit button, never
+                    nested inside it — button-in-button is invalid markup and the
+                    two-step confirm breaks. Mirrors MobileCardList's footer;
+                    this screen keeps its own card because the list interleaves
+                    MobileEditCard for whichever row is being edited. */}
+                <div className="flex items-center justify-end gap-1 border-t border-border px-3 py-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`View ${title}`}
+                    onClick={() => setViewRow(r)}
+                  >
+                    <Eye />
+                    View
+                  </Button>
+                  {/* Text, not the desktop bin icon: same reason MobileCardList
+                      uses text here — a 32px icon is not a touch target. */}
+                  {perms.canDelete && (
                     <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             );
           })
@@ -739,6 +777,19 @@ export function SimpleMasterScreen<Row>({
         onPageChange={pg.setPage}
         onPageSizeChange={pg.setPageSize}
       />
+
+      {/* Read-only view, owned by the engine so all 31 simple masters get one
+          from a single `view` function on their descriptor. No Edit in the
+          footer — see record-view-sheet.tsx. */}
+      {viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          title={rowTitle(viewRow) || d.entityLabel}
+          status={hasStatus ? statusPill(viewRow) : undefined}
+          sections={d.view ? d.view(viewRow) : [{ label: "Details", pairs: pairsFromRow(viewRow) }]}
+        />
+      )}
     </div>
   );
 }
