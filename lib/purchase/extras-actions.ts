@@ -102,7 +102,44 @@ export async function acknowledgeIndent(id: string): Promise<R> {
 }
 export async function convertIndent(id: string): Promise<R> {
   await guard("edit");
-  return setIndentStatus(id, "acknowledged", "converted", "Converted");
+  const s = await createClient();
+
+  // Verify indent is acknowledged
+  const { data: indent } = await s
+    .from("purchase_indents")
+    .select("id, status, department, sales_order_id, garment_ppm_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!indent || indent.status !== "acknowledged")
+    return bad("Indent is not in acknowledged status");
+
+  // Create a draft PO linked to this indent
+  const user = await getAppUser();
+  const { data: po, error: poErr } = await s
+    .from("purchase_orders")
+    .insert({
+      purchase_indent_id: id,
+      vendor_id: "00000000-0000-0000-0000-000000000000", // placeholder — user must set vendor
+      status: "draft",
+      order_date: new Date().toISOString().slice(0, 10),
+      notes: `Created from indent ${indent.id}`,
+      created_by: user?.id ?? null,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (poErr || !po) return bad(poErr?.message ?? "Failed to create PO");
+
+  // Mark indent as converted
+  const { error } = await s
+    .from("purchase_indents")
+    .update({ status: "converted" })
+    .eq("id", id);
+  if (error) return bad(error.message);
+
+  revalidateIndents(id);
+  revalidatePath("/purchase/orders");
+  return { ok: true };
 }
 export async function cancelIndent(id: string): Promise<R> {
   await guard("edit");

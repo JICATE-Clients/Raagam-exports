@@ -122,6 +122,7 @@ export interface PurchaseOrder {
   vendor_id: string;
   budget_id: string | null;
   rfq_id: string | null;
+  purchase_indent_id: string | null;
   location_id: string | null;
   currency_code: string | null;
   status: PoStatus;
@@ -225,6 +226,7 @@ export interface PoItemGroup {
   purchase_order_id: string;
   sl_no: number;
   ppm_no: string | null;
+  garment_ppm_id: string | null;
   group_no: string | null;
   group_description: string | null;
   customer_name: string | null;

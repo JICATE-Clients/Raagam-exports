@@ -76,6 +76,16 @@ export default async function IndentDetailPage({
               <dt className="text-xs text-muted-foreground">Status</dt>
               <dd className="mt-0.5">{INDENT_STATUS_LABELS[indent.status]}</dd>
             </div>
+            {indent.garment_ppm_id && (
+              <div>
+                <dt className="text-xs text-muted-foreground">Source PPM</dt>
+                <dd className="mt-0.5">
+                  <Link href={`/planning/garment-ppm/${indent.garment_ppm_id}`} className="font-mono text-xs text-primary hover:underline">
+                    View PPM
+                  </Link>
+                </dd>
+              </div>
+            )}
             {indent.notes && (
               <div className="col-span-2 sm:col-span-3">
                 <dt className="text-xs text-muted-foreground">Notes</dt>

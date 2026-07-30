@@ -137,7 +137,7 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
           {status === "acknowledged" && (
             <>
               <Button disabled={isPending}
-                onClick={() => run(() => convertIndent(indentId), "Marked converted")}>Mark converted</Button>
+                onClick={() => run(() => convertIndent(indentId), "Converted — draft PO created")}>Convert to PO</Button>
               <Button variant="outline" disabled={isPending}
                 onClick={() => run(() => cancelIndent(indentId), "Cancelled")}>Cancel</Button>
             </>

@@ -29,6 +29,14 @@ export interface PurchaseIndent {
   required_date: string | null;
   status: IndentStatus;
   notes: string | null;
+  // PPM link (0373)
+  garment_ppm_id: string | null;
+  // Approval enrichment (0362)
+  approval_type: string | null;
+  user_approved_by: string | null;
+  user_approved_at: string | null;
+  md_approved_by: string | null;
+  md_approved_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -41,12 +49,18 @@ export interface PurchaseIndentLine {
   quantity: number;
   uom_id: string | null;
   sort_order: number;
+  // Approval enrichment (0362)
+  approval_status: string | null;
+  approved_qty: number | null;
+  last_po_rate: number | null;
+  stock_qty: number | null;
 }
 export const indentInput = z.object({
   department: z.string().min(1),
   sales_order_id: z.string().uuid().optional().nullable(),
   required_date: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  garment_ppm_id: z.string().uuid().optional().nullable(),
 });
 export type IndentInput = z.infer<typeof indentInput>;
 export const indentLineInput = z.object({
