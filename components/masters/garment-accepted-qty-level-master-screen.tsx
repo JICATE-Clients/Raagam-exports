@@ -12,6 +12,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { usePagination } from "@/lib/use-pagination";
 import {
   createGarmentAcceptedQtyLevel,
@@ -119,6 +120,22 @@ export function GarmentAcceptedQtyLevelMasterScreen({
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
+  /**
+   * Unsaved-work tracking (AGENTS.md, STANDING). This screen holds an entry
+   * date, an effective-from date and a whole tolerance table in local state and
+   * never declared any of it, so a deploy landing mid-entry took it silently.
+   *
+   * GATED ON `open`. With the editor closed, `pristine` is still "" while the
+   * blank state stringifies to a real object, so an ungated flag reads dirty
+   * forever and arms the guard on a list page with nothing to lose —
+   * permanently blocking the silent PWA auto-update on this route. That shipped
+   * on four screens before it was caught (2026-07-29).
+   */
+  const [pristine, setPristine] = useState("");
+  const snapshot = () => JSON.stringify({ entryDate, effectiveFrom, lines });
+  const dirty = open && snapshot() !== pristine;
+  useUnsavedGuard(dirty || isPending);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -134,7 +151,9 @@ export function GarmentAcceptedQtyLevelMasterScreen({
     setEditCode(null);
     setEntryDate(todayISO());
     setEffectiveFrom(todayISO());
-    setLines([blankLine(newKey())]);
+    const blank = [blankLine(newKey())];
+    setLines(blank);
+    setPristine(JSON.stringify({ entryDate: todayISO(), effectiveFrom: todayISO(), lines: blank }));
     setOpen(true);
   }
 
@@ -143,21 +162,23 @@ export function GarmentAcceptedQtyLevelMasterScreen({
     setEditCode(r.code);
     setEntryDate(r.entry_date);
     setEffectiveFrom(r.effective_from);
-    setLines(
-      r.details
-        .slice()
-        .sort((a, b) => a.sno - b.sno)
-        .map((d) => ({
-          key: newKey(),
-          range_type: (d.range_type ?? "") as RangeType | "",
-          from_qty: d.from_qty != null ? String(d.from_qty) : "",
-          to_qty: d.to_qty != null ? String(d.to_qty) : "",
-          no_of_pieces: d.no_of_pieces != null ? String(d.no_of_pieces) : "",
-          major_allowed: d.major_allowed != null ? String(d.major_allowed) : "",
-          minor_allowed: d.minor_allowed != null ? String(d.minor_allowed) : "",
-          critical_allowed: d.critical_allowed != null ? String(d.critical_allowed) : "",
-          allowed: d.allowed != null ? String(d.allowed) : "",
-        })),
+    const nextLines: LineRow[] = r.details
+      .slice()
+      .sort((a, b) => a.sno - b.sno)
+      .map((d) => ({
+        key: newKey(),
+        range_type: (d.range_type ?? "") as RangeType | "",
+        from_qty: d.from_qty != null ? String(d.from_qty) : "",
+        to_qty: d.to_qty != null ? String(d.to_qty) : "",
+        no_of_pieces: d.no_of_pieces != null ? String(d.no_of_pieces) : "",
+        major_allowed: d.major_allowed != null ? String(d.major_allowed) : "",
+        minor_allowed: d.minor_allowed != null ? String(d.minor_allowed) : "",
+        critical_allowed: d.critical_allowed != null ? String(d.critical_allowed) : "",
+        allowed: d.allowed != null ? String(d.allowed) : "",
+      }));
+    setLines(nextLines);
+    setPristine(
+      JSON.stringify({ entryDate: r.entry_date, effectiveFrom: r.effective_from, lines: nextLines }),
     );
     setOpen(true);
   }
