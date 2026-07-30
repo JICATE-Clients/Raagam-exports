@@ -31,8 +31,18 @@ import type {
   PoItemSizeDeliveryInput,
   PoAdditionalChargeInput,
 } from "@/lib/purchase/types";
-import { getBudgetLines } from "./po-service";
+import {
+  getBudgetLines,
+  getPoSizeDeliveries,
+  getPoDeliverySizes,
+  getPoItemSizeDeliveries,
+} from "./po-service";
 import type { BudgetLineRow } from "./po-service";
+import type {
+  PoSizeDelivery,
+  PoDeliverySize,
+  PoItemSizeDelivery,
+} from "@/lib/purchase/types";
 
 type OkResult = { ok: true };
 type ErrResult = { ok: false; error: string };
@@ -258,13 +268,45 @@ export async function saveRfqQuoteLines(
   return { ok: true };
 }
 
-// ---------- budget lines data action ----------
+// ---------- read-only data actions ----------
 
 /** Read-only data action — fetches budget lines for the PO form prefill. */
 export async function fetchBudgetLines(
   budgetId: string,
 ): Promise<BudgetLineRow[]> {
   return getBudgetLines(budgetId);
+}
+
+/**
+ * Bands 2-4 of the PO detail load their rows on demand, when the operator
+ * expands a line — the ids are only known at click time, so the server parent
+ * cannot pass them down as props.
+ *
+ * They must therefore cross the client boundary as ACTIONS. `po-delivery-editor`
+ * imported the `po-service` getters directly instead, which cannot work: the
+ * service is `server-only` and reaches for `next/headers`, so the bundler
+ * refused the whole route ("You're importing a module that depends on
+ * server-only"). The build has been failing on it.
+ *
+ * Thin passthroughs, matching `fetchBudgetLines` above — the query stays in
+ * `po-service`, and RLS remains the gate on a read, as it is there.
+ */
+export async function fetchPoSizeDeliveries(
+  lineItemId: string,
+): Promise<PoSizeDelivery[]> {
+  return getPoSizeDeliveries(lineItemId);
+}
+
+export async function fetchPoDeliverySizes(
+  sizeDeliveryId: string,
+): Promise<PoDeliverySize[]> {
+  return getPoDeliverySizes(sizeDeliveryId);
+}
+
+export async function fetchPoItemSizeDeliveries(
+  lineItemId: string,
+): Promise<PoItemSizeDelivery[]> {
+  return getPoItemSizeDeliveries(lineItemId);
 }
 
 // ---------- PO actions ----------
