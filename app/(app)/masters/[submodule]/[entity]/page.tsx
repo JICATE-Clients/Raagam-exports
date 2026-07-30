@@ -57,6 +57,7 @@ import { listVendorGst } from "@/lib/masters/vendor-gst-service";
 import { GstAssignScreen } from "@/components/masters/gst-assign-screen";
 import { listCustomerGst } from "@/lib/masters/customer-gst-service";
 import { CustomerGstAssignScreen } from "@/components/masters/customer-gst-assign-screen";
+import { GstinCheckScreen } from "@/components/masters/gstin-check-screen";
 import { listProcessHsn } from "@/lib/masters/process-hsn-service";
 import { ProcessHsnAssignScreen } from "@/components/masters/process-hsn-assign-screen";
 import { listMaterialHsn } from "@/lib/masters/material-hsn-service";
@@ -494,16 +495,32 @@ export default async function SubEntityPage({
       const [tcsRows, countries] = await Promise.all([listCustomerTcs(), listCountries()]);
       screen = <TcsAssignScreen rows={tcsRows} countries={countries} perms={perms} />;
     } else if (child.custom === "gst_assign") {
-      const rows = await listVendorGst();
-      screen = <GstAssignScreen rows={rows} perms={perms} />;
+      // Our own GSTIN — same source as the Vendor master. It is what turns each
+      // row's GSTIN into within-state / other-state, so the grid can flag a
+      // number whose state contradicts the vendor's own type (IGST vs CGST+SGST).
+      const [rows, company] = await Promise.all([listVendorGst(), getCompanyProfile()]);
+      screen = <GstAssignScreen rows={rows} companyGstin={company?.gstin ?? null} perms={perms} />;
     } else if (child.custom === "customer_gst_assign") {
-      const [rows, all] = await Promise.all([listCustomerGst(), listConfigLookups()]);
+      const [rows, all, company] = await Promise.all([
+        listCustomerGst(),
+        listConfigLookups(),
+        getCompanyProfile(),
+      ]);
       screen = (
         <CustomerGstAssignScreen
           rows={rows}
           cities={all.filter((l) => l.kind === "city")}
+          companyGstin={company?.gstin ?? null}
           perms={perms}
         />
+      );
+    } else if (child.custom === "gstin_check") {
+      // Read-only test bench — no perms beyond the module's own view gate, and
+      // no save path at all. It needs the State master only so it can show WHICH
+      // row a state code resolves to.
+      const [stateRows, company] = await Promise.all([listStates(), getCompanyProfile()]);
+      screen = (
+        <GstinCheckScreen states={statesAsLookups(stateRows)} companyGstin={company?.gstin ?? null} />
       );
     } else if (child.custom === "allowance") {
       const allowances = await listAllowances();

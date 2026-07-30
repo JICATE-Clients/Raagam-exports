@@ -59,7 +59,6 @@ export const SUBMODULES: SubmoduleDef[] = [
     label: "Associates",
     description: "Trading partners, parties, banks & accounts",
     status: "ready",
-    note: "Legacy Configure ▸ Associates — the 17 children in legacy order. Each is a placeholder until its form is built from the legacy screenshot; some (Customer, Vendor, Employee, Account Head) may map to existing buyers/vendors/staff/gl_accounts tables — backing to be confirmed per child.",
     children: [
       { slug: "country", label: "Country", singular: "Country", description: "Country master", type: "custom", custom: "country" },
       { slug: "port", label: "Port", singular: "Port", description: "Shipping ports", type: "custom", custom: "port" },
@@ -80,6 +79,10 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "tcs-assign-to-customers", label: "TCS Assign to Customers", singular: "TCS Assignment", description: "TCS assignment to customers", type: "custom", custom: "tcs_assign" },
       { slug: "gst-assign-to-vendors", label: "GST Assign to Vendors", singular: "GST Assignment", description: "Bulk-assign GST Type & GSTIN to vendors", type: "custom", custom: "gst_assign" },
       { slug: "gst-assign-to-customers", label: "GST Assign to Customers", singular: "Customer GST Assignment", description: "Bulk-assign GSTIN to customers", type: "custom", custom: "customer_gst_assign" },
+      // A test bench, not a master: type a GSTIN and every detail the system can
+      // derive is listed, including the ones it CANNOT (those need the paid
+      // lookup). Saves nothing, owns no table.
+      { slug: "gst-number-check", label: "GST Number Check", singular: "GST Number Check", description: "Test what a GST number reveals — no data is saved", type: "custom", custom: "gstin_check" },
       { slug: "our-banks", label: "Our Banks", singular: "Our Bank", description: "Company's own bank accounts", type: "custom", custom: "our_bank" },
       { slug: "zones", label: "Zones", singular: "Zone", description: "Sales territory zones", type: "custom", custom: "zone" },
       { slug: "certifications", label: "Certifications", singular: "Certification", description: "Certification standards & validity", type: "custom", custom: "certification" },
