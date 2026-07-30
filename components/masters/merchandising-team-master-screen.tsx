@@ -245,7 +245,10 @@ export function MerchandisingTeamMasterScreen({
             of its own. Three fields is too small a form for four-per-row to be
             a goal; sizing each to its data is the point (client 2026-07-29). */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Name" size="lg" required htmlFor="mt-name">
+          {/* `sm` like every other field in the masters, not the `lg` a team
+              name would earn on its own — one width across the module, small
+              form or not (client 2026-07-29). */}
+          <Field label="Name" size="sm" required htmlFor="mt-name">
             <Input
               id="mt-name"
               uppercase
@@ -265,7 +268,7 @@ export function MerchandisingTeamMasterScreen({
             />
           </Field>
           {editId && (
-            <Field size="xs">
+            <Field size="sm">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

@@ -225,7 +225,10 @@ export function PortMasterScreen({
             fourth to reach for, so the job was sizing each to its data rather
             than hitting a count (client 2026-07-29). */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Name" size="lg" required htmlFor="pt-name">
+          {/* `sm` like every other field in the masters, not the `lg` a port
+              name would earn on its own — one width across the module, small
+              form or not (client 2026-07-29). */}
+          <Field label="Name" size="sm" required htmlFor="pt-name">
             <Input
               id="pt-name"
               uppercase

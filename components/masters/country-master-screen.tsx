@@ -45,13 +45,19 @@ const BLANK = {
  * three codes stopped taking a third of the row each — they were md/xs/xs, so
  * row 1 was 6+4+2 = 12 with only THREE fields on it and ISD pushed down.
  */
+/**
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29) —
+ * the City / State / Pin / Country shape, applied across the masters instead of
+ * sizing each field to its own data. Rows here are 3+3+3+3 = 12 then 3+3 = 6.
+ * See applicant-master-screen for the rule and what it trades away.
+ */
 const FIELD_SIZE = {
-  name: "lg", // 6 — a full country name: "UNITED ARAB EMIRATES"
-  country_group: "xs", // 2 — a four-value enum: EU / USA / CANADA / OTHERS
-  ecgc_code: "xs", // 2 — 2-4 chars
-  isd_code: "xs", // 2 — "+91"
-  default_country: "xs", // 2 — a tick and a short caption
-  inactive: "xs", // 2 — a tick and a short caption
+  name: "sm", // "UNITED ARAB EMIRATES" scrolls inside the box
+  country_group: "sm",
+  ecgc_code: "sm",
+  isd_code: "sm",
+  default_country: "sm",
+  inactive: "sm",
 } satisfies Record<string, FieldSize>;
 
 /**

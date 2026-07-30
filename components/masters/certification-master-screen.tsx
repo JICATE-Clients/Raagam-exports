@@ -325,15 +325,23 @@ export function CertificationMasterScreen({
             so SectionColumns rather than auto-placement (LAYOUT.md §1). */}
         <SectionGrid>
           <SectionColumn>
-            {/* Three fields in a section half a sheet wide (~560px), and the
-                middle one is a textarea, which stays `full` whatever else
-                happens (LAYOUT.md §3). Nothing here can share a row with
-                anything: Description sits between the name and the flag, so
-                there is no pair to pull together. Left at one field per row on
-                purpose — this is a form too small for four-per-row to mean
-                anything (client 2026-07-29). */}
+            {/* Three fields in a section half a sheet wide (~560px).
+
+                The sweep to one field width across the masters (client
+                2026-07-29) is about the width fields LOOK, not the number they
+                carry: the reference is the ~280px box on the Applicant screen,
+                which is `sm` (3 of 12) across a full 1180px sheet and `lg`
+                (6 of 12) in one column of a `SectionGrid` — the same picture,
+                different arithmetic. Name is `lg` for that reason; `sm` here
+                would be ~132px, half the reference. Same call as zone and
+                account-head, both of which are also two-column screens.
+
+                Description stays `full` because it is a textarea, and a textarea
+                sets the height of any row it shares (LAYOUT.md §3); it also sits
+                BETWEEN the other two, so there is no pair here to pull onto one
+                row regardless. */}
             <DetailSection label="Details" cols={12}>
-              <Field label="Certification Name" size="full" required htmlFor="cert-name">
+              <Field label="Certification Name" size="lg" required htmlFor="cert-name">
                 <Input
                   id="cert-name"
                   uppercase

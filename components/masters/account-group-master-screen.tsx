@@ -57,14 +57,19 @@ const blankForm = () => ({
  * alternative — keeping the pair together — costs a whole field off row 1,
  * because legacy field ORDER is fixed here (see the section comment below).
  */
+/**
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29) —
+ * the City / State / Pin / Country shape, applied across the masters instead of
+ * sizing each field to its own data. Rows here are 3+3+3+3 = 12 then 3+3 = 6.
+ * See applicant-master-screen for the rule and what it trades away.
+ */
 const FIELD_SIZE = {
-  parent_id: "sm", // 3 — picker; holds another group's name
-  name: "md", // 4 — the longest real value is "CURRENT LIABILITIES", ~19 chars;
-  //          `lg` gave that twice the room it needs
-  nature_of_group: "xs", // 2 — a four-value enum: ASSETS / LIABILITIES / INCOME / EXPENSES
-  debit_schedule_id: "sm", // 3 — picker over config_lookups
-  credit_schedule_id: "sm", // 3 — picker over config_lookups
-  inactive: "xs", // 2 — a tick and a short caption
+  parent_id: "sm",
+  name: "sm",
+  nature_of_group: "sm",
+  debit_schedule_id: "sm",
+  credit_schedule_id: "sm",
+  inactive: "sm",
 } satisfies Record<string, FieldSize>;
 
 export function AccountGroupMasterScreen({

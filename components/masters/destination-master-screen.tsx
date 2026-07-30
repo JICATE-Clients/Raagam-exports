@@ -238,12 +238,13 @@ export function DestinationMasterScreen({
         }
       >
         {/* Two fields plus a flag — one flat section (LAYOUT.md §4), all on one
-            row: name 6 + country 3 + inactive 2 = 11. Too small a form for
-            four-per-row to mean anything, so each field is sized to its data
-            instead (client 2026-07-29). The flag was `full`, which put a single
+            row: 3 + 3 + 3 = 9. Every field is the same `sm` box as everywhere
+            else in the masters, small form or not — the client asked for one
+            width across the whole module rather than each field sized to its
+            data (client 2026-07-29). The flag was `full`, which put a single
             tick on a 12-col row of its own. */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Name" size="lg" required htmlFor="de-name">
+          <Field label="Name" size="sm" required htmlFor="de-name">
             <Input
               id="de-name"
               uppercase
@@ -263,7 +264,7 @@ export function DestinationMasterScreen({
             />
           </Field>
           {editId && (
-            <Field size="xs">
+            <Field size="sm">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
