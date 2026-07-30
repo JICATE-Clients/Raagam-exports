@@ -117,6 +117,7 @@ create trigger trg_matrate_code before insert on public.material_rates
 create trigger trg_matrate_updated before update on public.material_rates
   for each row execute function public.set_updated_at();
 create index if not exists idx_matrate_customer on public.material_rates(customer_id);
+create index if not exists idx_matrate_status on public.material_rates(status);
 
 -- ============================================================================
 -- 2a. MATERIAL RATE — Items (flat, rate per BOM item)
@@ -379,6 +380,7 @@ create trigger trg_fabcons_code before insert on public.fabric_consumptions
   for each row execute function public.assign_code('FABCON','public.seq_fabric_consumption');
 create trigger trg_fabcons_updated before update on public.fabric_consumptions
   for each row execute function public.set_updated_at();
+create index if not exists idx_fabcons_status on public.fabric_consumptions(status);
 
 -- ============================================================================
 -- 4a. FABRIC CONSUMPTION — Components
@@ -494,6 +496,7 @@ create trigger trg_excessord_code before insert on public.excess_orders
 create trigger trg_excessord_updated before update on public.excess_orders
   for each row execute function public.set_updated_at();
 create index if not exists idx_excessord_ppm on public.excess_orders(garment_ppm_id);
+create index if not exists idx_excessord_status on public.excess_orders(status);
 
 -- ============================================================================
 -- 5a. EXCESS ORDER — Items
