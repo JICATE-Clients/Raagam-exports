@@ -83,6 +83,12 @@ export const NAV: NavItem[] = [
       { href: "/planning/bom-shortage", label: "BOM Shortage" },
       { href: "/planning/bom-transfer", label: "BOM Transfer" },
       { href: "/planning/budgets", label: "Budgets" },
+      { href: "/planning/garment-ppm", label: "Garment PPM" },
+      { href: "/planning/processing-ppm", label: "Processing PPM" },
+      { href: "/planning/purchase-ppm", label: "Purchase PPM" },
+      { href: "/planning/ppm-cancel", label: "PPM Cancel" },
+      { href: "/planning/ppm-completion", label: "PPM Completion" },
+      { href: "/planning/garment-ppm-cancel", label: "Garment PPM Cancel" },
     ],
   },
   {

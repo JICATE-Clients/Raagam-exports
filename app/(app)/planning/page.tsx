@@ -6,6 +6,11 @@ import {
   Gem,
   AlertTriangle,
   ArrowRightLeft,
+  ClipboardCheck,
+  RefreshCcw,
+  ShoppingCart,
+  XCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
@@ -67,6 +72,42 @@ const areas = [
     label: "BOM Transfer",
     desc: "Transfer BOM quantities between sales orders.",
     icon: ArrowRightLeft,
+  },
+  {
+    href: "/planning/garment-ppm",
+    label: "Garment PPM",
+    desc: "Pre-production material orders for garment manufacturing.",
+    icon: Shirt,
+  },
+  {
+    href: "/planning/processing-ppm",
+    label: "Processing PPM",
+    desc: "Processing/fabric PPM orders.",
+    icon: RefreshCcw,
+  },
+  {
+    href: "/planning/purchase-ppm",
+    label: "Purchase PPM",
+    desc: "Purchase PPM / material indent orders.",
+    icon: ShoppingCart,
+  },
+  {
+    href: "/planning/ppm-cancel",
+    label: "PPM Cancel",
+    desc: "Purchase/processing PPM cancellations.",
+    icon: XCircle,
+  },
+  {
+    href: "/planning/ppm-completion",
+    label: "PPM Completion",
+    desc: "PPM completion records.",
+    icon: CheckCircle2,
+  },
+  {
+    href: "/planning/garment-ppm-cancel",
+    label: "Garment PPM Cancel",
+    desc: "Garment PPM cancellations with style/size breakdown.",
+    icon: ClipboardCheck,
   },
 ];
 
