@@ -10,6 +10,22 @@ export interface State {
   id: string;
   code: string | null; // GST state code
   name: string;
+  /**
+   * Which country this state belongs to — nullable FK to `public.countries`.
+   *
+   * The column is not in 0262; it was added later, and `uq_states_name` (0373)
+   * is scoped on it: `(country_id, lower(trim(name)))` with `nulls not distinct`.
+   * It is surfaced on the type so the State FIELDS can scope their list — an
+   * Indian GST state is not a valid answer under a foreign country, and "GEORGIA"
+   * is both a US state and a sovereign country's own.
+   *
+   * **null means the home country.** Every row this app created before the State
+   * picker started writing the column sits at null, and the master ships as the
+   * Indian GST list (codes 01–38), so an unscoped row is an Indian one. Back-
+   * filling those to India is a data migration, not a default — see
+   * `state-picker.tsx`, which treats null as home rather than as unknown.
+   */
+  country_id: string | null;
   is_default: boolean;
   inactive: boolean;
   created_at: string;

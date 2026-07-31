@@ -45,6 +45,7 @@ import {
   VENDOR_STATUSES,
   GST_REG_STATUSES,
   DUTY_DETAILS,
+  isDomesticVendorType,
   type Vendor,
   type VendorInput,
   type VendorStatus,
@@ -57,6 +58,7 @@ import { ProcessPicker } from "@/components/masters/process-picker";
 import type { Country } from "@/lib/masters/country-types";
 import type { AccountGroup } from "@/lib/masters/account-group-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import type { StateLookup } from "@/lib/masters/lookup-compat";
 import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Process } from "@/lib/masters/process-types";
@@ -457,7 +459,9 @@ export function VendorMasterScreen({
   rows: Vendor[];
   countries: Country[];
   cities: ConfigLookup[];
-  states: ConfigLookup[];
+  /** `statesAsLookups(...)` — `StateLookup`, not bare `ConfigLookup`, because the
+   *  address State field scopes its list by `country_id`. */
+  states: StateLookup[];
   groups: ConfigLookup[];
   accountGroups: AccountGroup[];
   /** Our own GSTIN, for within-state vs other-state classification. */
@@ -748,6 +752,68 @@ export function VendorMasterScreen({
   function removeItemCat(key: string) {
     setItemCats((xs) => xs.filter((r) => r.key !== key));
     setDirty(true);
+  }
+
+  /**
+   * Type answers the Country question, so answer it.
+   *
+   * "With in State" and "Other State" are the two GST supply directions inside
+   * India (see `isDomesticVendorType`) — picking either one has ALREADY said the
+   * country, and leaving the box on the operator to fill is asking twice. Picking
+   * "Foreign Vendor" says the opposite: the India this form opened on is now
+   * wrong, and only the operator knows what replaces it.
+   *
+   * Two rules, and the asymmetry between them is the point:
+   *
+   * - **To a domestic type → assert India.** Unconditional, because a domestic
+   *   type has exactly ONE valid country. If the box still said GERMANY from a
+   *   moment ago as a Foreign Vendor, that value is not data being destroyed, it
+   *   is a value the operator just contradicted.
+   * - **To Foreign Vendor → clear India, but only India.** There are ~200 valid
+   *   answers and we know none of them, so we remove the wrong one and leave the
+   *   picker open. A country the operator already chose by hand is never touched
+   *   — clearing GERMANY here would delete a real answer to ask for it again.
+   *
+   * Address rows follow the header only while they are still sitting on their
+   * untouched create-time default (India + our own state, from `blankAddress`).
+   * The moment someone types a real address into a row, that row is data and this
+   * function leaves it alone — a foreign company's Indian branch office is a
+   * legitimate thing to have keyed, and the reverse rule restores the default if
+   * the type is switched back.
+   */
+  function setVendorType(next: "" | VendorType) {
+    const patch: Partial<HeaderForm> = { vendor_type: next };
+    const toDomestic = isDomesticVendorType(next);
+
+    if (toDomestic) {
+      patch.country_id = indCountryId;
+    } else if (next === "Foreign Vendor" && form.country_id === indCountryId) {
+      patch.country_id = "";
+    }
+    set(patch);
+
+    // Keyed on the COUNTRY actually moving, not on the type changing category.
+    // "— Select —" → "Foreign Vendor" is a move (India → blank) even though
+    // neither type is domestic, and "With in State" → "Other State" is not a
+    // move even though the type changed — an address grid churning on that
+    // second one would be pure noise.
+    const nextCountry = patch.country_id ?? form.country_id;
+    if (nextCountry === form.country_id) return;
+    setAddresses((xs) =>
+      xs.map((a) => {
+        if (nextCountry === indCountryId) {
+          // Back to India: refill only a row we ourselves blanked below.
+          return !a.country_id && !a.state_id
+            ? { ...a, country_id: indCountryId, state_id: homeStateId }
+            : a;
+        }
+        // Off to a foreign country: an Indian state under it would be nonsense,
+        // so the pair clears together or not at all.
+        return a.country_id === indCountryId && a.state_id === homeStateId
+          ? { ...a, country_id: "", state_id: "" }
+          : a;
+      }),
+    );
   }
 
   function addAddress() {
@@ -1248,7 +1314,7 @@ export function VendorMasterScreen({
             <Select
               id="ve-type"
               value={form.vendor_type}
-              onChange={(e) => set({ vendor_type: e.target.value as "" | VendorType })}
+              onChange={(e) => setVendorType(e.target.value as "" | VendorType)}
             >
               <option value="">— Select —</option>
               {VENDOR_TYPES.map((t) => (
@@ -1444,6 +1510,11 @@ export function VendorMasterScreen({
                   options={states}
                   value={a.state_id || null}
                   onChange={(id) => setAddressAt(a.key, { state_id: id })}
+                  // Scoped to THIS address's country: the 36 Indian GST states
+                  // are not answers for a French address, and a state added
+                  // under one is stamped with it. See state-picker.tsx.
+                  countryId={a.country_id || null}
+                  homeCountryId={indCountryId || null}
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}
                   canDelete={perms.canDelete}
