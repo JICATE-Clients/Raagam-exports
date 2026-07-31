@@ -5,6 +5,14 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { applicantInput, type ApplicantInput } from "./applicant-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
+import {
+  PARTY_LINKS,
+  partySeed,
+  publishParty,
+  detachPublished,
+  reattachPublished,
+} from "./party-publish";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -46,11 +54,37 @@ function normalizeContacts(data: ApplicantInput): ContactRow[] {
     .map((c, i) => ({ ...c, sno: i + 1 }));
 }
 
+/** Both "Also …" tick boxes on this master, in screen order. */
+const APPLICANT_LINKS = [PARTY_LINKS.applicantCustomer, PARTY_LINKS.applicantConsignee] as const;
+
+/**
+ * Reconcile the two tick boxes with the masters they publish into. Also
+ * revalidates those masters' pages — a row appearing in Customer because
+ * someone ticked a box over in Applicant is exactly the kind of change a cached
+ * list will otherwise hide until the next hard refresh.
+ */
+async function syncAlsoFlags(
+  s: Awaited<ReturnType<typeof createClient>>,
+  id: string,
+  data: ApplicantInput,
+): Promise<Result> {
+  const seed = partySeed(data);
+  const cust = await publishParty(s, PARTY_LINKS.applicantCustomer, id, data.also_customer, seed);
+  if (!cust.ok) return cust;
+  const cons = await publishParty(s, PARTY_LINKS.applicantConsignee, id, data.also_consignee, seed);
+  if (!cons.ok) return cons;
+  revalidatePath("/masters/associates/customer");
+  revalidatePath("/masters/associates/consignee");
+  return { ok: true };
+}
+
 export async function createApplicant(data: ApplicantInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = applicantInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "applicants", p.data.name);
+  if (!dup.ok) return fail(dup.error);
   const { contacts: _drop, ...header } = p.data;
   void _drop;
   const { data: created, error } = await s
@@ -66,6 +100,8 @@ export async function createApplicant(data: ApplicantInput): Promise<Result> {
       .insert(rows.map((r) => ({ ...r, applicant_id: created.id })));
     if (cErr) return fail(cErr.message);
   }
+  const pub = await syncAlsoFlags(s, created.id, p.data);
+  if (!pub.ok) return pub;
   rev();
   return { ok: true };
 }
@@ -75,8 +111,17 @@ export async function updateApplicant(id: string, data: ApplicantInput): Promise
   const p = applicantInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "applicants", p.data.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { contacts: _drop, ...header } = p.data;
   void _drop;
+  // BEFORE the header write, deliberately. A refused untick (the published
+  // customer is on a sales order) must leave the record exactly as it was —
+  // write the flag first and the screen would show "Also Customer: No" beside a
+  // customer that still exists, and every later save would hit the same refusal
+  // with no way to back out.
+  const pub = await syncAlsoFlags(s, id, p.data);
+  if (!pub.ok) return pub;
   const { error } = await s.from("applicants").update(header).eq("id", id);
   if (error) return fail(error.message);
   // Replace the contact grid wholesale (small, fully-loaded set).
@@ -96,9 +141,21 @@ export async function updateApplicant(id: string, data: ApplicantInput): Promise
 export async function deleteApplicant(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
+  // Free anything this applicant published, so the 0344 reference check does not
+  // read its own publish link as "in use by Customers".
+  const det = await detachPublished(s, APPLICANT_LINKS, id);
+  if (!det.ok) return fail(det.error);
   // Own contacts cascade; if referenced elsewhere, deactivate instead of delete.
   const res = await deleteOrDeactivate(s, "applicants", id, "inactive");
   if (!res.ok) return fail(res.error);
+  if (res.inactive && det.detached.length) {
+    // Only deactivated — the applicant is still here, so it still owns what it
+    // published. Left unlinked, its next save would publish a duplicate.
+    const relinkErr = await reattachPublished(s, det.detached, id);
+    if (relinkErr) return fail(`Applicant deactivated, but its published records could not be re-linked: ${relinkErr}`);
+  }
   rev();
+  revalidatePath("/masters/associates/customer");
+  revalidatePath("/masters/associates/consignee");
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

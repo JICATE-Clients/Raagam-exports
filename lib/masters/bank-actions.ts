@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { bankInput, type BankInput } from "./bank-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -70,6 +71,8 @@ export async function createBank(data: BankInput): Promise<Result & { id?: strin
   const p = bankInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "banks", p.data.name);
+  if (!dup.ok) return fail(dup.error);
   const { branches: _drop, ...header } = p.data;
   void _drop;
   const { data: created, error } = await s.from("banks").insert(header).select("id").single();
@@ -90,6 +93,8 @@ export async function updateBank(id: string, data: BankInput): Promise<Result> {
   const p = bankInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "banks", p.data.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { branches: _drop, ...header } = p.data;
   void _drop;
   const { error } = await s.from("banks").update(header).eq("id", id);

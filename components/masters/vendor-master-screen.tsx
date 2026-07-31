@@ -2,13 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { User, MapPin, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import {
+  User,
+  MapPin,
+  SlidersHorizontal,
+  Boxes,
+  Cog,
+  Wrench,
+  Handshake,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { ValidatedInput } from "@/components/ui/validated-input";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { Select } from "@/components/ui/select";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
@@ -20,10 +30,12 @@ import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { StatePicker } from "@/components/masters/state-picker";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { decodeGstin, matchGstinState, normalizeGstin } from "@/lib/validation/gstin";
+import { defaultCountryId, defaultStateId } from "@/lib/masters/geo-defaults";
 import { effectiveWhatsApp } from "@/lib/validation/contact";
 import { createVendor, updateVendor, deleteVendor } from "@/lib/masters/vendor-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
@@ -31,22 +43,59 @@ import {
   VENDOR_TYPES,
   VENDOR_STATUSES,
   GST_REG_STATUSES,
+  DUTY_DETAILS,
   type Vendor,
   type VendorInput,
   type VendorStatus,
   type VendorType,
   type GstRegStatus,
+  type DutyDetail,
 } from "@/lib/masters/vendor-types";
+import { CategoryPicker, LevyPicker } from "@/components/masters/lookup-picker";
+import { ProcessPicker } from "@/components/masters/process-picker";
 import type { Country } from "@/lib/masters/country-types";
 import type { AccountGroup } from "@/lib/masters/account-group-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import type { Category } from "@/lib/masters/category-types";
+import type { Levy } from "@/lib/masters/levy-types";
+import type { Process } from "@/lib/masters/process-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
-type SectionKey = "identity" | "address" | "other";
-const SECTIONS: { key: SectionKey; label: string; icon: LucideIcon; built: boolean }[] = [
+type SectionKey = "identity" | "address" | "itemcat" | "process" | "service" | "subcontract" | "other";
+/**
+ * `itemcat` mirrors the legacy form: the Item Category tab is only there while
+ * **Is Bought Items Vendor** is ticked, because per-item VAT / duty / lead time /
+ * payment terms only mean anything for a vendor we buy goods from. Hidden, not
+ * disabled — and hiding it never discards rows already saved (see the note on
+ * `item_categories` in vendor-types.ts).
+ */
+const SECTIONS: {
+  key: SectionKey;
+  label: string;
+  icon: LucideIcon;
+  built: boolean;
+  /** Rendered only when this returns true; absent = always. */
+  when?: (f: HeaderForm) => boolean;
+}[] = [
   { key: "identity", label: "Identity", icon: User, built: true },
   { key: "address", label: "Address", icon: MapPin, built: true },
+  {
+    key: "itemcat",
+    label: "Item Category",
+    icon: Boxes,
+    built: true,
+    when: (f) => f.is_bought_items_vendor,
+  },
+  { key: "process", label: "Process", icon: Cog, built: true, when: (f) => f.is_processor },
+  { key: "service", label: "Service", icon: Wrench, built: true, when: (f) => f.is_service_provider },
+  {
+    key: "subcontract",
+    label: "SubContractor",
+    icon: Handshake,
+    built: true,
+    when: (f) => f.is_sub_contractor,
+  },
   { key: "other", label: "Other Details", icon: SlidersHorizontal, built: true },
 ];
 
@@ -129,6 +178,28 @@ const FIELD_SIZE = {
   mobile: "sm", // 3 — a phone number
   whatsapp: "sm", // 3 — beside its mobile, same as bank-master-screen
   email_id: "sm", // 3 — accounts@sreelakshmitextiles.co.in scrolls in the box
+  // ---- Item Category ----
+  // row 1  item_class 3 + category 3 + vat 3 + duty 3      = 12
+  // row 2  lead_days 3 + form 3 + supply_type 3 + p.term 3 = 12
+  item_class_id: "sm",
+  category_id: "sm",
+  vat_levy_id: "sm",
+  duty_levy_id: "sm",
+  lead_days: "sm", // 3 — a small integer, but ONE width every field (§3)
+  form_id: "sm",
+  supply_type_id: "sm",
+  payment_term_id: "sm",
+  // ---- Process / Service / SubContractor ----
+  // process  process 3 + vat 3 + vat_portion 3 + payment_term 3 = 12
+  // service  service_type 3 + payment_term 3                    =  6
+  // subcon.  process 3 + payment_term 3                         =  6
+  process_id: "sm",
+  vat_portion_pct: "sm",
+  service_type_id: "sm",
+  // ---- the shared TDS / ESI panel ----
+  tds_levy_id: "sm",
+  esi_no: "sm",
+  esi_retention_pct: "sm",
 } satisfies Record<string, FieldSize>;
 
 type HeaderForm = {
@@ -162,6 +233,13 @@ type HeaderForm = {
   memorandum_no: string;
   inhouse_unit_id: string;
   duty_against: string;
+  // Item Category tab
+  duty_details: DutyDetail;
+  // The TDS / ESI panel — ONE set of values, shown on the Process, Service and
+  // SubContractor tabs alike, so it lives on the header and not per section.
+  tds_levy_id: string;
+  esi_no: string;
+  esi_retention_pct: string;
 };
 const BLANK: HeaderForm = {
   code: "",
@@ -193,7 +271,67 @@ const BLANK: HeaderForm = {
   memorandum_no: "",
   inhouse_unit_id: "",
   duty_against: "",
+  duty_details: "None",
+  tds_levy_id: "",
+  esi_no: "",
+  esi_retention_pct: "",
 };
+
+/** One row of the Process grid (Is Processor). */
+type ProcessRow = {
+  key: string;
+  process_id: string;
+  vat_levy_id: string;
+  vat_portion_pct: string;
+  payment_term_id: string;
+};
+const blankProcess = (key: string): ProcessRow => ({
+  key,
+  process_id: "",
+  vat_levy_id: "",
+  vat_portion_pct: "",
+  payment_term_id: "",
+});
+
+/** One row of the Service grid (Is Service Provider). */
+type ServiceRow = { key: string; service_type_id: string; payment_term_id: string };
+const blankService = (key: string): ServiceRow => ({
+  key,
+  service_type_id: "",
+  payment_term_id: "",
+});
+
+/** One row of the SubContractor grid — the Process grid without VAT. */
+type SubcontractRow = { key: string; process_id: string; payment_term_id: string };
+const blankSubcontract = (key: string): SubcontractRow => ({
+  key,
+  process_id: "",
+  payment_term_id: "",
+});
+
+/** One row of the Item Category grid, keyed for React the same way addresses are. */
+type ItemCatRow = {
+  key: string;
+  item_class_id: string;
+  category_id: string;
+  vat_levy_id: string;
+  duty_levy_id: string;
+  lead_days: string;
+  form_id: string;
+  supply_type_id: string;
+  payment_term_id: string;
+};
+const blankItemCat = (key: string): ItemCatRow => ({
+  key,
+  item_class_id: "",
+  category_id: "",
+  vat_levy_id: "",
+  duty_levy_id: "",
+  lead_days: "",
+  form_id: "",
+  supply_type_id: "",
+  payment_term_id: "",
+});
 
 type AddressRow = {
   key: string;
@@ -209,12 +347,12 @@ type AddressRow = {
   whatsapp: string | null;
   email_id: string;
 };
-const blankAddress = (key: string, country_id = ""): AddressRow => ({
+const blankAddress = (key: string, country_id = "", state_id = ""): AddressRow => ({
   key,
   address_type: "",
   street: "",
   city_id: "",
-  state_id: "",
+  state_id,
   country_id,
   pin: "",
   land_line: "",
@@ -305,6 +443,14 @@ export function VendorMasterScreen({
   groups,
   accountGroups,
   companyGstin,
+  itemClasses,
+  categories,
+  levies,
+  paymentTerms,
+  itemForms,
+  supplyTypes,
+  processes,
+  serviceTypes,
   perms,
 }: {
   rows: Vendor[];
@@ -315,6 +461,20 @@ export function VendorMasterScreen({
   accountGroups: AccountGroup[];
   /** Our own GSTIN, for within-state vs other-state classification. */
   companyGstin: string | null;
+  // ---- Item Category tab ----
+  itemClasses: ConfigLookup[];
+  /** The whole master; each grid row scopes it to its own Item Class. */
+  categories: Category[];
+  /** The whole master; split by `type` into the VAT and Duty pickers. */
+  levies: Levy[];
+  paymentTerms: ConfigLookup[];
+  itemForms: ConfigLookup[];
+  supplyTypes: ConfigLookup[];
+  // ---- Process / SubContractor tabs ----
+  /** The Process master — the same list both grids pick from. */
+  processes: Process[];
+  // ---- Service tab ----
+  serviceTypes: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -334,14 +494,53 @@ export function VendorMasterScreen({
 
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [addresses, setAddresses] = useState<AddressRow[]>([]);
+  const [itemCats, setItemCats] = useState<ItemCatRow[]>([]);
+  const [procRows, setProcRows] = useState<ProcessRow[]>([]);
+  const [svcRows, setSvcRows] = useState<ServiceRow[]>([]);
+  const [subRows, setSubRows] = useState<SubcontractRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
-  // Legacy defaults the header Country to IND.
-  const indCountryId = useMemo(
-    () => countries.find((c) => (c.code ?? "").toUpperCase() === "IND")?.id ?? "",
-    [countries],
+  // The two levy pickers are one master told apart by `type`: VAT/CST against
+  // duty. Filtering here rather than in the picker keeps the cascade rule's
+  // "the caller scopes the rows" shape.
+  const vatLevies = useMemo(
+    () => levies.filter((l) => l.type === "VAT" || l.type === "CST"),
+    [levies],
   );
+  const dutyLevies = useMemo(
+    () => levies.filter((l) => l.type === "DUTY" || l.type === "EXCISE DUTY"),
+    [levies],
+  );
+  // The TDS panel's ⓘ — the Levy master carries a TDS structure (0283), so this
+  // is a stored levy, not a typed-in number.
+  const tdsLevies = useMemo(() => levies.filter((l) => l.type === "TDS"), [levies]);
+  const itemClassLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of itemClasses) m.set(c.id, c.name);
+    return m;
+  }, [itemClasses]);
+  const categoryLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    // `categories.name` is nullable in the master; the grid's fallback column
+    // must still render something rather than "undefined".
+    for (const c of categories) m.set(c.id, c.name ?? "—");
+    return m;
+  }, [categories]);
+  const processLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of processes) m.set(p.id, p.name);
+    return m;
+  }, [processes]);
+  const serviceTypeLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of serviceTypes) m.set(s.id, s.name);
+    return m;
+  }, [serviceTypes]);
+
+  // What a NEW vendor starts on: India, and our own state. See geo-defaults.
+  const indCountryId = useMemo(() => defaultCountryId(countries), [countries]);
+  const homeStateId = useMemo(() => defaultStateId(states, companyGstin), [states, companyGstin]);
 
   const set = (patch: Partial<HeaderForm>) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -397,7 +596,11 @@ export function VendorMasterScreen({
     setEditId(null);
     setForm({ ...BLANK, country_id: indCountryId });
     loadedGstin.current = "";
-    setAddresses([blankAddress(newKey(), indCountryId)]);
+    setAddresses([blankAddress(newKey(), indCountryId, homeStateId)]);
+    setItemCats([blankItemCat(newKey())]);
+    setProcRows([blankProcess(newKey())]);
+    setSvcRows([blankService(newKey())]);
+    setSubRows([blankSubcontract(newKey())]);
     setDirty(false);
     setOpen(true);
   }
@@ -433,6 +636,11 @@ export function VendorMasterScreen({
       memorandum_no: r.memorandum_no ?? "",
       inhouse_unit_id: r.inhouse_unit_id ?? "",
       duty_against: r.duty_against ?? "",
+      duty_details: r.duty_details ?? "None",
+      tds_levy_id: r.tds_levy_id ?? "",
+      esi_no: r.esi_no ?? "",
+      // "" not "0": an untouched retention box should read empty, not 0.00.
+      esi_retention_pct: r.esi_retention_pct ? String(r.esi_retention_pct) : "",
     });
     loadedGstin.current = normalizeGstin(r.gst_no);
     setAddresses(
@@ -451,12 +659,98 @@ export function VendorMasterScreen({
         email_id: a.email_id ?? "",
       })),
     );
+    setItemCats(
+      (r.item_categories ?? []).map((c) => ({
+        key: newKey(),
+        item_class_id: c.item_class_id ?? "",
+        category_id: c.category_id ?? "",
+        vat_levy_id: c.vat_levy_id ?? "",
+        duty_levy_id: c.duty_levy_id ?? "",
+        lead_days: c.lead_days == null ? "" : String(c.lead_days),
+        form_id: c.form_id ?? "",
+        supply_type_id: c.supply_type_id ?? "",
+        payment_term_id: c.payment_term_id ?? "",
+      })),
+    );
+    setProcRows(
+      (r.processes ?? []).map((p) => ({
+        key: newKey(),
+        process_id: p.process_id ?? "",
+        vat_levy_id: p.vat_levy_id ?? "",
+        vat_portion_pct: p.vat_portion_pct ? String(p.vat_portion_pct) : "",
+        payment_term_id: p.payment_term_id ?? "",
+      })),
+    );
+    setSvcRows(
+      (r.services ?? []).map((sv) => ({
+        key: newKey(),
+        service_type_id: sv.service_type_id ?? "",
+        payment_term_id: sv.payment_term_id ?? "",
+      })),
+    );
+    setSubRows(
+      (r.subcontracts ?? []).map((sc) => ({
+        key: newKey(),
+        process_id: sc.process_id ?? "",
+        payment_term_id: sc.payment_term_id ?? "",
+      })),
+    );
     setDirty(false);
     setOpen(true);
   }
 
+  // The three simple grids share one shape, so they share three helpers rather
+  // than nine: add a blank row, patch a row by key, drop a row by key.
+  function addRowTo<T extends { key: string }>(
+    setter: React.Dispatch<React.SetStateAction<T[]>>,
+    make: (key: string) => T,
+  ) {
+    setter((xs) => [...xs, make(newKey())]);
+    setDirty(true);
+  }
+  function patchRow<T extends { key: string }>(
+    setter: React.Dispatch<React.SetStateAction<T[]>>,
+    key: string,
+    patch: Partial<T>,
+  ) {
+    setter((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setDirty(true);
+  }
+  function dropRow<T extends { key: string }>(
+    setter: React.Dispatch<React.SetStateAction<T[]>>,
+    key: string,
+  ) {
+    setter((xs) => xs.filter((r) => r.key !== key));
+    setDirty(true);
+  }
+
+  function addItemCat() {
+    setItemCats((xs) => [...xs, blankItemCat(newKey())]);
+    setDirty(true);
+  }
+  function setItemCatAt(key: string, patch: Partial<ItemCatRow>) {
+    setItemCats((xs) =>
+      xs.map((r) => {
+        if (r.key !== key) return r;
+        const next = { ...r, ...patch };
+        // Cascade: a Category belongs to ONE Item Class, so changing the class
+        // must drop a category scoped to the old one. A stale child value is
+        // worse than an empty one.
+        if (patch.item_class_id !== undefined && patch.item_class_id !== r.item_class_id) {
+          next.category_id = "";
+        }
+        return next;
+      }),
+    );
+    setDirty(true);
+  }
+  function removeItemCat(key: string) {
+    setItemCats((xs) => xs.filter((r) => r.key !== key));
+    setDirty(true);
+  }
+
   function addAddress() {
-    setAddresses((xs) => [...xs, blankAddress(newKey(), indCountryId)]);
+    setAddresses((xs) => [...xs, blankAddress(newKey(), indCountryId, homeStateId)]);
     setDirty(true);
   }
   function setAddressAt(key: string, patch: Partial<AddressRow>) {
@@ -477,9 +771,20 @@ export function VendorMasterScreen({
     [form.gst_no, companyGstin],
   );
 
-  // Read the current PAN without making it an effect dependency (see below).
-  const panRef = useRef(form.pan_no);
-  panRef.current = form.pan_no;
+  // Two vendors must not share a GSTIN — one registration belongs to exactly one
+  // party. Matches the guard Customer and Consignee already had; Vendor was the
+  // only party master missing it, so the same number was blocked on those two
+  // and accepted here. Backstopped server-side by `checkGstinUnique` in
+  // vendor-actions.ts. NOT done for PAN anywhere: one PAN legitimately carries
+  // one GSTIN per state, so a PAN check would flag real multi-state groups.
+  const gstDupError = useDuplicateCheck({
+    table: "master_vendors",
+    name: form.gst_no,
+    nameColumn: "gst_no",
+    excludeId: editId ?? undefined,
+    label: "GST number",
+    enabled: !!form.gst_no.trim(),
+  });
 
   /**
    * The GSTIN as loaded, so merely OPENING a record never auto-fills — that
@@ -498,10 +803,14 @@ export function VendorMasterScreen({
   useEffect(() => {
     if (!gstin?.checksumValid) return;
     if (gstin.gstin === loadedGstin.current) return;
-    if (panRef.current.trim()) return;
+    if (form.pan_no.trim()) return;
     set({ pan_no: gstin.pan });
     // Deliberately NOT depending on form.pan_no: that would re-run on every PAN
-    // keystroke and silently re-fill a field the user had just cleared.
+    // keystroke and silently re-fill a field the user had just cleared. Reading
+    // it straight from the closure is safe and needs no ref — this effect only
+    // re-runs when the GSTIN changes, and on that render the closure already
+    // holds the current PAN. (It previously used a ref written during render,
+    // which is what `react-hooks/refs` was flagging.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstin?.gstin, gstin?.checksumValid]);
 
@@ -539,7 +848,11 @@ export function VendorMasterScreen({
     }
 
     const first = addresses[0];
-    if (gstinState && first && !first.state_id) {
+    // "differs", not "is empty". Address #1 now OPENS on our own state (the
+    // create-time default), so an empty-only test would have hidden this chip on
+    // exactly the vendors that need it — an out-of-state GSTIN sitting silently
+    // beside a defaulted home state. The PAN chip above already reads this way.
+    if (gstinState && first && first.state_id !== gstinState.id) {
       out.push({
         key: "state",
         label: `Set State = ${gstinState.name} on Address #1`,
@@ -556,6 +869,9 @@ export function VendorMasterScreen({
   }, [gstin, gstinState, form.pan_no, form.vendor_type, form.gst_reg_status, addresses]);
 
   function submit(asDraft: boolean) {
+    // Belt as well as braces: `canSave` already disables the button, but Enter
+    // and the draft path reach here directly.
+    if (gstDupError) return;
     startTransition(async () => {
       const payload: VendorInput = {
         // Create derives the code from the display name; edit keeps the
@@ -589,7 +905,42 @@ export function VendorMasterScreen({
         memorandum_no: form.memorandum_no.trim() || null,
         inhouse_unit_id: form.inhouse_unit_id.trim() || null,
         duty_against: form.duty_against.trim() || null,
+        duty_details: form.duty_details,
+        tds_levy_id: form.tds_levy_id || null,
+        esi_no: form.esi_no.trim() || null,
+        esi_retention_pct: form.esi_retention_pct.trim() === "" ? 0 : Number(form.esi_retention_pct),
         is_draft: asDraft,
+        processes: procRows.map((p, i) => ({
+          sno: i + 1,
+          process_id: p.process_id || null,
+          vat_levy_id: p.vat_levy_id || null,
+          vat_portion_pct: p.vat_portion_pct.trim() === "" ? 0 : Number(p.vat_portion_pct),
+          payment_term_id: p.payment_term_id || null,
+        })),
+        services: svcRows.map((sv, i) => ({
+          sno: i + 1,
+          service_type_id: sv.service_type_id || null,
+          payment_term_id: sv.payment_term_id || null,
+        })),
+        subcontracts: subRows.map((sc, i) => ({
+          sno: i + 1,
+          process_id: sc.process_id || null,
+          payment_term_id: sc.payment_term_id || null,
+        })),
+        // Sent whether or not the Item Category tab is showing: un-ticking Is
+        // Bought Items Vendor hides the tab, it does not throw away terms the
+        // buyer already agreed. Blank rows are dropped server-side.
+        item_categories: itemCats.map((c, i) => ({
+          sno: i + 1,
+          item_class_id: c.item_class_id || null,
+          category_id: c.category_id || null,
+          vat_levy_id: c.vat_levy_id || null,
+          duty_levy_id: c.duty_levy_id || null,
+          lead_days: c.lead_days.trim() === "" ? null : Number(c.lead_days),
+          form_id: c.form_id || null,
+          supply_type_id: c.supply_type_id || null,
+          payment_term_id: c.payment_term_id || null,
+        })),
         addresses: addresses.map((a, i) => ({
           sno: i + 1,
           address_type: a.address_type || null,
@@ -649,9 +1000,34 @@ export function VendorMasterScreen({
     form.inhouse_unit_id ||
     form.duty_against
   );
+  // The Duty Details radio does not count: it defaults to None on every vendor,
+  // so a dot driven by it would be lit on a section nobody has filled in.
+  const hasItemCat = itemCats.some(
+    (c) =>
+      c.item_class_id ||
+      c.category_id ||
+      c.vat_levy_id ||
+      c.duty_levy_id ||
+      c.lead_days.trim() ||
+      c.form_id ||
+      c.supply_type_id ||
+      c.payment_term_id,
+  );
+  // The TDS / ESI panel is shared, so it lights all three dots it appears under —
+  // which is honest: the section does hold data, just not only its own.
+  const hasTdsEsi = !!(form.tds_levy_id || form.esi_no.trim() || form.esi_retention_pct.trim());
+  const hasProcess =
+    hasTdsEsi ||
+    procRows.some((p) => p.process_id || p.vat_levy_id || p.vat_portion_pct.trim() || p.payment_term_id);
+  const hasService = hasTdsEsi || svcRows.some((s) => s.service_type_id || s.payment_term_id);
+  const hasSubcontract = hasTdsEsi || subRows.some((s) => s.process_id || s.payment_term_id);
   const done: Record<SectionKey, boolean> = {
     identity: hasIdentity,
     address: hasAddress,
+    itemcat: hasItemCat,
+    process: hasProcess,
+    service: hasService,
+    subcontract: hasSubcontract,
     other: hasOther,
   };
 
@@ -791,6 +1167,58 @@ export function VendorMasterScreen({
   ];
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
+
+  /**
+   * The TDS / ESI block the legacy form puts to the right of the Process,
+   * Service AND SubContractor grids.
+   *
+   * ONE block over THREE header fields, rendered in all three sections — not
+   * three copies of the panel and not per-section state. That is the whole
+   * point: a retention % typed on the Process tab is already there when the
+   * operator switches to Service, because there is only one of it.
+   *
+   * A JSX VALUE, deliberately not a `function TdsEsiPanel()` declared in here.
+   * A component defined inside another gets a new function identity on every
+   * parent render, so React treats it as a different type, unmounts the old
+   * tree and mounts a fresh one. Because this form's state lives in `form`,
+   * every keystroke re-rendered the parent and remounted the panel — so these
+   * three inputs LOST FOCUS after each character typed. As a plain element the
+   * fields stay mounted and keep focus. (`react-hooks/static-components`.)
+   */
+  const tdsEsiPanel = (
+      <DetailSection label="TDS & ESI" cols={12}>
+        <Field size={FIELD_SIZE.tds_levy_id}>
+          <LevyPicker
+            label="TDS ID No"
+            levies={tdsLevies}
+            value={form.tds_levy_id}
+            onChange={(id) => set({ tds_levy_id: id })}
+          />
+        </Field>
+        {/* Unvalidated on purpose, like TIN No: an ESI registration is whatever
+            the ESIC office issued, and a format guess would strand rows. */}
+        <Field label="ESI No" size={FIELD_SIZE.esi_no} htmlFor="ve-esino">
+          <Input
+            uppercase
+            id="ve-esino"
+            value={form.esi_no}
+            onChange={(e) => set({ esi_no: e.target.value })}
+          />
+        </Field>
+        <Field label="ESI Retention %" size={FIELD_SIZE.esi_retention_pct} htmlFor="ve-esiret">
+          <Input
+            id="ve-esiret"
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            inputMode="decimal"
+            value={form.esi_retention_pct}
+            onChange={(e) => set({ esi_retention_pct: e.target.value })}
+          />
+        </Field>
+      </DetailSection>
+  );
 
   // Section bodies, keyed the same as SECTIONS. Declared here rather than
   // inline in the `sections` prop so the prop stays legible.
@@ -1010,12 +1438,14 @@ export function VendorMasterScreen({
                 />
               </Field>
               <Field size={FIELD_SIZE.state_id}>
-                <LookupDialogPicker
-                  kind="state"
+                <StatePicker
                   label="State"
                   options={states}
                   value={a.state_id || null}
                   onChange={(id) => setAddressAt(a.key, { state_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
                 />
               </Field>
               <Field size={FIELD_SIZE.address_country_id}>
@@ -1069,6 +1499,307 @@ export function VendorMasterScreen({
             </FieldGrid>
           )}
         />
+      </SectionBody>
+    ),
+    itemcat: (
+      <SectionBody
+        title="Item Category"
+        hint="What this vendor supplies, and on what terms. Legacy shows this tab only for a Bought Items Vendor."
+      >
+        {/* The vendor-level radio the legacy form puts above the grid. Four
+            mutually exclusive values, so radios rather than a Select: they are
+            all visible at once and each is one click, which is what the legacy
+            operator's muscle memory expects. */}
+        <DetailSection label="Duty Details" cols={12}>
+          <Field size="full">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              {DUTY_DETAILS.map((d) => (
+                <label key={d} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="ve-duty-details"
+                    className="h-4 w-4 accent-primary"
+                    checked={form.duty_details === d}
+                    onChange={() => set({ duty_details: d as DutyDetail })}
+                  />
+                  {d}
+                </label>
+              ))}
+            </div>
+          </Field>
+        </DetailSection>
+
+        {/* Eight fields a row — past the ~5 a row holds and at the 8 where
+            LAYOUT.md §6 says stop inlining — so a card per row. Every one of the
+            six pickers is a real master: nothing here is free text. */}
+        <ChildGrid<ItemCatRow>
+          label="Item Category Detail"
+          rows={itemCats}
+          onAdd={addItemCat}
+          onRemove={(r) => removeItemCat(r.key)}
+          addLabel="+ Add item category"
+          forceCards
+          pageSize={3}
+          // Never rendered under `forceCards`; the fallback if this is ever
+          // switched back to a table.
+          columns={[
+            { header: "Item Class", cell: (r) => itemClassLabel.get(r.item_class_id) ?? "—" },
+            { header: "Category", cell: (r) => categoryLabel.get(r.category_id) ?? "—" },
+          ]}
+          renderMobileRow={(r) => (
+            <FieldGrid>
+              <Field size={FIELD_SIZE.item_class_id}>
+                <LookupDialogPicker
+                  kind="item_class"
+                  label="Item Class"
+                  options={itemClasses}
+                  value={r.item_class_id || null}
+                  onChange={(id) => setItemCatAt(r.key, { item_class_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              {/* Scoped by the class beside it — the whole point of the cascade
+                  rule. An unscoped list would offer Yarn categories against a
+                  Fabric class, and the row would save happily. */}
+              <Field size={FIELD_SIZE.category_id}>
+                <CategoryPicker
+                  label="Item Category"
+                  categories={categories.filter((c) => c.item_class_id === r.item_class_id)}
+                  value={r.category_id}
+                  onChange={(id) => setItemCatAt(r.key, { category_id: id })}
+                  itemClassId={r.item_class_id || undefined}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
+              </Field>
+              <Field size={FIELD_SIZE.vat_levy_id}>
+                <LevyPicker
+                  label="VAT"
+                  levies={vatLevies}
+                  value={r.vat_levy_id}
+                  onChange={(id) => setItemCatAt(r.key, { vat_levy_id: id })}
+                />
+              </Field>
+              <Field size={FIELD_SIZE.duty_levy_id}>
+                <LevyPicker
+                  label="Duty"
+                  levies={dutyLevies}
+                  value={r.duty_levy_id}
+                  onChange={(id) => setItemCatAt(r.key, { duty_levy_id: id })}
+                />
+              </Field>
+              <Field label="Lead Days" size={FIELD_SIZE.lead_days}>
+                <Input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={r.lead_days}
+                  onChange={(e) => setItemCatAt(r.key, { lead_days: e.target.value })}
+                />
+              </Field>
+              {/* Form and Type are ▾ dropdowns on the legacy screen whose
+                  contents the screenshot does not show, so they are managed
+                  lists the operator fills through + Add rather than invented
+                  `as const` values. Seed them in a migration once the legacy
+                  lists are known — see doc/masters-open-questions.md. */}
+              <Field size={FIELD_SIZE.form_id}>
+                <LookupDialogPicker
+                  kind="vendor_item_form"
+                  label="Form"
+                  options={itemForms}
+                  value={r.form_id || null}
+                  onChange={(id) => setItemCatAt(r.key, { form_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              <Field size={FIELD_SIZE.supply_type_id}>
+                <LookupDialogPicker
+                  kind="vendor_supply_type"
+                  label="Type"
+                  options={supplyTypes}
+                  value={r.supply_type_id || null}
+                  onChange={(id) => setItemCatAt(r.key, { supply_type_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              <Field size={FIELD_SIZE.payment_term_id}>
+                <LookupDialogPicker
+                  kind="payment_term"
+                  label="Payment Terms"
+                  options={paymentTerms}
+                  value={r.payment_term_id || null}
+                  onChange={(id) => setItemCatAt(r.key, { payment_term_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
+              </Field>
+            </FieldGrid>
+          )}
+        />
+      </SectionBody>
+    ),
+    process: (
+      <SectionBody
+        title="Process"
+        hint="The processes this vendor is paid to do, and the VAT that applies. Legacy shows this tab only for a Processor."
+      >
+        <ChildGrid<ProcessRow>
+          label="Vendor Process Detail"
+          rows={procRows}
+          onAdd={() => addRowTo(setProcRows, blankProcess)}
+          onRemove={(r) => dropRow(setProcRows, r.key)}
+          addLabel="+ Add process"
+          forceCards
+          pageSize={3}
+          columns={[
+            { header: "Process", cell: (r) => processLabel.get(r.process_id) ?? "—" },
+            { header: "Vat Portion %", cell: (r) => r.vat_portion_pct || "—", align: "right" },
+          ]}
+          renderMobileRow={(r) => (
+            <FieldGrid>
+              <Field size={FIELD_SIZE.process_id}>
+                <ProcessPicker
+                  label="Process Name"
+                  processes={processes}
+                  value={r.process_id}
+                  onChange={(id) => patchRow(setProcRows, r.key, { process_id: id })}
+                />
+              </Field>
+              {/* Legacy calls this "Vat Description" because a levy is displayed
+                  by its description — it is the same VAT master as everywhere. */}
+              <Field size={FIELD_SIZE.vat_levy_id}>
+                <LevyPicker
+                  label="Vat Description"
+                  levies={vatLevies}
+                  value={r.vat_levy_id}
+                  onChange={(id) => patchRow(setProcRows, r.key, { vat_levy_id: id })}
+                />
+              </Field>
+              <Field label="Vat Portion %" size={FIELD_SIZE.vat_portion_pct}>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={r.vat_portion_pct}
+                  onChange={(e) => patchRow(setProcRows, r.key, { vat_portion_pct: e.target.value })}
+                />
+              </Field>
+              <Field size={FIELD_SIZE.payment_term_id}>
+                <LookupDialogPicker
+                  kind="payment_term"
+                  label="Payment Terms"
+                  options={paymentTerms}
+                  value={r.payment_term_id || null}
+                  onChange={(id) => patchRow(setProcRows, r.key, { payment_term_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
+              </Field>
+            </FieldGrid>
+          )}
+        />
+        {tdsEsiPanel}
+      </SectionBody>
+    ),
+    service: (
+      <SectionBody
+        title="Service"
+        hint="The services this vendor provides, and on what terms. Legacy shows this tab only for a Service Provider."
+      >
+        <ChildGrid<ServiceRow>
+          label="Service Detail"
+          rows={svcRows}
+          onAdd={() => addRowTo(setSvcRows, blankService)}
+          onRemove={(r) => dropRow(setSvcRows, r.key)}
+          addLabel="+ Add service"
+          forceCards
+          pageSize={4}
+          columns={[
+            { header: "Service Type", cell: (r) => serviceTypeLabel.get(r.service_type_id) ?? "—" },
+          ]}
+          renderMobileRow={(r) => (
+            <FieldGrid>
+              {/* A ⓘ list in legacy whose contents no screenshot shows, so it is
+                  a managed list the operator fills — never invented values. */}
+              <Field size={FIELD_SIZE.service_type_id}>
+                <LookupDialogPicker
+                  kind="vendor_service_type"
+                  label="Service Type"
+                  options={serviceTypes}
+                  value={r.service_type_id || null}
+                  onChange={(id) => patchRow(setSvcRows, r.key, { service_type_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                />
+              </Field>
+              <Field size={FIELD_SIZE.payment_term_id}>
+                <LookupDialogPicker
+                  kind="payment_term"
+                  label="Payment Terms"
+                  options={paymentTerms}
+                  value={r.payment_term_id || null}
+                  onChange={(id) => patchRow(setSvcRows, r.key, { payment_term_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
+              </Field>
+            </FieldGrid>
+          )}
+        />
+        {tdsEsiPanel}
+      </SectionBody>
+    ),
+    subcontract: (
+      <SectionBody
+        title="SubContractor"
+        hint="What this vendor sub-contracts, and on what terms. Legacy shows this tab only for a Sub Contractor."
+      >
+        {/* The Process grid without VAT — legacy asks a sub-contractor only which
+            process and on what terms, over the same Process master. */}
+        <ChildGrid<SubcontractRow>
+          label="Vendor SubContractor Detail"
+          rows={subRows}
+          onAdd={() => addRowTo(setSubRows, blankSubcontract)}
+          onRemove={(r) => dropRow(setSubRows, r.key)}
+          addLabel="+ Add sub-contract"
+          forceCards
+          pageSize={4}
+          columns={[{ header: "Process", cell: (r) => processLabel.get(r.process_id) ?? "—" }]}
+          renderMobileRow={(r) => (
+            <FieldGrid>
+              <Field size={FIELD_SIZE.process_id}>
+                <ProcessPicker
+                  label="Process Name"
+                  processes={processes}
+                  value={r.process_id}
+                  onChange={(id) => patchRow(setSubRows, r.key, { process_id: id })}
+                />
+              </Field>
+              <Field size={FIELD_SIZE.payment_term_id}>
+                <LookupDialogPicker
+                  kind="payment_term"
+                  label="Payment Terms"
+                  options={paymentTerms}
+                  value={r.payment_term_id || null}
+                  onChange={(id) => patchRow(setSubRows, r.key, { payment_term_id: id ?? "" })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
+              </Field>
+            </FieldGrid>
+          )}
+        />
+        {tdsEsiPanel}
       </SectionBody>
     ),
     other: (
@@ -1157,7 +1888,14 @@ export function VendorMasterScreen({
                 format="gstin"
                 value={form.gst_no}
                 onChange={(e) => set({ gst_no: e.target.value })}
+                aria-invalid={gstDupError ? true : undefined}
+                aria-describedby={gstDupError ? "ve-gstno-dup" : undefined}
               />
+              {gstDupError && (
+                <p id="ve-gstno-dup" className="mt-1 text-xs text-danger">
+                  {gstDupError}
+                </p>
+              )}
             </Field>
             {/* Both pickers label themselves — unlabelled cells, span only. */}
             <Field size={FIELD_SIZE.debit_group_id}>
@@ -1353,7 +2091,7 @@ export function VendorMasterScreen({
             </>
           ),
         }}
-        sections={SECTIONS.map((s) => ({
+        sections={SECTIONS.filter((s) => !s.when || s.when(form)).map((s) => ({
           key: s.key,
           label: s.label,
           icon: s.icon,
@@ -1365,7 +2103,10 @@ export function VendorMasterScreen({
           onCancel: () => setOpen(false),
           onSave: () => submit(false),
           saveLabel: "Save vendor",
-          canSave: !!form.name.trim(),
+          // A duplicate GSTIN blocks Save AND Save-as-Draft — a draft is still a
+          // row in `master_vendors`, so letting it through the draft path would
+          // leave exactly the duplicate the guard exists to prevent.
+          canSave: !!form.name.trim() && !gstDupError,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           draftLabel: "Save as Draft",
           isPending,

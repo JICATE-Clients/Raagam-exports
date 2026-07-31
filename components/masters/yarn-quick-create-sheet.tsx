@@ -13,9 +13,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { CategoryPicker } from "@/components/masters/lookup-picker";
 import { createMaterial } from "@/lib/masters/material-actions";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import type { MaterialInput } from "@/lib/masters/material-types";
@@ -32,6 +33,7 @@ export function YarnQuickCreateSheet({
   yarnTypes,
   categories,
   kgUnitId,
+  perms,
 }: {
   open: boolean;
   onClose: () => void;
@@ -46,6 +48,17 @@ export function YarnQuickCreateSheet({
   categories: Category[];
   /** uoms id of "kg" — yarn's every UOM defaults to it (0279 #15). */
   kgUnitId?: string | null;
+  /**
+   * Host screen's masters permissions, threaded through by `ItemPicker` exactly
+   * as `CategoryPicker` threads them into `CategoryQuickCreateSheet`.
+   *
+   * Required, and deliberately not defaulted: the four fields below are pickers
+   * with inline Add / Modify / Delete, and a default would decide an
+   * authorisation question in the component that renders the buttons rather
+   * than at the screen that knows the answer. Absent perms means no CRUD, not
+   * full CRUD.
+   */
+  perms?: { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -74,6 +87,25 @@ export function YarnQuickCreateSheet({
   const isMelange =
     yarnTypes.find((y) => y.id === yarnTypeId)?.name?.toLowerCase() === "melange";
 
+  // No perms passed → no inline CRUD. Never the other way round.
+  const canCreate = perms?.canCreate ?? false;
+  const canEdit = perms?.canEdit ?? false;
+  const canDelete = perms?.canDelete ?? false;
+
+  /**
+   * A value added from a picker's own "+ Add" lives in that picker's local
+   * state until `router.refresh()` lands, so it is not in `counts` / `purities`
+   * / `categories` yet — and the Name below is COMPOSED from all three.
+   * Composing it from a value we cannot resolve would save the yarn under a
+   * silently wrong name (the new count simply missing from it), which is
+   * unrecoverable without noticing. Hold Save for the moment the refreshed list
+   * takes to arrive instead.
+   */
+  const namePending =
+    (!!countId && !counts.some((c) => c.id === countId)) ||
+    (!!purityId && !purities.some((p) => p.id === purityId)) ||
+    (!!categoryId && !selectedCategory);
+
   // Melange yarn carries a Shade; clear it when the type moves away from
   // Melange so a hidden stale shade never persists (material screen rule).
   function handleYarnTypeChange(v: string) {
@@ -101,7 +133,10 @@ export function YarnQuickCreateSheet({
     table: "items",
     name: previewName,
     scope: { item_class_id: yarnClassId },
-    enabled: open && !!previewName,
+    // Skipped while a just-added value is still resolving — the half-composed
+    // name it would produce could collide with a real yarn and report a
+    // duplicate that isn't one.
+    enabled: open && !!previewName && !namePending,
   });
 
   function save() {
@@ -179,7 +214,7 @@ export function YarnQuickCreateSheet({
           </Button>
           <Button
             size="md"
-            disabled={isPending || !countId || !categoryId || !!dupError}
+            disabled={isPending || !countId || !categoryId || !!dupError || namePending}
             onClick={save}
           >
             {isPending ? "Saving…" : "Save"}
@@ -188,45 +223,36 @@ export function YarnQuickCreateSheet({
       }
     >
       <div className="space-y-3">
+        {/* All four are pickers, not plain dropdowns: each one references a
+            stored list an operator must be able to extend in place. A yarn that
+            arrives with a count nobody has entered yet used to be a dead end
+            here — the sheet could only pick (client 2026-07-31). */}
         <div>
-          <Label htmlFor="yqc-count">
-            Count <span className="text-danger">*</span>
-          </Label>
-          <Select
-            id="yqc-count"
+          <LookupDialogPicker
+            kind="yarn_count"
+            label="Count"
+            options={counts}
             value={countId}
-            onChange={(e) => setCountId(e.target.value)}
-            className="text-base md:text-sm"
-          >
-            <option value="">— Select —</option>
-            {counts
-              .filter((c) => c.is_active)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </Select>
+            onChange={setCountId}
+            required
+            canCreate={canCreate}
+            canEdit={canEdit}
+            canDelete={canDelete}
+          />
         </div>
         <div>
-          <Label htmlFor="yqc-category">
-            Category <span className="text-danger">*</span>
-          </Label>
-          <Select
-            id="yqc-category"
+          <CategoryPicker
+            label="Category"
+            categories={categories}
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            className="text-base md:text-sm"
-          >
-            <option value="">— Select —</option>
-            {categories
-              .filter((c) => !c.inactive)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name ?? c.short_name ?? ""}
-                </option>
-              ))}
-          </Select>
+            onChange={setCategoryId}
+            required
+            clearable={false}
+            itemClassId={yarnClassId}
+            canCreate={canCreate}
+            canEdit={canEdit}
+            canDelete={canDelete}
+          />
           {/* Mixing rows need the full master's blend grid — flag it up front */}
           {selectedCategory?.made === "Mixed" && (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -235,40 +261,28 @@ export function YarnQuickCreateSheet({
           )}
         </div>
         <div>
-          <Label htmlFor="yqc-purity">Purity</Label>
-          <Select
-            id="yqc-purity"
+          <LookupDialogPicker
+            kind="yarn_purity"
+            label="Purity"
+            options={purities}
             value={purityId}
-            onChange={(e) => setPurityId(e.target.value)}
-            className="text-base md:text-sm"
-          >
-            <option value="">— Select —</option>
-            {purities
-              .filter((p) => p.is_active)
-              .map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-          </Select>
+            onChange={setPurityId}
+            canCreate={canCreate}
+            canEdit={canEdit}
+            canDelete={canDelete}
+          />
         </div>
         <div>
-          <Label htmlFor="yqc-yarn-type">Yarn Type</Label>
-          <Select
-            id="yqc-yarn-type"
+          <LookupDialogPicker
+            kind="yarn_type"
+            label="Yarn Type"
+            options={yarnTypes}
             value={yarnTypeId}
-            onChange={(e) => handleYarnTypeChange(e.target.value)}
-            className="text-base md:text-sm"
-          >
-            <option value="">— Select —</option>
-            {yarnTypes
-              .filter((y) => y.is_active)
-              .map((y) => (
-                <option key={y.id} value={y.id}>
-                  {y.name}
-                </option>
-              ))}
-          </Select>
+            onChange={handleYarnTypeChange}
+            canCreate={canCreate}
+            canEdit={canEdit}
+            canDelete={canDelete}
+          />
         </div>
         {/* Melange yarn carries its shade (client 2026-07-23) */}
         {isMelange && (
@@ -293,6 +307,11 @@ export function YarnQuickCreateSheet({
               </span>
             )}
           </div>
+          {namePending && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Picking up the value you just added…
+            </p>
+          )}
           {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
         </div>
       </div>

@@ -92,9 +92,13 @@ export const categoryInput = z.object({
 });
 export type CategoryInput = z.infer<typeof categoryInput>;
 
-// Item classes whose legacy Category form shows the "User Defined" field
-// (Capital/General/Sewing/Packing/Garments) — Fabric/Yarn never show it.
-export const USER_DEFINED_CLASS_CODES = new Set(["CAP", "GEN", "SEW", "PACK", "GAR"]);
+// Item classes whose Category form shows the "User Defined" field. Fabric/Yarn
+// never showed it; Capital Goods and General were dropped too (client
+// 2026-07-30) — the flag only earns its place where it flips a name between
+// free text and the configured attribute questions (Sewing/Packing) or is read
+// back on the Garments form. The `user_defined` column still exists and
+// round-trips; it simply defaults to false for those classes and is not asked.
+export const USER_DEFINED_CLASS_CODES = new Set(["SEW", "PACK", "GAR"]);
 export function showsUserDefined(code: string | null | undefined): boolean {
   return !!code && USER_DEFINED_CLASS_CODES.has(code.toUpperCase());
 }

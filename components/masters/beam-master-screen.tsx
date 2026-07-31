@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
+import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createBeam, updateBeam, deleteBeam } from "@/lib/masters/beam-actions";
 import type { Beam, BeamVendorOption, BeamInput } from "@/lib/masters/beam-types";
@@ -61,6 +62,12 @@ export function BeamMasterScreen({
     for (const v of vendors) m.set(v.id, v.name);
     return m;
   }, [vendors]);
+
+  // `BeamVendorOption` is {id, name}; RecordPicker speaks {id, code, name}.
+  const vendorItems: PickerItem[] = useMemo(
+    () => vendors.map((v) => ({ id: v.id, code: null, name: v.name })),
+    [vendors],
+  );
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
     search: (r, q) =>
@@ -402,20 +409,14 @@ export function BeamMasterScreen({
             </div>
             {form.location_type === "P" && (
               <div>
-                <Label htmlFor="bm-vendor">Vendor</Label>
-                <Select
-                  id="bm-vendor"
-                  value={form.vendor_id}
-                  onChange={(e) => set({ vendor_id: e.target.value })}
-                  className="text-base md:text-sm"
-                >
-                  <option value="">— None —</option>
-                  {vendors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
+                {/* Select-only: a Vendor carries a GSTIN, addresses and terms of
+                    its own, so it is created on the Vendor master, never here. */}
+                <RecordPicker
+                  label="Vendor"
+                  items={vendorItems}
+                  value={form.vendor_id || null}
+                  onChange={(v) => set({ vendor_id: v ?? "" })}
+                />
               </div>
             )}
           </DetailSection>

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { courierDeliveryInput, type CourierDeliveryInput } from "./courier-delivery-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -51,6 +52,8 @@ export async function createCourierDeliveryAddress(data: CourierDeliveryInput): 
   const p = courierDeliveryInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "courier_delivery_addresses", p.data.name);
+  if (!dup.ok) return fail(dup.error);
   const { contacts: _drop, ...header } = p.data;
   void _drop;
   const { data: created, error } = await s
@@ -78,6 +81,8 @@ export async function updateCourierDeliveryAddress(
   const p = courierDeliveryInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "courier_delivery_addresses", p.data.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { contacts: _drop, ...header } = p.data;
   void _drop;
   const { error } = await s.from("courier_delivery_addresses").update(header).eq("id", id);

@@ -3,9 +3,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Field } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -120,7 +120,20 @@ export function DefaultAccountHeadScreen({
     });
   }
 
-  const activeHeads = accountHeads.filter((h) => !h.inactive);
+  // Every field here points at the same list, so it is normalized once for
+  // `RecordPicker`. The short name rides in the label because that is how the
+  // legacy dropdown read ("DISC — DISCOUNT ALLOWED"), and it is what an operator
+  // types to find the head. A deactivated head stays in the list while a field
+  // still points at it — dropping it outright would show that field as empty and
+  // silently blank the FK on the next save.
+  const chosen = new Set(Object.values(form).filter(Boolean) as string[]);
+  const headOptions: PickerItem[] = accountHeads
+    .filter((h) => !h.inactive || chosen.has(h.id))
+    .map((h) => ({
+      id: h.id,
+      code: h.short_name,
+      name: h.short_name ? `${h.short_name} — ${h.name}` : h.name,
+    }));
 
   return (
     // A singleton settings page rather than a record editor, so it declares its
@@ -131,26 +144,17 @@ export function DefaultAccountHeadScreen({
       <SectionGrid>
         {FIELD_DEFS.map((group) => (
           <DetailSection key={group.group} label={group.group} cols={12}>
+            {/* The Field carries the span only — the picker prints its own
+                label, as everywhere else a picker sits inside a Field. */}
             {group.fields.map((field) => (
-              <Field
-                key={field.key}
-                label={field.label}
-                size="lg"
-                htmlFor={`dah-${field.key}`}
-              >
-                <Select
-                  id={`dah-${field.key}`}
-                  value={form[field.key] ?? ""}
-                  onChange={(e) => setField(field.key, e.target.value || null)}
+              <Field key={field.key} size="lg">
+                <RecordPicker
+                  label={field.label}
+                  items={headOptions}
+                  value={form[field.key]}
+                  onChange={(v) => setField(field.key, v)}
                   disabled={!perms.canEdit}
-                >
-                  <option value="">— None —</option>
-                  {activeHeads.map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.short_name ? `${h.short_name} — ${h.name}` : h.name}
-                    </option>
-                  ))}
-                </Select>
+                />
               </Field>
             ))}
           </DetailSection>

@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
@@ -20,6 +21,8 @@ import {
   deleteYarnPurchaseRate,
 } from "@/lib/masters/grid-master-actions";
 import type { YarnPurchaseRate, YarnPurchaseRateInput } from "@/lib/masters/grid-master-types";
+import type { Category } from "@/lib/masters/category-types";
+import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
@@ -38,9 +41,10 @@ export function YarnPurchaseRateMasterScreen({
   perms,
 }: {
   rows: YarnPurchaseRate[];
-  categories: LookupOption[];
+  /** The rich `categories` master, so the line picker can Modify/Delete through it. */
+  categories: Category[];
   items: LookupOption[];
-  purities: LookupOption[];
+  purities: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -194,42 +198,63 @@ export function YarnPurchaseRateMasterScreen({
               <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 shrink-0 text-center text-xs font-medium text-muted-foreground">{i + 1}</span>
-                    <Select value={l.category_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { category_id: e.target.value || null })}
-                      className="flex-1 text-base md:text-sm">
-                      <option value="">— category —</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </Select>
+                  {/* `items-end`, not `items-center`: the picker carries its own
+                      <Label>, so the row number and the ✕ line up with the field
+                      box instead of with the caption above it. These rows have no
+                      column headers, which is why the pickers stay labelled
+                      rather than `compact`. */}
+                  <div className="flex items-end gap-2">
+                    <span className="w-6 shrink-0 pb-2 text-center text-xs font-medium text-muted-foreground">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      {/* No `itemClassId` to scope a new category to — this form
+                          never asks for one — so "+ Add" stays off and only
+                          Modify / Delete render. A category created class-less
+                          would be born broken. */}
+                      <CategoryPicker
+                        label="Category"
+                        categories={categories}
+                        value={l.category_id ?? ""}
+                        onChange={(v) => setLineAt(l.key, { category_id: v || null })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
+                      />
+                    </div>
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
                       onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>
                   <div className="ml-8 grid grid-cols-4 gap-2">
-                    <Select value={l.item_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
-                      className="text-base md:text-sm">
-                      <option value="">— yarn —</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.name}</option>
-                      ))}
-                    </Select>
-                    <Select value={l.purity_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { purity_id: e.target.value || null })}
-                      className="text-base md:text-sm">
-                      <option value="">— purity —</option>
-                      {purities.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </Select>
-                    <Input uppercase placeholder="UOM" value={l.uom}
-                      onChange={(e) => setLineAt(l.key, { uom: e.target.value })}
-                      className="text-base md:text-sm" />
-                    <Input type="number" placeholder="Rate" value={l.rate} min={0} step="0.01"
-                      onChange={(e) => setLineAt(l.key, { rate: e.target.value })}
-                      className="text-base md:text-sm" />
+                    {/* Select-only for the same reason as the Category above: a
+                        yarn quick-created here has no item class to belong to.
+                        Materials are maintained on their own master. */}
+                    <ItemPicker
+                      label="Yarn"
+                      items={items}
+                      value={l.item_id ?? ""}
+                      onChange={(v) => setLineAt(l.key, { item_id: v || null })}
+                    />
+                    <LookupDialogPicker
+                      kind="yarn_purity"
+                      label="Purity"
+                      options={purities}
+                      value={l.purity_id}
+                      onChange={(v) => setLineAt(l.key, { purity_id: v || null })}
+                      canCreate={perms.canCreate}
+                      canEdit={perms.canEdit}
+                      canDelete={perms.canDelete}
+                    />
+                    <div>
+                      <Label>UOM</Label>
+                      <Input uppercase placeholder="UOM" value={l.uom}
+                        onChange={(e) => setLineAt(l.key, { uom: e.target.value })}
+                        className="text-base md:text-sm" />
+                    </div>
+                    <div>
+                      <Label>Rate</Label>
+                      <Input type="number" placeholder="Rate" value={l.rate} min={0} step="0.01"
+                        onChange={(e) => setLineAt(l.key, { rate: e.target.value })}
+                        className="text-base md:text-sm" />
+                    </div>
                   </div>
                 </div>
               ))}

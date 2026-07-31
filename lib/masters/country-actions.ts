@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { countryInput, type CountryInput } from "./country-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -23,6 +24,11 @@ export async function createCountry(data: CountryInput): Promise<Result> {
   const p = countryInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  // A deactivated country KEEPS its name reserved, so the guard is unscoped —
+  // it must agree with `uq_countries_name` (0373), which is a plain index, not
+  // a partial one on `inactive = false`.
+  const dup = await checkDuplicateName(s, "countries", p.data.name);
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("countries").insert(p.data);
   if (error) return fail(error.message);
   rev();
@@ -34,6 +40,8 @@ export async function updateCountry(id: string, data: CountryInput): Promise<Res
   const p = countryInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "countries", p.data.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("countries").update(p.data).eq("id", id);
   if (error) return fail(error.message);
   rev();
@@ -67,6 +75,10 @@ export async function createCountryQuick(
   const p = countryInput.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Validation failed" };
   const s = await createClient();
+  // Same guard as `createCountry` — this is the path that duplicated "INDIA"
+  // most often, because every Country field on every master offers "+ Add".
+  const dup = await checkDuplicateName(s, "countries", p.data.name);
+  if (!dup.ok) return { ok: false, error: dup.error };
   const { data, error } = await s.from("countries").insert(p.data).select("id").single();
   if (error) return { ok: false, error: error.message };
   rev();

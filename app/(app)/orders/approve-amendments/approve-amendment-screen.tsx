@@ -16,6 +16,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { lookupLabel } from "@/lib/masters/extras-types";
 import { decideAmendment } from "@/lib/orders/approve-amendments/actions";
 import {
   APPROVAL_STATUSES,
@@ -123,7 +124,13 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
     { header: "Order No", cell: (r) => <span className="text-sm">{r.po_no ?? "—"}</span> },
     { header: "Customer", cell: (r) => <span className="text-sm">{r.buyer?.name ?? "—"}</span> },
     { header: "Delivery Dt", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.delivery_date)}</span> },
-    { header: "Ship Type", cell: (r) => <span className="text-sm">{r.ship_type?.name ?? "—"}</span> },
+    // With its Incoterm, as the amendment's own Ship Type picker showed it.
+    {
+      header: "Ship Type",
+      cell: (r) => (
+        <span className="text-sm">{(r.ship_type && lookupLabel("ship_type", r.ship_type)) || "—"}</span>
+      ),
+    },
     { header: "Ship Mode", cell: (r) => <span className="text-sm">{r.ship_mode ?? "—"}</span> },
     { header: "Currency", cell: (r) => <span className="text-sm">{r.currency_code ?? "—"}</span> },
     { header: "Pay Mode", cell: (r) => <span className="text-sm">{r.pay_mode ?? "—"}</span> },

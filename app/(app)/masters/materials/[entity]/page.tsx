@@ -407,30 +407,34 @@ export default async function MaterialEntityPage({
     // --- Phase 2: Grid masters ---
     } else if (child.custom === "count_groups") {
       const [rows, lookups] = await Promise.all([listCountGroups(), listConfigLookups()]);
-      const counts = lookups.filter((l) => l.kind === "yarn_count").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
+      // Counts go through WHOLE — the line field is the yarn_count picker now,
+      // and flattening a row to {id,code,name} strips what it needs to
+      // Modify/Delete through (same note as yarn_purchase_rates below).
+      const counts = lookups.filter((l) => l.kind === "yarn_count");
       screen = <CountGroupMasterScreen rows={rows} counts={counts} perms={perms} />;
     } else if (child.custom === "constructions") {
       const [rows, lookups, materials] = await Promise.all([listConstructions(), listConfigLookups(), listMaterials()]);
-      const counts = lookups.filter((l) => l.kind === "yarn_count").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
+      const counts = lookups.filter((l) => l.kind === "yarn_count"); // whole rows — see above
       const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
       screen = <ConstructionMasterScreen rows={rows} counts={counts} items={items} perms={perms} />;
     } else if (child.custom === "yarn_purchase_rates") {
       const [rows, lookups, categories, materials] = await Promise.all([
         listYarnPurchaseRates(), listConfigLookups(), listCategories(), listMaterials(),
       ]);
-      const cats = categories.map((c) => ({ id: c.id, code: c.short_name ?? "", name: c.name ?? "" }));
+      // Categories and purities go through WHOLE: the line pickers are the real
+      // masters' pickers now, and flattening a row to {id,code,name} strips what
+      // they need to Modify/Delete through it.
       const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
-      const purities = lookups.filter((l) => l.kind === "yarn_purity").map((l) => ({ id: l.id, code: l.code ?? "", name: l.name }));
-      screen = <YarnPurchaseRateMasterScreen rows={rows} categories={cats} items={items} purities={purities} perms={perms} />;
+      screen = <YarnPurchaseRateMasterScreen rows={rows} categories={categories} items={items} purities={lookups.filter((l) => l.kind === "yarn_purity")} perms={perms} />;
     } else if (child.custom === "yarn_debit_rates") {
       const [rows, materials] = await Promise.all([listYarnDebitRates(), listMaterials()]);
       const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
       screen = <YarnDebitRateMasterScreen rows={rows} items={items} perms={perms} />;
     } else if (child.custom === "sizing_rates") {
       const [rows, categories, materials] = await Promise.all([listSizingRates(), listCategories(), listMaterials()]);
-      const cats = categories.map((c) => ({ id: c.id, code: c.short_name ?? "", name: c.name ?? "" }));
+      // Whole category rows — see the yarn_purchase_rates note above.
       const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
-      screen = <SizingRateMasterScreen rows={rows} categories={cats} items={items} perms={perms} />;
+      screen = <SizingRateMasterScreen rows={rows} categories={categories} items={items} perms={perms} />;
     } else if (child.custom === "warp_length_allowances") {
       const rows = await listWarpLengthAllowances();
       screen = <WarpLengthAllowanceMasterScreen rows={rows} perms={perms} />;

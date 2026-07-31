@@ -30,6 +30,9 @@ const descriptor: SimpleMasterDescriptor<State> = {
     is_default: !!v.is_default,
     inactive: !s.active,
   }),
+  // Unscoped, matching the on-save guard in state-actions.ts: an inactive state
+  // keeps its name reserved, and nothing in the app writes `states.country_id`.
+  dupCheck: { table: "states", fieldKey: "name" },
   actions: { create: createState, update: updateState, remove: deleteState },
 };
 

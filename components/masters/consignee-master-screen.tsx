@@ -19,6 +19,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { StatePicker } from "@/components/masters/state-picker";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
@@ -26,9 +27,17 @@ import { NotifyPicker } from "@/components/masters/notify-picker";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { createConsignee, updateConsignee, deleteConsignee } from "@/lib/masters/consignee-actions";
+import {
+  partyOrigin,
+  OriginBadge,
+  originNameHint,
+  originDeleteBlock,
+  type PartyOrigin,
+} from "@/components/masters/party-origin";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { decodeGstin, matchGstinState, normalizeGstin } from "@/lib/validation/gstin";
+import { defaultCountryId, defaultStateId } from "@/lib/masters/geo-defaults";
 import {
   SHIP_MODES,
   PAY_MODES,
@@ -36,7 +45,7 @@ import {
   type ConsigneeInput,
 } from "@/lib/masters/consignee-types";
 import type { Country } from "@/lib/masters/country-types";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { lookupLabel, type ConfigLookup } from "@/lib/masters/extras-types";
 import type { Customer } from "@/lib/masters/customer-types";
 import type { Currency } from "@/lib/masters/types";
 import type { Bank } from "@/lib/masters/bank-types";
@@ -78,6 +87,30 @@ type HeaderForm = {
   pan_no: string;
   gst_no: string;
 };
+/**
+ * Two masters can publish a consignee — Applicant ▸ Also Consignee and
+ * Customer ▸ Also Consignee (0371). The DB CHECK guarantees at most one link is
+ * set, so the first hit is the answer.
+ *
+ * `source_customer_id` is the publish link and has nothing to do with
+ * `customer_id`, the owning-customer picker on the form.
+ */
+const consigneeOrigin = (r: Consignee) =>
+  partyOrigin([
+    {
+      id: r.source_applicant_id,
+      source: r.source_applicant,
+      from: "Applicant",
+      flag: "Also Consignee",
+    },
+    {
+      id: r.source_customer_id,
+      source: r.source_customer,
+      from: "Customer",
+      flag: "Also Consignee",
+    },
+  ]);
+
 const BLANK: HeaderForm = {
   code: "",
   name: "",
@@ -298,6 +331,12 @@ export function ConsigneeMasterScreen({
   /** The row being READ. Separate from `editId` — a view must never arm Save. */
   const [viewRow, setViewRow] = useState<Consignee | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  /**
+   * Set while editing a row a tick box published (0371). Its Name belongs to
+   * the source and is read-only here — that removes the rename conflict instead
+   * of resolving it. Everything else on the record is genuinely its own.
+   */
+  const [editOrigin, setEditOrigin] = useState<PartyOrigin | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [markings, setMarkings] = useState<MarkingRow[]>([]);
@@ -346,6 +385,9 @@ export function ConsigneeMasterScreen({
       notifies,
     ];
     for (const list of lists) for (const o of list) m.set(o.id, o.name);
+    // Ship Type overwrites its own plain-name entries: its code is an Incoterm,
+    // so the view reads "FREE ON BOARD (FOB)" — the same label the picker showed.
+    for (const s of shipTypes) m.set(s.id, lookupLabel("ship_type", s));
     return m;
   }, [
     cities,
@@ -383,9 +425,14 @@ export function ConsigneeMasterScreen({
 
   // A GSTIN can only belong to an Indian registration, so the country it implies
   // is never in doubt — but it is still offered, never written (see below).
-  const indCountryId = useMemo(
-    () => countries.find((c) => (c.code ?? "").toUpperCase() === "IND")?.id ?? "",
-    [countries],
+  // Same two values a NEW consignee opens on; see geo-defaults.
+  const indCountryId = useMemo(() => defaultCountryId(countries), [countries]);
+  const homeStateId = useMemo(() => defaultStateId(states, companyGstin), [states, companyGstin]);
+
+  /** The Address block of a brand-new consignee: India, and our own state. */
+  const blankForm = useMemo<HeaderForm>(
+    () => ({ ...BLANK, state_id: homeStateId, country_id: indCountryId, address_country_id: indCountryId }),
+    [homeStateId, indCountryId],
   );
 
   // PAN is characters 3-12 of the GSTIN, so filling an EMPTY PAN box cannot
@@ -419,7 +466,10 @@ export function ConsigneeMasterScreen({
       });
     }
 
-    if (gstinState && !form.state_id) {
+    // "differs", not "is empty": the State box now OPENS on our own state, so an
+    // empty-only test would hide this chip on precisely the consignees that need
+    // it — an out-of-state GSTIN beside a defaulted home state.
+    if (gstinState && form.state_id !== gstinState.id) {
       out.push({
         key: "state",
         label: `Set State = ${gstinState.name}`,
@@ -437,8 +487,10 @@ export function ConsigneeMasterScreen({
         key: "country",
         label: "Set Country = India",
         onApply: () => {
-          set({ address_country_id: indCountryId });
-          success("Address country set to India");
+          // Both columns — the single Country field in Identity drives them
+          // together now (see that picker's comment).
+          set({ country_id: indCountryId, address_country_id: indCountryId });
+          success("Country set to India");
         },
       });
     }
@@ -471,32 +523,43 @@ export function ConsigneeMasterScreen({
 
   function openAdd() {
     setEditId(null);
-    setForm(BLANK);
+    setEditOrigin(null);
+    setForm(blankForm);
     loadedGstin.current = "";
     const blankContacts = [blankContact(newKey())];
     setContacts(blankContacts);
     setMarkings([]);
     setNotifyRefs([]);
     // Baseline for `dirty`. A brand-new consignee starts clean even though it
-    // already holds one empty contact row — that row is scaffolding the form put
-    // there, not something the user typed.
-    setPristine(snapshot(BLANK, blankContacts, [], []));
+    // already holds one empty contact row and a defaulted Country/State — that is
+    // scaffolding the form put there, not something the user typed. Snapshotting
+    // `blankForm` (not BLANK) is what keeps the defaults out of `dirty`: baseline
+    // BLANK would read the two defaults as unsaved edits and, via
+    // useUnsavedGuard, block the PWA's silent auto-update on this route forever.
+    setPristine(snapshot(blankForm, blankContacts, [], []));
     setOpen(true);
   }
   function openEdit(r: Consignee) {
     setEditId(r.id);
+    setEditOrigin(consigneeOrigin(r));
+    // One visible Country field now feeds both stored columns (see the
+    // Identity section below) — `country_id` is authoritative (it is what the
+    // list column, header chip and read-only view all resolve), so it wins; a
+    // row saved before this fix that only ever had `address_country_id`
+    // filled in still opens with a country rather than a blank picker.
+    const countryId = r.country_id ?? r.address_country_id ?? "";
     const nextForm: HeaderForm = {
       code: r.code ?? "",
       name: r.name,
       inactive: r.inactive,
-      country_id: r.country_id ?? "",
+      country_id: countryId,
       also_notify: r.also_notify,
       customer_id: r.customer_id ?? "",
       street: r.street ?? "",
       city_id: r.city_id ?? "",
       state_id: r.state_id ?? "",
       pin: r.pin ?? "",
-      address_country_id: r.address_country_id ?? "",
+      address_country_id: countryId,
       land_line: r.land_line ?? "",
       mobile: r.mobile ?? "",
       // NOT `?? ""` — a stored NULL is the "same as mobile" state.
@@ -638,6 +701,13 @@ export function ConsigneeMasterScreen({
   }
 
   function remove(r: Consignee) {
+    // A published row is owned by its source: deleting it here while the tick
+    // box stayed on would just republish it on that record's next save.
+    const origin = consigneeOrigin(r);
+    if (origin) {
+      error(originDeleteBlock(origin));
+      return;
+    }
     startTransition(async () => {
       const res = await deleteConsignee(r.id);
       if (res.ok) {
@@ -650,7 +720,15 @@ export function ConsigneeMasterScreen({
   }
 
   const columns: Column<Consignee>[] = [
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    {
+      header: "Name",
+      cell: (r) => (
+        <span className="flex flex-wrap items-center gap-1.5 text-sm">
+          {r.name}
+          <OriginBadge origin={consigneeOrigin(r)} />
+        </span>
+      ),
+    },
     {
       header: "Country",
       cell: (r) => (
@@ -720,6 +798,7 @@ export function ConsigneeMasterScreen({
    * `undefined` when the card holds nothing rather than as an empty list.
    */
   function viewSectionsFor(r: Consignee): ViewSection[] {
+    const viewOrigin = consigneeOrigin(r);
     const contactRows = r.contacts
       .map((c) => {
         const who = [c.contact_name?.trim(), nameOf(c.designation_id), nameOf(c.department_id)]
@@ -764,16 +843,23 @@ export function ConsigneeMasterScreen({
           ["Country", r.country_id ? (countryLabel.get(r.country_id) ?? "") : ""],
           ["Customer", r.customer_id ? (customerLabel.get(r.customer_id) ?? "") : ""],
           ["Also Notify", r.also_notify ? "Yes" : "No"],
+          // Only when it IS published — an empty row on an ordinary consignee
+          // would invite "published by what?" for no reason.
+          ...(viewOrigin
+            ? [[`From ${viewOrigin.from}`, `${viewOrigin.name} (${viewOrigin.flag})`] as const]
+            : []),
         ],
       },
       {
         label: "Address",
+        // No "Country" pair here — it lived under Identity above until the
+        // single-Country-field fix (2026-07-31); `address_country_id` is kept
+        // in sync with `country_id` and would only repeat that line.
         pairs: [
           ["Street", r.street],
           ["City", nameOf(r.city_id)],
           ["State", nameOf(r.state_id)],
           ["Pin", r.pin],
-          ["Country", r.address_country_id ? (countryLabel.get(r.address_country_id) ?? "") : ""],
           ["Land Line", r.land_line],
           ["Mobile", r.mobile],
           // A stored NULL means "same as mobile" — saying so beats printing the
@@ -829,9 +915,13 @@ export function ConsigneeMasterScreen({
     address: !!(
       form.street.trim() ||
       form.city_id ||
-      form.state_id ||
+      // Compared against the DEFAULT, not against empty. These two boxes arrive
+      // pre-filled with our own State/Country now, and a rail dot that lights
+      // before the operator has typed anything reads as "Address is done" on a
+      // section holding no address at all.
+      form.state_id !== blankForm.state_id ||
       form.pin.trim() ||
-      form.address_country_id ||
+      form.address_country_id !== blankForm.address_country_id ||
       form.land_line.trim() ||
       form.mobile.trim() ||
       form.email.trim() ||
@@ -902,6 +992,7 @@ export function ConsigneeMasterScreen({
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {r.code ?? "—"}
                     {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
+                    {consigneeOrigin(r) ? ` · from ${consigneeOrigin(r)?.from}` : ""}
                   </div>
                 </div>
                 <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
@@ -929,6 +1020,7 @@ export function ConsigneeMasterScreen({
           badges: (
             <>
               {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              <OriginBadge origin={editOrigin} />
               {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
             </>
           ),
@@ -980,10 +1072,20 @@ export function ConsigneeMasterScreen({
                       while Customer was wrapped, so the two labels sat at
                       different offsets. */}
                   <FieldGrid>
-                    <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cn-name">
+                    <Field
+                      label="Name"
+                      required
+                      size={FIELD_SIZE.name}
+                      htmlFor="cn-name"
+                      hint={editOrigin ? originNameHint(editOrigin) : undefined}
+                    >
+                      {/* `readOnly`, not `disabled`: the value still submits and
+                          still copies, and Input's own readOnly sets
+                          tabIndex={-1}, so it leaves the Tab order for free. */}
                       <Input
                         id="cn-name"
                         uppercase
+                        readOnly={!!editOrigin}
                         value={form.name}
                         onChange={(e) => set({ name: e.target.value })}
                         required
@@ -992,14 +1094,21 @@ export function ConsigneeMasterScreen({
                     {/* No `required` marker, unlike the asterisk CountryPicker
                         prints for itself: `country_id` is nullable in
                         consigneeInput and Save is gated on the name alone, so
-                        the marker was never true here. */}
+                        the marker was never true here.
+                        The ONLY Country field on this form now (client
+                        complaint 2026-07-31: two boxes both labelled "Country"
+                        read as a duplicate). It writes BOTH `country_id` and
+                        `address_country_id` — see the Address section below,
+                        which used to carry its own picker for the second
+                        column. */}
                     <Field label="Country" size={FIELD_SIZE.country_id}>
                       <CountryPicker
                         countries={countries}
                         value={form.country_id || null}
-                        onChange={(id) => set({ country_id: id })}
+                        onChange={(id) => set({ country_id: id, address_country_id: id })}
                         canCreate={perms.canCreate}
                         canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
                         compact
                       />
                     </Field>
@@ -1079,12 +1188,14 @@ export function ConsigneeMasterScreen({
                       />
                     </Field>
                     <Field label="State" size={FIELD_SIZE.state_id}>
-                      <LookupDialogPicker
-                        kind="state"
+                      <StatePicker
                         label="State"
                         options={states}
                         value={form.state_id || null}
                         onChange={(id) => set({ state_id: id })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
                         compact
                       />
                     </Field>
@@ -1095,16 +1206,16 @@ export function ConsigneeMasterScreen({
                         onChange={(e) => set({ pin: e.target.value })}
                       />
                     </Field>
-                    <Field label="Country" size={FIELD_SIZE.address_country_id}>
-                      <CountryPicker
-                        countries={countries}
-                        value={form.address_country_id || null}
-                        onChange={(id) => set({ address_country_id: id })}
-                        canCreate={perms.canCreate}
-                        canEdit={perms.canEdit}
-                        compact
-                      />
-                    </Field>
+                    {/* Country used to have its OWN field here, bound to
+                        `address_country_id` — right beside Identity's
+                        `country_id` one, the same country asked twice. The
+                        column still exists in the DB (data-io round-trips it,
+                        and old rows may only have this one filled in) but it
+                        is now written from the single Identity Country picker
+                        above, not from a visible field here. Do not add this
+                        field back without re-reading that picker's comment
+                        first. City + State + Pin end this row 3 short of 12 —
+                        deliberate, same as any other tail row on this form. */}
                     <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cn-landline">
                       <Input
                         id="cn-landline"
@@ -1181,6 +1292,9 @@ export function ConsigneeMasterScreen({
                               options={departments}
                               value={c.department_id || null}
                               onChange={(id) => setContactAt(c.key, { department_id: id })}
+                              canCreate={perms.canCreate}
+                              canEdit={perms.canEdit}
+                              canDelete={perms.canDelete}
                               compact
                             />
                           </div>
@@ -1199,6 +1313,9 @@ export function ConsigneeMasterScreen({
                               options={designations}
                               value={c.designation_id || null}
                               onChange={(id) => setContactAt(c.key, { designation_id: id })}
+                              canCreate={perms.canCreate}
+                              canEdit={perms.canEdit}
+                              canDelete={perms.canDelete}
                               compact
                             />
                           </div>
@@ -1368,6 +1485,9 @@ export function ConsigneeMasterScreen({
                         options={paymentTerms}
                         value={form.payment_term_id || null}
                         onChange={(id) => set({ payment_term_id: id })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
                         compact
                       />
                     </Field>

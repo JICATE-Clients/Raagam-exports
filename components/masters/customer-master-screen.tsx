@@ -17,6 +17,7 @@ import { MasterListShell } from "@/components/masters/master-list-shell";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { StatePicker } from "@/components/masters/state-picker";
 import { ApplicantPicker } from "@/components/masters/applicant-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
@@ -26,9 +27,17 @@ import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import { decodeGstin } from "@/lib/validation/gstin";
+import { decodeGstin, matchGstinState } from "@/lib/validation/gstin";
+import { defaultCountryId, defaultStateId } from "@/lib/masters/geo-defaults";
 import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-service";
 import { createCustomer, updateCustomer, deleteCustomer } from "@/lib/masters/customer-actions";
+import {
+  partyOrigin,
+  OriginBadge,
+  originNameHint,
+  originDeleteBlock,
+  type PartyOrigin,
+} from "@/components/masters/party-origin";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   type Customer,
@@ -41,7 +50,7 @@ import {
 import type { Applicant } from "@/lib/masters/applicant-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { lookupLabel, type ConfigLookup } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -88,6 +97,21 @@ type HeaderForm = {
   tcs_applicable: boolean;
   gst_no: string;
 };
+/**
+ * Only one master publishes customers — Applicant ▸ Also Customer (0371) — but
+ * this goes through the same helper as Consignee and Notify so all three read
+ * and behave identically.
+ */
+const customerOrigin = (r: Customer) =>
+  partyOrigin([
+    {
+      id: r.source_applicant_id,
+      source: r.source_applicant,
+      from: "Applicant",
+      flag: "Also Customer",
+    },
+  ]);
+
 const BLANK: HeaderForm = {
   code: "",
   name: "",
@@ -330,6 +354,13 @@ export function CustomerMasterScreen({
   /** The row being READ. Separate from `editId` — a view must never arm Save. */
   const [viewRow, setViewRow] = useState<Customer | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  /**
+   * Set while editing a row Applicant ▸ Also Customer published (0371). Its
+   * Name belongs to the applicant and is read-only here — that removes the
+   * rename conflict instead of resolving it. Everything else on this record
+   * (GST, TCS, terms, its child grids) is genuinely its own.
+   */
+  const [editOrigin, setEditOrigin] = useState<PartyOrigin | null>(null);
   const [dirty, setDirty] = useState(false);
   const isdOf = useIsdLookup(countries);
 
@@ -396,6 +427,9 @@ export function CustomerMasterScreen({
       couriers,
     ];
     for (const list of lists) for (const o of list) m.set(o.id, o.name);
+    // Ship Type overwrites its own plain-name entries: its code is an Incoterm,
+    // so the view reads "FREE ON BOARD (FOB)" — the same label the field showed.
+    for (const s of shipTypes) m.set(s.id, lookupLabel("ship_type", s));
     return m;
   }, [
     cities,
@@ -431,6 +465,23 @@ export function CustomerMasterScreen({
   const gstin = useMemo(
     () => decodeGstin(form.gst_no, { companyGstin }),
     [form.gst_no, companyGstin],
+  );
+  // The State master row this customer's GSTIN points at — code first, spelling
+  // as a fallback. Shared with vendor and consignee; see matchGstinState.
+  const gstinState = useMemo(() => matchGstinState(gstin, states), [gstin, states]);
+
+  // What a NEW customer's Address block opens on: India, and our own state (read
+  // out of the company GSTIN). See lib/masters/geo-defaults.
+  const blankForm = useMemo<HeaderForm>(
+    () => ({
+      ...BLANK,
+      state_id: defaultStateId(states, companyGstin),
+      // Both columns — the single Country field (Identity) drives them
+      // together now (see that picker's comment).
+      country_id: defaultCountryId(countries),
+      address_country_id: defaultCountryId(countries),
+    }),
+    [states, countries, companyGstin],
   );
 
   // Two customers must not share a GSTIN — one registration belongs to exactly
@@ -468,13 +519,31 @@ export function CustomerMasterScreen({
       });
     }
 
+    // Gated on "differs", not "is empty". The State box now OPENS on our own
+    // state, so an empty-only test would hide this chip on exactly the customers
+    // that need it: an out-of-state GSTIN sitting silently beside a defaulted
+    // home state. Offered, never written — the same rule as Business Entity.
+    if (gstinState && form.state_id !== gstinState.id) {
+      out.push({
+        key: "state",
+        label: `Set State = ${gstinState.name}`,
+        onApply: () => {
+          set({ state_id: gstinState.id });
+          // Toasted because State sits in Address while the GST number sits in
+          // General — the change lands off-screen.
+          success(`State set to ${gstinState.name} in the Address section`);
+        },
+      });
+    }
+
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gstin, form.business_entity]);
+  }, [gstin, gstinState, form.business_entity, form.state_id]);
 
   function openAdd() {
     setEditId(null);
-    setForm(BLANK);
+    setEditOrigin(null);
+    setForm(blankForm);
     setContacts([blankContact(newKey())]);
     setApplicantIds([]);
     setAgents([]);
@@ -488,6 +557,13 @@ export function CustomerMasterScreen({
   }
   function openEdit(r: Customer) {
     setEditId(r.id);
+    setEditOrigin(customerOrigin(r));
+    // One visible Country field now feeds both stored columns (see the
+    // pickers below) — `country_id` is authoritative (it is what the list
+    // column, header chip and read-only view all resolve), so it wins; a row
+    // saved before this fix that only ever had `address_country_id` filled in
+    // still opens with a country rather than a blank picker.
+    const countryId = r.country_id ?? r.address_country_id ?? "";
     setForm({
       code: r.code ?? "",
       name: r.name,
@@ -498,12 +574,12 @@ export function CustomerMasterScreen({
       also_notify: r.also_notify,
       business_entity: r.business_entity ?? "",
       inhouse_unit_id: r.inhouse_unit_id ?? "",
-      country_id: r.country_id ?? "",
+      country_id: countryId,
       street: r.street ?? "",
       city_id: r.city_id ?? "",
       state_id: r.state_id ?? "",
       pin: r.pin ?? "",
-      address_country_id: r.address_country_id ?? "",
+      address_country_id: countryId,
       land_line: r.land_line ?? "",
       mobile: r.mobile ?? "",
       // NOT `?? ""` — a stored NULL is the "same as mobile" state.
@@ -677,6 +753,14 @@ export function CustomerMasterScreen({
   }
 
   function remove(r: Customer) {
+    // A published row is owned by its source: deleting it here while "Also
+    // Customer" stayed ticked would just republish it on the applicant's next
+    // save.
+    const origin = customerOrigin(r);
+    if (origin) {
+      error(originDeleteBlock(origin));
+      return;
+    }
     startTransition(async () => {
       const res = await deleteCustomer(r.id);
       if (res.ok) {
@@ -746,6 +830,7 @@ export function CustomerMasterScreen({
    * the card holds nothing rather than as an empty list.
    */
   function viewSectionsFor(r: Customer): ViewSection[] {
+    const viewOrigin = customerOrigin(r);
     const applicantRows = r.applicants
       .map((a) => ({
         key: a.id,
@@ -812,6 +897,11 @@ export function CustomerMasterScreen({
           ["Country", r.country_id ? (countryLabel.get(r.country_id) ?? "") : ""],
           ["Business Entity", r.business_entity],
           ["In-house Unit ID", r.inhouse_unit_id],
+          // Only when it IS published — an empty row on an ordinary customer
+          // would invite "published by what?" for no reason.
+          ...(viewOrigin
+            ? [[`From ${viewOrigin.from}`, `${viewOrigin.name} (${viewOrigin.flag})`] as const]
+            : []),
         ],
         content:
           applicantRows.length > 0 ? (
@@ -820,12 +910,14 @@ export function CustomerMasterScreen({
       },
       {
         label: "Address",
+        // No "Country" pair here — it lived under Identity above until the
+        // single-Country-field fix (2026-07-31); `address_country_id` is kept
+        // in sync with `country_id` and would only repeat that line.
         pairs: [
           ["Street", r.street],
           ["City", nameOf(r.city_id)],
           ["State", nameOf(r.state_id)],
           ["Pin", r.pin],
-          ["Country", r.address_country_id ? (countryLabel.get(r.address_country_id) ?? "") : ""],
           ["Land Line", r.land_line],
           ["Mobile", r.mobile],
           // A stored NULL means "same as mobile" — saying so beats printing the
@@ -902,7 +994,15 @@ export function CustomerMasterScreen({
   }
 
   const columns: Column<Customer>[] = [
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    {
+      header: "Name",
+      cell: (r) => (
+        <span className="flex flex-wrap items-center gap-1.5 text-sm">
+          {r.name}
+          <OriginBadge origin={customerOrigin(r)} />
+        </span>
+      ),
+    },
     {
       header: "Country",
       cell: (r) => (
@@ -922,7 +1022,7 @@ export function CustomerMasterScreen({
         const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
-    },
+    },
   ];
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
@@ -943,7 +1043,13 @@ export function CustomerMasterScreen({
         empty="No customers yet."
         mobile={{
           title: (r) => r.name,
-          meta: (r) => (r.country_id ? (countryLabel.get(r.country_id) ?? "") : ""),
+          meta: (r) =>
+            [
+              r.country_id ? (countryLabel.get(r.country_id) ?? "") : "",
+              customerOrigin(r) ? `from ${customerOrigin(r)?.from}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · "),
           pill: (r) => (
             <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
               {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
@@ -971,6 +1077,7 @@ export function CustomerMasterScreen({
           badges: (
             <>
               {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              <OriginBadge origin={editOrigin} />
               {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
             </>
           ),
@@ -1049,8 +1156,12 @@ export function CustomerMasterScreen({
                           </label>
                         </Field>
                       )}
-                      <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cu-name">
-                        <Input id="cu-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} required />
+                      <Field label="Name" required size={FIELD_SIZE.name} htmlFor="cu-name"
+                        hint={editOrigin ? originNameHint(editOrigin) : undefined}>
+                        {/* `readOnly`, not `disabled`: the value still submits
+                            and still copies, and Input's own readOnly sets
+                            tabIndex={-1}, so it leaves the Tab order for free. */}
+                        <Input id="cu-name" uppercase readOnly={!!editOrigin} value={form.name} onChange={(e) => set({ name: e.target.value })} required />
                       </Field>
                       <Field label="Doc Prefix" size={FIELD_SIZE.doc_prefix} htmlFor="cu-prefix">
                         <Input uppercase id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
@@ -1080,9 +1191,15 @@ export function CustomerMasterScreen({
                           twice. Its built-in label also carries a required
                           asterisk that this form does not honour — country_id is
                           nullable in customerInput — so `Field`'s label is the
-                          more accurate of the two. Same for every picker below. */}
+                          more accurate of the two. Same for every picker below.
+                          This is also now the ONLY Country field on this form
+                          (client complaint 2026-07-31: two boxes both labelled
+                          "Country" read as a duplicate). It writes BOTH
+                          `country_id` and `address_country_id` — see the Address
+                          section below, which used to carry its own picker for
+                          the second column. */}
                       <Field label="Country" size={FIELD_SIZE.country_id}>
-                        <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+                        <CountryPicker countries={countries} value={form.country_id || null} onChange={(id) => set({ country_id: id, address_country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                       </Field>
                       <Field label="Business Entity" size={FIELD_SIZE.business_entity} htmlFor="cu-bizentity">
                         <Select id="cu-bizentity" value={form.business_entity} onChange={(e) => set({ business_entity: e.target.value })}>
@@ -1120,14 +1237,20 @@ export function CustomerMasterScreen({
                         <LookupDialogPicker kind="city" label="City" options={cities} value={form.city_id || null} onChange={(id) => set({ city_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
                       <Field label="State" size={FIELD_SIZE.state_id}>
-                        <LookupDialogPicker kind="state" label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} compact />
+                        <StatePicker label="State" options={states} value={form.state_id || null} onChange={(id) => set({ state_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                       </Field>
                       <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cu-pin">
                         <Input id="cu-pin" value={form.pin} onChange={(e) => set({ pin: e.target.value })} />
                       </Field>
-                      <Field label="Country" size={FIELD_SIZE.address_country_id}>
-                        <CountryPicker countries={countries} value={form.address_country_id || null} onChange={(id) => set({ address_country_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
-                      </Field>
+                      {/* Country used to have its OWN field here, bound to
+                          `address_country_id` — right beside Identity's
+                          `country_id` one, the same country asked twice. The
+                          column still exists in the DB (data-io round-trips it,
+                          and old rows may only have this one filled in) but it
+                          is now written from the single Identity Country picker
+                          above, not from a visible field here. Do not add this
+                          field back without re-reading that picker's comment
+                          first. */}
                       <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cu-landline">
                         <Input id="cu-landline" value={form.land_line} onChange={(e) => set({ land_line: e.target.value })} />
                       </Field>
@@ -1167,7 +1290,7 @@ export function CustomerMasterScreen({
                             header: "Department",
                             className: "min-w-[160px]",
                             cell: (c) => (
-                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} compact />
+                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                             ),
                           },
                           {
@@ -1179,7 +1302,7 @@ export function CustomerMasterScreen({
                             header: "Designation",
                             className: "min-w-[160px]",
                             cell: (c) => (
-                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} compact />
+                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                             ),
                           },
                           {
@@ -1209,12 +1332,12 @@ export function CustomerMasterScreen({
                           <>
                             <div>
                               <Label>Department</Label>
-                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} compact />
+                              <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                             </div>
                             <Input uppercase placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
                             <div>
                               <Label>Designation</Label>
-                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} compact />
+                              <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <Input placeholder="Land Line" value={c.land_line} onChange={(e) => setContactAt(c.key, { land_line: e.target.value })} className="text-base md:text-sm" />
@@ -1327,11 +1450,15 @@ export function CustomerMasterScreen({
                           {SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Ship Type" size={FIELD_SIZE.ship_type_id} htmlFor="cu-shiptype">
-                        <Select id="cu-shiptype" value={form.ship_type_id} onChange={(e) => set({ ship_type_id: e.target.value })}>
-                          <option value="">—</option>
-                          {shipTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </Select>
+                      {/* Ship Type is stored master data (`config_lookups` kind
+                          'ship_type'), so it gets the shared picker — searchable,
+                          with Add / Modify / Delete in place — exactly as
+                          Applicant and Consignee already render it. As a plain
+                          <Select> it could only pick, and it had to compose the
+                          "DELIVERED DUTY PAID (DDP)" option text itself; the
+                          picker's `lookupLabel` does that now. */}
+                      <Field label="Ship Type" size={FIELD_SIZE.ship_type_id}>
+                        <LookupDialogPicker kind="ship_type" label="Ship Type" options={shipTypes} value={form.ship_type_id || null} onChange={(id) => set({ ship_type_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
                       </Field>
                       <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cu-paymode">
                         <Select id="cu-paymode" value={form.pay_mode} onChange={(e) => set({ pay_mode: e.target.value })}>

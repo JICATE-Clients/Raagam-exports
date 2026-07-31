@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
@@ -25,15 +26,18 @@ import {
   deleteCountGroup,
 } from "@/lib/masters/grid-master-actions";
 import type { CountGroup, CountGroupInput } from "@/lib/masters/grid-master-types";
+import type { ConfigLookup } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
 type LineRow = { key: string; count_lookup_id: string | null };
 const blankLine = (key: string): LineRow => ({ key, count_lookup_id: null });
 
-type LookupOption = { id: string; code: string; name: string };
-
-export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGroup[]; counts: LookupOption[]; perms: Perms }) {
+// Whole `config_lookups` rows, not a flattened {id,code,name}: the count picker
+// is the real lookup picker now, and it needs `is_active` (an inactive count
+// still resolves for a line that already points at it) plus the row itself to
+// Modify / Delete through.
+export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGroup[]; counts: ConfigLookup[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -214,14 +218,24 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
                   {lines.map((l, i) => (
                     <div data-grid-row key={l.key} className="flex items-center gap-2">
                       <span className="w-6 text-center text-xs text-muted-foreground">{i + 1}</span>
-                      <Select value={l.count_lookup_id ?? ""}
-                        onChange={(e) => setLineAt(l.key, { count_lookup_id: e.target.value || null })}
-                        className="flex-1 text-base md:text-sm">
-                        <option value="">— select count —</option>
-                        {counts.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </Select>
+                      {/* The counts are a stored list (config_lookups
+                          'yarn_count'), so the line picks one through the
+                          picker and can add / rename / drop a count without
+                          leaving this form — `compact` because the grid's own
+                          header names the column. */}
+                      <div className="min-w-0 flex-1">
+                        <LookupDialogPicker
+                          kind="yarn_count"
+                          label="Count"
+                          compact
+                          options={counts}
+                          value={l.count_lookup_id}
+                          onChange={(v) => setLineAt(l.key, { count_lookup_id: v || null })}
+                          canCreate={perms.canCreate}
+                          canEdit={perms.canEdit}
+                          canDelete={perms.canDelete}
+                        />
+                      </div>
                       <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
                         onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                     </div>

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
 import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
-import type { ConfigLookup, LookupKind } from "@/lib/masters/extras-types";
+import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/extras-types";
 
 /**
  * The `config_lookups` picker — City, State, Department, Designation, Internal
@@ -85,6 +85,18 @@ export function LookupDialogPicker({
   const canAdd = Boolean(canCreate) && (!adminOnly || isSuperAdmin);
   const showTypeField = kind === "item_class";
 
+  /*
+   * NOT for kind="state" — use `components/masters/state-picker.tsx`.
+   *
+   * States moved to `public.states` (0355) and `state_id` FKs were repointed
+   * there, but `statesAsLookups()` maps those rows into the lookup shape, so a
+   * State field LOOKS like it belongs here. It does not: everything below
+   * writes to `config_lookups`, so Add put the state in the wrong table — it
+   * vanished on the next refresh and returned an id that was not a valid
+   * `state_id`. Harmless while State fields passed no permissions; the
+   * 2026-07-31 sweep gave them CRUD and exposed it.
+   */
+
   // Values created / edited in this session, merged over the server rows. The
   // options arrive as a prop from a server component, so without this a value
   // the operator just added is invisible until `router.refresh()` lands.
@@ -103,10 +115,16 @@ export function LookupDialogPicker({
     () =>
       all
         .filter((o) => o.is_active || o.id === value)
+        // Sorted by the NAME, not the composed label: alphabetical by the words
+        // the operator reads first, so Ship Type still runs CARRIAGE… → COST… →
+        // DELIVERED…, not CFR → CIF → CIP.
         .sort((a, b) => a.name.localeCompare(b.name))
-        // Codes are backend-only (client 2026-07-23) — show just the name.
-        .map((o) => ({ id: o.id, label: o.name, disabled: !o.is_active })),
-    [all, value],
+        // Codes are backend-only (client 2026-07-23) — show just the name. The
+        // ONE exception is a kind whose code is a term of the trade rather than a
+        // generated key: Ship Type reads "FREE ON BOARD (FOB)", which also makes
+        // it findable by typing the Incoterm (the filter matches the label).
+        .map((o) => ({ id: o.id, label: lookupLabel(kind, o), disabled: !o.is_active })),
+    [all, value, kind],
   );
 
   const manage: ManageConfig = {
@@ -114,6 +132,10 @@ export function LookupDialogPicker({
     canEdit: Boolean(canEdit),
     canDelete: canDelete ?? Boolean(canEdit),
     showTypeField,
+    // Scoped per kind, matching `uq_config_lookups_kind_name` — so the field says
+    // "already exists" while the operator types instead of on Save. State is the
+    // exception below: its rows live in `public.states`, so it is checked there.
+    dupCheck: { table: "config_lookups", scope: { kind } },
     onCreate: (d) => createLookupValue(kind, d.name, d.code || null, d.typeCode || null),
     onUpdate: (id, d) => {
       const existing = byId.get(id);

@@ -30,6 +30,7 @@ export default async function MastersPage({
       transporters,
       gstRates,
       canCreate,
+      canEdit,
       canExport,
       canDelete,
     ] = await Promise.all([
@@ -41,6 +42,8 @@ export default async function MastersPage({
       listTransporters(),
       listGstRates(),
       can("masters", "create"),
+      // Gates the pencil/bin inside the Currency picker on the Buyers form.
+      can("masters", "edit"),
       can("masters", "export"),
       can("masters", "delete"),
     ]);
@@ -61,6 +64,7 @@ export default async function MastersPage({
           gstRates={gstRates}
           initialTab={tab}
           canCreate={canCreate}
+          canEdit={canEdit}
           canExport={canExport}
           canDelete={canDelete}
         />

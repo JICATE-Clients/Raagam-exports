@@ -6,6 +6,13 @@ import { can } from "@/lib/auth/server";
 import { customerInput, type CustomerInput } from "./customer-types";
 import { deleteOrDeactivate } from "./delete-guard";
 import { checkDuplicateName } from "./dup-guard";
+import {
+  PARTY_LINKS,
+  partySeed,
+  publishParty,
+  detachPublished,
+  reattachPublished,
+} from "./party-publish";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -169,6 +176,31 @@ async function checkGstinUnique(
   return res.ok ? null : res.error;
 }
 
+/** Both "Also …" tick boxes on this master. */
+const CUSTOMER_LINKS = [PARTY_LINKS.customerConsignee, PARTY_LINKS.customerNotify] as const;
+
+/** Reconcile "Also Consignee" / "Also Notify" with the masters they publish into. */
+async function syncAlsoFlags(
+  s: Awaited<ReturnType<typeof createClient>>,
+  id: string,
+  data: CustomerInput,
+): Promise<Result> {
+  const seed = partySeed(data);
+  // A consignee published by a customer belongs to that customer — seed the
+  // owning-customer picker rather than leaving the operator to re-pick the very
+  // record they published it from. (`customer_id` is that picker; it is NOT the
+  // publish link, which is `source_customer_id`.)
+  const cons = await publishParty(s, PARTY_LINKS.customerConsignee, id, data.also_consignee, seed, {
+    customer_id: id,
+  });
+  if (!cons.ok) return cons;
+  const notif = await publishParty(s, PARTY_LINKS.customerNotify, id, data.also_notify, seed);
+  if (!notif.ok) return notif;
+  revalidatePath("/masters/associates/consignee");
+  revalidatePath("/masters/associates/notify");
+  return { ok: true };
+}
+
 export async function createCustomer(data: CustomerInput): Promise<Result> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = customerInput.safeParse(data);
@@ -184,6 +216,8 @@ export async function createCustomer(data: CustomerInput): Promise<Result> {
   if (error) return fail(error.message);
   const childRes = await writeChildren(s, created.id, p.data);
   if (!childRes.ok) return childRes;
+  const pub = await syncAlsoFlags(s, created.id, p.data);
+  if (!pub.ok) return pub;
   rev();
   return { ok: true };
 }
@@ -195,6 +229,10 @@ export async function updateCustomer(id: string, data: CustomerInput): Promise<R
   const s = await createClient();
   const dupErr = await checkGstinUnique(s, p.data.gst_no, id);
   if (dupErr) return fail(dupErr);
+  // Before the header write — see the note in updateApplicant. A refused untick
+  // must leave the record untouched, not half-saved.
+  const pub = await syncAlsoFlags(s, id, p.data);
+  if (!pub.ok) return pub;
   const { error } = await s.from("customers").update(headerOnly(p.data)).eq("id", id);
   if (error) return fail(error.message);
   const childRes = await writeChildren(s, id, p.data);
@@ -206,9 +244,18 @@ export async function updateCustomer(id: string, data: CustomerInput): Promise<R
 export async function deleteCustomer(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
+  // Free anything this customer published (see deleteApplicant).
+  const det = await detachPublished(s, CUSTOMER_LINKS, id);
+  if (!det.ok) return fail(det.error);
   // Own children cascade; if referenced elsewhere, deactivate instead of delete.
   const res = await deleteOrDeactivate(s, "customers", id, "inactive");
   if (!res.ok) return fail(res.error);
+  if (res.inactive && det.detached.length) {
+    const relinkErr = await reattachPublished(s, det.detached, id);
+    if (relinkErr) return fail(`Customer deactivated, but its published records could not be re-linked: ${relinkErr}`);
+  }
   rev();
+  revalidatePath("/masters/associates/consignee");
+  revalidatePath("/masters/associates/notify");
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

@@ -15,6 +15,6 @@ export async function listDefectDetails(): Promise<DefectDetail[]> {
 
 export async function listDefectGroups(): Promise<DefectGroup[]> {
   const s = await createClient();
-  const { data } = await s.from("defect_groups").select("id, name").order("name");
+  const { data } = await s.from("defect_groups").select("id, name, is_active").order("name");
   return (data ?? []) as DefectGroup[];
 }

@@ -97,6 +97,7 @@ export function ItemPicker({
   onChange,
   clearable = true,
   placeholder,
+  compact = false,
   quickCreateClassId,
   canCreate = false,
   canEdit = false,
@@ -110,6 +111,8 @@ export function ItemPicker({
   onChange: (v: string) => void;
   clearable?: boolean;
   placeholder?: string;
+  /** Trigger-only (no label) for dense grid rows — as `LookupDialogPicker`. */
+  compact?: boolean;
   /** Item class new quick-created items belong to — enables the CRUD bar. */
   quickCreateClassId?: string;
   canCreate?: boolean;
@@ -187,6 +190,7 @@ export function ItemPicker({
         onChange={(v) => onChange(v ?? "")}
         clearable={clearable}
         placeholder={placeholder}
+        compact={compact}
         manage={manage}
         onAddOverride={
           useYarnQc
@@ -215,6 +219,7 @@ export function ItemPicker({
           yarnTypes={yarnQuickCreate!.yarnTypes}
           categories={yarnQuickCreate!.categories}
           kgUnitId={yarnQuickCreate!.kgUnitId}
+          perms={{ canCreate, canEdit, canDelete }}
         />
       )}
     </>
@@ -446,7 +451,6 @@ export function CategoryPicker({
         <CategoryQuickCreateSheet
           open={qcOpen}
           onClose={() => setQcOpen(false)}
-          knownNames={all.map((c) => c.name ?? "")}
           onCreated={(cat) => {
             // Same optimistic flow as manage.onCreated: stub the new category
             // into the list, select it (committing also closes the picker

@@ -44,6 +44,70 @@ export interface VendorAddress {
   email_id: string | null;
 }
 
+/**
+ * One row of the legacy Vendor ▸ Item Category grid — the commercial terms this
+ * vendor supplies ONE item class / category under. Only reachable while the
+ * vendor is a Bought Items Vendor (see DUTY_DETAILS below).
+ */
+export interface VendorItemCategory {
+  id: string;
+  vendor_id: string;
+  sno: number;
+  item_class_id: string | null;
+  /** Scoped BY item_class_id — see the cascade note on the screen. */
+  category_id: string | null;
+  /** A `levies` row of type VAT / CST. */
+  vat_levy_id: string | null;
+  /** A `levies` row of type DUTY / EXCISE DUTY. */
+  duty_levy_id: string | null;
+  lead_days: number | null;
+  form_id: string | null;
+  supply_type_id: string | null;
+  payment_term_id: string | null;
+}
+
+/** The vendor-level radio above the Item Category grid; legacy offers four. */
+export const DUTY_DETAILS = ["None", "CT3", "Annexure", "RG23"] as const;
+export type DutyDetail = (typeof DUTY_DETAILS)[number];
+
+/**
+ * One row of the legacy Vendor ▸ Process grid — a process this vendor is paid to
+ * do, with the VAT that applies and the share of the charge it applies to. Shown
+ * only while the vendor Is Processor.
+ */
+export interface VendorProcess {
+  id: string;
+  vendor_id: string;
+  sno: number;
+  /** The real Process master (0227), not the `process` config_lookups kind. */
+  process_id: string | null;
+  /** A `levies` row of type VAT / CST — legacy calls the column "Vat Description". */
+  vat_levy_id: string | null;
+  vat_portion_pct: number;
+  payment_term_id: string | null;
+}
+
+/** One row of Vendor ▸ Service — shown while the vendor Is Service Provider. */
+export interface VendorService {
+  id: string;
+  vendor_id: string;
+  sno: number;
+  service_type_id: string | null;
+  payment_term_id: string | null;
+}
+
+/**
+ * One row of Vendor ▸ SubContractor — shown while the vendor Is Sub Contractor.
+ * The Process grid minus VAT: legacy asks only which process, on what terms.
+ */
+export interface VendorSubcontract {
+  id: string;
+  vendor_id: string;
+  sno: number;
+  process_id: string | null;
+  payment_term_id: string | null;
+}
+
 export interface Vendor {
   id: string;
   code: string | null; // "Short Name"
@@ -76,12 +140,23 @@ export interface Vendor {
   memorandum_no: string | null;
   inhouse_unit_id: string | null;
   duty_against: string | null;
+  /** Item Category tab — the radio above the grid. Never null (defaults 'None'). */
+  duty_details: DutyDetail;
+  // The TDS / ESI panel, shared by the Process, Service and SubContractor tabs:
+  // ONE set of vendor-level values, not three.
+  tds_levy_id: string | null;
+  esi_no: string | null;
+  esi_retention_pct: number;
   is_draft: boolean;
   created_at: string;
   updated_at: string;
   // embedded for display
   country?: { id: string; code: string | null; name: string } | null;
   addresses: VendorAddress[];
+  item_categories: VendorItemCategory[];
+  processes: VendorProcess[];
+  services: VendorService[];
+  subcontracts: VendorSubcontract[];
 }
 
 const nullableText = z.string().optional().nullable();
@@ -99,6 +174,40 @@ export const vendorAddressInput = z.object({
   mobile: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   whatsapp: nullableFormat(PHONE_INTL_RE, PHONE_MSG),
   email_id: nullableFormat(EMAIL_RE, "Enter a valid email address"),
+});
+
+export const vendorItemCategoryInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  item_class_id: uuidN,
+  category_id: uuidN,
+  vat_levy_id: uuidN,
+  duty_levy_id: uuidN,
+  // Blank stays blank: an unfilled lead time is "not agreed yet", not zero days.
+  lead_days: z.coerce.number().int().nonnegative().nullable().default(null),
+  form_id: uuidN,
+  supply_type_id: uuidN,
+  payment_term_id: uuidN,
+});
+
+export const vendorProcessInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  process_id: uuidN,
+  vat_levy_id: uuidN,
+  // A share of a charge, so 0-100 and never null — the legacy box shows 0.00.
+  vat_portion_pct: z.coerce.number().min(0).max(100).default(0),
+  payment_term_id: uuidN,
+});
+
+export const vendorServiceInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  service_type_id: uuidN,
+  payment_term_id: uuidN,
+});
+
+export const vendorSubcontractInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  process_id: uuidN,
+  payment_term_id: uuidN,
 });
 
 export const vendorInput = z
@@ -132,8 +241,22 @@ export const vendorInput = z
     memorandum_no: nullableText,
     inhouse_unit_id: nullableText,
     duty_against: nullableText,
+    duty_details: z.enum(DUTY_DETAILS).default("None"),
+    // Shared TDS / ESI panel. `esi_no` is deliberately unvalidated text for the
+    // same reason TIN No is: it is whatever the ESIC office issued, and a format
+    // guess would strand rows on their next edit.
+    tds_levy_id: uuidN,
+    esi_no: nullableText,
+    esi_retention_pct: z.coerce.number().min(0).max(100).default(0),
     is_draft: z.boolean().default(false),
     addresses: z.array(vendorAddressInput).default([]),
+    // All four grids are sent even when their tab is hidden: the screen hides a
+    // section when its category box is un-ticked, it does not discard rows.
+    // Un-ticking by mistake must not silently delete agreed terms.
+    item_categories: z.array(vendorItemCategoryInput).default([]),
+    processes: z.array(vendorProcessInput).default([]),
+    services: z.array(vendorServiceInput).default([]),
+    subcontracts: z.array(vendorSubcontractInput).default([]),
   })
   // PIN codes use the Indian 6-digit format for domestic vendors only; a
   // Foreign Vendor's address PIN is accepted as-is.

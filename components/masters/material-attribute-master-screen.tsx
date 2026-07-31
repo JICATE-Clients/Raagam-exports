@@ -626,6 +626,15 @@ export function MaterialAttributeMasterScreen({
               htmlFor="ma-item-class"
               hint="Sewing and Packing only"
             >
+              {/* A plain <Select>, not a picker, and deliberately so: the rest
+                  of this form is READ OFF the chosen class. Its attribute
+                  values (`scopedAttributeValues`) and its code both come from the
+                  selected row, and Category below is scoped to it — so a class
+                  created inline would select itself and leave the panel with no
+                  attributes to line up. The list is also pre-filtered to the
+                  accessory classes this screen is for (see the note below),
+                  which a picker's "+ Add" would quietly widen. Item Classes are
+                  maintained on their own master. */}
               <Select
                 id="ma-item-class"
                 value={itemClassId}

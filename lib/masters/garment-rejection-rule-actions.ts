@@ -8,6 +8,7 @@ import {
   type GarmentRejectionRuleInput,
 } from "./garment-rejection-rule-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -48,6 +49,11 @@ export async function createGarmentRejectionRule(data: GarmentRejectionRuleInput
   const p = garmentRejectionRuleInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "garment_rejection_rules", p.data.rule, {
+    nameColumn: "rule",
+    label: "rule",
+  });
+  if (!dup.ok) return dup;
   const { lines: _drop, ...header } = p.data;
   void _drop;
   const { data: created, error } = await s
@@ -75,6 +81,12 @@ export async function updateGarmentRejectionRule(
   const p = garmentRejectionRuleInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "garment_rejection_rules", p.data.rule, {
+    nameColumn: "rule",
+    label: "rule",
+    excludeId: id,
+  });
+  if (!dup.ok) return dup;
   const { lines: _drop, ...header } = p.data;
   void _drop;
   const { error } = await s.from("garment_rejection_rules").update(header).eq("id", id);

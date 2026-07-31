@@ -8,6 +8,7 @@ export async function listCustomers(): Promise<Customer[]> {
     .from("customers")
     .select(
       "*, country:countries!customers_country_id_fkey(id,code,name), " +
+        "source_applicant:applicants!customers_source_applicant_id_fkey(id,name), " +
         "contacts:customer_contacts(*), " +
         "applicants:customer_applicants(*, applicant:applicants(id,code,name)), " +
         "agents:customer_agents(*), " +

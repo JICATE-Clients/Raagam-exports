@@ -8,6 +8,8 @@ export async function listConsignees(): Promise<Consignee[]> {
     .from("consignees")
     .select(
       "*, country:countries!consignees_country_id_fkey(id,code,name), " +
+        "source_applicant:applicants!consignees_source_applicant_id_fkey(id,name), " +
+        "source_customer:customers!consignees_source_customer_id_fkey(id,name), " +
         "contacts:consignee_contacts(*), markings:consignee_markings(*), " +
         "notify_refs:consignee_notifies(*, notify:notifies(id,code,name,country_id))",
     )

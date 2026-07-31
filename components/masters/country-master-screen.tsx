@@ -13,6 +13,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createCountry, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { COUNTRY_GROUPS, type Country, type CountryGroup, type CountryInput } from "@/lib/masters/country-types";
@@ -60,6 +61,33 @@ const FIELD_SIZE = {
 } satisfies Record<string, FieldSize>;
 
 /**
+ * The stored `code` for a NEW country, derived from its name.
+ *
+ * It used to be the trimmed name and nothing more, so two countries typed the
+ * same way carried the same code as well as the same name. The name is now
+ * unique at all three layers (`uq_countries_name`, migration 0373), but a code
+ * an operator typed by hand in the picker's Add sheet can still sit on the one
+ * a later name would derive — so suffix `-2`, `-3` … until the code is free
+ * among the rows we hold.
+ *
+ * Best-effort by construction: it can only see the rows on this page, and the
+ * name index is what actually makes two identical countries impossible.
+ */
+function deriveCode(name: string, existing: Country[]): string | null {
+  const base = name.trim();
+  if (!base) return null;
+  const taken = new Set(
+    existing.map((c) => (c.code ?? "").trim().toUpperCase()).filter(Boolean),
+  );
+  if (!taken.has(base.toUpperCase())) return base;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base}-${n}`;
+    if (!taken.has(candidate.toUpperCase())) return candidate;
+  }
+  return base;
+}
+
+/**
  * Legacy "Country" master (Associates). Flat form with a Country Group enum and
  * Save / Save-As-Drafts — the draft button persists with `is_draft = true`.
  * List chrome via MasterListShell (search + status facet + pagination + mobile
@@ -74,6 +102,18 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
   const [form, setForm] = useState(BLANK);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
+
+  // Told as they type, not on Save. `excludeId` stops an edit reporting the
+  // record as colliding with itself; `enabled` keeps the round trip off the
+  // keystroke while the sheet is closed. Unscoped, matching the on-save guard
+  // in country-actions.ts and `uq_countries_name` — a DEACTIVATED country
+  // keeps its name reserved.
+  const dupError = useDuplicateCheck({
+    table: "countries",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: open,
+  });
 
   function openAdd() {
     setEditId(null);
@@ -95,11 +135,13 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
   }
 
   function submit(asDraft: boolean) {
+    if (dupError) return; // the server rejects it too; don't spend the round trip
     startTransition(async () => {
       const payload: CountryInput = {
-        // Create derives the code from Name; edit keeps the record's original
-        // stored code (it can be a logic key referenced elsewhere).
-        code: editId ? form.code || null : form.name.trim() || null,
+        // Create derives the code from Name (deduped — see deriveCode); edit
+        // keeps the record's original stored code (it can be a logic key
+        // referenced elsewhere).
+        code: editId ? form.code || null : deriveCode(form.name, rows),
         name: form.name.trim(),
         country_group: form.country_group ? form.country_group : null,
         ecgc_code: form.ecgc_code.trim() || null,
@@ -188,12 +230,16 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             <Button
               variant="outline"
               size="md"
-              disabled={isPending || !form.name.trim()}
+              disabled={isPending || !form.name.trim() || !!dupError}
               onClick={() => submit(true)}
             >
               Save as Draft
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={() => submit(false)}>
+            <Button
+              size="md"
+              disabled={isPending || !form.name.trim() || !!dupError}
+              onClick={() => submit(false)}
+            >
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -210,7 +256,9 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
+              aria-invalid={!!dupError}
             />
+            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
           </Field>
           <Field label="Country Group" size={FIELD_SIZE.country_group} htmlFor="co-group">
             <Select

@@ -11,6 +11,7 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { ProcessPicker } from "@/components/masters/process-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
@@ -27,13 +28,13 @@ import {
   type OutDocumentTermInput,
 } from "@/lib/masters/out-document-term-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import type { Process } from "@/lib/masters/process-types";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin?: boolean; canExport?: boolean };
-type ProcessOption = { id: string; name: string };
 type LineRow = { key: string; description: string };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -50,7 +51,9 @@ export function OutDocumentTermMasterScreen({
   perms,
 }: {
   rows: OutDocumentTerm[];
-  processes: ProcessOption[];
+  /** Full Process rows — `ProcessPicker` shows the short description beside the
+   *  name, which is what tells two similar processes apart. */
+  processes: Process[];
   itemClasses: ConfigLookup[];
   perms: Perms;
 }) {
@@ -383,38 +386,29 @@ export function OutDocumentTermMasterScreen({
               </Select>
             </div>
             <div>
-              <Label htmlFor="odt-process">Process</Label>
-              <Select
-                id="odt-process"
+              {/* Select-only: a Process carries a billing basis, an HSN code and
+                  five item-class flags, so it is created on its own master. */}
+              <ProcessPicker
+                label="Process"
+                processes={processes}
                 value={form.process_id}
-                onChange={(e) => set({ process_id: e.target.value })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— None —</option>
-                {processes.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
+                onChange={(v) => set({ process_id: v })}
+              />
             </div>
             <div>
-              <Label htmlFor="odt-item-class">Item Class</Label>
-              <Select
-                id="odt-item-class"
-                value={form.item_class_id}
-                onChange={(e) => set({ item_class_id: e.target.value })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {itemClasses
-                  .filter((c) => c.is_active || c.id === form.item_class_id)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
+              {/* The picker owns the label, the "— Select —" row and the
+                  inactive-value rule, so none of that is repeated here. */}
+              <LookupDialogPicker
+                kind="item_class"
+                label="Item Class"
+                options={itemClasses}
+                value={form.item_class_id || null}
+                onChange={(v) => set({ item_class_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+                isSuperAdmin={perms.isSuperAdmin}
+              />
             </div>
           </DetailSection>
           </div>

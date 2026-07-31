@@ -19,8 +19,9 @@ import {
   updateSizingRate,
   deleteSizingRate,
 } from "@/lib/masters/grid-master-actions";
-import { Select } from "@/components/ui/select";
+import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import type { SizingRate, SizingRateInput } from "@/lib/masters/grid-master-types";
+import type { Category } from "@/lib/masters/category-types";
 import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
@@ -31,7 +32,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 type LineRow = { key: string; category_id: string | null; item_id: string | null; rate_ends_upto: string; rate_ends_more: string };
 const blankLine = (key: string): LineRow => ({ key, category_id: null, item_id: null, rate_ends_upto: "", rate_ends_more: "" });
 
-export function SizingRateMasterScreen({ rows, categories, items, perms }: { rows: SizingRate[]; categories: LookupOption[]; items: LookupOption[]; perms: Perms }) {
+export function SizingRateMasterScreen({ rows, categories, items, perms }: { rows: SizingRate[]; /** The rich `categories` master, so the line picker can Modify/Delete through it. */ categories: Category[]; items: LookupOption[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -221,24 +222,36 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
               <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-2">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 shrink-0 text-center text-xs font-medium text-muted-foreground">{i + 1}</span>
-                    <Select value={l.category_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { category_id: e.target.value || null })}
-                      className="flex-1 text-base md:text-sm">
-                      <option value="">— category —</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </Select>
-                    <Select value={l.item_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
-                      className="flex-1 text-base md:text-sm">
-                      <option value="">— yarn —</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.name}</option>
-                      ))}
-                    </Select>
+                  {/* `items-end`, not `items-center`: the pickers carry their own
+                      <Label>, so the row number and the ✕ line up with the field
+                      boxes instead of with the captions above them. Row 2 below
+                      already labels its fields the same way. */}
+                  <div className="flex items-end gap-2">
+                    <span className="w-6 shrink-0 pb-2 text-center text-xs font-medium text-muted-foreground">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      {/* No `itemClassId` to scope a new category to — this form
+                          never asks for one — so "+ Add" stays off and only
+                          Modify / Delete render. */}
+                      <CategoryPicker
+                        label="Category"
+                        categories={categories}
+                        value={l.category_id ?? ""}
+                        onChange={(v) => setLineAt(l.key, { category_id: v || null })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {/* Select-only for the same reason: a yarn quick-created
+                          here has no item class to belong to. */}
+                      <ItemPicker
+                        label="Yarn"
+                        items={items}
+                        value={l.item_id ?? ""}
+                        onChange={(v) => setLineAt(l.key, { item_id: v || null })}
+                      />
+                    </div>
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
                       onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>

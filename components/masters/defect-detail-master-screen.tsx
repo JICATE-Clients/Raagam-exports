@@ -17,6 +17,7 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
+import { DefectGroupPicker } from "@/components/masters/defect-group-picker";
 import {
   createDefectDetail,
   updateDefectDetail,
@@ -389,20 +390,14 @@ export function DefectDetailMasterScreen({
               />
             </div>
             <div>
-              <Label htmlFor="dd-group">Defect Group</Label>
-              <Select
-                id="dd-group"
+              <DefectGroupPicker
+                groups={defectGroups}
                 value={form.defect_group_id}
-                onChange={(e) => set({ defect_group_id: e.target.value })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— None —</option>
-                {defectGroups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </Select>
+                onChange={(v) => set({ defect_group_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
             </div>
             <div>
               <Label htmlFor="dd-type">Defect Type</Label>

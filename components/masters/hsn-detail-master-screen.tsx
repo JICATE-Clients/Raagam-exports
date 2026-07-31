@@ -250,24 +250,21 @@ export function HsnDetailMasterScreen({
         <div className="space-y-4">
           <DetailSection label="Details" cols={2}>
             <div>
-              <Label htmlFor="hsn-item-class">
-                Item Class <span className="text-danger">*</span>
-              </Label>
-              <Select
-                id="hsn-item-class"
-                value={form.item_class_id || ""}
-                onChange={(e) => set({ item_class_id: e.target.value })}
-                className="text-base md:text-sm"
-              >
-                <option value="">— Select —</option>
-                {itemClasses
-                  .filter((c) => c.is_active || c.id === form.item_class_id)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
+              {/* The picker owns the label, the "— Select —" row and the
+                  inactive-value rule (an inactive class still resolves for a
+                  record already pointing at it), so none of that is repeated
+                  here. */}
+              <LookupDialogPicker
+                kind="item_class"
+                label="Item Class"
+                required
+                options={itemClasses}
+                value={form.item_class_id || null}
+                onChange={(v) => set({ item_class_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
             </div>
             <div>
               <Label htmlFor="hsn-for">For</Label>

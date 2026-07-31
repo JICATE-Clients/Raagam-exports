@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createCountryQuick, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import {
   COUNTRY_GROUPS,
@@ -128,7 +129,20 @@ export function CountryPicker({
     setFormOpen(true);
   }
 
+  // The "+ Add" on any of the 12 Country fields is the path that duplicated
+  // "INDIA" most: the operator cannot see the master list from here, so nothing
+  // told them the country already existed. `enabled` keeps the round trip off
+  // the keystroke while the sheet is shut. Unscoped, like `uq_countries_name` —
+  // a DEACTIVATED country keeps its name reserved.
+  const dupError = useDuplicateCheck({
+    table: "countries",
+    name: form.name,
+    excludeId: formEditId ?? undefined,
+    enabled: formOpen,
+  });
+
   function saveForm() {
+    if (dupError) return; // the server rejects it too; don't spend the round trip
     start(async () => {
       const payload: CountryInput = {
         code: form.code.trim() || null,
@@ -214,7 +228,12 @@ export function CountryPicker({
             <Button type="button" variant="outline" size="md" onClick={() => setFormOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" size="md" disabled={isPending || !form.name.trim()} onClick={saveForm}>
+            <Button
+              type="button"
+              size="md"
+              disabled={isPending || !form.name.trim() || !!dupError}
+              onClick={saveForm}
+            >
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -231,7 +250,9 @@ export function CountryPicker({
               uppercase
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              aria-invalid={!!dupError}
             />
+            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

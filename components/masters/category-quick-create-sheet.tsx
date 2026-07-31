@@ -4,9 +4,10 @@
 // not just a name like the picker's inline Add. Mirrors the full Category master
 // (category-master-screen.tsx): the fields shown depend on the parent Item
 // Class — Category Type (Natural/Manmade/Mixed) for Yarn, Fabric Structure for
-// Fabric, User Defined for Capital/General/Sewing/Packing/Garments — plus Levy
-// and Commodity. Richer costing fields (wastage/profit/…) stay editable from the
-// full Category master afterwards, defaulted to 0 here.
+// Fabric — plus Levy and Commodity. Richer costing fields (wastage/profit/…)
+// stay editable from the full Category master afterwards, defaulted to 0 here.
+// ("User Defined" used to be one of the class-dependent fields; the client
+// dropped the question on 2026-07-30 — see doc/masters-open-questions.md #6.)
 //
 // Why this exists: a name-only category leaves `made` null, which silently
 // breaks the Yarn form — the Mixing % grid is gated on the category's
@@ -21,15 +22,12 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { LevyPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { createCategory } from "@/lib/masters/category-actions";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
-import { MATERIAL_SEED_WORDS } from "@/lib/masters/material-dictionary";
-import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
-  showsUserDefined,
   type Category,
   type CategoryInput,
   type MadeType,
@@ -48,7 +46,6 @@ export function CategoryQuickCreateSheet({
   commodities,
   itemClasses,
   fabricStructures,
-  knownNames,
   perms,
 }: {
   open: boolean;
@@ -63,9 +60,6 @@ export function CategoryQuickCreateSheet({
   commodities: Commodity[];
   itemClasses: ConfigLookup[];
   fabricStructures: ConfigLookup[];
-  /** Existing category names (from the picker's scoped list) — augment the
-   *  spell-suggest dictionary beyond the curated seed words. */
-  knownNames?: string[];
   perms: { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 }) {
   const { success, error } = useToast();
@@ -73,7 +67,6 @@ export function CategoryQuickCreateSheet({
   const [name, setName] = useState("");
   const [made, setMade] = useState<"" | MadeType>("");
   const [fabricStructureId, setFabricStructureId] = useState("");
-  const [userDefined, setUserDefined] = useState(false);
   const [levyId, setLevyId] = useState("");
   const [commodityId, setCommodityId] = useState("");
 
@@ -83,14 +76,15 @@ export function CategoryQuickCreateSheet({
       setName("");
       setMade("");
       setFabricStructureId("");
-      setUserDefined(false);
+      // No `setUserDefined` — the User Defined question was dropped from this
+      // sheet (client 2026-07-30) and `user_defined` is hardcoded false in the
+      // payload below. The setter outlived its state and broke the typecheck.
       setLevyId("");
       setCommodityId("");
     }
   }, [open]);
 
   const code = selectedClassCode?.toUpperCase() ?? null;
-  const showUserDefined = showsUserDefined(code);
   const showMade = code === "YARN";
   const showFabricStructure = code === "FABRIC";
 
@@ -103,16 +97,8 @@ export function CategoryQuickCreateSheet({
     enabled: open && !!(name && itemClassId),
   });
 
-  // Live "did you mean?" on Name — suppressed while a dup error is showing. The
-  // curated fibre words (COTTON, JERSEY…) are only vocabulary on Yarn/Fabric;
-  // on Packing/Sewing/General the dictionary is `knownNames` alone, which the
-  // picker already scopes to this item class (client 2026-07-28).
-  const nameSuggestions = useSpellSuggest({
-    name,
-    names: knownNames,
-    seed: code === "YARN" || code === "FABRIC" ? MATERIAL_SEED_WORDS : [],
-    enabled: open && !!name && !dupError,
-  });
+  // No "did you mean?" suggestions on Name (client 2026-07-30) — the red
+  // duplicate error is the only feedback this field gives.
 
   // made only applies to Yarn — never persist a stray value for other classes.
   const madeValue = useMemo(() => (showMade && made ? made : null), [showMade, made]);
@@ -136,7 +122,7 @@ export function CategoryQuickCreateSheet({
         interest_per: 0,
         size_group_id: null,
         status_monitoring_type: null,
-        user_defined: showUserDefined ? userDefined : false,
+        user_defined: false, // no longer asked (client 2026-07-30)
         inactive: false,
         // Sub Categories are defined on the full Category master, not in this
         // quick-create mini-child (0349) — a new category starts with none.
@@ -168,7 +154,7 @@ export function CategoryQuickCreateSheet({
         interest_per: 0,
         size_group_id: null,
         status_monitoring_type: null,
-        user_defined: showUserDefined ? userDefined : false,
+        user_defined: false, // no longer asked (client 2026-07-30)
         inactive: false,
         has_sub_categories: false,
         sub_categories: [],
@@ -221,7 +207,6 @@ export function CategoryQuickCreateSheet({
             className="text-base md:text-sm"
           />
           {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
-          <SpellSuggestHint suggestions={nameSuggestions} onApply={setName} />
         </div>
 
         {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only — it
@@ -245,39 +230,21 @@ export function CategoryQuickCreateSheet({
           </div>
         )}
 
+        {/* Fabric Structure is a stored list, so it is a picker with inline
+            Add / Modify / Delete — unlike Category Type above, which is a fixed
+            three-value enum the operator can never extend. */}
         {showFabricStructure && (
           <div>
-            <Label htmlFor="cqc-fabric-structure">Fabric Structure</Label>
-            <Select
-              id="cqc-fabric-structure"
+            <LookupDialogPicker
+              kind="fabric_structure"
+              label="Fabric Structure"
+              options={fabricStructures}
               value={fabricStructureId}
-              onChange={(e) => setFabricStructureId(e.target.value)}
-              className="text-base md:text-sm"
-            >
-              <option value="">— Select —</option>
-              {fabricStructures
-                .filter((s) => s.is_active)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-            </Select>
-          </div>
-        )}
-
-        {showUserDefined && (
-          <div>
-            <Label htmlFor="cqc-user-defined">User Defined</Label>
-            <Select
-              id="cqc-user-defined"
-              value={userDefined ? "yes" : "no"}
-              onChange={(e) => setUserDefined(e.target.value === "yes")}
-              className="text-base md:text-sm"
-            >
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </Select>
+              onChange={setFabricStructureId}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+            />
           </div>
         )}
 

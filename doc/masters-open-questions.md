@@ -25,8 +25,22 @@ answer. Where we made a provisional choice, it's noted so it can be confirmed or
 5. **The unlabeled dropdown under Category (Yarn / Fabric form) — what is it?** 🔴
    On the Fabric/Yarn Details form there is a dropdown directly **below Category with no label**. We left it out. *What field is that, and where do its options come from?*
 
-6. **"User defined" (Yes/No) — what does it do?** 🟡
-   Appears on the Button/Capital/General/Sewing/Packing and Garments forms. We store it as a Yes/No flag. *What behaviour does "User defined = Yes" trigger?*
+6. **"User defined" (Yes/No) — ANSWERED: remove it** ✅ (2026-07-30)
+   The client's answer to "what does it do?" was that it should not be asked at all. **Removed
+   from the UI** — the Yes/No is gone from the Category master form and its quick-create sheet,
+   and the read-only echo is gone from Material master (it was never an editable field there).
+
+   *Behaviour is unchanged, and that is measured, not assumed:* the flag's only consumer was
+   `attributeDriven` in `material-master-screen.tsx`, which decides whether a Sewing/Packing
+   material is named from its attribute questions or by hand. **No row has ever held `true`**
+   (0 of 19 categories, 0 items), so every SEW/PACK category was already attribute-driven. The
+   server never read the flag either — `material-actions.ts` gates mandatory-answer enforcement
+   on the item-class code alone, which means a category set to Yes was in fact *unsaveable*
+   (the browser hid the questions, the server demanded them).
+
+   `categories.user_defined` (0283) and `items.user_defined` (0226) are **kept for now** and still
+   round-trip; dropping them, the Zod fields and `resolveCategoryUserDefined` is a separate
+   decision the client has deferred.
 
 7. **Budget Rate — the unit beside it.** 🟡
    Budget Rate is "amount / unit". We wired the unit to Stock Units (UOM). *Confirm the "per __" is a UOM (not something else).*
@@ -66,8 +80,11 @@ of Notify 0239 + `also_notify` Yes/No + `customer_id` → `customers` (select-on
   **NotifyPicker**; Country column is display-only, from the picked notify).
 
 Open items to confirm:
-- **J. Also Notify vs Notify tab** 🟡 — *does `also_notify=Yes` gate/require the Notify tab grid, or
-  are they independent?* (Built as independent: the grid is always editable.)
+- **J. Also Notify vs Notify tab** — ANSWERED ✅ (2026-07-31) — **independent, and now `also_notify`
+  actually does something.** They answer two different questions: the Notify *tab* lists the notify
+  parties this consignee ships to; the *tick box* says the consignee is itself one. So the grid
+  stays always-editable, and ticking the box **publishes this consignee into the Notify master** as
+  a real linked row (migration 0371 — see "Party publishing" below).
 - **K. TIN No. three boxes** 🟡 — modelled as `tin_no` / `tin_no_2` (small) / `tin_no_3`. *Confirm
   what the 2nd/3rd boxes mean (state code? CST no.?).*
 
@@ -127,6 +144,100 @@ Customer build). Read-only columns: Customer · Customer Name · Customer ID (`d
 
 - **P. "Update view" column** 🟡 — the legacy grid has a per-row "Update view" cell; we folded it
   into a single bulk **Save** (collect all row changes, one write). *Confirm no per-row apply is needed.*
+
+## Vendor master ▸ Item Category tab (Associates) — BUILT (0369)
+
+The legacy Vendor form reveals a third tab, **Item Category**, only while the Category
+list's **IsBoughtItemsVendor** box is ticked. Built the same way: the rail shows the
+section only for a Bought Items Vendor, and un-ticking hides it without discarding rows.
+It holds a vendor-level **Duty Details** radio (None · CT3 · Annexure · RG23) and an
+**Item Category Detail** grid — Item Class · Item Category · VAT · Duty · LeadDays ·
+Form · Type · PaymentTerms — stored in `master_vendor_item_categories`.
+
+Wiring: Item Class → `config_lookups` kind `item_class`; Item Category → the real
+`categories` master, **scoped by the Item Class picked on the same row**; VAT and Duty →
+the `levies` master split by `levies.type` (VAT/CST against DUTY/EXCISE DUTY);
+PaymentTerms → the Payment Term master.
+
+- **Q1. "Form" — what are the options?** 🟡 The legacy cell is a plain ▾ dropdown and the
+  screenshot does not show it open. Built as `config_lookups` kind `vendor_item_form` so
+  the operator can add the exact values, rather than shipping invented ones. *What is the
+  full list?* (If these are the sales-tax forms — C / D / F / H — say so and they can be
+  seeded in a migration.)
+- **Q2. "Type" — what are the options?** 🟡 Same situation; built as kind
+  `vendor_supply_type`. *What is the full list, and does it mean supply type
+  (local / interstate / import) or something else?*
+- **Q3. Does Duty Details drive anything?** 🟡 Stored as a per-vendor value. *Does the
+  choice change what the purchase or excise documents do, or is it only recorded?*
+- **Q4. One row per class+category, or can a vendor repeat a pair?** 🟡 No uniqueness
+  constraint was added. *Should the same Item Class + Category be enterable twice on one
+  vendor (e.g. two payment terms)?*
+
+## Vendor master ▸ Process · Service · SubContractor tabs (Associates) — BUILT (0370 + 0372)
+
+The other three category-gated tabs, built the same way as Item Category above: the rail shows
+each section only while its Category box is ticked, and un-ticking hides it without discarding
+rows.
+
+| Ticked | Tab | Grid | Table |
+|---|---|---|---|
+| `IsProcessor` | Process | Process Name · Vat Description · Vat Portion % · Payment Terms | `master_vendor_processes` |
+| `IsServiceProvider` | Service | ServiceType · Payment Terms | `master_vendor_services` |
+| `IsSubContractor` | SubContractor | Process Name · Payment Terms | `master_vendor_subcontracts` |
+
+All three hang the **same** right-hand TDS / ESI panel, which is vendor-level, not per-tab:
+`master_vendors.tds_levy_id` · `esi_no` · `esi_retention_pct`. One set of values, rendered in
+three places — a retention % typed on Process is already there on Service.
+
+Process Name → the real **Process master** (0227), select-only (a process carries billing basis
+and HSN of its own, so it is created on its own screen). Vat Description → `levies` of type
+VAT/CST; TDS ID No → `levies` of type TDS.
+
+- **Q5. "ServiceType" — what are the options?** 🟡 A ⓘ list in legacy whose contents no
+  screenshot shows. Built as `config_lookups` kind `vendor_service_type` so the operator adds the
+  exact values; nothing invented ships. *What is the full list?*
+- **Q6. Is TDS ID No really the Levy master?** 🟡 The legacy ⓘ means a stored list and the Levy
+  master carries a TDS structure (0283), so it is wired to levies of type TDS. *Confirm — or is
+  it the vendor's own TDS registration number, typed?*
+- **Q7. ESI No / Retention % — per vendor or per row?** 🟡 Modelled per vendor, because the panel
+  sits outside all three grids and is identical on each. *Confirm.*
+- **Q8. Sub-contractor Process Name — same master as a processor's?** 🟡 Assumed yes: same column
+  heading, same ⓘ, so both grids pick from `processes`.
+- **Q9. Can a vendor be a processor AND a sub-contractor?** ✅ Built as yes — two independent
+  grids in two tables, because the columns differ (a sub-contract row has no VAT).
+
+## Party publishing — the "Also …" tick boxes — BUILT (0371)
+
+One party is often several things at once, and legacy says so with tick boxes. Ours **stored** the
+flag, echoed it as a chip and then ignored it: a record ticked "Also Customer" never appeared in the
+Customer child. All five pairs now publish for real.
+
+| Source | Tick box | Publishes into |
+|---|---|---|
+| Applicant | Also Customer | `customers` |
+| Applicant | Also Consignee | `consignees` |
+| Customer | Also Consignee | `consignees` |
+| Customer | Also Notify | `notifies` |
+| Consignee | Also Notify | `notifies` |
+
+**How it behaves.** Ticking creates a **real, linked row** in the target master, seeded with the
+source's name, address and contact details, badged "from Applicant" in the list and in its own
+editor. Un-ticking deletes it — **unless it is in use**, in which case the untick is refused, names
+what is using it, and the whole save is rolled back rather than half-applied. A published row's
+**Name is read-only** in its own editor (it syncs down from the source, one way, so the two can
+never fight); everything else — GST, TCS, payment terms, contacts, child grids — belongs to that
+row and is never overwritten. Deleting it from the target screen is refused and points back at the
+tick box, because deleting it while the box stayed ticked would simply republish it on the next save.
+
+Open items to confirm:
+- **P1. Should `inactive` propagate?** 🟡 Built as **no** — an applicant going quiet does not close
+  the customer account, and the published row may be live on sales orders. *Confirm.*
+- **P2. What should seed across?** 🟡 Built as name + full postal address + phones/email/website —
+  the block all four masters share. Commercial fields (GST, currency, terms) deliberately do NOT
+  seed: they belong to the role, not the party. *Confirm nothing else should carry over.*
+- **P3. Deleting a published row's source.** 🟡 Built so the published row **survives** as an
+  ordinary record (it may be on a sales order) and simply loses its origin badge. *Confirm — or
+  should deleting the applicant also remove the customer it created?*
 
 ## Department master (HR) — BUILT (0259)
 

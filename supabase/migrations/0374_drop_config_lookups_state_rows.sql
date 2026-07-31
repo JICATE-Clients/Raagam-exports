@@ -1,0 +1,50 @@
+-- ============================================================================
+-- Raagam ERP — 0374 Remove the dead `config_lookups` state rows
+--
+-- Finishes the cleanup 0355 deliberately deferred. That migration repointed
+-- every state FK to `public.states` and then said, at :37-40, that after it
+-- "nothing can reference it and nothing reads it, but deleting live data is not
+-- required to fix the constraint and is not this migration's job."
+--
+-- It is this migration's job. Verified before writing, four ways:
+--   1. No code filters `kind === 'state'` — zero matches repo-wide. The two
+--      places the string appears both WRITE the ConfigLookup *shape*, never
+--      read the table: `lookup-compat.ts` (`statesAsLookups` stamps the kind
+--      onto rows built from `public.states`) and `state-picker.tsx` (its
+--      optimistic row, persisted to `public.states`).
+--   2. `state` is not in the `LookupMasterScreen` registry
+--      (`app/(app)/masters/config-sections.tsx`). The State master routes to
+--      `custom: "gst_state"` → `public.states`.
+--   3. `lib/data-io` has no state descriptor, so no import/export path.
+--   4. Nothing writes them any more either. Until 2026-07-31 the six State
+--      FIELDS rendered `LookupDialogPicker kind="state"`, whose inline Add
+--      wrote HERE while the field's options came from `public.states` — so an
+--      added state vanished on refresh and returned an id that was not a valid
+--      `state_id`. Those fields now use `components/masters/state-picker.tsx`,
+--      which writes `public.states`. The row set is frozen, not just unread.
+--
+-- ---------------------------------------------------------------------------
+-- THIS DOES NOT DELETE ANY STATE.
+-- ---------------------------------------------------------------------------
+-- `public.states` is untouched and every `state_id` in the app resolves against
+-- it. The trap is that both tables happen to hold "Tamil Nadu" under the SAME
+-- uuid (974bf3cd-dcfb-40f6-b787-a64139ffc9bd) — a historical artefact of the
+-- 0262 copy that kept the primary key, NOT a link between the two rows.
+--
+-- Hence: scoped by `kind`, never by id. Deleting by uuid would read as though
+-- it were removing the state itself, and would be wrong the moment a second
+-- row exists. Checked before applying: none of the 89 FK columns pointing at
+-- `config_lookups` contains that uuid, across all 26 tables holding rows.
+--
+-- The `kind` CHECK constraint is deliberately NOT altered, and `'state'` stays
+-- in the `LookupKind` union. It is still a valid *shape* discriminator even
+-- though it is no longer a *stored* kind — `statesAsLookups()` and
+-- `state-picker.tsx` both construct `kind: "state"` values in memory, and both
+-- stop compiling without it. Stripping the value from the CHECK would also
+-- fight every future migration: nearly all of them re-declare that constraint
+-- wholesale (0369, 0372 and eleven others list the full set), so the next
+-- copy-paste would silently restore it.
+-- ============================================================================
+
+delete from public.config_lookups
+where kind = 'state';

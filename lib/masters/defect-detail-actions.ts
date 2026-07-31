@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { defectDetailInput, type DefectDetailInput } from "./defect-detail-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
@@ -35,6 +36,8 @@ export async function createDefectDetail(data: DefectDetailInput): Promise<Creat
     .limit(1);
   if (existing && existing.length > 0)
     return fail(`Code "${p.data.defect_catg_id}.${p.data.defect_id}.${p.data.defect_det_id}" already exists.`);
+  const dup = await checkDuplicateName(s, "defect_details", p.data.name);
+  if (!dup.ok) return dup;
   const { data: row, error } = await s.from("defect_details").insert(p.data).select("id").single();
   if (error) return fail(error.message);
   rev();
@@ -57,6 +60,8 @@ export async function updateDefectDetail(id: string, data: DefectDetailInput): P
     .limit(1);
   if (existing && existing.length > 0)
     return fail(`Code "${p.data.defect_catg_id}.${p.data.defect_id}.${p.data.defect_det_id}" already exists.`);
+  const dup = await checkDuplicateName(s, "defect_details", p.data.name, { excludeId: id });
+  if (!dup.ok) return dup;
   const { error } = await s.from("defect_details").update(p.data).eq("id", id);
   if (error) return fail(error.message);
   rev();
