@@ -88,7 +88,10 @@ function MilestoneEditRow({ milestone }: { milestone: TaMilestone }) {
       <Select
         value={status}
         onChange={(e) => setStatus(e.target.value as MilestoneStatus)}
-        className="h-7 rounded border border-border bg-surface px-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        // Same trap as the topbar: the control draws its own border, background
+        // and focus ring, so repeating them here boxed it twice — and the inner
+        // box kept its own h-9, leaving this 36px tall beside a 28px date input.
+        className="h-7 w-40 text-xs md:text-xs"
         aria-label="Milestone status"
       >
         {MILESTONE_STATUSES.map((s) => (

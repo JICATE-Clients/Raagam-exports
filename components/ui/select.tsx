@@ -144,7 +144,20 @@ export const Select = forwardRef<
         placeholder={placeholder ?? "Select…"}
         clearable={hasEmpty}
         disabled={props.disabled}
+        // Deliberately BOTH. On a native <select> — which this claims to be a
+        // drop-in for, and which is what the touch/SSR branch above still
+        // renders — `className` styles the control. The enhanced branch splits
+        // that one element into a wrapper plus an input, so sending it to only
+        // one of them makes the same `<Select className="h-8">` render
+        // differently on desktop than on touch. The wrapper needs it for width
+        // (the chevron and popup anchor to it); the input needs it for height,
+        // text size and padding.
+        //
+        // The one thing a caller must therefore NOT pass is `border` / `bg-*` —
+        // the control already draws those, and duplicating them on the wrapper
+        // is what produced the double-boxed Location switcher in the topbar.
         className={className}
+        inputClassName={className}
         openOnFocus={false}
       />
       {props.name ? <input type="hidden" name={props.name} value={value} /> : null}

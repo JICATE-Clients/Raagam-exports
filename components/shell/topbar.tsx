@@ -31,10 +31,16 @@ export function Topbar({ locations }: { locations: Location[] }) {
         <span className="hidden text-xs text-muted-foreground sm:inline">
           Location
         </span>
+        {/* Border, background, radius and focus ring all come from the control
+            itself — repeating them here drew a SECOND box around it. `h-8`
+            matches the Search trigger opposite; `md:text-xs` has to be spelled
+            out because the control declares `text-base md:text-sm`, and a bare
+            `text-xs` only wins below the md breakpoint. */}
         <Select
           value={locationId}
           onChange={(e) => setLocationId(e.target.value)}
-          className="h-8 rounded-md border border-border bg-surface px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Location"
+          className="h-8 w-44 text-xs font-medium md:text-xs"
         >
           {locations.map((l) => (
             <option key={l.id} value={l.id}>
