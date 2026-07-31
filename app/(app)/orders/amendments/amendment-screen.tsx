@@ -21,6 +21,7 @@ import { RecordPicker } from "@/components/masters/record-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
 import {
   createAmendment,
   updateAmendment,
@@ -250,7 +251,10 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   const departmentOpts = useMemo(() => lookups.filter((l) => l.kind === "department"), [lookups]);
   const shipTypeOpts = useMemo(() => lookups.filter((l) => l.kind === "ship_type"), [lookups]);
   const agentOpts = useMemo(() => lookups.filter((l) => l.kind === "agent"), [lookups]);
-  const payTermOpts = useMemo(() => lookups.filter((l) => l.kind === "payment_term"), [lookups]);
+  // From the Payment Term MASTER, not `lookups` — `pay_terms_id` is an FK into
+  // `public.payment_terms` since 0375, and the lookup rows it used to read are
+  // gone. Filtering `lookups` here would silently render an empty list.
+  const payTermOpts = data.paymentTerms;
   const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
   const printOpts = useMemo(() => lookups.filter((l) => l.kind === "roll_form_print"), [lookups]);
 
@@ -1162,8 +1166,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   ))}
                 </Select>
               </div>
-              <LookupDialogPicker
-                kind="payment_term"
+              <PaymentTermPicker
                 label="Pay Terms"
                 options={payTermOpts}
                 value={form.pay_terms_id}

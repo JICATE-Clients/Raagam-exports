@@ -21,7 +21,6 @@ import { listCurrencies } from "@/lib/masters/service";
 import { ApplicantMasterScreen } from "@/components/masters/applicant-master-screen";
 import { listCustomers } from "@/lib/masters/customer-service";
 import { CustomerMasterScreen } from "@/components/masters/customer-master-screen";
-import { getVendorsForPicker } from "@/lib/purchase/po-service";
 import { getCourierOptions } from "@/lib/admin/extras-service";
 import { getCompanyProfile } from "@/lib/admin/company-service";
 import { listNotifies } from "@/lib/masters/notify-service";
@@ -44,7 +43,7 @@ import { listAccountGroups } from "@/lib/masters/account-group-service";
 import { AccountGroupMasterScreen } from "@/components/masters/account-group-master-screen";
 import { listConsignees } from "@/lib/masters/consignee-service";
 import { ConsigneeMasterScreen } from "@/components/masters/consignee-master-screen";
-import { listVendors } from "@/lib/masters/vendor-service";
+import { listVendors, listVendorsForPicker } from "@/lib/masters/vendor-service";
 import { VendorMasterScreen } from "@/components/masters/vendor-master-screen";
 import { listAccountHeads } from "@/lib/masters/account-head-service";
 import { AccountHeadMasterScreen } from "@/components/masters/account-head-master-screen";
@@ -284,7 +283,11 @@ export default async function SubEntityPage({
         listCountries(),
         listConfigLookups(),
         listCurrencies(),
-        getVendorsForPicker(),
+        // The Vendor MASTER (`master_vendors`), not `getVendorsForPicker()` —
+        // that reads the purchase-side `public.vendors`, so this dropdown used
+        // to offer the demo seed while every vendor the operator had actually
+        // created was absent. See 0376 and `listVendorsForPicker`.
+        listVendorsForPicker(),
         getCourierOptions(),
         listReceivableTerms(),
         listPorts(),

@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { listCustomers } from "@/lib/masters/customer-service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
+import { listVendorsForPicker } from "@/lib/masters/vendor-service";
 import type { Customer } from "@/lib/masters/customer-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { MaterialBomAmendment } from "./types";
@@ -110,14 +111,44 @@ async function getUomRows(): Promise<UomRow[]> {
   return (data ?? []) as UomRow[];
 }
 
-async function getVendorRows(): Promise<PickerRow[]> {
+/**
+ * One customer's nomination of one vendor — `list_kind` separates the two lists
+ * the Customer master maintains side by side (Nominated · Recommended).
+ *
+ * Loaded whole rather than per-customer: the table is master-sized (one row per
+ * customer per nominated vendor), the header's customer can change mid-edit
+ * without a round trip, and a client-side filter keeps the Vendor cell instant
+ * as the operator tabs down the grid.
+ */
+export type VendorNomination = {
+  customer_id: string;
+  vendor_id: string;
+  list_kind: "nominated" | "recommended";
+};
+
+async function getNominationRows(): Promise<VendorNomination[]> {
   const s = await createClient();
   const { data } = await s
-    .from("vendors")
-    .select("id, code, name")
-    .eq("is_active", true)
-    .order("name");
-  return (data ?? []) as PickerRow[];
+    .from("customer_nominated_vendors")
+    .select("customer_id, vendor_id, list_kind")
+    .not("vendor_id", "is", null);
+  return (data ?? []) as VendorNomination[];
+}
+
+/**
+ * The Vendor MASTER (`master_vendors`), NOT the purchase-side `public.vendors`.
+ *
+ * Both halves of this field had to move together: `customer_nominated_vendors`
+ * points at `master_vendors` (0376), so narrowing this picker to a customer's
+ * nominations means it now offers `master_vendors.id` — and 0377 repointed
+ * `material_bom_amendment_items.vendor_id` to match. Reading `vendors` here
+ * would offer ids the FK rejects on every save.
+ *
+ * The rest of Purchase (POs, GRNs, RFQs) still reads `public.vendors`; its FKs
+ * are there. See `lib/masters/vendor-service.ts` for why the two coexist.
+ */
+async function getVendorRows(): Promise<PickerRow[]> {
+  return listVendorsForPicker();
 }
 
 export type MbaFormData = {
@@ -125,6 +156,8 @@ export type MbaFormData = {
   customers: Customer[];
   items: PickerRow[];
   vendors: PickerRow[];
+  /** Every customer's nominated / recommended vendors — see `VendorNomination`. */
+  nominations: VendorNomination[];
   uoms: UomRow[];
   conversions: MbaConversionRow[];
   lookups: ConfigLookup[];
@@ -132,14 +165,16 @@ export type MbaFormData = {
 
 /** Every picker option list the amendment editor needs, fetched in parallel. */
 export async function getMbaFormData(): Promise<MbaFormData> {
-  const [orders, customers, items, vendors, uoms, conversions, lookups] = await Promise.all([
-    getAcceptedOrdersForBom(),
-    listCustomers(),
-    pickerRows("items"),
-    getVendorRows(),
-    getUomRows(),
-    getConversionRows(),
-    listConfigLookups(),
-  ]);
-  return { orders, customers, items, vendors, uoms, conversions, lookups };
+  const [orders, customers, items, vendors, nominations, uoms, conversions, lookups] =
+    await Promise.all([
+      getAcceptedOrdersForBom(),
+      listCustomers(),
+      pickerRows("items"),
+      getVendorRows(),
+      getNominationRows(),
+      getUomRows(),
+      getConversionRows(),
+      listConfigLookups(),
+    ]);
+  return { orders, customers, items, vendors, nominations, uoms, conversions, lookups };
 }

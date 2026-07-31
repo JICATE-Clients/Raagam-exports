@@ -45,6 +45,17 @@ export const LOOKUP_KINDS = [
   "designation",
   "internal_department",
   "ship_type",
+  // SHAPE ONLY — same story as `state` above, one master later. Payment Terms
+  // became a master of their own in 0242; 0375 repointed `applicants`,
+  // `consignees` and `garment_order_amendments` at `public.payment_terms` and
+  // deleted the leftover lookup rows. The kind survives because
+  // `paymentTermsAsLookups()` (lookup-compat.ts) and `payment-term-picker.tsx`
+  // both build in-memory `ConfigLookup` values stamped `kind: "payment_term"`.
+  //
+  // Do NOT add it to `app/(app)/masters/config-sections.tsx`, and do not render
+  // a Payment Terms field with `LookupDialogPicker kind="payment_term"`: it
+  // reads the master through the compat shim but WRITES `config_lookups`, so
+  // every pick failed the FK until 2026-07-31. Use `PaymentTermPicker`.
   "payment_term",
   "employee_category",
   "team",
