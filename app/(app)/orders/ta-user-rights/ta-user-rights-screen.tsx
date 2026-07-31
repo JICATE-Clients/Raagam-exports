@@ -8,6 +8,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { setTaUserRights } from "@/lib/orders/ta-user-rights/actions";
 import type {
@@ -37,6 +38,21 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
 
   const [userId, setUserId] = useState<string | null>(null);
   const [perms, setPerms] = useState<Record<string, RowPerm>>({});
+
+  /**
+   * Tracks whether the matrix has been TOUCHED, which is not the same question
+   * as whether a user is selected.
+   *
+   * Guarding on `userId !== null` would be the obvious one-liner and is a trap:
+   * this screen is read far more often than it is edited, so leaving a user on
+   * screen would block the silent auto-update indefinitely on this route — the
+   * failure mode already recorded against `useUnsavedGuard` elsewhere in the
+   * app. Set it where an edit actually happens, clear it on both exits (picking
+   * a different user, or a save that committed).
+   */
+  const [dirty, setDirty] = useState(false);
+
+  useUnsavedGuard(dirty || isPending);
 
   const rightsByUser = useMemo(() => {
     const m = new Map<string, TaUserRight[]>();
@@ -74,6 +90,7 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
   function selectUser(id: string | null) {
     setUserId(id);
     setPerms(id ? permsForUser(id) : {});
+    setDirty(false);
   }
 
   useCreateIntent(() => selectUser(null));
@@ -83,10 +100,12 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
   }
 
   function setAction(key: string, action: ActionKey, value: boolean) {
+    setDirty(true);
     setPerms((prev) => ({ ...prev, [key]: { ...getPermFrom(prev, key), [action]: value } }));
   }
 
   function setAllForRow(key: string, value: boolean) {
+    setDirty(true);
     setPerms((prev) => ({
       ...prev,
       [key]: { view: value, add: value, modify: value, delete: value },
@@ -112,6 +131,7 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
     start(async () => {
       const res = await setTaUserRights({ user_id: userId, rows });
       if (res.ok) {
+        setDirty(false);
         success("Rights saved");
         router.refresh();
       } else {

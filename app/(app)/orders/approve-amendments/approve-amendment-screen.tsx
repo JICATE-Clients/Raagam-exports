@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useOverlayFocus } from "@/lib/use-overlay-focus";
+import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -44,7 +45,18 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
   const [customerFilter, setCustomerFilter] = useState<"all" | string>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<ModalState>(null);
+  // A hand-rolled portal overlay. It does carry role="dialog", so the guard's
+  // DOM scan would catch it anyway — registering explicitly is what AGENTS.md
+  // asks for, and it keeps working if that markup ever changes.
+  //
+  // Deliberately useModalGuard, not useUnsavedGuard: the latter also feeds
+  // `confirmDiscard`, which would pop "Discard unsaved changes?" every time this
+  // decision box is dismissed — including the common case where nothing was
+  // typed. `isPending` is separate because the save outlives the overlay.
   const [reason, setReason] = useState("");
+
+  useModalGuard(modal !== null);
+  useUnsavedGuard(isPending);
 
   // Customer filter options, unique by buyer id.
   const customers = useMemo(() => {

@@ -17,6 +17,7 @@ import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
@@ -245,6 +246,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   const [countrySizes, setCountrySizes] = useState<CountrySizeRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // Inline editor, not a Sheet / MasterFullScreen, so nothing registers it with
+  // the reload guard automatically — see mba-master-screen.tsx for the full
+  // reasoning. The stakes are highest here: this form carries a header plus
+  // eight child grids, so a silent auto-update mid-amendment discards the lot.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
   raiseProcessAmendment,
   approveProcessAmendment,
@@ -47,6 +48,11 @@ export function ProcessAmendments({
   const [rejectForm, setRejectForm] = useState<{ id: string; reason: string } | null>(
     null,
   );
+
+  // Expand-in-place forms, invisible to the guard's DOM scan — see
+  // new-order-form.tsx. `rejectForm` counts too: the typed reason is the whole
+  // content of that action and is not recoverable once discarded.
+  useUnsavedGuard(formOpen || rejectForm !== null || isPending);
 
   function resetForm() {
     setType("add");

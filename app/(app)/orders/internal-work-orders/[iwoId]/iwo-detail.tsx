@@ -24,6 +24,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber, fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 
 interface Props {
   iwo: IwoDetailType;
@@ -42,6 +43,10 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [notes, setNotes] = useState("");
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(formOpen || isPending);
 
   function resetForm() {
     setDescription("");

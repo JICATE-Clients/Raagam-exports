@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { RecordPicker } from "@/components/masters/record-picker";
 import {
   createTaStyle,
@@ -57,6 +58,9 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   const activityItems: PickerRow[] = data.activities;
   const customerItems: PickerRow[] = data.customers;

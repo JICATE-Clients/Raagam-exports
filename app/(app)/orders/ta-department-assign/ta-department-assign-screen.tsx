@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { LocationPicker } from "@/components/masters/location-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -49,6 +50,9 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   function openAdd() {
     setEditId(null);

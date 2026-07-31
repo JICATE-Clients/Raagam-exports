@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
 import {
   addAdvisedItem,
@@ -54,6 +55,10 @@ export function AdvisedItemsEditor({
   const [unit, setUnit] = useState("");
   const [supplier, setSupplier] = useState("");
   const [remarks, setRemarks] = useState("");
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(formOpen || isPending);
 
   function resetForm() {
     setDescription("");

@@ -13,6 +13,7 @@ import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { RecordPicker } from "@/components/masters/record-picker";
 import {
   createProcessAmendment,
@@ -52,6 +53,9 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
   const [garment, setGarment] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   const styleById = useMemo(() => {
     const m = new Map<string, StyleRow>();

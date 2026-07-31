@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
 import { createOrder } from "@/lib/orders/actions";
 import { useToast } from "@/components/ui/toast";
@@ -29,6 +30,12 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+
+  // An expand-in-place form, not an overlay — the reload guard's DOM scan looks
+  // for role="dialog" and would never see it. `open` is the dirty signal for the
+  // same reason `mode === "edit"` is elsewhere in this module: the operator only
+  // opens it to type into it.
+  useUnsavedGuard(open || isPending);
   useCreateIntent(() => setOpen(true));
 
   // form mode
