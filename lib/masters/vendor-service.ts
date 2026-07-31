@@ -2,6 +2,40 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Vendor } from "./vendor-types";
 
+/** id · code · name for a Vendor picker — no child grids, no joins. */
+export type VendorPickerRow = { id: string; code: string | null; name: string };
+
+/**
+ * Vendors for a picker on ANOTHER screen (Customer ▸ Nominated / Recommended).
+ *
+ * `public.master_vendors` — the Vendor master the operator maintains at Masters
+ * ▸ Associates ▸ Vendor — NOT `public.vendors`, the older purchase-side table.
+ * Both exist and both hold rows: the Customer screen used to call
+ * `getVendorsForPicker()` (`lib/purchase/po-service.ts`), so the Nominated
+ * Vendor dropdown listed seven purchase-side rows — four of them the
+ * `decade00-…` demo seed — while every vendor created in the master was missing
+ * from it (client, 2026-07-31). 0376 repointed
+ * `customer_nominated_vendors.vendor_id` here to match.
+ *
+ * The purchase module's own vendor pickers still read `public.vendors`, and
+ * correctly so: `purchase_orders`, `grns`, `rfqs` and 15 other transaction
+ * tables FK there. Merging the two tables is a separate, much larger migration.
+ *
+ * Inactive vendors are filtered OUT rather than greyed: `RecordPicker` has no
+ * disabled state, so a greyed row is not something it can express. A customer
+ * already nominating a since-deactivated vendor keeps the row — the FK is
+ * untouched — but the name resolves through the caller's own map.
+ */
+export async function listVendorsForPicker(): Promise<VendorPickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("master_vendors")
+    .select("id, code, name")
+    .eq("inactive", false)
+    .order("name");
+  return (data ?? []) as VendorPickerRow[];
+}
+
 export async function listVendors(): Promise<Vendor[]> {
   const s = await createClient();
   const { data } = await s
