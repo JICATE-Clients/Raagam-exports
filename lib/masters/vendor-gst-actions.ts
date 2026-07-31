@@ -4,6 +4,8 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { nullableKind } from "@/lib/validation/formats";
+import { describeGstIssue } from "./gst-bulk";
 import { GST_REG_STATUSES } from "./vendor-types";
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -12,16 +14,20 @@ function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 
-const gstChangesInput = z
-  .array(
-    z.object({
-      id: z.string().uuid(),
-      gst_reg_status: z.enum(GST_REG_STATUSES).nullable(),
-      gst_no: z.string().nullable(),
-    }),
-  )
-  .default([]);
-export type VendorGstChange = z.infer<typeof gstChangesInput>[number];
+const gstChangeInput = z.object({
+  id: z.string().uuid(),
+  gst_reg_status: z.enum(GST_REG_STATUSES).nullable(),
+  // The SAME rule the Vendor master enforces (vendor-types.ts), not a bare
+  // string. This screen writes `master_vendors.gst_no` directly, so an
+  // unvalidated bulk apply could put "TBD" on 300 vendors — values the master
+  // form then refuses to save, stranding every one of those records on its next
+  // edit. `nullableKind` also normalises (trim + uppercase), so a lowercase
+  // paste is corrected rather than rejected.
+  gst_no: nullableKind("gstin"),
+});
+const gstChangesInput = z.array(gstChangeInput).default([]);
+/** The client shape — `gst_no` before the schema's uppercase transform. */
+export type VendorGstChange = z.input<typeof gstChangeInput>;
 
 /**
  * Bulk-set GST Type (gst_reg_status) + GSTIN (gst_no) on vendors. Only the
@@ -34,14 +40,19 @@ export type VendorGstChange = z.infer<typeof gstChangesInput>[number];
 export async function saveVendorGst(changes: VendorGstChange[]): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const p = gstChangesInput.safeParse(changes);
-  if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  // Name the value that failed. One Save carries every edited row, so a bare
+  // "Invalid GSTIN" leaves the operator hunting through a 300-row grid for it.
+  if (!p.success) return fail(describeGstIssue(p.error, changes));
   if (p.data.length === 0) return { ok: true };
 
   // group by target value so identical assignments share one UPDATE
   const groups = new Map<string, { gst_reg_status: string | null; gst_no: string | null; ids: string[] }>();
   for (const c of p.data) {
-    const key = `${c.gst_reg_status ?? ""}|${c.gst_no ?? ""}`;
-    const g = groups.get(key) ?? { gst_reg_status: c.gst_reg_status, gst_no: c.gst_no, ids: [] };
+    // `?? null`, because the schema's field is optional: an omitted gst_no and
+    // an explicit null both mean "clear it", and the column is nullable.
+    const gstNo = c.gst_no ?? null;
+    const key = `${c.gst_reg_status ?? ""}|${gstNo ?? ""}`;
+    const g = groups.get(key) ?? { gst_reg_status: c.gst_reg_status, gst_no: gstNo, ids: [] };
     g.ids.push(c.id);
     groups.set(key, g);
   }

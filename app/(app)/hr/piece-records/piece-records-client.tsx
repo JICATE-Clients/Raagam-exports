@@ -14,6 +14,7 @@ import {
 } from "@/lib/hr/attendance-actions";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { DataTable } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
@@ -144,26 +145,16 @@ export default function PieceRecordsClient({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) =>
-        r.is_locked ? null : (
-          <div className="flex justify-end gap-1">
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={isPending}
-              onClick={() => handleDelete(r.id)}
-            >
-              Del
-            </Button>
-          </div>
-        ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        onEdit={() => openEdit(r)}
+        onDelete={() => handleDelete(r.id)}
+        /* A locked record is closed payroll — neither editable nor removable. */
+        canEdit={!r.is_locked}
+        canDelete={!r.is_locked}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

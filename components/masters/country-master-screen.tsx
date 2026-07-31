@@ -6,14 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Select } from "@/components/ui/select";
-import { Field } from "@/components/ui/field";
+import { Field, type FieldSize } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createCountry, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { COUNTRY_GROUPS, type Country, type CountryGroup, type CountryInput } from "@/lib/masters/country-types";
@@ -29,6 +28,36 @@ const BLANK = {
   default_country: false,
   inactive: false,
 };
+
+/**
+ * How wide each field is on the 12-col track. Sized to the data, not to the
+ * cell: everything here except the name is two to four characters or a tick.
+ *
+ * THE SPANS OF A ROW MUST SUM TO 12. Nothing in the build catches a row that
+ * goes past it — the last field simply wraps onto a line of its own with the
+ * rest of that line left empty.
+ *
+ *   row 1 — name 6 + country_group 2 + ecgc_code 2 + isd_code 2 = 12
+ *   row 2 — default_country 2 + inactive 2 = 4  (the flags; inactive is edit-only)
+ *
+ * Four per row is the target (client 2026-07-29). It lands here because the
+ * three codes stopped taking a third of the row each — they were md/xs/xs, so
+ * row 1 was 6+4+2 = 12 with only THREE fields on it and ISD pushed down.
+ */
+/**
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29) —
+ * the City / State / Pin / Country shape, applied across the masters instead of
+ * sizing each field to its own data. Rows here are 3+3+3+3 = 12 then 3+3 = 6.
+ * See applicant-master-screen for the rule and what it trades away.
+ */
+const FIELD_SIZE = {
+  name: "sm", // "UNITED ARAB EMIRATES" scrolls inside the box
+  country_group: "sm",
+  ecgc_code: "sm",
+  isd_code: "sm",
+  default_country: "sm",
+  inactive: "sm",
+} satisfies Record<string, FieldSize>;
 
 /**
  * Legacy "Country" master (Associates). Flat form with a Country Group enum and
@@ -117,20 +146,6 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
       cell: (r) => (r.default_country ? <span className="text-sm text-primary">✓</span> : <span className="text-sm text-muted-foreground">—</span>),
     },
     { header: "Status", cell: (r) => statusPill(r) },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -147,6 +162,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
         addLabel="+ Add Country"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No country records yet."
         mobile={{
           title: (r) => r.name,
@@ -183,12 +199,11 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
           </>
         }
       >
-        {/* Five fields — under the 7 that would call for grouping (LAYOUT.md §4),
-            so one flat section. Sizes track the data: a country Name is free
-            text, the two codes are 2-4 characters and must not inherit the same
-            box. */}
+        {/* Six fields — under the 7 that would call for grouping (LAYOUT.md §4),
+            so one flat section. Widths come from FIELD_SIZE at the top of this
+            file, which carries the row arithmetic. */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Name" size="lg" required htmlFor="co-name">
+          <Field label="Name" size={FIELD_SIZE.name} required htmlFor="co-name">
             <Input
               id="co-name"
               uppercase
@@ -197,7 +212,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               required
             />
           </Field>
-          <Field label="Country Group" size="md" htmlFor="co-group">
+          <Field label="Country Group" size={FIELD_SIZE.country_group} htmlFor="co-group">
             <Select
               id="co-group"
               value={form.country_group}
@@ -211,14 +226,15 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               ))}
             </Select>
           </Field>
-          <Field label="ECGC Code" size="xs" htmlFor="co-ecgc">
+          <Field label="ECGC Code" size={FIELD_SIZE.ecgc_code} htmlFor="co-ecgc">
             <Input
+              uppercase
               id="co-ecgc"
               value={form.ecgc_code}
               onChange={(e) => set({ ecgc_code: e.target.value })}
             />
           </Field>
-          <Field label="ISD Code" size="xs" htmlFor="co-isd">
+          <Field label="ISD Code" size={FIELD_SIZE.isd_code} htmlFor="co-isd">
             <ValidatedInput
               id="co-isd"
               format="isd"
@@ -227,8 +243,10 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             />
           </Field>
           {/* Each flag gets its own cell rather than a hand-rolled flex row, so
-              the checkboxes sit on the same 12-col track as everything else. */}
-          <Field size="md">
+              the checkboxes sit on the same 12-col track as everything else.
+              A tick is a Yes/No, which is `xs` — at `md` the two of them ate a
+              two-thirds row on their own. */}
+          <Field size={FIELD_SIZE.default_country}>
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
@@ -240,7 +258,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             </label>
           </Field>
           {editId && (
-            <Field size="md">
+            <Field size={FIELD_SIZE.inactive}>
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

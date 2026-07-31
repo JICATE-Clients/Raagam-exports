@@ -13,13 +13,14 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   createYarnPurchaseRate,
   updateYarnPurchaseRate,
   deleteYarnPurchaseRate,
 } from "@/lib/masters/grid-master-actions";
 import type { YarnPurchaseRate, YarnPurchaseRateInput } from "@/lib/masters/grid-master-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type LookupOption = { id: string; code: string; name: string };
@@ -123,18 +124,18 @@ export function YarnPurchaseRateMasterScreen({
 
   const columns: Column<YarnPurchaseRate>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span> },
+    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span> },
     { header: "Rates", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -189,8 +190,8 @@ export function YarnPurchaseRateMasterScreen({
           <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Rates</div>
             <div className="space-y-3 p-3">
-              {/* row area capped with internal scroll — Add button stays pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
                   <div className="flex items-center gap-2">
@@ -223,7 +224,7 @@ export function YarnPurchaseRateMasterScreen({
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </Select>
-                    <Input placeholder="UOM" value={l.uom}
+                    <Input uppercase placeholder="UOM" value={l.uom}
                       onChange={(e) => setLineAt(l.key, { uom: e.target.value })}
                       className="text-base md:text-sm" />
                     <Input type="number" placeholder="Rate" value={l.rate} min={0} step="0.01"

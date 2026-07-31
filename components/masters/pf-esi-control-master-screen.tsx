@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type Column } from "@/components/ui/data-table";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -16,6 +15,7 @@ import {
   deletePfEsiControl,
 } from "@/lib/masters/pf-esi-control-actions";
 import type { PfEsiControl, PfEsiControlInput } from "@/lib/masters/pf-esi-control-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -102,7 +102,7 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
 
   const columns: Column<PfEsiControl>[] = [
     { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Effective From", cell: (r) => <span className="text-sm">{r.effective_from}</span> },
+    { header: "Effective From", cell: (r) => <span className="text-sm">{fmtDate(r.effective_from)}</span> },
     {
       header: "Employee (PF / ESI)",
       align: "right",
@@ -121,20 +121,6 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
         </span>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -148,9 +134,10 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
         addLabel="+ Add PF/ESI Control"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No PF/ESI controls yet."
         mobile={{
-          title: (r) => `Entry #${r.entry_no} · effective ${r.effective_from}`,
+          title: (r) => `Entry #${r.entry_no} · effective ${fmtDate(r.effective_from)}`,
           meta: (r) =>
             `Employee ${pct(r.emp_pf_pct)}/${pct(r.emp_esi_pct)} · Employer ${pct(r.empr_pf_pct)}/${pct(r.empr_esi_pct)}`,
           onEdit: openEdit,

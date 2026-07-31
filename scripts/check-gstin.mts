@@ -9,6 +9,7 @@ import {
   decodeGstin,
   gstinCheckDigit,
   isGstinChecksumValid,
+  matchGstinState,
 } from "../lib/validation/gstin.ts";
 
 let failed = 0;
@@ -95,6 +96,58 @@ check("P -> Proprietor", decodeGstin("33ABCPE1234F1Z1")?.constitution, "Propriet
 
 // Unknown state code decodes with a null name rather than throwing.
 check("unknown state code", decodeGstin("50ABCDE1234F1Z0")?.stateName, null);
+
+// ---------- state matching ----------
+// The rung that matters: `states.code` IS the GST state code, so it wins even
+// when the row's NAME is something else entirely.
+const TN = decodeGstin("33ABCDE1234F1Z7");
+check(
+  "state by code",
+  matchGstinState(TN, [
+    { id: "a", code: "27", name: "Maharashtra" },
+    { id: "b", code: "33", name: "Anything At All" },
+  ])?.id,
+  "b",
+);
+check(
+  "state by code tolerates an unpadded code",
+  matchGstinState(decodeGstin("07ABCDE1234F1ZJ"), [{ id: "a", code: "7", name: "Delhi" }])?.id,
+  "a",
+);
+// Fallback ladder, for State rows typed before anyone filled the code in.
+check(
+  "state by exact name",
+  matchGstinState(TN, [{ id: "a", code: null, name: "Tamil Nadu" }])?.id,
+  "a",
+);
+check(
+  "state by alias",
+  matchGstinState(TN, [{ id: "a", code: null, name: "TAMILNADU" }])?.id,
+  "a",
+);
+check(
+  "state by punctuation-insensitive name",
+  matchGstinState(decodeGstin("26ABCDE1234F1ZC"), [
+    { id: "a", code: null, name: "Dadra and Nagar Haveli and Daman and Diu" },
+  ])?.id,
+  "a",
+);
+// "&" reads as "and", both ways round — our canonical names use the ampersand
+// and a hand-typed row is at least as likely to spell it out.
+check(
+  "state matches & spelled out",
+  matchGstinState(decodeGstin("01ABCDE1234F1ZQ"), [{ id: "a", code: null, name: "Jammu and Kashmir" }])?.id,
+  "a",
+);
+// This is the vendor/consignee divergence that prompted sharing the map: the
+// consignee copy knew three spellings, the vendor copy knew seven, so the same
+// State master resolved on one screen and not the other.
+check("state alias 34 Pondicherry", matchGstinState(decodeGstin("34ABCDE1234F1ZP"), [{ id: "a", code: null, name: "Pondicherry" }])?.id, "a");
+// No match must be null, never a wrong row — a wrong State would be written
+// into an address by the suggestion chip.
+check("state no match", matchGstinState(TN, [{ id: "a", code: "27", name: "Maharashtra" }]), null);
+check("state with nothing decoded", matchGstinState(null, [{ id: "a", code: "33", name: "Tamil Nadu" }]), null);
+check("state with an empty master", matchGstinState(TN, []), null);
 
 console.log(failed === 0 ? "\nAll GSTIN vectors passed." : `\n${failed} vector(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);

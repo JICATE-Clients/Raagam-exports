@@ -18,7 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 
 interface Props {
@@ -73,24 +75,26 @@ export function CostHeadsClient({
     },
     ...(canEdit || canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (h: CostHead) => (
-              <div className="flex justify-end gap-1">
-                {canEdit && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => toggleCostHead(h.id, !h.is_active), "Updated")} disabled={isPending} className="h-7 px-2 text-xs">
-                    {h.is_active ? "Deactivate" : "Activate"}
-                  </Button>
-                )}
-                {canDelete && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => deleteCostHead(h.id), "Removed")} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                    Delete
-                  </Button>
-                )}
-              </div>
-            ),
-          } satisfies Column<CostHead>,
+          rowActionsColumn<CostHead>((h) => (
+            <RowActions
+              onDelete={() => run(() => deleteCostHead(h.id), "Removed")}
+              canDelete={canDelete}
+              isPending={isPending}
+            /* Activate/Deactivate is a lifecycle toggle, not row CRUD — it
+               belongs behind the ⋮ rather than competing with Delete. */
+            menu={
+              canEdit
+                ? [
+                    {
+                      label: h.is_active ? "Deactivate" : "Activate",
+                      icon: h.is_active ? Ban : CheckCircle2,
+                      onClick: () => run(() => toggleCostHead(h.id, !h.is_active), "Updated"),
+                    },
+                  ]
+                : []
+            }
+            />
+          )),
         ]
       : []),
   ];
@@ -108,24 +112,26 @@ export function CostHeadsClient({
     },
     ...(canEdit || canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (i: CostItemRow) => (
-              <div className="flex justify-end gap-1">
-                {canEdit && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => toggleCostItem(i.id, !i.is_active), "Updated")} disabled={isPending} className="h-7 px-2 text-xs">
-                    {i.is_active ? "Deactivate" : "Activate"}
-                  </Button>
-                )}
-                {canDelete && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => deleteCostItem(i.id), "Removed")} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                    Delete
-                  </Button>
-                )}
-              </div>
-            ),
-          } satisfies Column<CostItemRow>,
+          rowActionsColumn<CostItemRow>((i) => (
+            <RowActions
+              onDelete={() => run(() => deleteCostItem(i.id), "Removed")}
+              canDelete={canDelete}
+              isPending={isPending}
+            /* Activate/Deactivate is a lifecycle toggle, not row CRUD — it
+               belongs behind the ⋮ rather than competing with Delete. */
+            menu={
+              canEdit
+                ? [
+                    {
+                      label: i.is_active ? "Deactivate" : "Activate",
+                      icon: i.is_active ? Ban : CheckCircle2,
+                      onClick: () => run(() => toggleCostItem(i.id, !i.is_active), "Updated"),
+                    },
+                  ]
+                : []
+            }
+            />
+          )),
         ]
       : []),
   ];

@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
 interface Props {
@@ -132,15 +133,12 @@ export function PartyOpeningsClient({
     { header: "Remarks", cell: (o) => <span className="text-xs text-muted-foreground">{o.remarks ?? "—"}</span> },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (o: PartyOpeningRow) => (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(o.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                Delete
-              </Button>
-            ),
-          } satisfies Column<PartyOpeningRow>,
+          rowActionsColumn<PartyOpeningRow>((o) => (
+            <RowActions
+              onDelete={() => handleDelete(o.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

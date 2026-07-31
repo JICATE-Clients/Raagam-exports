@@ -11,7 +11,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { CostHeadPicker } from "@/components/masters/cost-head-picker";
@@ -151,20 +150,6 @@ export function AccountHeadMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -179,6 +164,7 @@ export function AccountHeadMasterScreen({
         addLabel="+ Add Account Head"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No account heads yet."
         mobile={{
           title: (r) => r.name,
@@ -213,7 +199,15 @@ export function AccountHeadMasterScreen({
       >
         {/* "Group Under" is a real legacy grouping, so it stays its own section
             rather than dissolving into a flat list — two small sections side by
-            side (LAYOUT.md §1/§4). Both pickers render their own labels. */}
+            side (LAYOUT.md §1/§4). Both pickers render their own labels.
+
+            The 12-col track here is HALF a sheet wide. Each section gets ~560px
+            of the 1180, so one column is ~34px and `sm` buys a 126px control —
+            too narrow for a picker holding "CURRENT LIABILITIES". `lg` is the
+            honest floor in this column, and two per column is already four
+            across the sheet, which is the density the four-per-row rule is
+            after (client 2026-07-29). Both sections are flush at 6 + 6 = 12; a
+            row past 12 wraps its last field onto an otherwise empty line. */}
         <SectionGrid>
           <DetailSection label="Details" cols={12}>
             <Field label="Name" size="lg" required htmlFor="ah-name">
@@ -224,7 +218,7 @@ export function AccountHeadMasterScreen({
                 onChange={(e) => set({ name: e.target.value })}
               />
             </Field>
-            <Field size="md">
+            <Field size="lg">
               <CostHeadPicker
                 costHeads={costHeads}
                 value={form.cost_head_id}
@@ -232,8 +226,10 @@ export function AccountHeadMasterScreen({
                 label="Cost head"
               />
             </Field>
+            {/* A tick, alone on the second row either way — `sm` fits the
+                caption in this narrow column and stops it inheriting `md`. */}
             {editId && (
-              <Field size="md">
+              <Field size="sm">
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"

@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -174,30 +175,20 @@ export function CertificationMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && !r.inactive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => deactivate(r)}
-            >
-              Deactivate
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    /* This master never hard-deletes — the row is deactivated, so the verb
+       stays "Deactivate" rather than promising something else. Already-inactive
+       rows have nothing left to do. */
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.certification_name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => deactivate(r)}
+        deleteLabel="Deactivate"
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete && !r.inactive}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -226,7 +217,6 @@ export function CertificationMasterScreen({
                 setFilter("status", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               <option value="active">Active</option>
@@ -326,8 +316,23 @@ export function CertificationMasterScreen({
             so SectionColumns rather than auto-placement (LAYOUT.md §1). */}
         <SectionGrid>
           <SectionColumn>
+            {/* Three fields in a section half a sheet wide (~560px).
+
+                The sweep to one field width across the masters (client
+                2026-07-29) is about the width fields LOOK, not the number they
+                carry: the reference is the ~280px box on the Applicant screen,
+                which is `sm` (3 of 12) across a full 1180px sheet and `lg`
+                (6 of 12) in one column of a `SectionGrid` — the same picture,
+                different arithmetic. Name is `lg` for that reason; `sm` here
+                would be ~132px, half the reference. Same call as zone and
+                account-head, both of which are also two-column screens.
+
+                Description stays `full` because it is a textarea, and a textarea
+                sets the height of any row it shares (LAYOUT.md §3); it also sits
+                BETWEEN the other two, so there is no pair here to pull onto one
+                row regardless. */}
             <DetailSection label="Details" cols={12}>
-              <Field label="Certification Name" size="full" required htmlFor="cert-name">
+              <Field label="Certification Name" size="lg" required htmlFor="cert-name">
                 <Input
                   id="cert-name"
                   uppercase
@@ -346,7 +351,7 @@ export function CertificationMasterScreen({
                 />
               </Field>
               {editId && (
-                <Field size="md">
+                <Field size="sm">
                   <label className="flex h-8 cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"

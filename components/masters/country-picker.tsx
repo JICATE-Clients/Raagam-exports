@@ -1,23 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Info, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { createCountry, updateCountry } from "@/lib/masters/country-actions";
+import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
+import { createCountryQuick, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import {
   COUNTRY_GROUPS,
   type Country,
   type CountryGroup,
   type CountryInput,
 } from "@/lib/masters/country-types";
-import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
-import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker-keys";
 
 type FormState = {
   code: string;
@@ -39,10 +37,18 @@ const BLANK_FORM: FormState = {
 };
 
 /**
- * The legacy ⓘ Country popup: a searchable Code/Name grid with Add / Modify /
- * OK / Cancel. Add and Modify write through the shared Country master
- * (create/updateCountry) — so a country edited here changes everywhere it is
- * referenced, exactly like the legacy picker. Reusable for any Country FK field.
+ * The Country field, everywhere one appears (12 screens).
+ *
+ * A `DataPicker` — the list drops down under the field and searches as you type
+ * — plus a **quick-create sheet** for Add and Modify, because a Country is not
+ * just a name: the ISD code it carries is read by the contact fields on half a
+ * dozen masters, and the ECGC code by export documents. `onAddOverride` and
+ * `onEditOverride` are exactly the seam for that (client 2026-07-29); a config
+ * list like City uses the picker's own inline name form instead.
+ *
+ * Add and Modify write through the shared Country master, so a country created
+ * or corrected here changes everywhere it is referenced — the behaviour the
+ * legacy ⓘ popup had, kept.
  */
 export function CountryPicker({
   countries,
@@ -50,6 +56,7 @@ export function CountryPicker({
   onChange,
   canCreate,
   canEdit,
+  canDelete,
   compact = false,
 }: {
   countries: Country[];
@@ -57,64 +64,57 @@ export function CountryPicker({
   onChange: (id: string) => void;
   canCreate: boolean;
   canEdit: boolean;
+  /** Defaults to `canEdit` — see the note in `lookup-dialog-picker.tsx`. The
+   *  delete itself is guarded: a country any record references is deactivated,
+   *  not removed. */
+  canDelete?: boolean;
   /** Trigger-only (no label) for dense grid rows. */
   compact?: boolean;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, start] = useTransition();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
-  const [open, setOpen] = useState(false);
-  // Hand the cursor back to this picker's trigger when the dialog closes —
-  // removing the focused node strands focus on <body>. See picker-keys.ts.
-  usePickerFocusReturn(open);
-  const [query, setQuery] = useState("");
-  const [highlightId, setHighlightId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"list" | "form">("list");
-  const [formEditId, setFormEditId] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(BLANK_FORM);
-
-  // Countries created/updated in this session, merged + deduped with server rows.
+  // Countries created / edited in this session, merged over the server rows —
+  // the list arrives as a prop from a server component, so without this a
+  // country the operator just added is invisible until the refresh lands.
   const [extra, setExtra] = useState<Country[]>([]);
+  const [removed, setRemoved] = useState<string[]>([]);
+
   const all = useMemo(() => {
     const byId = new Map<string, Country>();
     for (const c of countries) byId.set(c.id, c);
     for (const c of extra) byId.set(c.id, c); // session edits win
+    for (const id of removed) byId.delete(id);
     return [...byId.values()];
-  }, [countries, extra]);
+  }, [countries, extra, removed]);
 
-  const selected = all.find((c) => c.id === value) ?? null;
+  const rows: PickerRow[] = useMemo(
+    () =>
+      [...all]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => ({ id: c.id, label: c.name })),
+    [all],
+  );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const rows = q
-      ? all.filter((c) => [c.code, c.name].filter(Boolean).join(" ").toLowerCase().includes(q))
-      : all;
-    return [...rows].sort((a, b) => a.name.localeCompare(b.name));
-  }, [all, query]);
+  // ---- the quick-create / modify sheet ----
+  const [formOpen, setFormOpen] = useState(false);
+  const [formEditId, setFormEditId] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(BLANK_FORM);
+  // The picker hands us its `commit` so a save can select the row and close the
+  // list in one step. Held in a ref because the sheet outlives the callback.
+  const commitRef = useRef<((id: string) => void) | null>(null);
 
-  function openDialog() {
-    setHighlightId(value);
-    setQuery("");
-    setMode("list");
-    setOpen(true);
-  }
-  function close() {
-    setOpen(false);
-    setMode("list");
-  }
-
-  function startAdd() {
+  function openAdd(commit: (id: string) => void) {
+    commitRef.current = commit;
     setFormEditId(null);
     setForm(BLANK_FORM);
-    setMode("form");
+    setFormOpen(true);
   }
-  function startModify(id: string) {
-    const c = all.find((x) => x.id === id);
+  function openEdit(row: PickerRow, commit: (id: string) => void) {
+    const c = all.find((x) => x.id === row.id);
     if (!c) return;
-    setHighlightId(id);
+    commitRef.current = commit;
     setFormEditId(c.id);
     setForm({
       code: c.code ?? "",
@@ -125,7 +125,7 @@ export function CountryPicker({
       default_country: c.default_country,
       inactive: c.inactive,
     });
-    setMode("form");
+    setFormOpen(true);
   }
 
   function saveForm() {
@@ -140,277 +140,167 @@ export function CountryPicker({
         inactive: form.inactive,
         is_draft: false,
       };
-      const res = formEditId
-        ? await updateCountry(formEditId, payload)
-        : await createCountry(payload);
-      if (!res.ok) {
-        error(res.error);
-        return;
-      }
-      // Reflect the change immediately in the picker list (server refresh follows).
       if (formEditId) {
-        setExtra((xs) => {
-          const base = all.find((c) => c.id === formEditId)!;
-          const merged: Country = { ...base, ...payload, id: formEditId };
-          return [...xs.filter((c) => c.id !== formEditId), merged];
-        });
-        setHighlightId(formEditId);
+        const res = await updateCountry(formEditId, payload);
+        if (!res.ok) return error(res.error);
+        const base = all.find((c) => c.id === formEditId);
+        if (base) {
+          setExtra((xs) => [
+            ...xs.filter((c) => c.id !== formEditId),
+            { ...base, ...payload, id: formEditId },
+          ]);
+        }
         success("Country updated.");
       } else {
-        // createCountry doesn't return the id — refresh pulls it in; still show a synthetic
-        // row optimistically keyed by a temp id so the user sees it right away.
+        const res = await createCountryQuick(payload);
+        if (!res.ok) return error(res.error);
+        // A synthetic row so the new country is selectable before the server
+        // round trip returns; `router.refresh()` replaces it with the real one.
+        setExtra((xs) => [
+          ...xs,
+          { ...payload, id: res.id, created_at: "", updated_at: "" } as unknown as Country,
+        ]);
         success("Country added.");
+        commitRef.current?.(res.id);
       }
-      setMode("list");
+      setFormOpen(false);
       router.refresh();
     });
   }
 
-  const onListKeyDown = pickerKeyDown({
-    items: filtered,
-    keyOf: (r) => r.id,
-    highlight: highlightId,
-    setHighlight: setHighlightId,
-    onPick: onChange,
-    // One layer per Escape: out of the Add/Modify form back to the list, and
-    // only then out of the dialog.
-    onClose: () => (mode === "form" ? setMode("list") : close()),
-    active: mode === "list",
-  });
-
-  const selectedLabel = selected ? selected.name : "— Select Country —";
+  const manage: ManageConfig = {
+    canCreate,
+    canEdit,
+    canDelete: canDelete ?? canEdit,
+    // Never reached: `onAddOverride` / `onEditOverride` take both paths before
+    // the inline name-only form can open. Present because ManageConfig is the
+    // shape that also drives which icons render.
+    onCreate: async () => ({ ok: false, error: "Use the Country form." }),
+    onUpdate: async () => ({ ok: false, error: "Use the Country form." }),
+    onDelete: (id) => deleteCountry(id),
+    onCreated: () => {},
+    onUpdated: () => {},
+    onDeleted: (id, inactive) => {
+      setRemoved((xs) => [...xs, id]);
+      if (!inactive) setExtra((xs) => xs.filter((c) => c.id !== id));
+      router.refresh();
+    },
+    draftOf: (r) => ({ code: all.find((c) => c.id === r.id)?.code ?? "", name: r.label }),
+  };
 
   return (
-    <div>
-      {!compact && (
-        <Label>
-          Country <span className="text-danger">*</span>
-        </Label>
-      )}
-      <button
-        type="button"
-        onClick={openDialog}
+    <>
+      <DataPicker
+        label="Country"
+        rows={rows}
+        value={value}
+        // The legacy contract is "a picked id", never null.
+        onChange={(id) => onChange(id ?? "")}
+        clearable={false}
+        required
+        compact={compact}
+        manage={manage}
+        onAddOverride={openAdd}
+        onEditOverride={openEdit}
+      />
 
-        data-field-trigger
-        className={PICKER_TRIGGER_CLASS}
+      <Sheet
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        size="sm"
+        title={formEditId ? "Modify Country" : "Add Country"}
+        footer={
+          <>
+            <Button type="button" variant="outline" size="md" onClick={() => setFormOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" size="md" disabled={isPending || !form.name.trim()} onClick={saveForm}>
+              {isPending ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
       >
-        <span className={selected ? "text-foreground" : "text-muted-foreground"}>
-          {selectedLabel}
-        </span>
-        <Info className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-      </button>
-
-      {mounted &&
-        open &&
-        createPortal(
-          <div className="fixed inset-0 z-[100] flex items-start justify-center">
-            <div className="absolute inset-0 bg-black/40" onClick={close} aria-hidden />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-label="Select Country"
-              // ↑/↓/Enter/Escape/Tab for the whole dialog — bound here rather than
-              // on the search box so the keys still work once focus has moved on
-              // to a row or to Cancel. See picker-keys.ts.
-              onKeyDown={onListKeyDown}
-              className="relative mt-[8vh] flex max-h-[80vh] w-[94%] max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
-            >
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-sm font-semibold">
-                  {mode === "list" ? "Select Country" : formEditId ? "Modify Country" : "Add Country"}
-                </h2>
-                <button
-                  type="button"
-                  onClick={close}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-                  aria-label="Close"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              {mode === "list" ? (
-                <>
-                  <div className="border-b border-border p-3">
-                    <Input
-                      autoFocus
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search code or name…"
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-auto">
-                    {filtered.length === 0 ? (
-                      <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                        No countries found.
-                      </p>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
-                          <tr>
-                            <th className="px-4 py-2 text-left font-medium">Name</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filtered.map((c) => (
-                            <tr
-                              key={c.id}
-                              ref={
-                                highlightId === c.id
-                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
-                                  : undefined
-                              }
-                              onClick={() => {
-                                onChange(c.id);
-                                close();
-                              }}
-                              onMouseEnter={() => setHighlightId(c.id)}
-                              className={
-                                "group cursor-pointer border-t border-border " +
-                                (highlightId === c.id ? "bg-primary/10" : "hover:bg-surface-muted")
-                              }
-                            >
-                              <td className="px-4 py-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span>{c.name}</span>
-                                  {canEdit && (
-                                    <button
-                                      type="button"
-                                      aria-label="Modify"
-                                      title="Modify"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        startModify(c.id);
-                                      }}
-                                      className="shrink-0 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:text-foreground group-hover:opacity-100"
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-                    {canCreate && (
-                      <Button type="button" variant="outline" size="md" onClick={startAdd}>
-                        Add
-                      </Button>
-                    )}
-                    <div className="flex-1" />
-                    <Button type="button" variant="outline" size="md" onClick={close}>
-                      Cancel
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="cp-code">Code</Label>
-                        <Input
-                          id="cp-code"
-                          uppercase
-                          value={form.code}
-                          onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="cp-group">Country Group</Label>
-                        <Select
-                          id="cp-group"
-                          value={form.country_group}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, country_group: e.target.value as "" | CountryGroup }))
-                          }
-                          className="text-base md:text-sm"
-                        >
-                          <option value="">— Select —</option>
-                          {COUNTRY_GROUPS.map((g) => (
-                            <option key={g} value={g}>
-                              {g}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="cp-name">
-                        Name <span className="text-danger">*</span>
-                      </Label>
-                      <Input
-                        id="cp-name"
-                        uppercase
-                        value={form.name}
-                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                        className="text-base md:text-sm"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="cp-ecgc">ECGC Code</Label>
-                        <Input
-                          id="cp-ecgc"
-                          value={form.ecgc_code}
-                          onChange={(e) => setForm((f) => ({ ...f, ecgc_code: e.target.value }))}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="cp-isd">ISD Code</Label>
-                        <Input
-                          id="cp-isd"
-                          value={form.isd_code}
-                          onChange={(e) => setForm((f) => ({ ...f, isd_code: e.target.value }))}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                    </div>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.default_country}
-                        onChange={(e) => setForm((f) => ({ ...f, default_country: e.target.checked }))}
-                      />
-                      <span className="text-sm text-foreground">Default Country</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.inactive}
-                        onChange={(e) => setForm((f) => ({ ...f, inactive: e.target.checked }))}
-                      />
-                      <span className="text-sm text-foreground">Inactive</span>
-                    </label>
-                  </div>
-                  <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-                    <Button type="button" variant="outline" size="md" onClick={() => setMode("list")}>
-                      Back
-                    </Button>
-                    <Button
-                      type="button"
-                      size="md"
-                      disabled={isPending || !form.name.trim()}
-                      onClick={saveForm}
-                    >
-                      {isPending ? "Saving…" : "Save"}
-                    </Button>
-                  </div>
-                </>
-              )}
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="cp-name">
+              Name <span className="text-danger">*</span>
+            </Label>
+            <Input
+              id="cp-name"
+              autoFocus
+              uppercase
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="cp-code">Code</Label>
+              <Input
+                id="cp-code"
+                uppercase
+                value={form.code}
+                onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+              />
             </div>
-          </div>,
-          document.body,
-        )}
-    </div>
+            <div>
+              <Label htmlFor="cp-group">Country Group</Label>
+              <Select
+                id="cp-group"
+                value={form.country_group}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, country_group: e.target.value as "" | CountryGroup }))
+                }
+              >
+                <option value="">— Select —</option>
+                {COUNTRY_GROUPS.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="cp-ecgc">ECGC Code</Label>
+              <Input
+                id="cp-ecgc"
+                uppercase
+                value={form.ecgc_code}
+                onChange={(e) => setForm((f) => ({ ...f, ecgc_code: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="cp-isd">ISD Code</Label>
+              <Input
+                id="cp-isd"
+                uppercase
+                value={form.isd_code}
+                onChange={(e) => setForm((f) => ({ ...f, isd_code: e.target.value }))}
+              />
+            </div>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={form.default_country}
+              onChange={(e) => setForm((f) => ({ ...f, default_country: e.target.checked }))}
+            />
+            <span className="text-sm text-foreground">Default Country</span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer accent-primary"
+              checked={form.inactive}
+              onChange={(e) => setForm((f) => ({ ...f, inactive: e.target.checked }))}
+            />
+            <span className="text-sm text-foreground">Inactive</span>
+          </label>
+        </div>
+      </Sheet>
+    </>
   );
 }

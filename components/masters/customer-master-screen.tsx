@@ -9,14 +9,12 @@ import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { MasterFullScreen, SectionBody } from "@/components/masters/master-full-screen";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { ApplicantPicker } from "@/components/masters/applicant-picker";
@@ -26,6 +24,7 @@ import { ChildGrid } from "@/components/masters/child-grid";
 import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact-fields";
 import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-columns-dialog";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
+import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { decodeGstin } from "@/lib/validation/gstin";
 import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-service";
@@ -161,45 +160,61 @@ const BLANK: HeaderForm = {
  *             GstinInsight 12 — the fact strip decoded from the GST number
  *             above it, which is why that row stops at 8 rather than filling.
  */
+/**
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29). The
+ * client picked the City / State / Pin / Country row out as the correct shape
+ * and asked for the rest of the masters to match it, so nothing here is sized
+ * to its own data any more. See applicant-master-screen for the full statement
+ * of the rule and what it trades away.
+ *
+ * `gstin_insight` is the one exception and is not a field — it is a read-only
+ * fact strip (decoded state, PAN, supply type) that stands alone on its row by
+ * nature, the same way a child grid does.
+ *
+ * Packing List Format keeps its inline "Columns" button inside a 3-column cell.
+ * That is ~285px on this screen — the editor is full width, so a 3-col span is
+ * not the ~132px it would be in one column of a `SectionGrid` — which leaves
+ * the picker ~185px beside a ~90px button. Split the editor into columns and
+ * that pairing is the first thing that breaks.
+ */
 const FIELD_SIZE = {
   // ---- Identity ----
-  inactive: "full",
-  name: "lg", // free text, the longest value on the form
+  inactive: "sm",
+  name: "sm",
   doc_prefix: "sm",
   doc_id: "sm",
-  also_consignee: "xs", // Yes / No
-  also_notify: "xs", // a single tick
-  country_id: "md", // picker — country names run long ("UNITED ARAB EMIRATES")
-  business_entity: "md", // "Proprietorship"
+  also_consignee: "sm",
+  also_notify: "sm",
+  country_id: "sm",
+  business_entity: "sm",
   inhouse_unit_id: "sm",
   // ---- Address ----
-  street: "full",
+  street: "sm", // a single-line Input now — a Textarea sets the row's height
   city_id: "sm",
   state_id: "sm",
-  pin: "xs", // 6 digits
-  address_country_id: "md",
+  pin: "sm",
+  address_country_id: "sm",
   land_line: "sm",
-  email: "sm", // one of four contact channels on a flush row
-  web_site: "lg", // a URL is long free text
+  email: "sm",
+  web_site: "sm",
   // ---- General ----
-  currency_1: "xs", // 3-letter code. The picker shows "USD — US Dollar" and
-  currency_2: "xs", // truncates the name; the code is the part that matters.
-  currency_3: "xs",
-  ship_mode: "xs", // AIR · ROAD · SEA · SEA/AIR
-  ship_type_id: "md", // free config value, e.g. "FCL 20 FT CONTAINER"
-  pay_mode: "xs", // CAD · LC · DP · OTH
-  receivable_term_id: "lg", // a whole sentence — "60 DAYS FROM BL DATE"
-  pref_courier_id: "md",
-  port_of_loading_id: "md",
-  port_of_discharge_id: "md",
-  final_destination_id: "md",
-  packing_list_format_id: "lg", // holds the picker AND its "Columns" button
-  commercial_invoice_format_id: "lg", // matched to its sibling format picker
-  color_spec_applicable: "sm", // `xs` would wrap the label onto two lines and
-  //                              drop the control below its neighbours
-  tcs_applicable: "xs", // Yes / No
-  gst_no: "sm", // 15 characters
-  gstin_insight: "full",
+  currency_1: "sm",
+  currency_2: "sm",
+  currency_3: "sm",
+  ship_mode: "sm",
+  ship_type_id: "sm",
+  pay_mode: "sm",
+  receivable_term_id: "sm",
+  pref_courier_id: "sm",
+  port_of_loading_id: "sm",
+  port_of_discharge_id: "sm",
+  final_destination_id: "sm",
+  packing_list_format_id: "sm", // holds the picker AND its "Columns" button
+  commercial_invoice_format_id: "sm",
+  color_spec_applicable: "sm",
+  tcs_applicable: "sm",
+  gst_no: "sm",
+  gstin_insight: "full", // a fact strip, not a field — see above
 } satisfies Record<string, FieldSize>;
 
 type ContactRow = {
@@ -257,7 +272,8 @@ export function CustomerMasterScreen({
   internalDepartments,
   currencies,
   shipTypes,
-  categories,
+  sewingCategories,
+  packingCategories,
   agentTypes,
   agentOptions,
   packingFormats,
@@ -281,7 +297,10 @@ export function CustomerMasterScreen({
   internalDepartments: ConfigLookup[];
   currencies: Currency[];
   shipTypes: ConfigLookup[];
-  categories: ConfigLookup[];
+  /** Categories of item class SEW — feeds the Sewing Accessories card. */
+  sewingCategories: ConfigLookup[];
+  /** Categories of item class PACK — feeds the Packaging Accessories card. */
+  packingCategories: ConfigLookup[];
   agentTypes: ConfigLookup[];
   agentOptions: ConfigLookup[];
   packingFormats: ConfigLookup[];
@@ -308,6 +327,8 @@ export function CustomerMasterScreen({
   // list filtering/search is owned by MasterListShell
   const [open, setOpen] = useState(false);
   const [colsOpen, setColsOpen] = useState(false);
+  /** The row being READ. Separate from `editId` — a view must never arm Save. */
+  const [viewRow, setViewRow] = useState<Customer | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const isdOf = useIsdLookup(countries);
@@ -344,6 +365,59 @@ export function CustomerMasterScreen({
     for (const c of countries) m.set(c.id, c.name);
     return m;
   }, [countries]);
+
+  /**
+   * id → name across every option list the editor's pickers already receive —
+   * config lists, the two Category sets (`categories` rows since 0356, NOT
+   * config_lookups) and the four RecordPicker masters. One map for all of them
+   * because these ids are uuids and cannot collide, and the read-only view
+   * resolves an FK the same way the picker does: out of props, never with a
+   * query of its own.
+   */
+  const optionName = useMemo(() => {
+    const m = new Map<string, string>();
+    const lists: { id: string; name: string }[][] = [
+      cities,
+      states,
+      departments,
+      designations,
+      internalDepartments,
+      shipTypes,
+      sewingCategories,
+      packingCategories,
+      agentTypes,
+      agentOptions,
+      packingFormats,
+      commercialFormats,
+      vendors,
+      receivableTerms,
+      ports,
+      destinations,
+      couriers,
+    ];
+    for (const list of lists) for (const o of list) m.set(o.id, o.name);
+    return m;
+  }, [
+    cities,
+    states,
+    departments,
+    designations,
+    internalDepartments,
+    shipTypes,
+    sewingCategories,
+    packingCategories,
+    agentTypes,
+    agentOptions,
+    packingFormats,
+    commercialFormats,
+    vendors,
+    receivableTerms,
+    ports,
+    destinations,
+    couriers,
+  ]);
+  /** Never renders a raw uuid: an id we cannot name reads as nothing at all. */
+  const nameOf = (id: string | null | undefined) => (id ? (optionName.get(id) ?? "") : "");
 
   // ---------------------------------------------------------------- GSTIN ----
   // Everything below is decoded from the GST number itself — no lookup, no
@@ -660,6 +734,173 @@ export function CustomerMasterScreen({
     general: hasGeneral,
   };
 
+  /**
+   * The record as a READER sees it. Mirrors the editor's rail — Identity ·
+   * Address · Agents · Supplied Items · Nominated Vendors · General — so the
+   * view and the form tell the same story, and every FK is resolved to the name
+   * the picker would have shown.
+   *
+   * Nothing here filters empties: `RecordViewSheet` drops an empty value and an
+   * all-empty section on its own. The child cards are the exception — they are
+   * `content`, which is never auto-hidden, so each is built as `undefined` when
+   * the card holds nothing rather than as an empty list.
+   */
+  function viewSectionsFor(r: Customer): ViewSection[] {
+    const applicantRows = r.applicants
+      .map((a) => ({
+        key: a.id,
+        main: (a.applicant_id ? applicantById.get(a.applicant_id)?.name : null) ?? "",
+      }))
+      .filter((a) => a.main);
+
+    const contactRows = r.contacts
+      .map((c) => {
+        const who = [c.contact_name?.trim(), nameOf(c.designation_id), nameOf(c.department_id)]
+          .filter(Boolean)
+          .join(" · ");
+        const reach = [
+          c.mobile?.trim(),
+          c.land_line?.trim(),
+          c.email_id?.trim(),
+          nameOf(c.internal_department_id),
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        // A contact with no name at all still has to say something, so its
+        // phone/email is promoted to the main line rather than sitting alone
+        // in the muted column.
+        return { key: c.id, main: who || reach, detail: who ? reach : "" };
+      })
+      .filter((c) => c.main);
+
+    const agentRows = r.agents
+      .map((a) => ({
+        key: a.id,
+        main: nameOf(a.agent_id) || nameOf(a.agent_type_id),
+        detail: nameOf(a.agent_id) ? nameOf(a.agent_type_id) : "",
+      }))
+      .filter((a) => a.main);
+
+    const categoryRows = (section: "sewing" | "packing") =>
+      r.supplied_items
+        .filter((s) => s.section === section)
+        .map((s) => ({ key: s.id, main: nameOf(s.category_id) }))
+        .filter((s) => s.main);
+    const sewingRows = categoryRows("sewing");
+    const packingRows = categoryRows("packing");
+
+    const vendorRows = (kind: "nominated" | "recommended") =>
+      r.nominated_vendors
+        .filter((v) => v.list_kind === kind)
+        .map((v) => ({ key: v.id, main: nameOf(v.vendor_id) }))
+        .filter((v) => v.main);
+    const nominatedRows = vendorRows("nominated");
+    const recommendedRows = vendorRows("recommended");
+
+    const markingRows = r.markings
+      .map((m) => ({ key: m.id, main: m.marking?.trim() ?? "" }))
+      .filter((m) => m.main);
+
+    return [
+      {
+        label: "Identity",
+        pairs: [
+          ["Doc Prefix", r.doc_prefix],
+          ["ID", r.doc_id],
+          ["Also Consignee", r.also_consignee ? "Yes" : "No"],
+          ["Also Notify", r.also_notify ? "Yes" : "No"],
+          ["Country", r.country_id ? (countryLabel.get(r.country_id) ?? "") : ""],
+          ["Business Entity", r.business_entity],
+          ["In-house Unit ID", r.inhouse_unit_id],
+        ],
+        content:
+          applicantRows.length > 0 ? (
+            <ChildList label="Applicant(s)" rows={applicantRows} />
+          ) : undefined,
+      },
+      {
+        label: "Address",
+        pairs: [
+          ["Street", r.street],
+          ["City", nameOf(r.city_id)],
+          ["State", nameOf(r.state_id)],
+          ["Pin", r.pin],
+          ["Country", r.address_country_id ? (countryLabel.get(r.address_country_id) ?? "") : ""],
+          ["Land Line", r.land_line],
+          ["Mobile", r.mobile],
+          // A stored NULL means "same as mobile" — saying so beats printing the
+          // same number twice, and beats an empty row that reads as "unknown".
+          ["WhatsApp", r.whatsapp ?? (r.mobile ? "Same as mobile" : "")],
+          ["E-Mail", r.email],
+          ["Web site", r.web_site],
+        ],
+        content:
+          contactRows.length > 0 ? <ChildList label="Contacts" rows={contactRows} /> : undefined,
+      },
+      {
+        label: "Agents",
+        content:
+          agentRows.length > 0 ? <ChildList label="Customer Agents" rows={agentRows} /> : undefined,
+      },
+      {
+        label: "Supplied Items",
+        content:
+          sewingRows.length > 0 || packingRows.length > 0 ? (
+            <div className="space-y-3">
+              {sewingRows.length > 0 && (
+                <ChildList label="Sewing Accessories" rows={sewingRows} />
+              )}
+              {packingRows.length > 0 && (
+                <ChildList label="Packaging Accessories" rows={packingRows} />
+              )}
+            </div>
+          ) : undefined,
+      },
+      {
+        label: "Nominated Vendors",
+        content:
+          nominatedRows.length > 0 || recommendedRows.length > 0 ? (
+            <div className="space-y-3">
+              {nominatedRows.length > 0 && (
+                <ChildList label="Nominated Vendor" rows={nominatedRows} />
+              )}
+              {recommendedRows.length > 0 && (
+                <ChildList label="Recommended Vendor" rows={recommendedRows} />
+              )}
+            </div>
+          ) : undefined,
+      },
+      {
+        label: "General",
+        pairs: [
+          // The three currency columns store the CODE, which is what identifies
+          // a currency on a document — no lookup needed, and none wanted.
+          ["Currency 1", r.currency_1],
+          ["Currency 2", r.currency_2],
+          ["Currency 3", r.currency_3],
+          ["Ship Mode", r.ship_mode],
+          ["Ship Type", nameOf(r.ship_type_id)],
+          ["Pay Mode", r.pay_mode],
+          ["Receivable Terms", nameOf(r.receivable_term_id)],
+          ["Pref. Courier", nameOf(r.pref_courier_id)],
+          ["Port of Loading", nameOf(r.port_of_loading_id)],
+          ["Port of Discharge", nameOf(r.port_of_discharge_id)],
+          ["Final Destination", nameOf(r.final_destination_id)],
+          ["Packing List Format", nameOf(r.packing_list_format_id)],
+          ["Commercial Invoice Format", nameOf(r.commercial_invoice_format_id)],
+          ["Color Spec Applicable", r.color_spec_applicable ? "Yes" : "No"],
+          ["TCS", r.tcs_applicable ? "Yes" : "No"],
+          // The number itself, not the GstinInsight strip: that strip is an
+          // input-time aid (decode, entity suggestion) and none of it is a fact
+          // about the record.
+          ["GST No", r.gst_no],
+        ],
+        content:
+          markingRows.length > 0 ? <ChildList label="Marking" rows={markingRows} /> : undefined,
+      },
+    ];
+  }
+
   const columns: Column<Customer>[] = [
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
@@ -681,21 +922,7 @@ export function CustomerMasterScreen({
         const text = r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active";
         return <StatusPill tone={tone}>{text}</StatusPill>;
       },
-    },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    },
   ];
 
   const initials = (form.code || form.name || "?").slice(0, 2).toUpperCase();
@@ -712,6 +939,7 @@ export function CustomerMasterScreen({
         addLabel="+ Add Customer"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onView: setViewRow, onEdit: openEdit, onDelete: remove }}
         empty="No customers yet."
         mobile={{
           title: (r) => r.name,
@@ -825,10 +1053,10 @@ export function CustomerMasterScreen({
                         <Input id="cu-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} required />
                       </Field>
                       <Field label="Doc Prefix" size={FIELD_SIZE.doc_prefix} htmlFor="cu-prefix">
-                        <Input id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
+                        <Input uppercase id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
                       </Field>
                       <Field label="ID" size={FIELD_SIZE.doc_id} htmlFor="cu-docid">
-                        <Input id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} />
+                        <Input uppercase id="cu-docid" value={form.doc_id} onChange={(e) => set({ doc_id: e.target.value })} />
                       </Field>
                       <Field label="Also Consignee" size={FIELD_SIZE.also_consignee} htmlFor="cu-alsocons">
                         <Select id="cu-alsocons" value={form.also_consignee ? "yes" : "no"} onChange={(e) => set({ also_consignee: e.target.value === "yes" })}>
@@ -863,7 +1091,7 @@ export function CustomerMasterScreen({
                         </Select>
                       </Field>
                       <Field label="In-house Unit ID" size={FIELD_SIZE.inhouse_unit_id} htmlFor="cu-inhouseunit">
-                        <Input id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
+                        <Input uppercase id="cu-inhouseunit" value={form.inhouse_unit_id} onChange={(e) => set({ inhouse_unit_id: e.target.value })} />
                       </Field>
                     </FieldGrid>
                   </SectionBody>
@@ -877,8 +1105,13 @@ export function CustomerMasterScreen({
             content: (
                   <SectionBody title="Address" hint="Primary correspondence address for this customer.">
                     <FieldGrid>
+                      {/* A single-line Input, not the 3-row Textarea this used
+                          to be: every grid row is as tall as its tallest item,
+                          so a textarea sharing the row would leave City / State
+                          / Pin above a band of dead space. Stored newlines
+                          survive; an <input> just shows them on one line. */}
                       <Field label="Street" size={FIELD_SIZE.street} htmlFor="cu-street">
-                        <Textarea id="cu-street" rows={3} value={form.street} onChange={(e) => set({ street: e.target.value })} />
+                        <Input uppercase id="cu-street" value={form.street} onChange={(e) => set({ street: e.target.value })} />
                       </Field>
                       {/* The pickers were the self-labelling idiom while the rest
                           of the screen used an external <Label> + `compact`. One
@@ -940,7 +1173,7 @@ export function CustomerMasterScreen({
                           {
                             header: "Contact Name",
                             className: "min-w-[130px]",
-                            cell: (c) => <Input value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="h-8 text-sm" />,
+                            cell: (c) => <Input uppercase value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="h-8 text-sm" />,
                           },
                           {
                             header: "Designation",
@@ -978,7 +1211,7 @@ export function CustomerMasterScreen({
                               <Label>Department</Label>
                               <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} compact />
                             </div>
-                            <Input placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
+                            <Input uppercase placeholder="Contact Name" value={c.contact_name} onChange={(e) => setContactAt(c.key, { contact_name: e.target.value })} className="text-base md:text-sm" />
                             <div>
                               <Label>Designation</Label>
                               <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} compact />
@@ -1045,8 +1278,8 @@ export function CustomerMasterScreen({
             content: (
                   <SectionBody title="Supplied Items" hint="Categories the customer supplies (free-issue), by accessory group.">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
-                      <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={categories} perms={perms} newKey={newKey} setDirty={setDirty} />
+                      <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={sewingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
+                      <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={packingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
                     </div>
                   </SectionBody>
             ),
@@ -1195,7 +1428,7 @@ export function CustomerMasterScreen({
                           {
                             header: "Marking",
                             cell: (m) => (
-                              <Input value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" placeholder="Marking text" />
+                              <Input uppercase value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" placeholder="Marking text" />
                             ),
                           },
                         ]}
@@ -1224,6 +1457,66 @@ export function CustomerMasterScreen({
         onClose={() => setColsOpen(false)}
         canEdit={perms.canEdit}
       />
+
+      {/* Read-only view — same record, nothing editable, Edit in the footer
+          hands off to the editor above. */}
+      <RecordViewSheet
+        open={!!viewRow}
+        onClose={() => setViewRow(null)}
+        title={viewRow?.name ?? ""}
+        subtitle={
+          viewRow
+            ? [
+                viewRow.country_id ? countryLabel.get(viewRow.country_id) : null,
+                viewRow.business_entity,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : undefined
+        }
+        status={
+          viewRow && (
+            <StatusPill
+              tone={viewRow.is_draft ? "warning" : viewRow.inactive ? "danger" : "success"}
+            >
+              {viewRow.is_draft ? "Draft" : viewRow.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          )
+        }
+        sections={viewRow ? viewSectionsFor(viewRow) : []}
+      />
+    </div>
+  );
+}
+
+/**
+ * A child card, read-only: one line per row, the muted half on the right the way
+ * `material-view-sheet` renders its Mixing rows. Not a `ChildGrid` — there is
+ * nothing to edit, add or paginate, and a grid of disabled pickers would read as
+ * a form the user is not allowed to use.
+ */
+function ChildList({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: { key: string; main: string; detail?: string }[];
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <ul className="space-y-1 text-sm text-foreground">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 break-words">{r.main}</span>
+            {r.detail && (
+              <span className="shrink-0 text-xs text-muted-foreground">{r.detail}</span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1260,8 +1553,12 @@ function CategoryGrid({
       columns={[
         {
           header: "Category",
+          // Add/Modify OFF: the options are `categories` rows (0356), but this
+          // picker's inline create writes to `config_lookups` — it would file a
+          // new category under the wrong table and the FK would reject it. New
+          // categories are created in the Category master.
           cell: (r) => (
-            <LookupDialogPicker kind="material_category" label="Category" options={categories} value={r.category_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, category_id: id } : x))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
+            <LookupDialogPicker kind="material_category" label="Category" options={categories} value={r.category_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, category_id: id } : x))); setDirty(true); }} canCreate={false} canEdit={false} compact />
           ),
         },
       ]}

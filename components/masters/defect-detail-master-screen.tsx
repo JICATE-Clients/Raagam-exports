@@ -15,7 +15,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
 import {
   createDefectDetail,
@@ -183,20 +183,16 @@ export function DefectDetailMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -335,6 +331,7 @@ export function DefectDetailMasterScreen({
                 Category ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="dd-catg"
                 value={form.defect_catg_id}
                 onChange={(e) => set({ defect_catg_id: e.target.value })}
@@ -347,6 +344,7 @@ export function DefectDetailMasterScreen({
                 Defect ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="dd-id"
                 value={form.defect_id}
                 onChange={(e) => set({ defect_id: e.target.value })}
@@ -359,6 +357,7 @@ export function DefectDetailMasterScreen({
                 Detail ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="dd-det"
                 value={form.defect_det_id}
                 onChange={(e) => set({ defect_det_id: e.target.value })}
@@ -408,6 +407,7 @@ export function DefectDetailMasterScreen({
             <div>
               <Label htmlFor="dd-type">Defect Type</Label>
               <Input
+                uppercase
                 id="dd-type"
                 value={form.defect_type}
                 onChange={(e) => set({ defect_type: e.target.value })}

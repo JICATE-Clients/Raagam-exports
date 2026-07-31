@@ -406,8 +406,14 @@ function StylesTab({
                   onChange={(e) => setShipMode(e.target.value)}
                 >
                   <option value="">Select…</option>
+                  {/* Printed as stored. This used to be
+                      `m.charAt(0).toUpperCase() + m.slice(1)`, papering over
+                      lowercase values; they are CAPS at rest now (migration
+                      0368). The old expression was harmless on caps input
+                      ("A" + "IR") but says the storage can't be trusted,
+                      which is exactly what stopped being true. */}
                   {SHIP_MODES.map((m) => (
-                    <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>
+                    <option key={m} value={m}>{m}</option>
                   ))}
                 </Select>
               </div>

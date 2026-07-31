@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsName } from "@/lib/validation/formats";
 
 export const WORKER_TYPES = [
   "shift",
@@ -163,7 +164,7 @@ export interface ContractorPayrollRow {
 
 // ---------- input schemas ----------
 export const contractorInput = z.object({
-  name: z.string().min(1),
+  name: capsName(),
   contact_person: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
   location_id: z.string().uuid().optional().nullable(),
@@ -172,7 +173,7 @@ export const contractorInput = z.object({
 export type ContractorInput = z.infer<typeof contractorInput>;
 
 export const workerInput = z.object({
-  name: z.string().min(1),
+  name: capsName(),
   worker_type: z.enum(WORKER_TYPES),
   contractor_id: z.string().uuid().optional().nullable(),
   location_id: z.string().uuid().optional().nullable(),
@@ -188,7 +189,7 @@ export const workerInput = z.object({
 export type WorkerInput = z.infer<typeof workerInput>;
 
 export const staffInput = z.object({
-  name: z.string().min(1),
+  name: capsName(),
   designation: z.string().optional().nullable(),
   location_id: z.string().uuid().optional().nullable(),
   monthly_salary: z.coerce.number().nonnegative().default(0),

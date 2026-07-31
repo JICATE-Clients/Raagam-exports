@@ -17,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { Ban, CheckCircle2 } from "lucide-react";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 
@@ -173,47 +175,29 @@ export function TaMastersClient({
     },
     ...(canEdit || canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (a: TaActivity) => (
-              <div className="flex justify-end gap-1">
-                {canEdit && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => openEdit(a)}
-                      disabled={isPending}
-                      className="h-7 px-2 text-xs"
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleToggle(a)}
-                      disabled={isPending}
-                      className="h-7 px-2 text-xs"
-                    >
-                      {a.is_active ? "Block" : "Unblock"}
-                    </Button>
-                  </>
-                )}
-                {canDelete && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleDelete(a.id)}
-                    disabled={isPending}
-                    className="h-7 px-2 text-xs text-danger hover:opacity-80"
-                  >
-                    Delete
-                  </Button>
-                )}
-              </div>
-            ),
-          } satisfies Column<TaActivity>,
+          rowActionsColumn<TaActivity>((a) => (
+            <RowActions
+              label={a.name}
+              onEdit={() => openEdit(a)}
+              canEdit={canEdit}
+              onDelete={() => handleDelete(a.id)}
+              canDelete={canDelete}
+              isPending={isPending}
+              /* Block/Unblock is a lifecycle toggle, not row CRUD — it belongs
+                 behind the ⋮ rather than competing with Edit (LAYOUT.md §6a). */
+              menu={
+                canEdit
+                  ? [
+                      {
+                        label: a.is_active ? "Block" : "Unblock",
+                        icon: a.is_active ? Ban : CheckCircle2,
+                        onClick: () => handleToggle(a),
+                      },
+                    ]
+                  : []
+              }
+            />
+          )),
         ]
       : []),
   ];

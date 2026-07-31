@@ -1,591 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Plus, SquarePen, Trash2 } from "lucide-react";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Sheet } from "@/components/ui/sheet";
-import { useToast } from "@/components/ui/toast";
-import { focusFirstField } from "@/lib/focus";
-import { cn } from "@/lib/utils";
-import { createLookupValue } from "@/lib/masters/lookup-quick";
-import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
+import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { quickCreateMaterial, renameMaterial, deleteMaterial } from "@/lib/masters/material-actions";
 import { YarnQuickCreateSheet } from "@/components/masters/yarn-quick-create-sheet";
 import { CategoryQuickCreateSheet } from "@/components/masters/category-quick-create-sheet";
-import { deletedToast } from "@/lib/masters/delete-message";
-import type { ConfigLookup, LookupKind, AttributeValue } from "@/lib/masters/extras-types";
+import type { ConfigLookup, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Category } from "@/lib/masters/category-types";
-import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
+
+export type { ManageConfig, PickerRow };
 
 // ============================================================================
-// Shared "stored-data" picker: mirrors the legacy ⓘ lookup popup — click the
-// field, a searchable list opens (in a nested Sheet) with OK/Cancel, and
-// (when `manage` is given) inline Add/Modify. Config-list masters get the
-// full picker (`LookupDialogPicker`); masters with their own dedicated
-// management screen (e.g. Levy) get the select-only variant (`LevyPicker`) —
-// search + OK/Cancel/Clear, no inline Add/Modify.
+// Pickers over the RICH masters — Levy, Materials, Categories, Attributes.
+//
+// The shared body used to live here: `DialogListPicker`, ~400 lines that opened
+// a nested Sheet with a search box, a row list and inline Add/Modify/Delete.
+// That was one of THREE shapes stored data could arrive in (a modal dialog and a
+// plain dropdown were the others), so which one a field got came down to when it
+// was built. The client asked for one shape everywhere (2026-07-29): a dropdown
+// that lists the data, searches as you type, and does CRUD in place.
+//
+// So `DialogListPicker` is gone and its `ManageConfig` contract — already the
+// best CRUD abstraction in the codebase — moved to
+// `components/ui/data-picker.tsx` intact. Everything below now composes
+// `DataPicker` and is otherwise unchanged.
+//
+// This file also exported a SECOND `LookupDialogPicker`, colliding by name with
+// the one in `lookup-dialog-picker.tsx` while behaving differently. They are
+// merged there now (superset kept); the five screens that imported it from here
+// import it from there instead.
 // ============================================================================
 
-export type PickerRow = {
-  id: string;
-  label: string;
-  sublabel?: string | null;
-  disabled?: boolean;
-};
-
-type PickerDraft = { code: string; name: string; typeCode?: string };
-type ManageConfig = {
-  canCreate: boolean;
-  canEdit: boolean;
-  canDelete: boolean;
-  onCreate: (draft: PickerDraft) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-  onUpdate: (id: string, draft: PickerDraft) => Promise<{ ok: true } | { ok: false; error: string }>;
-  onDelete: (id: string) => Promise<{ ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string }>;
-  onCreated: (id: string, draft: PickerDraft) => void;
-  onUpdated: (id: string, draft: PickerDraft) => void;
-  onDeleted: (id: string, inactive: boolean) => void;
-  draftOf: (row: PickerRow) => PickerDraft;
-  /** Show a "Type" field in the Add/Modify form — only meaningful for
-   *  kind='item_class' (0287); every other manage config omits this. */
-  showTypeField?: boolean;
-};
-
-/** Header icon-button style (mockup .ibtn): bordered square, danger tint on
- *  the delete hover comes from the caller. */
-const ICON_BTN =
-  "flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground hover:bg-surface-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
-
-function DialogListPicker({
-  label,
-  title,
-  rows,
-  value,
-  onChange,
-  placeholder = "— None —",
-  clearable = true,
-  required = false,
-  invalid = false,
-  manage,
-  onAddOverride,
-}: {
-  label: string;
-  /** Dialog title + toast noun when `label` is blank (e.g. grid cells whose
-   *  column header already names the field). Defaults to `label`. */
-  title?: string;
-  rows: PickerRow[];
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  clearable?: boolean;
-  required?: boolean;
-  /** The picked value is rejected by the host form (e.g. the same attribute
-   *  chosen on two lines of one set) — red border plus `aria-invalid`, which
-   *  also holds Enter on the field until it clears (lib/focus.ts, child-grid). */
-  invalid?: boolean;
-  manage?: ManageConfig;
-  /** When set, the footer "+ Add" hands off to a custom creation flow (e.g.
-   *  the Yarn quick-create sheet) instead of the inline name-only form —
-   *  receives the picker's `commit` so the flow can select the new row and
-   *  close this dialog once creation succeeds. */
-  onAddOverride?: (commit: (id: string) => void) => void;
-}) {
-  const noun = title || label;
-  const { success, error } = useToast();
-  const [isPending, start] = useTransition();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [highlighted, setHighlighted] = useState<string | null>(null);
-  const [mode, setMode] = useState<"list" | "add" | "edit" | "delete">("list");
-  const [draftCode, setDraftCode] = useState("");
-  const [draftName, setDraftName] = useState("");
-  const [draftType, setDraftType] = useState("");
-  const listRef = useRef<HTMLDivElement>(null);
-
-  /**
-   * Put the cursor back in the search box whenever we return to list mode.
-   *
-   * Sheet's own autofocus is keyed on `open`, and coming back from
-   * Add/Modify/Delete changes `mode`, not `open` — so it does not re-run. The
-   * button that had focus ("Back" / "Cancel") then unmounts and focus falls to
-   * <body>, which is OUTSIDE the list container that carries onListKeyDown, so
-   * ↑/↓/Enter went dead until the user clicked something (client 2026-07-25).
-   */
-  useEffect(() => {
-    if (!open || mode !== "list") return;
-    const id = window.setTimeout(() => focusFirstField(listRef.current), 30);
-    return () => window.clearTimeout(id);
-  }, [open, mode]);
-
-  const selected = rows.find((r) => r.id === value) ?? null;
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => `${r.label} ${r.sublabel ?? ""}`.toLowerCase().includes(q));
-  }, [rows, query]);
-
-  function openPicker() {
-    setQuery("");
-    setHighlighted(value || null);
-    setMode("list");
-    setOpen(true);
-  }
-  function close() {
-    setOpen(false);
-    setMode("list");
-  }
-  function commit(id: string) {
-    onChange(id);
-    close();
-  }
-
-  /** ↓/↑ walk the filtered list, Enter = OK (client 2026-07-23). Attached to
-   *  the list-mode container so it works wherever focus sits inside the
-   *  dialog — arrows only move the highlight. */
-  function onListKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!filtered.length) return;
-      const idx = filtered.findIndex((r) => r.id === highlighted);
-      const next =
-        e.key === "ArrowDown"
-          ? filtered[Math.min(idx + 1, filtered.length - 1)]
-          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
-      setHighlighted(next.id);
-    } else if (e.key === "Enter") {
-      // Enter on a focused button should still activate that button.
-      if (e.target instanceof HTMLButtonElement) return;
-      e.preventDefault();
-      const pick = highlighted && filtered.some((r) => r.id === highlighted) ? highlighted : filtered[0]?.id;
-      if (pick) commit(pick);
-    }
-  }
-
-  function startAdd() {
-    setDraftCode("");
-    setDraftName("");
-    setDraftType("");
-    setMode("add");
-  }
-  function startEdit(id?: string) {
-    const targetId = id ?? highlighted;
-    const row = rows.find((r) => r.id === targetId);
-    if (!row || !manage) return;
-    setHighlighted(row.id);
-    const d = manage.draftOf(row);
-    setDraftCode(d.code);
-    setDraftName(d.name);
-    setDraftType(d.typeCode ?? "");
-    setMode("edit");
-  }
-  /** Arm the delete confirmation for a specific row (per-row 🗑). */
-  function startDelete(id: string) {
-    setHighlighted(id);
-    setMode("delete");
-  }
-
-  function saveAdd() {
-    if (!manage) return;
-    start(async () => {
-      // merged: Code = Name on create (no Code input anymore)
-      const draft: PickerDraft = { code: draftName.trim(), name: draftName.trim(), typeCode: draftType.trim() };
-      const res = await manage.onCreate(draft);
-      if (res.ok) {
-        manage.onCreated(res.id, draft);
-        success(`${noun} added.`);
-        commit(res.id);
-      } else {
-        error(res.error);
-      }
-    });
-  }
-  function saveEdit() {
-    if (!manage || !highlighted) return;
-    const id = highlighted;
-    start(async () => {
-      // draftCode is the record's original stored code (set in startEdit, never
-      // rendered) — existing codes can be logic keys and must not be overwritten.
-      const draft: PickerDraft = { code: draftCode.trim(), name: draftName.trim(), typeCode: draftType.trim() };
-      const res = await manage.onUpdate(id, draft);
-      if (res.ok) {
-        manage.onUpdated(id, draft);
-        success(`${noun} updated.`);
-        setMode("list");
-      } else {
-        error(res.error);
-      }
-    });
-  }
-  function confirmDelete() {
-    if (!manage || !highlighted) return;
-    const id = highlighted;
-    start(async () => {
-      const res = await manage.onDelete(id);
-      if (res.ok) {
-        manage.onDeleted(id, res.inactive);
-        if (!res.inactive && value === id) onChange("");
-        success(deletedToast(noun.replace(/s$/, ""), res));
-        setHighlighted(res.inactive ? id : null);
-        setMode("list");
-      } else {
-        error(res.error);
-      }
-    });
-  }
-
-  const canManage = !!manage && (manage.canCreate || manage.canEdit || manage.canDelete);
-
-  return (
-    <div>
-      {/* An empty label renders nothing at all — callers inside a grid row pass
-          label="" and an empty <Label> still contributed its line-height, so
-          picker cells sat lower than the plain inputs beside them. */}
-      {label ? (
-        <Label>
-          {/* `ml-0.5`, matching `Field` (field.tsx). It was a plain space, so a
-              picker's asterisk sat a few px further out than the one on a
-              native control beside it in the same row. */}
-          {label}
-          {required && <span className="ml-0.5 text-danger">*</span>}
-        </Label>
-      ) : null}
-      <button
-        type="button"
-        onClick={openPicker}
-
-        data-field-trigger
-        // Enter on the last row of a child grid adds the next row — but only
-        // from a picker that already holds a value, or holding Enter would
-        // stack rows nobody has filled in. Stated both ways round because
-        // gridKeyNav reads it as opt-in (child-grid.tsx).
-        data-field-empty={value ? "false" : "true"}
-        aria-invalid={invalid ? true : undefined}
-        // This one had drifted: it was missing the `hover:border-primary`
-        // affordance every other picker has. Sharing the class restores it.
-        className={cn(PICKER_TRIGGER_CLASS, "text-foreground", invalid && "border-danger")}
-      >
-        <span className={cn("truncate", !selected && "text-muted-foreground")}>
-          {selected ? `${selected.label}${selected.disabled ? " (inactive)" : ""}` : placeholder}
-        </span>
-        <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-      </button>
-
-      <Sheet
-        open={open}
-        onClose={close}
-        title={noun}
-        zIndexBase={100}
-        size="sm"
-        headerActions={
-          /* Only Add lives in the header now — single-click a row applies it
-             (client 2026-07-24, no OK step), and Modify/Delete moved to per-row
-             icons so a row can be managed without first selecting it. */
-          mode === "list" && canManage && manage!.canCreate ? (
-            <button
-              type="button"
-              title="Add"
-              aria-label="Add"
-              onClick={onAddOverride ? () => onAddOverride(commit) : startAdd}
-              className={ICON_BTN}
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          ) : undefined
-        }
-        footer={
-          mode === "list" ? (
-            <>
-              <Button type="button" variant="outline" size="md" onClick={close}>
-                Cancel
-              </Button>
-              {clearable && value && (
-                <Button type="button" variant="outline" size="md" onClick={() => commit("")}>
-                  Clear
-                </Button>
-              )}
-            </>
-          ) : undefined
-        }
-      >
-        {mode === "list" && (
-          <div ref={listRef} className="space-y-2.5" onKeyDown={onListKeyDown}>
-            <Input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search…"
-              className="sticky top-0 text-base md:text-sm"
-            />
-            <div className="max-h-[50vh] space-y-2 overflow-y-auto">
-              {filtered.length === 0 && (
-                <p className="px-1 py-4 text-center text-sm text-muted-foreground">No matches.</p>
-              )}
-              {filtered.map((r) => (
-                <div
-                  key={r.id}
-                  // Ref-callback identity changes with the highlight, so the
-                  // newly highlighted row scrolls itself into view on ↓/↑.
-                  ref={highlighted === r.id ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-                  // Single click applies the value and closes (no OK step).
-                  onClick={() => commit(r.id)}
-                  onMouseEnter={() => setHighlighted(r.id)}
-                  className={cn(
-                    // Card-style rows per the planned layout: always bordered,
-                    // primary-tinted when highlighted.
-                    "group flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 py-3 text-sm",
-                    highlighted === r.id
-                      ? "border-primary/40 bg-primary/10"
-                      : "border-border bg-surface hover:bg-surface-muted",
-                  )}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-foreground">
-                      {r.label}
-                      {r.disabled ? " (inactive)" : ""}
-                    </div>
-                    {r.sublabel && <div className="truncate text-xs text-muted-foreground">{r.sublabel}</div>}
-                  </div>
-                  {/* Per-row manage icons — click applies the row, these edit /
-                      delete it instead (stopPropagation). */}
-                  {manage?.canEdit && (
-                    <button
-                      type="button"
-                      title="Modify"
-                      aria-label="Modify"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startEdit(r.id);
-                      }}
-                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:bg-surface hover:text-foreground group-hover:opacity-100"
-                    >
-                      <SquarePen className="h-4 w-4" />
-                    </button>
-                  )}
-                  {manage?.canDelete && (
-                    <button
-                      type="button"
-                      title="Delete"
-                      aria-label="Delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startDelete(r.id);
-                      }}
-                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-[15px] w-[15px]" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {mode === "delete" && (
-          <div className="space-y-2.5 rounded-lg border border-danger/40 bg-danger/5 p-3">
-            <p className="text-sm text-foreground">
-              Delete <span className="font-medium">{rows.find((r) => r.id === highlighted)?.label}</span>? If
-              it&apos;s used elsewhere it will be marked <span className="font-medium">inactive</span> instead,
-              keeping past records intact. This cannot be undone if it&apos;s unused.
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setMode("list")}>
-                Cancel
-              </Button>
-              <Button type="button" variant="danger" size="sm" disabled={isPending} onClick={confirmDelete}>
-                {isPending ? "Deleting…" : "Confirm delete"}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {(mode === "add" || mode === "edit") && (
-          <div className="space-y-3">
-            <div>
-              <Label>
-                Name <span className="text-danger">*</span>
-              </Label>
-              <Input
-                autoFocus
-                uppercase
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                onKeyDown={(e) => {
-                  // Enter = save (client 2026-07-23)
-                  if (e.key === "Enter" && !isPending && draftName.trim()) {
-                    e.preventDefault();
-                    (mode === "edit" ? saveEdit : saveAdd)();
-                  }
-                }}
-                className="text-base md:text-sm"
-              />
-            </div>
-            {manage?.showTypeField && (
-              <div>
-                <Label>Type</Label>
-                <Input
-                  uppercase
-                  value={draftType}
-                  onChange={(e) => setDraftType(e.target.value)}
-                  onKeyDown={(e) => {
-                    // Enter = save on the last field too (client 2026-07-23)
-                    if (e.key === "Enter" && !isPending && draftName.trim()) {
-                      e.preventDefault();
-                      (mode === "edit" ? saveEdit : saveAdd)();
-                    }
-                  }}
-                  placeholder="Functional grouping (e.g. FAB, GEN)"
-                  className="text-base md:text-sm"
-                />
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" size="md" onClick={() => setMode("list")}>
-                Back
-              </Button>
-              <Button
-                type="button"
-                size="md"
-                disabled={isPending || !draftName.trim()}
-                onClick={mode === "edit" ? saveEdit : saveAdd}
-              >
-                {isPending ? "Saving…" : mode === "edit" ? "Save" : "Add"}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Sheet>
-    </div>
-  );
-}
-
-/**
- * A config_lookups picker with inline **Add**, **Modify** and **Delete** —
- * mirrors the legacy ⓘ lookup popup (search + grid + Add/Modify). Add is
- * gated by `canCreate` (and, when `adminOnly` is set, additionally by
- * `isSuperAdmin` — legacy behavior for masters like Structure that should
- * only be extended on-the-fly by admins). Modify by `canEdit`, Delete by
- * `canDelete`. Delete always confirms first; if the value is referenced
- * elsewhere the server blocks (soft-disables) it instead of deleting, to
- * preserve history.
- */
-export function LookupDialogPicker({
-  kind,
-  label,
-  options,
-  value,
-  onChange,
-  canCreate,
-  canEdit = false,
-  canDelete = false,
-  isSuperAdmin = false,
-  adminOnly = false,
-  required = false,
-}: {
-  kind: LookupKind;
-  label: string;
-  options: ConfigLookup[];
-  value: string;
-  onChange: (v: string) => void;
-  canCreate?: boolean;
-  canEdit?: boolean;
-  canDelete?: boolean;
-  isSuperAdmin?: boolean;
-  adminOnly?: boolean;
-  required?: boolean;
-}) {
-  const router = useRouter();
-  const [extra, setExtra] = useState<ConfigLookup[]>([]);
-  const canAdd = canCreate && (!adminOnly || isSuperAdmin);
-  // Type is a functional grouping distinct from Code — only meaningful for
-  // kind='item_class' (matches the legacy "Itemclass Type" column, 0287).
-  const showTypeField = kind === "item_class";
-
-  const all = useMemo(() => {
-    const seen = new Set<string>();
-    return [...options, ...extra].filter((o) => (seen.has(o.id) ? false : (seen.add(o.id), true)));
-  }, [options, extra]);
-
-  const byId = useMemo(() => new Map(all.map((o) => [o.id, o])), [all]);
-
-  // Inactive values must be excluded from new selections but stay resolvable
-  // for a record that already references them. Codes are backend-only
-  // (client 2026-07-23) — show just the name.
-  const rows: PickerRow[] = useMemo(
-    () =>
-      all
-        .filter((o) => o.is_active || o.id === value)
-        .map((o) => ({
-          id: o.id,
-          label: o.name,
-          disabled: !o.is_active,
-        })),
-    [all, value],
-  );
-
-  const manage: ManageConfig | undefined =
-    canAdd || canEdit || canDelete
-      ? {
-          canCreate: !!canAdd,
-          canEdit: !!canEdit,
-          canDelete: !!canDelete,
-          showTypeField,
-          onCreate: (d) => createLookupValue(kind, d.name, d.code || null, d.typeCode || null),
-          onUpdate: (id, d) => {
-            const existing = byId.get(id);
-            return updateLookup(id, {
-              kind,
-              code: d.code || null,
-              name: d.name,
-              type_code: showTypeField ? d.typeCode || null : existing?.type_code ?? null,
-              notes: null,
-              is_active: existing?.is_active ?? true,
-            });
-          },
-          onDelete: (id) => deleteLookup(id),
-          onCreated: (id, d) => {
-            setExtra((xs) => [
-              ...xs,
-              { id, kind, code: d.code || null, name: d.name, type_code: d.typeCode || null, notes: null, is_active: true, created_at: "", updated_at: "" },
-            ]);
-            router.refresh();
-          },
-          onUpdated: (id, d) => {
-            setExtra((xs) => {
-              const has = xs.some((o) => o.id === id);
-              if (has) return xs.map((o) => (o.id === id ? { ...o, code: d.code || null, name: d.name, type_code: d.typeCode || null } : o));
-              const base = options.find((o) => o.id === id);
-              return base ? [...xs, { ...base, code: d.code || null, name: d.name, type_code: d.typeCode || null }] : xs;
-            });
-            router.refresh();
-          },
-          onDeleted: (id, inactive) => {
-            setExtra((xs) => {
-              if (!inactive) return xs.filter((o) => o.id !== id);
-              const has = xs.some((o) => o.id === id);
-              if (has) return xs.map((o) => (o.id === id ? { ...o, is_active: false } : o));
-              const base = options.find((o) => o.id === id);
-              return base ? [...xs, { ...base, is_active: false }] : xs;
-            });
-            router.refresh();
-          },
-          draftOf: (row) => {
-            const o = byId.get(row.id);
-            return { code: o?.code ?? "", name: o?.name ?? "", typeCode: o?.type_code ?? "" };
-          },
-        }
-      : undefined;
-
-  return (
-    <DialogListPicker label={label} rows={rows} value={value} onChange={onChange} required={required} manage={manage} />
-  );
-}
 
 /**
  * Select-only picker for masters that already have their own dedicated
@@ -614,7 +63,15 @@ export function LevyPicker({
       })),
     [levies],
   );
-  return <DialogListPicker label={label} rows={rows} value={value} onChange={onChange} clearable={clearable} />;
+  return (
+    <DataPicker
+      label={label}
+      rows={rows}
+      value={value}
+      onChange={(v) => onChange(v ?? "")}
+      clearable={clearable}
+    />
+  );
 }
 
 /**
@@ -722,12 +179,12 @@ export function ItemPicker({
 
   return (
     <>
-      <DialogListPicker
+      <DataPicker
         label={label}
         title={title}
         rows={rows}
         value={value}
-        onChange={onChange}
+        onChange={(v) => onChange(v ?? "")}
         clearable={clearable}
         placeholder={placeholder}
         manage={manage}
@@ -968,11 +425,11 @@ export function CategoryPicker({
 
   return (
     <>
-      <DialogListPicker
+      <DataPicker
         label={label}
         rows={rows}
         value={value}
-        onChange={onChange}
+        onChange={(v) => onChange(v ?? "")}
         clearable={clearable}
         required={required}
         manage={manage}
@@ -1041,6 +498,14 @@ export function AttributePicker({
     [values],
   );
   return (
-    <DialogListPicker label={label} rows={rows} value={value} onChange={onChange} clearable={clearable} required={required} invalid={invalid} />
+    <DataPicker
+      label={label}
+      rows={rows}
+      value={value}
+      onChange={(v) => onChange(v ?? "")}
+      clearable={clearable}
+      required={required}
+      invalid={invalid}
+    />
   );
 }

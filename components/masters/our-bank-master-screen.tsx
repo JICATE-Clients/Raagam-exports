@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Label } from "@/components/ui/label";
-import { Field } from "@/components/ui/field";
+import { Field, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -17,7 +17,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
 import {
   createOurBank,
@@ -30,6 +30,34 @@ import type { OurBank, OurBankInput } from "@/lib/masters/our-bank-types";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
 const BLANK = { account_no: "", account_name: "", bank_name: "", branch_name: "", swift_code: "", ifsc_code: "", address: "", inactive: false };
+
+/**
+ * How wide each field is on the 12-column track (LAYOUT.md §3).
+ *
+ * `sm` (3 of 12 — four per row) is the working default, and every identifier on
+ * this form is fixed-width: an account number, an 8/11-character SWIFT, an
+ * 11-character IFSC. The three NAME fields were `lg` (half a row each), which
+ * put three fields on a row that holds four (client 2026-07-29); at `sm` they
+ * are still ~275px in the 1180px editor, i.e. ~34 characters of a bank name.
+ *
+ * THE SPANS OF ONE ROW MUST SUM TO 12 — a row past 12 does not shrink, its last
+ * field wraps onto a line of its own with the rest of that line left empty.
+ *   row 1   account_no 3 + account_name 3 + bank_name 3 + branch_name 3 = 12
+ *   row 2   swift_code 3 + ifsc_code 3 + address 6                      = 12
+ *   row 3   inactive 3   (edit only — which is why it is LAST: rows 1-2 then
+ *                         look identical in New and in Edit)
+ */
+const FIELD_SIZE = {
+  account_no: "sm", // 3 — a fixed-width identifier, never free text
+  account_name: "sm", // 3 — "RAAGAM EXPORTS CURRENT A/C" fits at ~34 chars
+  bank_name: "sm", // 3 — "STATE BANK OF INDIA"
+  branch_name: "sm", // 3 — "PEELAMEDU"
+  swift_code: "sm", // 3 — 8 or 11 characters
+  ifsc_code: "sm", // 3 — exactly 11 characters
+  address: "sm", // 3 — the one free-text line on the form; it keeps the same
+  //                    box as its neighbours (uniform 4-per-row, 2026-07-29)
+  inactive: "sm", // 3 — a tick box; it only needs room for its own caption
+} satisfies Record<string, FieldSize>;
 
 export function OurBankMasterScreen({
   rows,
@@ -133,20 +161,16 @@ export function OurBankMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.account_name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -175,7 +199,6 @@ export function OurBankMasterScreen({
                 setFilter("status", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               <option value="active">Active</option>
@@ -257,9 +280,10 @@ export function OurBankMasterScreen({
       >
         {/* Seven fields — one titled section (LAYOUT.md §4), on the 12-col track
             so the two 11-character codes stop claiming half a row each. Legacy
-            field order preserved. */}
+            field order preserved. Widths come from FIELD_SIZE above, which
+            carries the per-row arithmetic. */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Account No" size="sm" htmlFor="ob-account-no">
+          <Field label="Account No" size={FIELD_SIZE.account_no} htmlFor="ob-account-no">
             <ValidatedInput
               id="ob-account-no"
               format="account"
@@ -268,7 +292,7 @@ export function OurBankMasterScreen({
             />
             {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
           </Field>
-          <Field label="Account Name" size="lg" htmlFor="ob-account-name">
+          <Field label="Account Name" size={FIELD_SIZE.account_name} htmlFor="ob-account-name">
             <Input
               id="ob-account-name"
               uppercase
@@ -276,7 +300,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, account_name: e.target.value })}
             />
           </Field>
-          <Field label="Bank Name" size="lg" htmlFor="ob-bank-name">
+          <Field label="Bank Name" size={FIELD_SIZE.bank_name} htmlFor="ob-bank-name">
             <Input
               id="ob-bank-name"
               uppercase
@@ -284,7 +308,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
             />
           </Field>
-          <Field label="Branch Name" size="lg" htmlFor="ob-branch-name">
+          <Field label="Branch Name" size={FIELD_SIZE.branch_name} htmlFor="ob-branch-name">
             <Input
               id="ob-branch-name"
               uppercase
@@ -292,7 +316,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
             />
           </Field>
-          <Field label="Swift Code" size="sm" htmlFor="ob-swift">
+          <Field label="Swift Code" size={FIELD_SIZE.swift_code} htmlFor="ob-swift">
             <ValidatedInput
               id="ob-swift"
               format="swift"
@@ -300,7 +324,7 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, swift_code: e.target.value })}
             />
           </Field>
-          <Field label="IFSC Code" size="sm" htmlFor="ob-ifsc">
+          <Field label="IFSC Code" size={FIELD_SIZE.ifsc_code} htmlFor="ob-ifsc">
             <ValidatedInput
               id="ob-ifsc"
               format="ifsc"
@@ -308,15 +332,16 @@ export function OurBankMasterScreen({
               onChange={(e) => setForm({ ...form, ifsc_code: e.target.value })}
             />
           </Field>
-          <Field label="Address" size="full" htmlFor="ob-address">
+          <Field label="Address" size={FIELD_SIZE.address} htmlFor="ob-address">
             <Input
+              uppercase
               id="ob-address"
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
           </Field>
           {editId && (
-            <Field size="md">
+            <Field size={FIELD_SIZE.inactive}>
               <label className="flex h-8 cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

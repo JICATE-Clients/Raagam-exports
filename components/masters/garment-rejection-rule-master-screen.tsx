@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { X } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -8,6 +9,7 @@ import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -158,7 +160,7 @@ export function GarmentRejectionRuleMasterScreen({
     { header: "Rule", cell: (r) => <span className="text-sm">{r.rule ?? "—"}</span> },
     {
       header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Tiers",
@@ -171,30 +173,16 @@ export function GarmentRejectionRuleMasterScreen({
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={String(r.entry_no)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -296,6 +284,7 @@ export function GarmentRejectionRuleMasterScreen({
               Rule <span className="text-danger">*</span>
             </Label>
             <Input
+              uppercase
               id="grr-rule"
               value={rule}
               onChange={(e) => setRule(e.target.value)}
@@ -324,8 +313,8 @@ export function GarmentRejectionRuleMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {lines.length === 0 && <p className="text-xs text-muted-foreground">No tiers yet.</p>}
-              {/* row area capped with internal scroll — Add button stays pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -342,6 +331,7 @@ export function GarmentRejectionRuleMasterScreen({
                     </Button>
                   </div>
                   <Input
+                    uppercase
                     placeholder="Range"
                     value={l.range_label}
                     onChange={(e) => setLineAt(l.key, { range_label: e.target.value })}

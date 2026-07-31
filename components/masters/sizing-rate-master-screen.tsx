@@ -13,7 +13,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   createSizingRate,
   updateSizingRate,
@@ -21,6 +21,7 @@ import {
 } from "@/lib/masters/grid-master-actions";
 import { Select } from "@/components/ui/select";
 import type { SizingRate, SizingRateInput } from "@/lib/masters/grid-master-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type LookupOption = { id: string; code: string; name: string };
@@ -122,7 +123,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
 
   const columns: Column<SizingRate>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span> },
+    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span> },
     { header: "Base Rate", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.base_rate}</span> },
     { header: "Yarns", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
     {
@@ -133,16 +134,16 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -164,7 +165,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-mono text-[15px] font-semibold text-foreground">{r.code}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">Effective: {r.effective_from} · Base: {r.base_rate}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Effective: {fmtDate(r.effective_from)} · Base: {r.base_rate}</div>
               </div>
               <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
             </div>
@@ -199,7 +200,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
             <div>
               <Label htmlFor="sr-type">Entry Type</Label>
-              <Input id="sr-type" value={entryType} onChange={(e) => setEntryType(e.target.value)} className="text-base md:text-sm" />
+              <Input uppercase id="sr-type" value={entryType} onChange={(e) => setEntryType(e.target.value)} className="text-base md:text-sm" />
             </div>
             <div>
               <Label htmlFor="sr-base">Base Rate</Label>
@@ -216,8 +217,8 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
           <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Yarn Rates (by Ends)</div>
             <div className="space-y-2 p-3">
-              {/* row area capped with internal scroll — Add button stays pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-2 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-2">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
                   <div className="flex items-center gap-2">

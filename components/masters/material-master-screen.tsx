@@ -1,9 +1,10 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Eye, Info, Plus } from "lucide-react";
+import { ChevronDown, Info, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,11 +24,12 @@ import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/ma
 import { createSubCategory } from "@/lib/masters/category-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import { LookupDialogPicker, CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid, SectionColumn, IdentityRow } from "@/components/masters/section-grid";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { MaterialViewSheet } from "@/components/masters/material-view-sheet";
 import {
@@ -45,7 +47,12 @@ import {
 } from "@/lib/masters/material-types";
 import type { ConfigLookup, Attribute, AttributeValue } from "@/lib/masters/extras-types";
 import type { MaterialAttribute } from "@/lib/masters/material-attribute-types";
-import { showsSubCategories, type Category, type CategorySubCategory } from "@/lib/masters/category-types";
+import {
+  showsSubCategories,
+  showsUserDefined,
+  type Category,
+  type CategorySubCategory,
+} from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Uom } from "@/lib/masters/types";
@@ -934,14 +941,14 @@ export function MaterialMasterScreen({
         return (
           <div key={key}>
             <Label>Description</Label>
-            <Input value={form.specifications} onChange={(e) => set({ specifications: e.target.value })} className="text-base md:text-sm" />
+            <Input uppercase value={form.specifications} onChange={(e) => set({ specifications: e.target.value })} className="text-base md:text-sm" />
           </div>
         );
       case "short_spec":
         return (
           <div key={key}>
             <Label>Short Spec</Label>
-            <Input value={form.short_spec} onChange={(e) => set({ short_spec: e.target.value })} className="text-base md:text-sm" />
+            <Input uppercase value={form.short_spec} onChange={(e) => set({ short_spec: e.target.value })} className="text-base md:text-sm" />
           </div>
         );
       case "count_id":
@@ -974,7 +981,7 @@ export function MaterialMasterScreen({
         return (
           <div key={key}>
             <Label>Shade</Label>
-            <Input value={form.shade} onChange={(e) => set({ shade: e.target.value })} className="text-base md:text-sm" />
+            <Input uppercase value={form.shade} onChange={(e) => set({ shade: e.target.value })} className="text-base md:text-sm" />
           </div>
         );
     }
@@ -1062,9 +1069,28 @@ export function MaterialMasterScreen({
     return null;
   }, [formKey, attributeDriven, form.count_id, form.purity_id, form.fabric_type_id, form.item_type_name, form.item_base_name, subCategoryName, selectedCategory, mixings, countLabel, purityLabel, fabricTypeLabel, yarnItemName, attrQuestions, answers, attrSeparator, isYarnDyedFabric, isSingleYarnFabric]);
 
-  // Auto-write the generated name for Yarn/Fabric (suggestedName is null for
-  // other classes, so General/etc. stay manual). Depends on suggestedName only —
-  // the value-compare guards against the effect looping on its own set().
+  /**
+   * Does THIS CLASS compose its own Name? A property of the class, deliberately
+   * not of `suggestedName`.
+   *
+   * `suggestedName` is null until the driving fields are filled, so keying the
+   * Name field's tab behaviour off it meant the field was a tab stop exactly
+   * while the form was blank — which is when the operator is tabbing through
+   * it — and then silently left the tab order the moment a Count was picked.
+   * One field, two answers to the same key, depending on how far the record was
+   * filled in. The class is known from the start, so the answer is stable from
+   * the start.
+   *
+   * Keep this list in step with the branches in `suggestedName` above.
+   */
+  const nameIsComposed =
+    formKey === "YARN" || formKey === "FABRIC" || formKey === "GEN" || attributeDriven;
+
+  // Auto-write the generated name. `suggestedName` covers Yarn, Fabric, General
+  // and the attribute-driven accessory classes — it returns null only while the
+  // fields it composes from are still empty, never as a "this class is manual"
+  // signal. Depends on suggestedName only — the value-compare guards against the
+  // effect looping on its own set().
   useEffect(() => {
     if (suggestedName) {
       setForm((f) => (f.name === suggestedName ? f : { ...f, name: suggestedName }));
@@ -1192,7 +1218,7 @@ export function MaterialMasterScreen({
         columns={[
           { header: "Yarn", cell: compCell },
           { header: "Mixing %", align: "center", width: "5rem", cell: (m) => <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMixPct(m.key, e.target.value)} className="text-center" /> },
-          { header: "Shade", width: "7rem", cell: (m) => <Input placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} /> },
+          { header: "Shade", width: "7rem", cell: (m) => <Input uppercase placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} /> },
         ]}
       />
     );
@@ -1279,6 +1305,7 @@ export function MaterialMasterScreen({
             {fabricTypeLabel.get(form.fabric_type_id)?.toLowerCase() === "melange" && (
               <Field label="Shade" size="sm" htmlFor="mt-fabric-shade">
                 <Input
+                  uppercase
                   id="mt-fabric-shade"
                   value={form.shade}
                   onChange={(e) => set({ shade: e.target.value })}
@@ -1361,6 +1388,7 @@ export function MaterialMasterScreen({
             {ytName === "melange" && (
               <Field label="Shade" size="sm" htmlFor="mt-yarn-shade">
                 <Input
+                  uppercase
                   id="mt-yarn-shade"
                   value={form.shade}
                   onChange={(e) => set({ shade: e.target.value })}
@@ -1454,30 +1482,22 @@ export function MaterialMasterScreen({
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "Created User", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_by ?? "—"}</span> },
-    { header: "Created Dt", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_at ? r.created_at.slice(0, 10) : "—"}</span> },
+    { header: "Created Dt", cell: (r) => <span className="text-xs text-muted-foreground">{fmtDate(r.created_at)}</span> },
     {
       header: "Status",
       cell: (r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {/* Look without editing — the only way to read a material used to be
-              to open the editor and remember not to touch anything. */}
-          <Button variant="ghost" size="sm" aria-label={`View ${r.name}`} title="View" onClick={() => setViewRow(r)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -1681,14 +1701,17 @@ export function MaterialMasterScreen({
                 uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
-                // Auto-generated name (Yarn/Fabric/attribute classes) → skip Tab,
-                // but stay clickable so it can still be hand-overridden. Manual
-                // classes (General) keep the name in Tab order. See global rule.
-                // Attribute-driven accessories can't be named manually (spec) —
-                // the name is fully generated from Category + attributes + Description.
-                // General is the same: its four fields ARE the name (client
-                // 2026-07-28), so it is composed, never typed.
-                tabIndex={suggestedName ? -1 : undefined}
+                // A composed Name is never a tab stop — the operator reaches it
+                // by CLICK when they want to override one, which is the rare
+                // case. Keyed off the class, not off whether a name has been
+                // composed yet: see `nameIsComposed`.
+                //
+                // `readOnly` is narrower on purpose. Attribute-driven
+                // accessories and General cannot be named by hand at all (the
+                // fields ARE the name — client 2026-07-28), while Yarn and
+                // Fabric compose a name that the operator may still overwrite.
+                // Both are out of the Tab order either way.
+                tabIndex={nameIsComposed ? -1 : undefined}
                 readOnly={attributeDriven || formKey === "GEN"}
                 aria-invalid={nameDuplicate ? true : undefined}
                 className={cn(
@@ -1735,6 +1758,10 @@ export function MaterialMasterScreen({
                 <DetailSection label="Classification" cols={12}>
                   {formDef?.fields
                     .filter((k) => k !== "sub_category_id" || subCategoryVisible)
+                    // The read-only "User defined" echo only makes sense for the
+                    // classes whose Category actually asks the question — on
+                    // Capital Goods it would sit there saying "No" forever.
+                    .filter((k) => k !== "user_defined" || showsUserDefined(selectedClassCode))
                     .map((k) => detailField(k))}
                 </DetailSection>
               )}
@@ -1962,17 +1989,12 @@ export function MaterialMasterScreen({
         </div>
       </Sheet>
 
-      {/* Read-only view — same record, nothing editable, Edit in the footer
-          hands off to the editor above. */}
+      {/* Read-only view — same record, nothing editable, and no way through to
+          the editor: Close is the only exit (client 2026-07-30). */}
       <MaterialViewSheet
         open={!!viewRow}
         material={viewRow}
         onClose={() => setViewRow(null)}
-        canEdit={perms.canEdit}
-        onEdit={(r) => {
-          setViewRow(null);
-          openEdit(r);
-        }}
         itemClasses={itemClasses}
         categories={categories}
         units={units}

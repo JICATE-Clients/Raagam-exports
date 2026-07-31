@@ -10,6 +10,7 @@ import { Field } from "@/components/ui/field";
 import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -165,30 +166,20 @@ export function ZoneMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && !r.inactive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => deactivate(r)}
-            >
-              Deactivate
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    /* This master never hard-deletes — the row is deactivated, so the verb
+       stays "Deactivate" rather than promising something else. Already-inactive
+       rows have nothing left to do. */
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.zone_name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => deactivate(r)}
+        deleteLabel="Deactivate"
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete && !r.inactive}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -217,7 +208,6 @@ export function ZoneMasterScreen({
                 setFilter("status", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               <option value="active">Active</option>
@@ -313,6 +303,13 @@ export function ZoneMasterScreen({
             sections — see LAYOUT.md §1. */}
         <SectionGrid>
           <SectionColumn>
+            {/* TWO fields, in a section that is half a sheet wide (~560px, so
+                one column is ~34px). Four per row is not a goal a two-field
+                form can carry, and forcing both to `sm` would only make a short
+                form look cramped — the name would get 126px. So: name 6 +
+                inactive 3 = 9 on one row, each sized to its data, and the
+                density on this screen comes from the Areas grid beside it
+                (client 2026-07-29). */}
             <DetailSection label="Details" cols={12}>
               <Field label="Zone Name" size="lg" required htmlFor="zn-name">
                 <Input
@@ -325,7 +322,7 @@ export function ZoneMasterScreen({
                 {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
               </Field>
               {editId && (
-                <Field size="md">
+                <Field size="sm">
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
@@ -359,6 +356,7 @@ export function ZoneMasterScreen({
                   header: "Area",
                   cell: (row) => (
                     <Input
+                      uppercase
                       value={row.area_name}
                       onChange={(e) => updateChild(row.key, e.target.value)}
                       placeholder="Area name"

@@ -7,6 +7,8 @@
  * scannability, so none of it belongs on a document or a report.
  */
 
+import { fmtDate } from "@/lib/format";
+
 const CRORE = 10_000_000;
 const LAKH = 100_000;
 
@@ -70,5 +72,9 @@ export function fmtAgo(iso: string, now: Date = new Date()): string {
   const days = Math.floor(hrs / 24);
   if (days === 1) return "yesterday";
   if (days < 30) return `${days} days ago`;
-  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  // Past 30 days the relative wording stops helping, so fall back to the app's
+  // one date format rather than a second, shorter one. This file trades
+  // precision for width everywhere else, but a date the user might quote back
+  // is not the place to invent "02 Jul".
+  return fmtDate(iso);
 }

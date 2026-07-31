@@ -17,7 +17,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
 import {
   createConstruction,
@@ -166,16 +166,16 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -256,7 +256,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
             </div>
             <div>
               <Label htmlFor="con-reedcount">Reed Count</Label>
-              <Input id="con-reedcount" value={form.reed_count} onChange={(e) => setForm({ ...form, reed_count: e.target.value })} className="text-base md:text-sm" />
+              <Input uppercase id="con-reedcount" value={form.reed_count} onChange={(e) => setForm({ ...form, reed_count: e.target.value })} className="text-base md:text-sm" />
             </div>
             <div>
               <Label htmlFor="con-pick">Pick</Label>
@@ -296,8 +296,8 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
           <div className="rounded-lg border border-border">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Warp &amp; Weft Counts</div>
             <div className="space-y-2 p-3">
-              {/* row area capped with internal scroll — Add button stays pinned */}
-              <div className="max-h-56 space-y-2 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div className="space-y-2">
                 {lines.map((l, i) => (
                   <div key={l.key} className="flex items-center gap-2">
                     <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>

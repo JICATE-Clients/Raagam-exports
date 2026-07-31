@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber, fmtDate } from "@/lib/format";
@@ -117,20 +119,32 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
     { header: "Phone", cell: (r) => <span className="text-sm">{r.phone ?? "—"}</span> },
     { header: "Status", cell: (r) => <StatusPill tone={r.is_active ? "success" : "neutral"}>{r.is_active ? "Active" : "Inactive"}</StatusPill> },
     ...(canEdit || canDelete
-      ? [{ header: "", cell: (r: Courier) => (
-          <div className="flex flex-wrap gap-1">
-            {canEdit && (
-              <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
-                onClick={() => run(() => setCourierActive(r.id, !r.is_active), r.is_active ? "Deactivated" : "Activated")}>
-                {r.is_active ? "Deactivate" : "Activate"}
-              </Button>
-            )}
-            {canDelete && (
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
-                onClick={() => run(() => deleteCourier(r.id), "Deleted")}>Del</Button>
-            )}
-          </div>
-        ) } satisfies Column<Courier>]
+      ? [
+          rowActionsColumn<Courier>((r) => (
+            <RowActions
+              label={r.name}
+              onDelete={() => run(() => deleteCourier(r.id), "Deleted")}
+              canDelete={canDelete}
+              isPending={isPending}
+              /* Activate/Deactivate is a lifecycle toggle, not row CRUD. */
+              menu={
+                canEdit
+                  ? [
+                      {
+                        label: r.is_active ? "Deactivate" : "Activate",
+                        icon: r.is_active ? Ban : CheckCircle2,
+                        onClick: () =>
+                          run(
+                            () => setCourierActive(r.id, !r.is_active),
+                            r.is_active ? "Deactivated" : "Activated",
+                          ),
+                      },
+                    ]
+                  : []
+              }
+            />
+          )),
+        ]
       : []),
   ];
 
@@ -155,12 +169,19 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
           {canEdit && r.status === "despatched" && (
             <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending} onClick={() => run(() => recordPod(r.id, null), "POD recorded")}>Record POD</Button>
           )}
-          {canDelete && (r.status === "draft" || r.status === "cancelled") && (
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending} onClick={() => run(() => deleteDespatch(r.id), "Deleted")}>Del</Button>
-          )}
         </div>
       ),
     },
+    rowActionsColumn<CourierDespatchWithRefs>((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => run(() => deleteDespatch(r.id), "Deleted")}
+        /* A despatched consignment is a record of fact; only an unsent or
+           cancelled one can be removed. */
+        canDelete={canDelete && (r.status === "draft" || r.status === "cancelled")}
+        isPending={isPending}
+      />
+    )),
   ];
 
   const couriersTab = (

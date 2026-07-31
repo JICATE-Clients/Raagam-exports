@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -76,13 +77,13 @@ export function OpeningStockDetail({ docId, status, lines, items, canEdit, canDe
     { header: "Note", cell: (r) => <span className="text-sm text-muted-foreground">{r.note ?? "—"}</span> },
     ...(canEdit && editable
       ? [
-          {
-            header: "",
-            cell: (r: OpeningStockLine) => (
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger"
-                disabled={isPending} onClick={() => run(() => deleteOpeningLine(r.id, docId), "Removed")}>Remove</Button>
-            ),
-          } satisfies Column<OpeningStockLine>,
+          rowActionsColumn<OpeningStockLine>((r) => (
+            <RowActions
+              onDelete={() => run(() => deleteOpeningLine(r.id, docId), "Removed")}
+              deleteLabel="Remove"
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

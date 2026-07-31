@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -67,17 +68,26 @@ export function ContractReviewClient({ rows }: { rows: ContractReviewRow[] }) {
     { header: "P/L %", align: "right", cell: (r) => <span className={`tabular-nums ${r.profit_loss_pct >= 0 ? "text-green-600" : "text-red-600"}`}>{r.profit_loss_pct.toFixed(1)}%</span> },
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.approval_status] ?? "neutral"}>{r.approval_status}</StatusPill> },
     {
-      header: "", align: "right", cell: (r) => (
+      /* The approval decision is workflow, not row CRUD — labelled column of
+         its own, with Delete moved to the standard action cell (LAYOUT.md §6a). */
+      header: "Decision", align: "right", cell: (r) => (
         <div className="flex justify-end gap-1">
           {canApprove && r.approval_status === "pending" && <>
-            <Button variant="ghost" size="sm" onClick={() => approve(r.id)} disabled={isPending}>Approve</Button>
-            <Button variant="ghost" size="sm" onClick={() => revision(r.id)} disabled={isPending}>Revision</Button>
-            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => reject(r.id)} disabled={isPending}>Reject</Button>
+            <Button variant="outline" size="sm" onClick={() => approve(r.id)} disabled={isPending}>Approve</Button>
+            <Button variant="outline" size="sm" onClick={() => revision(r.id)} disabled={isPending}>Revision</Button>
+            <Button variant="danger" size="sm" onClick={() => reject(r.id)} disabled={isPending}>Reject</Button>
           </>}
-          {r.approval_status === "pending" && <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deleteContractReview(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button>}
         </div>
       ),
     },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => startTransition(async () => { const res = await deleteContractReview(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
+        canDelete={r.approval_status === "pending"}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

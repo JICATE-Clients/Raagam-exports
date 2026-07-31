@@ -18,7 +18,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   createProcessSequence,
   updateProcessSequence,
@@ -132,16 +132,16 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
         <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -213,7 +213,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
             </div>
             <div>
               <Label htmlFor="ps-ict">Item Class Type <span className="text-danger">*</span></Label>
-              <Input id="ps-ict" value={form.item_class_type} onChange={(e) => setForm({ ...form, item_class_type: e.target.value })} className="text-base md:text-sm" />
+              <Input uppercase id="ps-ict" value={form.item_class_type} onChange={(e) => setForm({ ...form, item_class_type: e.target.value })} className="text-base md:text-sm" />
             </div>
             {editId && (
               <label className="flex cursor-pointer items-center gap-2">
@@ -227,8 +227,8 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
             <div className="rounded-lg border border-border">
               <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Steps</div>
               <div className="space-y-2 p-3">
-                {/* row area capped with internal scroll — Add button stays pinned */}
-                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-2 overflow-y-auto">
+                {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-2">
                   {lines.map((l, i) => (
                     <div data-grid-row key={l.key} className="flex items-center gap-2">
                       <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>

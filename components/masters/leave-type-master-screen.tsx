@@ -11,7 +11,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { createLeaveType, updateLeaveType, deleteLeaveType } from "@/lib/masters/leave-type-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
@@ -124,20 +123,6 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
         return <StatusPill tone="success">Active</StatusPill>;
       },
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -152,6 +137,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
         addLabel="+ Add Leave Type"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No leave types yet."
         mobile={{
           title: (r) => r.code ?? "—",
@@ -190,6 +176,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
                 ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="lt-code"
                 value={form.code}
                 onChange={(e) => set({ code: e.target.value })}

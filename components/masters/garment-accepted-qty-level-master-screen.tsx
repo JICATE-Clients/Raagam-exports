@@ -12,6 +12,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { usePagination } from "@/lib/use-pagination";
 import {
   createGarmentAcceptedQtyLevel,
@@ -20,11 +21,14 @@ import {
 } from "@/lib/masters/garment-accepted-qty-level-actions";
 import type {
   GarmentAcceptedQtyLevel,
+  GarmentAcceptedQtyLevelDetail,
   GarmentAcceptedQtyLevelInput,
   RangeType,
 } from "@/lib/masters/garment-accepted-qty-level-types";
 import { RANGE_TYPES, RANGE_TYPE_LABELS } from "@/lib/masters/garment-accepted-qty-level-types";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RecordViewSheet } from "@/components/masters/record-view-sheet";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -54,6 +58,40 @@ const blankLine = (key: string): LineRow => ({
   allowed: "",
 });
 
+/** A blank number reads as "not set", never as zero. */
+const num = (v: number | null) => (v == null ? "—" : v);
+
+/**
+ * The detail row as a reader sees it — every column the editor holds, in the
+ * editor's own order, with `range_type` spelled out (Under / Between / Above)
+ * instead of the stored letter.
+ */
+const DETAIL_VIEW_COLUMNS: Column<GarmentAcceptedQtyLevelDetail>[] = [
+  {
+    header: "Range",
+    cell: (d) => (
+      <span className="text-sm">{d.range_type ? RANGE_TYPE_LABELS[d.range_type] : "—"}</span>
+    ),
+  },
+  ...(
+    [
+      ["From", "from_qty"],
+      ["To", "to_qty"],
+      ["Pieces", "no_of_pieces"],
+      ["Major", "major_allowed"],
+      ["Minor", "minor_allowed"],
+      ["Critical", "critical_allowed"],
+      ["Allowed", "allowed"],
+    ] as const
+  ).map(([header, key]) => ({
+    header,
+    align: "right" as const,
+    cell: (d: GarmentAcceptedQtyLevelDetail) => (
+      <span className="tabular-nums text-sm">{num(d[key])}</span>
+    ),
+  })),
+];
+
 /**
  * Garment Accepted Qty Level master — header + detail grid.
  * Header: code (auto), entry_date (<= today, required), effective_from (required).
@@ -77,8 +115,26 @@ export function GarmentAcceptedQtyLevelMasterScreen({
   const [entryDate, setEntryDate] = useState(todayISO());
   const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
   const [lines, setLines] = useState<LineRow[]>([]);
+  // The record being LOOKED at, as opposed to edited. Null = closed.
+  const [viewRow, setViewRow] = useState<GarmentAcceptedQtyLevel | null>(null);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
+
+  /**
+   * Unsaved-work tracking (AGENTS.md, STANDING). This screen holds an entry
+   * date, an effective-from date and a whole tolerance table in local state and
+   * never declared any of it, so a deploy landing mid-entry took it silently.
+   *
+   * GATED ON `open`. With the editor closed, `pristine` is still "" while the
+   * blank state stringifies to a real object, so an ungated flag reads dirty
+   * forever and arms the guard on a list page with nothing to lose —
+   * permanently blocking the silent PWA auto-update on this route. That shipped
+   * on four screens before it was caught (2026-07-29).
+   */
+  const [pristine, setPristine] = useState("");
+  const snapshot = () => JSON.stringify({ entryDate, effectiveFrom, lines });
+  const dirty = open && snapshot() !== pristine;
+  useUnsavedGuard(dirty || isPending);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -95,7 +151,9 @@ export function GarmentAcceptedQtyLevelMasterScreen({
     setEditCode(null);
     setEntryDate(todayISO());
     setEffectiveFrom(todayISO());
-    setLines([blankLine(newKey())]);
+    const blank = [blankLine(newKey())];
+    setLines(blank);
+    setPristine(JSON.stringify({ entryDate: todayISO(), effectiveFrom: todayISO(), lines: blank }));
     setOpen(true);
   }
 
@@ -104,21 +162,23 @@ export function GarmentAcceptedQtyLevelMasterScreen({
     setEditCode(r.code);
     setEntryDate(r.entry_date);
     setEffectiveFrom(r.effective_from);
-    setLines(
-      r.details
-        .slice()
-        .sort((a, b) => a.sno - b.sno)
-        .map((d) => ({
-          key: newKey(),
-          range_type: (d.range_type ?? "") as RangeType | "",
-          from_qty: d.from_qty != null ? String(d.from_qty) : "",
-          to_qty: d.to_qty != null ? String(d.to_qty) : "",
-          no_of_pieces: d.no_of_pieces != null ? String(d.no_of_pieces) : "",
-          major_allowed: d.major_allowed != null ? String(d.major_allowed) : "",
-          minor_allowed: d.minor_allowed != null ? String(d.minor_allowed) : "",
-          critical_allowed: d.critical_allowed != null ? String(d.critical_allowed) : "",
-          allowed: d.allowed != null ? String(d.allowed) : "",
-        })),
+    const nextLines: LineRow[] = r.details
+      .slice()
+      .sort((a, b) => a.sno - b.sno)
+      .map((d) => ({
+        key: newKey(),
+        range_type: (d.range_type ?? "") as RangeType | "",
+        from_qty: d.from_qty != null ? String(d.from_qty) : "",
+        to_qty: d.to_qty != null ? String(d.to_qty) : "",
+        no_of_pieces: d.no_of_pieces != null ? String(d.no_of_pieces) : "",
+        major_allowed: d.major_allowed != null ? String(d.major_allowed) : "",
+        minor_allowed: d.minor_allowed != null ? String(d.minor_allowed) : "",
+        critical_allowed: d.critical_allowed != null ? String(d.critical_allowed) : "",
+        allowed: d.allowed != null ? String(d.allowed) : "",
+      }));
+    setLines(nextLines);
+    setPristine(
+      JSON.stringify({ entryDate: r.entry_date, effectiveFrom: r.effective_from, lines: nextLines }),
     );
     setOpen(true);
   }
@@ -184,33 +244,28 @@ export function GarmentAcceptedQtyLevelMasterScreen({
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
     {
       header: "Entry Date",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.entry_date}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.entry_date)}</span>,
     },
     {
       header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Rows",
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -263,7 +318,7 @@ export function GarmentAcceptedQtyLevelMasterScreen({
                   {r.code}
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
-                  Entry: {r.entry_date} · Effective: {r.effective_from} · {r.details.length} row
+                  Entry: {fmtDate(r.entry_date)} · Effective: {fmtDate(r.effective_from)} · {r.details.length} row
                   {r.details.length === 1 ? "" : "s"}
                 </div>
               </div>
@@ -350,10 +405,10 @@ export function GarmentAcceptedQtyLevelMasterScreen({
               {lines.length === 0 && (
                 <p className="text-xs text-muted-foreground">No rows yet. Add at least one.</p>
               )}
-              {/* row area capped with internal scroll — Add button stays pinned.
-                  Taller cap than the usual max-h-56: each card is a ~5-row
-                  sub-form (same reasoning as bank branches). */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-96 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. This one had
+                  the taller max-h-96 cap because each card is a ~5-row sub-form;
+                  that is exactly the case where a cap reads worst. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="rounded-md border border-border p-2.5 space-y-2">
                   <div className="flex items-center justify-between">
@@ -483,6 +538,42 @@ export function GarmentAcceptedQtyLevelMasterScreen({
           </div>
         </div>
       </Sheet>
+
+      {/* Read-only view — same record, nothing editable. The detail rows come
+          attached to the list row, so nothing is fetched here. */}
+      {viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          title={viewRow.code}
+          sections={[
+            {
+              label: "Details",
+              pairs: [
+                ["Entry Date", fmtDate(viewRow.entry_date)],
+                ["Effective From", fmtDate(viewRow.effective_from)],
+              ],
+            },
+            {
+              label: "Detail Rows",
+              // A table, not pairs: eight numbers per row only mean anything
+              // read DOWN a column — "how many majors are allowed at 500
+              // pieces" is a comparison BETWEEN rows, and label→value stacks
+              // would hide it. `bare` because the DetailSection already draws
+              // the border this would otherwise double up on.
+              content: (
+                <DataTable
+                  columns={DETAIL_VIEW_COLUMNS}
+                  rows={viewRow.details.slice().sort((a, b) => a.sno - b.sno)}
+                  getKey={(d) => d.id}
+                  empty="No detail rows."
+                  bare
+                />
+              ),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

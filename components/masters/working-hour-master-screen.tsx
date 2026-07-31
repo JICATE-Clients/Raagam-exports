@@ -10,13 +10,13 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import {
   createWorkingHour,
   updateWorkingHour,
   deleteWorkingHour,
 } from "@/lib/masters/working-hour-actions";
 import type { WorkingHour, WorkingHourInput } from "@/lib/masters/working-hour-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -144,7 +144,7 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
 
   const columns: Column<WorkingHour>[] = [
     { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.date?.slice(0, 10)}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
     {
       header: "Morning In",
       cell: (r) => <span className="text-sm text-muted-foreground">{hhmm(r.morning_in) || "—"}</span>,
@@ -157,20 +157,6 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
       header: "Status",
       cell: (r) =>
         r.is_draft ? <StatusPill tone="warning">Draft</StatusPill> : <StatusPill tone="success">Active</StatusPill>,
-    },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
     },
   ];
 
@@ -186,6 +172,7 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
         addLabel="+ Add Working Hour"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No working hours yet."
         mobile={{
           title: (r) => `#${r.entry_no}`,

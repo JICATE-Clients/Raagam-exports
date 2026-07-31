@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -137,30 +138,16 @@ export function MerchandisingTeamMasterScreen({
       ),
     },
     { header: "Status", cell: (r) => statusPill(r) },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -239,9 +226,16 @@ export function MerchandisingTeamMasterScreen({
           </>
         }
       >
-        {/* Two fields — one flat section (LAYOUT.md §4). */}
+        {/* Two fields plus a flag — one flat section (LAYOUT.md §4), all on one
+            row: name 6 + location 3 + inactive 2 = 11. It was 6 + 4 + 4 = 14,
+            which does not shrink — the Inactive tick wrapped onto a 12-col line
+            of its own. Three fields is too small a form for four-per-row to be
+            a goal; sizing each to its data is the point (client 2026-07-29). */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Name" size="lg" required htmlFor="mt-name">
+          {/* `sm` like every other field in the masters, not the `lg` a team
+              name would earn on its own — one width across the module, small
+              form or not (client 2026-07-29). */}
+          <Field label="Name" size="sm" required htmlFor="mt-name">
             <Input
               id="mt-name"
               uppercase
@@ -253,7 +247,7 @@ export function MerchandisingTeamMasterScreen({
           {/* LocationPicker renders its own <Label> (defaulting to "Location"),
               so the screen's outer one was a duplicate — it rendered two labels
               stacked above a single control. Dropped, not moved. */}
-          <Field size="md">
+          <Field size="sm">
             <LocationPicker
               locations={locations}
               value={form.location_id || null}
@@ -261,7 +255,7 @@ export function MerchandisingTeamMasterScreen({
             />
           </Field>
           {editId && (
-            <Field size="md">
+            <Field size="sm">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

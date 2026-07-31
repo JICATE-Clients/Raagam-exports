@@ -2,7 +2,6 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
@@ -11,10 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { MobileWhatsAppFields } from "@/components/masters/contact-fields";
+import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { saveCompanyProfile } from "@/lib/admin/company-actions";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { GSTIN_RE } from "@/lib/validation/formats";
-import { isGstinChecksumValid } from "@/lib/validation/gstin";
+import { decodeGstin } from "@/lib/validation/gstin";
 import type { CompanyProfile, CompanyProfileInput } from "@/lib/admin/company-types";
 
 type Props = {
@@ -117,6 +116,10 @@ function toForm(p: CompanyProfile | null): CompanyProfileInput {
  * would mean widening an identifier past the length it can hold — CIN is 21
  * characters and already the widest of the four — so the 2 columns are left
  * empty on purpose. Don't "fix" it by growing CIN.
+ *
+ * The GSTIN fact strip is absent from this map for the same reason `mobile` is:
+ * it is not a field. It renders `size="full"` at the call site, on its own row
+ * after CIN, so the row above stays exactly as documented.
  *
  * `mobile` / `whatsapp` are absent by design: they are rendered by the shared
  * `MobileWhatsAppFields`, which is a FRAGMENT of two grid children, so its span
@@ -246,15 +249,33 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
 
   const dis = !canEdit;
 
-  // Advisory only — the GSTIN box itself validates shape (see the field). This is
-  // our OWN number and it prints on every invoice, so a failed check digit is
-  // worth saying out loud; it still must not block the save, because the profile
-  // is one wide form and a bad GSTIN would otherwise freeze every other field on
-  // it (client 2026-07-28).
-  const gstinCheckFails = useMemo(() => {
-    const v = ((form.gstin as string) ?? "").trim().toUpperCase();
-    return GSTIN_RE.test(v) && !isGstinChecksumValid(v);
-  }, [form.gstin]);
+  // ---------------------------------------------------------------- GSTIN ----
+  // Decoded from the 15 characters, no lookup and no network. This is the ONE
+  // GSTIN in the system that is not just a record's own data: vendor, customer
+  // and consignee all classify their GSTIN as within-state or other-state
+  // against THIS number, so a wrong state code here silently mis-reads IGST vs
+  // CGST+SGST on every one of them. Worth showing what it actually says.
+  //
+  // No `companyGstin` is passed: comparing our own number with itself would
+  // always print "Within State", which is noise.
+  const gstin = useMemo(() => decodeGstin((form.gstin as string) ?? ""), [form.gstin]);
+
+  // The PAN box sits immediately to the left, and characters 3-12 of the GSTIN
+  // ARE the PAN — so the two disagreeing means one of them is a typo. Offered,
+  // never written: the profile is a wide form and silently rewriting a field the
+  // user is not looking at is how the vendor screen's rule was set.
+  const gstinSuggestions = useMemo<GstinSuggestion[]>(() => {
+    if (!gstin?.checksumValid) return [];
+    const typedPan = ((form.pan_no as string) ?? "").trim().toUpperCase();
+    if (typedPan === gstin.pan) return [];
+    return [
+      {
+        key: "pan",
+        label: typedPan ? `Use ${gstin.pan}` : `Set PAN = ${gstin.pan}`,
+        onApply: () => set("pan_no", gstin.pan),
+      },
+    ];
+  }, [gstin, form.pan_no]);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -450,26 +471,17 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
           />
         </Field>
         {/* Shape-only, like every other GSTIN box in the app: the check digit is
-            the amber note below, a warning rather than a block. The note is a
-            fragment child alongside the control, NOT the shared `hint` prop —
-            `hint` wraps its content in a muted <p>, which would nest a <p> in a
-            <p> and fight the amber. */}
+            a warning on the strip below, not a block — this is one wide form and
+            a bad GSTIN must not freeze every other field on it (client
+            2026-07-28). */}
         <Field label="GSTIN" size={FIELD_SIZE.gstin} htmlFor="cp-gstin">
-          <>
-            <ValidatedInput
-              id="cp-gstin"
-              format="gstin"
-              value={(form.gstin as string) ?? ""}
-              onChange={(e) => set("gstin", e.target.value)}
-              disabled={dis}
-            />
-            {gstinCheckFails && (
-              <p className="mt-1 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
-                <TriangleAlert className="h-4 w-4 shrink-0" />
-                Check digit doesn&apos;t match — re-check this against the GST certificate.
-              </p>
-            )}
-          </>
+          <ValidatedInput
+            id="cp-gstin"
+            format="gstin"
+            value={(form.gstin as string) ?? ""}
+            onChange={(e) => set("gstin", e.target.value)}
+            disabled={dis}
+          />
         </Field>
         <Field label="CIN No" size={FIELD_SIZE.cin_no} htmlFor="cp-cin">
           <ValidatedInput
@@ -480,6 +492,20 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
             disabled={dis}
           />
         </Field>
+        {/* The decoded facts, on their own 12-col row — a fact strip is not a
+            field (LAYOUT.md §3), which is also why it has no FIELD_SIZE entry:
+            that map is typed over the INPUT's keys. It sits after CIN so the
+            documented PAN(3)+GSTIN(3)+CIN(4) row is untouched, and its chips are
+            tabIndex={-1}, so tab order still runs PAN -> GSTIN -> CIN -> IE. */}
+        {gstin && (
+          <Field size="full">
+            <GstinInsight
+              decoded={gstin}
+              panValue={(form.pan_no as string) ?? ""}
+              suggestions={gstinSuggestions}
+            />
+          </Field>
+        )}
         <Field label="IE Code" size={FIELD_SIZE.ie_code} htmlFor="cp-ie">
           <ValidatedInput
             id="cp-ie"

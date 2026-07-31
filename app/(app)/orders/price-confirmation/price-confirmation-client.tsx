@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -157,14 +158,23 @@ export function PriceConfirmationClient({ rows }: { rows: PriceConfirmationRow[]
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
     { header: "Created", cell: (r) => <span className="text-xs tabular-nums">{fmtDate(r.created_at)}</span> },
     {
-      header: "", align: "right", cell: (r) => (
+      /* Confirm / Amend are workflow — labelled column, Delete moves to the
+         standard action cell (LAYOUT.md §6a). */
+      header: "Workflow", align: "right", cell: (r) => (
         <div className="flex justify-end gap-1">
-          {r.status === "draft" && <Button variant="ghost" size="sm" onClick={() => startTransition(async () => { const res = await confirmPriceConf(r.id); if (res.ok) { success("Confirmed."); router.refresh(); } else error(res.error); })} disabled={isPending}>Confirm</Button>}
-          {r.status === "confirmed" && <Button variant="ghost" size="sm" onClick={() => startTransition(async () => { const res = await amendPriceConf(r.id); if (res.ok) { success("Amendment created."); router.refresh(); } else error(res.error); })} disabled={isPending}>Amend</Button>}
-          {r.status === "draft" && <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deletePriceConf(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button>}
+          {r.status === "draft" && <Button variant="outline" size="sm" onClick={() => startTransition(async () => { const res = await confirmPriceConf(r.id); if (res.ok) { success("Confirmed."); router.refresh(); } else error(res.error); })} disabled={isPending}>Confirm</Button>}
+          {r.status === "confirmed" && <Button variant="outline" size="sm" onClick={() => startTransition(async () => { const res = await amendPriceConf(r.id); if (res.ok) { success("Amendment created."); router.refresh(); } else error(res.error); })} disabled={isPending}>Amend</Button>}
         </div>
       ),
     },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => startTransition(async () => { const res = await deletePriceConf(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
+        canDelete={r.status === "draft"}
+        isPending={isPending}
+      />
+    )),
   ];
 
   // Build 9 category tabs for the selected PC

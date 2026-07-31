@@ -24,7 +24,7 @@ import type { Component, ComponentInput } from "@/lib/masters/component-types";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type CoordinateRow = { key: string; coordinate: string };
@@ -172,20 +172,16 @@ export function ComponentMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.short_name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -387,7 +383,7 @@ export function ComponentMasterScreen({
                     {
                       header: "Coordinate",
                       cell: (c) => (
-                        <Input value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
+                        <Input uppercase value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
                       ),
                     },
                   ]}

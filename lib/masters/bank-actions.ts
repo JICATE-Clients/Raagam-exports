@@ -58,7 +58,14 @@ function normalizeBranches(data: BankInput): BranchRow[] {
     .map((b, i) => ({ ...b, sno: i + 1 }));
 }
 
-export async function createBank(data: BankInput): Promise<Result> {
+/**
+ * Returns the new id, not a bare `{ ok }` — the row is already fetched back for
+ * the branch insert below, so handing it on costs nothing and lets a picker
+ * select the bank the operator just added instead of leaving the field they
+ * opened it to fill still empty. `{ ok: true, id }` is a superset of `Result`,
+ * so every existing `if (res.ok)` caller is unaffected.
+ */
+export async function createBank(data: BankInput): Promise<Result & { id?: string }> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = bankInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
@@ -75,7 +82,7 @@ export async function createBank(data: BankInput): Promise<Result> {
     if (bErr) return fail(bErr.message);
   }
   rev();
-  return { ok: true };
+  return { ok: true, id: created.id };
 }
 
 export async function updateBank(id: string, data: BankInput): Promise<Result> {

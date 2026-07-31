@@ -18,6 +18,8 @@ export type NavKeyEvent = {
   preventDefault(): void;
   /** Only `arrowOpensPicker` reads this — Alt+↓ is the in-grid way to open a list. */
   altKey?: boolean;
+  /** Only `cycleTab` reads this — Shift+Tab walks the cycle backwards. */
+  shiftKey?: boolean;
 };
 
 /**
@@ -536,4 +538,89 @@ export function focusFirstField(root: HTMLElement | null): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Focus the LAST focusable inside `root` — the mirror of `focusFirstField`, used
+ * when an overlay is entered backwards (Shift+Tab into the previous section of a
+ * rail editor). Unlike the forward case there is no "skip the buttons" rule to
+ * apply: entering backwards, the last control IS where native Shift+Tab would
+ * have landed.
+ */
+export function focusLastField(root: HTMLElement | null): boolean {
+  const items = root ? focusablesIn(root) : [];
+  const last = items[items.length - 1];
+  if (!last) return false;
+  focusField(last); // caret at the end — see the note there on ←/→
+  return true;
+}
+
+/**
+ * Own the Tab cycle for an overlay surface.
+ *
+ * Tab is native everywhere else in the app (see keyboard-nav-provider.tsx —
+ * `NAV_KEYS` deliberately excludes it). An overlay is the one exception, because
+ * native Tab would walk straight out of it into the page behind, which is still
+ * mounted underneath.
+ *
+ * We drive the WHOLE cycle rather than only guarding the two edges: the cycle is
+ * region-ordered (fields → footer → ✕) while native Tab is DOM-ordered
+ * (✕ → fields → footer), so edge-only trapping compared the wrong elements and
+ * let Tab off Save escape the dialog entirely. Owning every Tab keeps the visible
+ * order and the trap boundary as one and the same thing.
+ *
+ * `onContentEdge` is how a surface that holds MORE than one pane of fields — the
+ * section rail in components/masters/master-full-screen.tsx — joins in: it fires
+ * at the moment Tab would leave the field region, i.e. exactly where "the last
+ * field of this section" is, without this file needing to know what a section is.
+ *
+ * Returns true when it consumed the key.
+ */
+export function cycleTab(
+  e: NavKeyEvent,
+  root: HTMLElement | null,
+  opts?: {
+    /**
+     * Where to resume when focus was orphaned onto <body> — a portal picker
+     * unmounted, a control blurred itself. Without it the cycle restarts at the
+     * top of the form instead of at the field the operator last stood on.
+     */
+    resumeFrom?: HTMLElement | null;
+    /**
+     * Called when Tab would leave the CONTENT region: forward off the last
+     * content focusable, backward off the first. Return true when the callback
+     * moved focus itself; false falls through to the normal wrapping cycle
+     * (on to the footer, or round to the start).
+     */
+    onContentEdge?: (dir: 1 | -1) => boolean;
+  },
+): boolean {
+  if (e.key !== "Tab" || e.defaultPrevented || !root) return false;
+  const items = orderedFocusables(root);
+  if (!items.length) return false;
+
+  const active = document.activeElement;
+  const inside = active instanceof HTMLElement && root.contains(active);
+  const from = inside ? (active as HTMLElement) : opts?.resumeFrom ?? null;
+  const idx = from ? items.indexOf(from) : -1;
+
+  // focusField, not .focus() — it lands the caret at the END of the text. A bare
+  // .focus() left it at 0, and `atCaretEdge` then refused to let → leave the
+  // field until the operator had walked the whole value one character at a time.
+  // Every masters editor tabs through this, so this one call is what "→ doesn't
+  // move to the next field" was (client 2026-07-28).
+  e.preventDefault();
+  if (idx === -1) {
+    focusField(e.shiftKey ? items[items.length - 1] : items[0]);
+    return true;
+  }
+
+  const dir: 1 | -1 = e.shiftKey ? -1 : 1;
+  if (opts?.onContentEdge && regionOf(items[idx]) === "content") {
+    const neighbour = items[idx + dir];
+    const leaving = !neighbour || regionOf(neighbour) !== "content";
+    if (leaving && opts.onContentEdge(dir)) return true;
+  }
+  focusField(items[(idx + dir + items.length) % items.length]);
+  return true;
 }

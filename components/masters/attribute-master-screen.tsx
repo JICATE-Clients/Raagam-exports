@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -112,19 +113,16 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              {r.has_attribute ? "Edit attributes" : "View"}
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    /*
+     * Edit only — this screen has no delete (an attribute set belongs to its
+     * class) and no separate view: the editor IS the only surface, and the
+     * "Attributes" column above already says whether there is anything in it.
+     * The old button relabelled itself "View" when the count was zero, which
+     * read as a second, read-only destination it never was.
+     */
+    rowActionsColumn((r) => (
+      <RowActions label={r.name} onEdit={() => openEdit(r)} canEdit={perms.canEdit} />
+    )),
   ];
 
   return (

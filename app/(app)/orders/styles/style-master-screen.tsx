@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
@@ -262,7 +263,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   }
 
   function del(r: GarmentStyle) {
-    if (!confirm(`Delete style ${r.code ?? r.style_name ?? ""}?`)) return;
+    /* No confirm() — <RowActions> asks in the row (LAYOUT.md §6a). */
     start(async () => {
       const res = await deleteGarmentStyle(r.id);
       if (res.ok) {
@@ -313,24 +314,16 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           </span>
         ),
       },
-      {
-        header: "",
-        align: "right",
-        cell: (r) => (
-          <div className="flex justify-end gap-1">
-            {perms.canEdit && (
-              <Button variant="outline" size="sm" onClick={() => openEdit(r)}>
-                Edit
-              </Button>
-            )}
-            {perms.canDelete && (
-              <Button variant="outline" size="sm" onClick={() => del(r)}>
-                Delete
-              </Button>
-            )}
-          </div>
-        ),
-      },
+      rowActionsColumn((r) => (
+        <RowActions
+          label={r.code}
+          onEdit={() => openEdit(r)}
+          canEdit={perms.canEdit}
+          onDelete={() => del(r)}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      )),
     ];
 
     return (

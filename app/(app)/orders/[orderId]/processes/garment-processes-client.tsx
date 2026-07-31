@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 
 interface Props {
@@ -113,21 +114,12 @@ export function GarmentProcessesClient({
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (p: OrderGarmentProcess) => (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleDelete(p.id)}
-                disabled={isPending}
-                className="h-7 px-2 text-xs text-danger hover:opacity-80"
-              >
-                Delete
-              </Button>
-            ),
-          } satisfies Column<OrderGarmentProcess>,
+          rowActionsColumn<OrderGarmentProcess>((p) => (
+            <RowActions
+              onDelete={() => handleDelete(p.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

@@ -1,25 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Info, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { createCurrency, updateCurrency } from "@/lib/masters/extras-actions";
+import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
+import { createCurrency, updateCurrency, deleteCurrency } from "@/lib/masters/extras-actions";
 import type { Currency } from "@/lib/masters/types";
-import { PICKER_TRIGGER_CLASS } from "@/components/masters/picker-classes";
-import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker-keys";
 
 /**
- * The legacy blue ⓘ Currency popup, over the existing `currencies` master
- * (PK = code): a searchable Code/Name grid with Add / Modify / OK / Cancel.
- * Add/Modify write through create/updateCurrency, so a currency added here is
- * available everywhere. `value` is the currency **code** (currencies has a text
- * PK, not a uuid). On Modify the code is fixed (it is the primary key).
- * Reusable for any currency-code field (Currency 1/2/3, …).
+ * The Currency field (Applicant, Customer, Consignee — three slots each).
+ *
+ * Keyed by ISO CODE, not by an id: `value` and `onChange` both carry "USD",
+ * which is what every host form stores. `PickerRow.id` holds the code, so the
+ * shared picker needs to know nothing about it.
+ *
+ * A `DataPicker` plus a quick-create sheet for Add / Modify — a currency is a
+ * code, a name AND a symbol, and the symbol prints on invoices, so the inline
+ * name-only form would leave it blank (client 2026-07-29).
  */
 export function CurrencyPicker({
   label,
@@ -28,6 +29,7 @@ export function CurrencyPicker({
   onChange,
   canCreate,
   canEdit,
+  canDelete,
   compact = false,
 }: {
   label: string;
@@ -36,73 +38,59 @@ export function CurrencyPicker({
   onChange: (code: string) => void;
   canCreate: boolean;
   canEdit: boolean;
+  /** Defaults to `canEdit` — see the note in `lookup-dialog-picker.tsx`. */
+  canDelete?: boolean;
   /** Trigger-only (no label) for dense rows. */
   compact?: boolean;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, start] = useTransition();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
-  const [open, setOpen] = useState(false);
-  // Hand the cursor back to this picker's trigger when the dialog closes —
-  // removing the focused node strands focus on <body>. See picker-keys.ts.
-  usePickerFocusReturn(open);
-  const [query, setQuery] = useState("");
-  const [highlight, setHighlight] = useState<string | null>(null);
-  const [mode, setMode] = useState<"list" | "form">("list");
+  const [extra, setExtra] = useState<Currency[]>([]);
+  const [removed, setRemoved] = useState<string[]>([]);
+
+  const all = useMemo(() => {
+    const byCode = new Map<string, Currency>();
+    for (const c of currencies) byCode.set(c.code, c);
+    for (const c of extra) byCode.set(c.code, c);
+    for (const code of removed) byCode.delete(code);
+    return [...byCode.values()];
+  }, [currencies, extra, removed]);
+
+  const rows: PickerRow[] = useMemo(
+    () =>
+      [...all]
+        .sort((a, b) => a.code.localeCompare(b.code))
+        // The code IS the identity here, so it leads; the name follows muted.
+        .map((c) => ({ id: c.code, label: c.code, sublabel: c.name })),
+    [all],
+  );
+
+  const [formOpen, setFormOpen] = useState(false);
   const [formEditCode, setFormEditCode] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
+  const commitRef = useRef<((id: string) => void) | null>(null);
 
-  // Currencies created/updated this session, merged + deduped with server rows.
-  const [extra, setExtra] = useState<Currency[]>([]);
-  const all = useMemo(() => {
-    const byCode = new Map<string, Currency>();
-    for (const c of currencies) byCode.set(c.code, c);
-    for (const c of extra) byCode.set(c.code, c); // session edits win
-    return [...byCode.values()];
-  }, [currencies, extra]);
-
-  const selected = all.find((c) => c.code === value) ?? null;
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const rows = q
-      ? all.filter((c) => [c.code, c.name, c.symbol].filter(Boolean).join(" ").toLowerCase().includes(q))
-      : all;
-    return [...rows].sort((a, b) => a.code.localeCompare(b.code));
-  }, [all, query]);
-
-  function openDialog() {
-    setHighlight(value);
-    setQuery("");
-    setMode("list");
-    setOpen(true);
-  }
-  function close() {
-    setOpen(false);
-    setMode("list");
-  }
-
-  function startAdd() {
+  function openAdd(commit: (id: string) => void) {
+    commitRef.current = commit;
     setFormEditCode(null);
     setCode("");
     setName("");
     setSymbol("");
-    setMode("form");
+    setFormOpen(true);
   }
-  function startModify(id: string) {
-    const c = all.find((x) => x.code === id);
+  function openEdit(row: PickerRow, commit: (id: string) => void) {
+    const c = all.find((x) => x.code === row.id);
     if (!c) return;
-    setHighlight(id);
+    commitRef.current = commit;
     setFormEditCode(c.code);
     setCode(c.code);
     setName(c.name);
     setSymbol(c.symbol ?? "");
-    setMode("form");
+    setFormOpen(true);
   }
 
   function saveForm() {
@@ -116,222 +104,106 @@ export function CurrencyPicker({
         : await createCurrency(payload);
       if (!res.ok) return error(res.error);
       setExtra((xs) => [...xs.filter((c) => c.code !== cd), { code: cd, name: nm, symbol: sy }]);
-      setHighlight(cd);
       success(formEditCode ? `${label} updated.` : `${label} added.`);
-      setMode("list");
+      if (!formEditCode) commitRef.current?.(cd);
+      setFormOpen(false);
       router.refresh();
     });
   }
 
-  const onListKeyDown = pickerKeyDown({
-    items: filtered,
-    keyOf: (r) => r.code,
-    highlight: highlight,
-    setHighlight: setHighlight,
-    onPick: onChange,
-    // One layer per Escape: out of the Add/Modify form back to the list, and
-    // only then out of the dialog.
-    onClose: () => (mode === "form" ? setMode("list") : close()),
-    active: mode === "list",
-  });
-
-  const selectedLabel = selected
-    ? `${selected.code}${selected.name ? ` — ${selected.name}` : ""}`
-    : `— Select ${label} —`;
+  const manage: ManageConfig = {
+    canCreate,
+    canEdit,
+    canDelete: canDelete ?? canEdit,
+    // Unreachable — the two overrides below intercept first.
+    onCreate: async () => ({ ok: false, error: "Use the Currency form." }),
+    onUpdate: async () => ({ ok: false, error: "Use the Currency form." }),
+    /**
+     * `deleteCurrency` is a hard delete with no deactivate fallback: the
+     * currency code is an FK on buyers and customers, so Postgres rejects the
+     * delete and the message surfaces as an error toast. Reported as
+     * `inactive: false` because nothing was deactivated — the row either went or
+     * the call failed.
+     */
+    onDelete: async (currencyCode) => {
+      const res = await deleteCurrency(currencyCode);
+      return res.ok ? { ok: true as const, inactive: false } : res;
+    },
+    onCreated: () => {},
+    onUpdated: () => {},
+    onDeleted: (currencyCode) => {
+      setRemoved((xs) => [...xs, currencyCode]);
+      setExtra((xs) => xs.filter((c) => c.code !== currencyCode));
+      router.refresh();
+    },
+    draftOf: (r) => ({ code: r.id, name: r.sublabel ?? "" }),
+  };
 
   return (
-    <div>
-      {!compact && <Label>{label}</Label>}
-      <button
-        type="button"
-        onClick={openDialog}
+    <>
+      <DataPicker
+        label={label}
+        rows={rows}
+        value={value}
+        onChange={(picked) => onChange(picked ?? "")}
+        clearable={false}
+        compact={compact}
+        manage={manage}
+        onAddOverride={openAdd}
+        onEditOverride={openEdit}
+      />
 
-        data-field-trigger
-        className={PICKER_TRIGGER_CLASS}
-      >
-        <span className={"truncate " + (selected ? "text-foreground" : "text-muted-foreground")}>
-          {selectedLabel}
-        </span>
-        <Info className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-      </button>
-
-      {mounted &&
-        open &&
-        createPortal(
-          <div className="fixed inset-0 z-[100] flex items-start justify-center">
-            <div className="absolute inset-0 bg-black/40" onClick={close} aria-hidden />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-label={`Select ${label}`}
-              // ↑/↓/Enter/Escape/Tab for the whole dialog — bound here rather than
-              // on the search box so the keys still work once focus has moved on
-              // to a row or to Cancel. See picker-keys.ts.
-              onKeyDown={onListKeyDown}
-              className="relative mt-[8vh] flex max-h-[80vh] w-[94%] max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
+      <Sheet
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        size="sm"
+        title={formEditCode ? `Modify ${label}` : `Add ${label}`}
+        footer={
+          <>
+            <Button type="button" variant="outline" size="md" onClick={() => setFormOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="md"
+              disabled={isPending || !code.trim() || !name.trim()}
+              onClick={saveForm}
             >
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-sm font-semibold">
-                  {mode === "list"
-                    ? `Select ${label}`
-                    : formEditCode
-                      ? `Modify ${label}`
-                      : `Add ${label}`}
-                </h2>
-                <button
-                  type="button"
-                  onClick={close}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-                  aria-label="Close"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              {mode === "list" ? (
-                <>
-                  <div className="border-b border-border p-3">
-                    <Input
-                      autoFocus
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search code or name…"
-                      className="text-base md:text-sm"
-                    />
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-auto">
-                    {filtered.length === 0 ? (
-                      <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                        No currencies found.
-                      </p>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="sticky top-0 bg-surface-muted text-xs text-muted-foreground">
-                          <tr>
-                            <th className="w-24 px-4 py-2 text-left font-medium">Code</th>
-                            <th className="px-4 py-2 text-left font-medium">Name</th>
-                            <th className="w-16 px-4 py-2 text-left font-medium">Symbol</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filtered.map((c) => (
-                            <tr
-                              key={c.code}
-                              ref={
-                                highlight === c.code
-                                  ? (el) => el?.scrollIntoView({ block: "nearest" })
-                                  : undefined
-                              }
-                              onClick={() => {
-                                onChange(c.code);
-                                close();
-                              }}
-                              onMouseEnter={() => setHighlight(c.code)}
-                              className={
-                                "group cursor-pointer border-t border-border " +
-                                (highlight === c.code ? "bg-primary/10" : "hover:bg-surface-muted")
-                              }
-                            >
-                              <td className="px-4 py-2 font-mono text-xs">{c.code}</td>
-                              <td className="px-4 py-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span>{c.name}</span>
-                                  {canEdit && (
-                                    <button
-                                      type="button"
-                                      aria-label="Modify"
-                                      title="Modify"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        startModify(c.code);
-                                      }}
-                                      className="shrink-0 text-muted-foreground opacity-0 focus-visible:opacity-100 hover:text-foreground group-hover:opacity-100"
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 text-muted-foreground">{c.symbol ?? "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 border-t border-border px-4 py-3">
-                    {canCreate && (
-                      <Button type="button" variant="outline" size="md" onClick={startAdd}>
-                        Add
-                      </Button>
-                    )}
-                    <div className="flex-1" />
-                    <Button type="button" variant="outline" size="md" onClick={close}>
-                      Cancel
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="cur-code">
-                          Code <span className="text-danger">*</span>
-                        </Label>
-                        <Input
-                          id="cur-code"
-                          uppercase
-                          value={code}
-                          onChange={(e) => setCode(e.target.value)}
-                          disabled={!!formEditCode}
-                          maxLength={8}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="cur-symbol">Symbol</Label>
-                        <Input
-                          id="cur-symbol"
-                          value={symbol}
-                          onChange={(e) => setSymbol(e.target.value)}
-                          className="text-base md:text-sm"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="cur-name">
-                        Name <span className="text-danger">*</span>
-                      </Label>
-                      <Input
-                        id="cur-name"
-                        autoFocus
-                        uppercase
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="text-base md:text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-                    <Button type="button" variant="outline" size="md" onClick={() => setMode("list")}>
-                      Back
-                    </Button>
-                    <Button
-                      type="button"
-                      size="md"
-                      disabled={isPending || !code.trim() || !name.trim()}
-                      onClick={saveForm}
-                    >
-                      {isPending ? "Saving…" : "Save"}
-                    </Button>
-                  </div>
-                </>
-              )}
+              {isPending ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="cur-code">
+                Code <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="cur-code"
+                autoFocus
+                uppercase
+                // The code is the primary key, so changing it on an existing
+                // row would orphan every record pointing at it.
+                disabled={Boolean(formEditCode)}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
             </div>
-          </div>,
-          document.body,
-        )}
-    </div>
+            <div>
+              <Label htmlFor="cur-symbol">Symbol</Label>
+              <Input id="cur-symbol" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="cur-name">
+              Name <span className="text-danger">*</span>
+            </Label>
+            <Input id="cur-name" uppercase value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+        </div>
+      </Sheet>
+    </>
   );
 }

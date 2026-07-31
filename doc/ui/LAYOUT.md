@@ -113,17 +113,51 @@ adopter across 92 screens — nobody could migrate without silently shredding th
 
 ## 3. Field width
 
-`<Field size>` inside `<DetailSection cols={12}>`. Size to the **data**, not the cell.
+`<Field size>` inside `<DetailSection cols={12}>`.
 
-| Size | Span | Use |
-|---|---|---|
-| `xs` | 2 | 2-4 chars — %, qty, a small count |
-| `sm` | 3 | short codes — HSN, count, shade |
-| `md` | 4 | **default** — most pickers and lookups |
-| `lg` | 6 | long free text — names, addresses |
-| `full` | 12 | stands alone — child grids, textareas |
+| Size | Span | Fields/row | Use |
+|---|---|---|---|
+| `xs` | 2 | 6 | — *retired on the masters; see below* |
+| `sm` | 3 | **4** | **every field, on a full-width section** |
+| `md` | 4 | 3 | — *retired on the masters* |
+| `lg` | 6 | 2 | **every field, inside a `SectionColumn`** |
+| `full` | 12 | 1 | the things that are **not fields** — child grids, textareas, fact strips |
 
-A 3-character "Mixing %" must not inherit the same ~490px box as a free-text Name.
+**ONE WIDTH, EVERY FIELD (client 2026-07-29).** The rule used to be "size to the data":
+a 6-digit PIN took `xs`, a company name `lg`. The client reviewed the result on the
+Applicant screen, pointed at the City · State · Pin · Country row and asked for the rest of
+the module to match it — a screen of one repeated ~280px box reads as a grid, where mixed
+2/3/4/6/12 spans read as ragged whitespace.
+
+So the target is a **width**, not a span: **~280px**, four across a full-width sheet.
+Which span produces it depends on the track the section sits in:
+
+| Section sits in | Track | Use | Fields across the sheet |
+|---|---|---|---|
+| the sheet, stacked full width | ~1150px | `sm` (3) | 4 |
+| one column of a `SectionGrid` | ~566px | `lg` (6) | 2 per column = 4 |
+
+Getting this wrong is the commonest layout bug on these screens: `sm` inside a
+`SectionColumn` is ~132px, *half* the reference, and the fields look starved rather than
+compact. If a screen wants four genuinely-flush fields on one row, stack its sections full
+width (`applicant`, `bank`, `courier-delivery`, `notify`) rather than splitting the sheet.
+
+**What stays wide.** `full` is for things that are not fields: a `ChildGrid`, a GSTIN fact
+strip, a multi-line `Textarea`. A textarea in particular must never share a row — every
+grid row is as tall as its tallest item, so the fields beside it end up floating above a
+band of dead space. Address "Street" is a single-line `Input` for exactly this reason.
+
+**What this trades away.** E-Mail, Web site and long entity names now scroll inside a
+~280px box instead of showing whole. That was the client's call, made with the trade-off
+stated. Undoing it for one field means undoing it for the screen.
+
+Reference: `components/masters/applicant-master-screen.tsx` — every field `sm`, with the
+row arithmetic written into its `FIELD_SIZE` comment.
+
+**Rows must still sum to 12.** A row totalling 13+ does not shrink; the last field wraps
+onto a line of its own with the rest of that line left empty. Write the arithmetic into
+the `FIELD_SIZE` map's header comment (see `material-master-screen.tsx`) — that comment is
+what stops the next edit overflowing a row, because nothing in the build can catch it.
 
 ---
 
@@ -169,6 +203,63 @@ Avoid modals for tasks users perform **repeatedly** or that run >30s
 
 ---
 
+## 5a. Picking stored data
+
+**Every field that references stored data uses `<DataPicker>` (`components/ui/data-picker.tsx`).
+One shape, whole app (client 2026-07-29).** There is no second way to list data, and a screen
+that hand-rolls one is a bug.
+
+It used to be three ways, decided by nothing more than when the field was built: a modal
+dialog (`lookup-dialog-picker`, 78 fields), a select-only modal (`record-picker`, 17), a nested
+Sheet with CRUD (`lookup-picker`, 8), a dozen bespoke clones — while plain enums dropped a list
+down under the field. One form could show all three: City opened a modal, Ship Mode dropped
+down, Category opened a second Sheet.
+
+### The shape
+
+A `role="combobox"` input. Typing filters in place; the list is a portaled panel anchored to the
+field. Add / Modify / Delete happen **in the panel** — the operator never leaves the form they
+are filling to create the City they need.
+
+| Mode | Modal? | Tab | Escape |
+|---|---|---|---|
+| **List** (browsing) | no | closes without choosing, focus moves on | closes the list only |
+| **Form** (Add/Modify/Delete) | **yes** — scrim, focus trap, `useModalGuard` | trapped inside | back to the list |
+
+The mode split is the design. A dropdown that traps Tab is a dialog in disguise; a form that
+does not is one a stray click can discard.
+
+Keyboard is the standing contract (`.claude/skills/raagam-keyboard-contract`) plus three keys
+that only exist here — **Ins** add, **F2** modify, **Ctrl+Del** delete. They are the keyboard
+path to the row icons, which Tab deliberately cannot reach in a non-modal panel.
+
+**Touch** gets `Sheet size="sm"` instead of the anchored panel: same rows, same search, same
+CRUD. A ~280px panel with 16px row icons is not hittable on a phone, and this ships as an
+installed PWA.
+
+### What "+ Add" does
+
+| The entity is | Add | Where |
+|---|---|---|
+| a **config list** (City, State, Department, Ship Type …) | inline name-only form in the panel | `lookup-dialog-picker.tsx` |
+| a **rich master** (Country, Currency, Bank, Commodity, Category, Yarn) | `onAddOverride` → a quick-create sheet (§5) | that entity's picker |
+| a **transaction-scale master** (Customer, Vendor, Applicant, Employee, Location) | nothing — select-only | `record-picker.tsx` and friends |
+
+The middle row is the one that gets skipped. A Country created name-only has no ISD code, which
+the contact fields on half a dozen masters read off it; a Bank has no IFSC. If the record's other
+fields *do* something, it does not get a name-only add.
+
+**Delete always routes through the delete-or-deactivate guard**, never a raw delete: a value any
+record references comes back deactivated with the referencing table named in the toast
+(`deletedToast`). That guard is the reason Delete is safe to expose on a dropdown at all.
+
+### Enums are not this
+
+`<Select>` / `Combobox` over a fixed code list (AIR · SEA · ROAD, Yes/No) stays as it is. There
+is nothing to create, and it already drops down and already searches.
+
+---
+
 ## 6. Child rows (line items)
 
 Pick by **fields per row**, not by row count — a row runs out of width past ~5 real inputs.
@@ -187,6 +278,87 @@ creation only for tables "without a large number of columns"
 Inline edit is for fast, low-risk single-field changes. Anything touching several related fields
 or needing cross-field validation gets a deliberate save
 ([NN/g](https://www.nngroup.com/articles/data-tables/)).
+
+**No scroll-in-a-box (client 2026-07-25, enforced 2026-07-30).** A child grid never gets its
+own `max-h-… overflow-y-auto`. The rows open in full and the editor pane — the one scroller on
+the screen — takes the height. Where a list can genuinely run long, `ChildGrid`'s `pageSize`
+pages it; the pager self-hides when everything fits.
+
+The retired rule was "cap the row area so the Add button stays pinned", and it read worst
+exactly where it was used most: a Contact card is a ~6-field sub-form, so on Consignee a
+**single** contact did not fit inside `max-h-56` and had to be scrolled to be read
+(client 2026-07-30). A capped box also hides how many rows exist, puts a second scrollbar a few
+millimetres from the page's own, and traps the wheel. `ChildGrid.maxBodyHeight` no longer
+exists — if a comment cites it, that comment predates the pager.
+
+Still legitimately capped, because none of them is a form: dropdown and picker panels, the
+notifications popover, and overlays sized against the **viewport** (`max-h-[80vh]`).
+
+---
+
+## 6a. Row actions (STANDING)
+
+Every listing table ends with the same cell, and **no screen writes it.**
+`components/ui/row-actions.tsx` owns it — three ghost icon buttons, right-aligned:
+
+| Action | Icon | Behaviour |
+|---|---|---|
+| View | `Eye` | Read-only sheet. **No Edit button inside it** — View is a dead end. |
+| Edit | `Pencil` | Opens the editor (or starts the inline row edit). |
+| Delete | `Trash2` | Two-step: the cluster becomes `Delete? [Cancel] [Confirm]`. |
+
+Extras — Duplicate, Export row — go behind a `⋮` (`menu`). **Delete never does.** It is a
+first-class icon with its confirm inline, because burying the one irreversible action one click
+deeper than the reversible ones inverts the risk.
+
+**Icons, not text links,** and the reason is consistency rather than taste: `data-picker.tsx`
+already renders row CRUD as `Pencil` ("Modify (F2)") and `Trash2` ("Delete (Ctrl+Del)"), so a
+picker row and a table row now read identically. It also gives every table ONE action-column
+width. Discoverability comes from `components/ui/tooltip.tsx` plus an `aria-label` carrying the
+record's name — `label` is not optional decoration, it is what stops a screen reader announcing
+"Edit" forty times with no way to tell the rows apart.
+
+**How to declare it:**
+
+- On `MasterListShell` → pass `actions={{ onView, onEdit, onDelete, menu }}`. The shell appends
+  the column, gates it on `perms`, derives aria-labels from `mobile.title`, and feeds the mobile
+  card the *same* handlers — so a View cannot exist on desktop and be missing on mobile.
+- On `SimpleMasterScreen` → nothing to do; the engine owns the cell. Add `view` to the
+  descriptor to light up the eye.
+- Rendering `DataTable` directly → `rowActionsColumn((r) => <RowActions … />)`. Never write
+  `{ header: "", align: "right", cell: … }` by hand; that is what produced six different action
+  dialects and four ways of confirming a delete across 131 files.
+
+**THE EYE IS ON BY DEFAULT — a screen gets a View by doing nothing.** There are three
+derivations, and they win in this order:
+
+1. **`onView`** — the screen's own sheet (`MaterialViewSheet`, the 9 bespoke masters).
+2. **Columns-derived** — `MasterListShell` pairs each `header` with its `cell(row)`, so FKs
+   arrive already resolved by the screen's own renderers.
+3. **Row-derived** — `lib/record-pairs.ts` reads the record itself. This is the one every other
+   table gets, and it shows the fields the list does *not*: humanized keys, dates through
+   `fmtDate`, `*_id` UUIDs and empty values dropped, joined relations flattened to their name,
+   child collections reduced to a row count.
+
+`view={false}` on `RowActions` opts out — for a grid whose columns already *are* the whole
+record, where the sheet would just repeat the row back.
+
+This default is not a convenience, it is the mechanism. The first attempt made the eye opt-in;
+**102 of 111 tables promptly shipped without one**, which is the exact gap this section exists to
+close. The row is what the view is built from because `rowActionsColumn` already receives it —
+`DataTable` would be the natural home (it alone knows the columns) but cannot hold client state:
+42 **server** components render it and pass `cell` functions in `columns`, and functions cannot
+cross the server→client boundary.
+
+**Mobile does not use this cell.** Tables are `hidden md:block`; phones get `MobileCardList`,
+whose footer uses `DeleteConfirmButton` and a text "View" — a 32px icon is not a touch target,
+and this ships as an installed PWA.
+
+**Never** `window.confirm`. The two-step is the app's only delete confirmation. And never a raw
+delete: `lib/masters/delete-guard.ts` decides delete-vs-deactivate server-side, which is why the
+button cannot promise which one happens — `deletedToast` reports which one did.
+
+Checked by `python scripts/audit_layout.py . --check row-actions`.
 
 ---
 
@@ -227,7 +399,10 @@ The contract lives in `.claude/skills/raagam-keyboard-contract` and is implement
 `lib/focus.ts`, wired globally by `components/shell/keyboard-nav-provider.tsx`. Screens do **not**
 bind their own `onKeyDown` for field navigation.
 
-- Tab → next field, and nothing else — it never opens a list
+- Tab → next field, and nothing else — it never opens a list. On a `MasterFullScreen` rail
+  editor the "next field" after a section's last one is **the next section**, which opens with
+  the cursor in its first field (Shift+Tab goes back, landing on the previous section's last
+  field); on the last section Tab carries on to the footer's Cancel/Save
 - ↓ on a picker/dropdown → open its list · ↓/↑ otherwise → the field below / above, **spatially**
 - ←/→ → the field left / right, once the text caret is at the edge
 - Enter → pick the highlighted row if a list is open, tick a focused checkbox/radio, else
@@ -255,9 +430,11 @@ bind their own `onKeyDown` for field navigation.
 - [ ] No `grid-cols-*`, `col-span-*`, `gap-*` or `<table>` written in the screen
 - [ ] Child grids: mode chosen by fields-per-row (§6)
 - [ ] List uses `MasterListShell` + `DataTable`, not a hand-rolled table + pagination
+- [ ] Row actions via `actions` / `rowActionsColumn`, never a hand-written `header: ""` cell (§6a)
 - [ ] Pickers via `record-picker` / `lookup-picker`, never a bespoke dialog
 - [ ] Tested at 375px: one column, no horizontal page scroll
 - [ ] Derived / auto-generated fields carry `<Field skipTab>` (§8)
+- [ ] Every free-text `<Input>` carries `uppercase`; the schema uses `capsName` (§11)
 
 ---
 
@@ -314,3 +491,110 @@ gutter is what stops two adjacent controls on a 12-col row reading as one contro
 
 Type sizes do **not** compact: controls stay `text-base md:text-sm`, labels `text-xs`. 11px was
 tried and rejected as below a readable floor for all-day data entry.
+
+---
+
+## 11. Letter case
+
+**Field values are stored in CAPITALS.** Not displayed in caps — *stored*. Client rule since
+2026-07-23, extended to the whole application 2026-07-29.
+
+This existed for six days as an inline comment (`// names stored in CAPS`) repeated in ~30 server
+actions and nowhere else. That is the same failure mode §1 documents for the layout contract, so
+it is written here and checked by `scripts/audit_layout.py --check caps-input`.
+
+### The two halves, and why you need both
+
+| Half | Where | Fixes |
+|---|---|---|
+| Type-time | `<Input uppercase>` mutates the value in `onChange` | what the operator types now |
+| Display | the same prop adds a CSS `text-transform` | rows **already** saved in mixed case |
+
+The CSS half is not decoration. A value loaded from the database and never re-typed cannot be
+reached by a keystroke transform — without it, a record saved before the rule existed keeps
+showing lower case forever.
+
+### Where the write-side transform belongs
+
+In the **Zod schema**, via `capsName()` / `capsTextNullable()` (`lib/validation/formats.ts`) —
+never only in the server action.
+
+The action is not the only write path. `lib/data-io/actions.ts` parses a spreadsheet import with
+the *same* `*Input` schemas and writes `parsed.data` straight to Postgres, so an action-level
+`.toUpperCase()` never sees an import. Every bulk import was storing mixed case despite thirty
+hand-copied uppercase calls, and no screen showed it.
+
+Validate before you transform: `.min()` cannot be chained after a Zod transform, and a
+whitespace-only name should fail as empty rather than succeed as `""`.
+
+### What is NOT uppercased
+
+These are exemptions by construction, not oversights — do not "fix" them:
+
+| Exempt | Why |
+|---|---|
+| email, website | `transform: "none"` in `formats.ts`. Case can be significant, and a shouted email reads as broken |
+| digit formats — phone, PIN, account, Aadhaar | `uppercase` is a no-op; they carry their own transform |
+| land line, mobile, WhatsApp, fax, ISD | same reason; the check matches these on the bound field name |
+| `<Textarea>` free text | no `uppercase` prop exists on it. A shouted paragraph is unreadable |
+| passwords | obviously |
+| uuids and ids | Postgres renders uuids lower case; an uppercased one will not match |
+| read-only / derived fields | `(auto)` is a hint, not data — uppercasing makes it read as a value |
+| search boxes | the query is not stored; caps only changes how the toolbar looks |
+| workflow status keys | `draft` / `in_progress` are internal state, rendered through `StatusPill` with their own labels |
+
+`ValidatedInput` handles its own casing: it applies the format's transform on change, and carries
+the CSS half only for `transform: "upper"` kinds (GSTIN, PAN, TAN, CIN, IEC, IFSC, SWIFT, currency,
+yarn count).
+
+> **A gap the check cannot see.** Those contact fields are exempted by *name*, which means a
+> plain `<Input value={form.land_line}>` is indistinguishable from a properly-wired
+> `<ValidatedInput format="landline">`. Several masters still use the bare `Input` and so get no
+> validation at all — Brand's Website and Phone were two, found only because the CAPS sweep made
+> the odd one out visible. The fix is to convert them, never to add `uppercase`.
+
+### Fixed value lists
+
+A dropdown's members are field values too. `["air","sea","road"]` and `["AIR","ROAD","SEA"]` both
+existed for ship mode, in different modules, for the same concept — migration `0368` settled that
+in favour of caps. When a list is pinned by a Postgres `CHECK`, the constraint, the `z.enum` and
+the const array move **together**, and any render-time re-casing gets deleted rather than left.
+
+---
+
+## 12. Dates and times
+
+**DD/MM/YYYY everywhere** (client 2026-07-29). One pair of formatters owns it — `fmtDate` and
+`fmtDateTime` in `lib/format.ts`. Do not format a date at a call site.
+
+Both are built by hand rather than through `toLocaleDateString`, for two reasons worth keeping:
+
+1. **A locale is a request, not a guarantee.** `en-IN` renders DD/MM/YYYY on most runtimes, but
+   the result depends on the ICU data the runtime ships, and server render and browser hydration
+   do not always agree. A fixed business format should not be negotiated with a locale database.
+2. **Timezone.** A Postgres `date` column arrives as the bare string `"2026-07-29"`.
+   `new Date("2026-07-29")` reads that as UTC midnight, so `getDate()` at a negative UTC offset
+   returns the 28th. `fmtDate` formats the string directly when it matches `YYYY-MM-DD`, so no
+   instant is involved and nothing can drift. Only real timestamps go through `Date`, where
+   local-time conversion is the point.
+
+### What is deliberately NOT DD/MM/YYYY
+
+| Where | Renders | Why |
+|---|---|---|
+| `lib/dashboard/range.ts` `today()` | `2026-07-29` | **a computation, not a display.** The string is compared against `date` columns and fed back into queries. Reformatting it breaks every dashboard range *silently*, because the strings still compare — just wrongly |
+| `monthLabel` (`range.ts`, `analytics-dashboard.tsx`) | `Jul`, `Jul 26` | chart axis labels. Twelve `01/07/2026`s along an axis is unreadable |
+| `components/dashboard/hero.tsx` | `Monday, 29 July 2026` | prose in a greeting, and the weekday is the useful part |
+| `hero.tsx` hour extraction | — | picks the hour for "Good morning". A computation |
+| `lib/data-io/export.ts` filenames | `2026-07-29` | ISO sorts correctly and is safe in a filename |
+
+### The native date input
+
+`<input type="date">` — ~160 of them — renders in the **browser's** locale, not the page's. No
+HTML attribute, CSS rule or React prop can change that; the element's `value` is always ISO
+`yyyy-mm-dd` regardless of what it displays. A machine set to US English shows MM/DD/YYYY and
+there is nothing in this codebase that can override it.
+
+Forcing DD/MM/YYYY in the pickers means replacing the native control with a masked text input plus
+a calendar popover — a real component, not a formatting change. Until that exists, the guarantee is
+**display is DD/MM/YYYY everywhere the app draws the date itself**; the pickers follow the machine.

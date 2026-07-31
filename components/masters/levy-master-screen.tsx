@@ -1,4 +1,5 @@
 "use client";
+
 import { deletedToast } from "@/lib/masters/delete-message";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
@@ -18,12 +19,12 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { fmtNumber } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { createLevy, updateLevy, deleteLevy } from "@/lib/masters/levy-actions";
 import { AcHeadPicker } from "@/components/masters/ac-head-picker";
-import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { DetailSection } from "@/components/masters/detail-section";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   LEVY_TYPES,
   CESS_MODES,
@@ -301,13 +302,13 @@ export function LevyMasterScreen({
 
   const columns: Column<Levy>[] = [
     { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.levy_date}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.levy_date)}</span> },
     { header: "Type", cell: (r) => <span className="text-sm">{r.type}</span> },
     {
       header: "Description",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.description || "—"}</span>,
     },
-    { header: "Effective", cell: (r) => <span className="text-sm">{r.effective_from}</span> },
+    { header: "Effective", cell: (r) => <span className="text-sm">{fmtDate(r.effective_from)}</span> },
     { header: "Annexure", cell: (r) => <span className="text-sm">{r.annexure_no || "—"}</span> },
     {
       header: "Category",
@@ -333,20 +334,16 @@ export function LevyMasterScreen({
         <StatusPill tone={r.inactive ? "neutral" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={String(r.entry_no)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   const act = activeComponents(form.type);
@@ -539,7 +536,7 @@ export function LevyMasterScreen({
                   <div className="min-w-0">
                     <div className="text-[15px] font-semibold text-foreground">{r.type}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
-                      Entry #{r.entry_no} · from {r.effective_from}
+                      Entry #{r.entry_no} · from {fmtDate(r.effective_from)}
                     </div>
                   </div>
                   <StatusPill tone={r.inactive ? "neutral" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
@@ -717,6 +714,7 @@ export function LevyMasterScreen({
               <div>
                 <Label>Annexure No</Label>
                 <Input
+                  uppercase
                   placeholder="e.g. I"
                   value={form.annexure_no}
                   onChange={(e) => set({ annexure_no: e.target.value })}

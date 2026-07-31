@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
@@ -24,6 +25,7 @@ import type {
   DocumentNoFormatInput,
 } from "@/lib/masters/document-no-format-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -285,7 +287,7 @@ export function DocumentNoFormatMasterScreen({
 
   const columns: Column<DocumentNoFormat>[] = [
     { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.date?.slice(0, 10)}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
     {
       header: "Track",
       cell: (r) => (
@@ -303,30 +305,16 @@ export function DocumentNoFormatMasterScreen({
       cell: (r) =>
         r.is_draft ? <StatusPill tone="warning">Draft</StatusPill> : <StatusPill tone="success">Active</StatusPill>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={String(r.entry_no)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -370,7 +358,7 @@ export function DocumentNoFormatMasterScreen({
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-semibold text-foreground">#{r.entry_no}</div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.date?.slice(0, 10)} · {r.menus.length} menu{r.menus.length === 1 ? "" : "s"}
+                    {fmtDate(r.date)} · {r.menus.length} menu{r.menus.length === 1 ? "" : "s"}
                     {r.track_id ? ` · ${trackLabel.get(r.track_id) ?? ""}` : ""}
                   </div>
                 </div>
@@ -515,6 +503,7 @@ export function DocumentNoFormatMasterScreen({
                         <div>
                           <Label>Sample DocNo</Label>
                           <Input
+                            uppercase
                             value={m.sample_doc_no}
                             onChange={(e) => setMenuAt(m.key, { sample_doc_no: e.target.value })}
                             className="text-base md:text-sm"
@@ -569,12 +558,14 @@ export function DocumentNoFormatMasterScreen({
                               />
                               <div className="grid grid-cols-2 gap-2">
                                 <Input
+                                  uppercase
                                   placeholder="Value"
                                   value={s.value}
                                   onChange={(e) => setSegmentAt(m.key, s.key, { value: e.target.value })}
                                   className="text-base md:text-sm"
                                 />
                                 <Input
+                                  uppercase
                                   placeholder="Seperator"
                                   value={s.separator}
                                   onChange={(e) => setSegmentAt(m.key, s.key, { separator: e.target.value })}

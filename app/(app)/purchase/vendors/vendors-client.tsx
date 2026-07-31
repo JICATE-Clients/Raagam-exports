@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
@@ -151,19 +152,9 @@ export function VendorsClient({
     },
     ...(canEdit
       ? [
-          {
-            header: "",
-            align: "right" as const,
-            cell: (r: Vendor) => (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => openEdit(r)}
-              >
-                Edit
-              </Button>
-            ),
-          },
+          rowActionsColumn<Vendor>((r) => (
+            <RowActions label={r.name} onEdit={() => openEdit(r)} />
+          )),
         ]
       : []),
   ];

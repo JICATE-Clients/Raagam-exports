@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -78,13 +79,13 @@ export function RequisitionDetail({ docId, status, lines, items, canEdit, canApp
     { header: "Issued", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.issued_qty)}</span> },
     ...(canEdit && editable
       ? [
-          {
-            header: "",
-            cell: (r: MaterialRequisitionLine) => (
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger"
-                disabled={isPending} onClick={() => run(() => deleteMrsLine(r.id, docId), "Removed")}>Remove</Button>
-            ),
-          } satisfies Column<MaterialRequisitionLine>,
+          rowActionsColumn<MaterialRequisitionLine>((r) => (
+            <RowActions
+              onDelete={() => run(() => deleteMrsLine(r.id, docId), "Removed")}
+              deleteLabel="Remove"
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -77,7 +78,13 @@ export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBook
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
     { header: "Delivery", cell: (r) => r.delivery_date ? fmtDate(r.delivery_date) : "—" },
     { header: "Ship", cell: (r) => r.ship_mode ?? "—" },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deleteOrderBooking(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button> },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => startTransition(async () => { const res = await deleteOrderBooking(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -87,19 +94,22 @@ export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBook
       <Sheet open={open} onClose={() => setOpen(false)} title="New Order Booking" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Order Reference">
+            {/* NO `uppercase` here, unlike every text field below it: this is a
+                raw UUID. Postgres uuids render lowercase and an uppercased one
+                would not match on paste. Ids are not field values. */}
             <div><Label>Sales Order ID *</Label><Input value={form.sales_order_id} onChange={(e) => setForm({ ...form, sales_order_id: e.target.value })} placeholder="UUID" /></div>
-            <div><Label>Order No</Label><Input value={form.order_no} onChange={(e) => setForm({ ...form, order_no: e.target.value })} /></div>
+            <div><Label>Order No</Label><Input uppercase value={form.order_no} onChange={(e) => setForm({ ...form, order_no: e.target.value })} /></div>
             <div><Label>Booking Date</Label><Input type="date" value={form.booking_date} onChange={(e) => setForm({ ...form, booking_date: e.target.value })} /></div>
             <div><Label>Delivery Date</Label><Input type="date" value={form.delivery_date} onChange={(e) => setForm({ ...form, delivery_date: e.target.value })} /></div>
           </DetailSection>
           <DetailSection label="Details">
-            <div><Label>Season</Label><Input value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} /></div>
-            <div><Label>Season Year</Label><Input value={form.season_yr} onChange={(e) => setForm({ ...form, season_yr: e.target.value })} /></div>
-            <div><Label>Agent</Label><Input value={form.agent_name} onChange={(e) => setForm({ ...form, agent_name: e.target.value })} /></div>
+            <div><Label>Season</Label><Input uppercase value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} /></div>
+            <div><Label>Season Year</Label><Input uppercase value={form.season_yr} onChange={(e) => setForm({ ...form, season_yr: e.target.value })} /></div>
+            <div><Label>Agent</Label><Input uppercase value={form.agent_name} onChange={(e) => setForm({ ...form, agent_name: e.target.value })} /></div>
             <div><Label>Receipt Mode</Label><Select value={form.receipt_mode} onChange={(e) => setForm({ ...form, receipt_mode: e.target.value })}><option value="">Select…</option>{RECEIPT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}</Select></div>
             <div><Label>Ship Mode</Label><Select value={form.ship_mode} onChange={(e) => setForm({ ...form, ship_mode: e.target.value })}><option value="">Select…</option>{SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}</Select></div>
-            <div><Label>Pay Mode</Label><Input value={form.pay_mode} onChange={(e) => setForm({ ...form, pay_mode: e.target.value })} /></div>
-            <div><Label>Material Composition</Label><Input value={form.material_composition} onChange={(e) => setForm({ ...form, material_composition: e.target.value })} /></div>
+            <div><Label>Pay Mode</Label><Input uppercase value={form.pay_mode} onChange={(e) => setForm({ ...form, pay_mode: e.target.value })} /></div>
+            <div><Label>Material Composition</Label><Input uppercase value={form.material_composition} onChange={(e) => setForm({ ...form, material_composition: e.target.value })} /></div>
           </DetailSection>
           <DetailSection label="Certifications">
             {certOptions.length > 0 ? (

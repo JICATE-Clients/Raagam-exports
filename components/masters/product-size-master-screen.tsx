@@ -15,7 +15,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { createProductSize, updateProductSize, deleteProductSize } from "@/lib/masters/product-size-actions";
@@ -191,20 +191,16 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.prod_size_id}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -344,6 +340,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
                 Size ID <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="ps-id"
                 value={form.prod_size_id}
                 onChange={(e) => set({ prod_size_id: e.target.value })}
@@ -424,6 +421,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
             <div>
               <Label htmlFor="ps-cut">Cut Size</Label>
               <Input
+                uppercase
                 id="ps-cut"
                 value={form.prod_cut_size}
                 onChange={(e) => set({ prod_cut_size: e.target.value })}

@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -147,8 +148,8 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
     });
   }
 
+  /* No `confirm()` here — <RowActions> asks in the row itself (LAYOUT.md §6a). */
   function remove(s: StyleRegisterRow) {
-    if (!window.confirm(`Delete style "${s.name}"? This cannot be undone.`)) return;
     start(async () => {
       const res = await deleteStyle(s.id);
       if (res.ok) {
@@ -173,24 +174,16 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
     { header: "Sample Qty", align: "right", cell: (s) => (s.sample_qty != null ? <span className="tabular-nums">{fmtNumber(s.sample_qty)}</span> : dash) },
     { header: "Unit", cell: (s) => s.unit_code ?? dash },
     { header: "Action", cell: (s) => s.action ?? dash },
-    {
-      header: "",
-      align: "right",
-      cell: (s) => (
-        <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-          {perms.canEdit && (
-            <Button variant="outline" size="sm" onClick={() => openEdit(s)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button variant="outline" size="sm" onClick={() => remove(s)} disabled={isPending}>
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((s) => (
+      <RowActions
+        label={s.name}
+        onEdit={() => openEdit(s)}
+        onDelete={() => remove(s)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>

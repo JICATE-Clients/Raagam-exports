@@ -95,8 +95,11 @@ export interface ContractReviewStyle {
 }
 
 // Zod input schemas
-export const RECEIPT_MODES = ["email", "phone", "fax", "courier", "direct"] as const;
-export const SHIP_MODES = ["air", "sea", "road"] as const;
+// CAPS like every other field value (client 2026-07-23); pinned by the CHECK
+// constraints on order_bookings in migration 0368, so this must not drift from
+// the DB. Same sets as lib/sales/types.ts — casing changed, membership did not.
+export const RECEIPT_MODES = ["EMAIL", "PHONE", "FAX", "COURIER", "DIRECT"] as const;
+export const SHIP_MODES = ["AIR", "SEA", "ROAD"] as const;
 export const APPROVAL_STATUSES = ["pending", "approved", "rejected", "revision"] as const;
 
 export const orderBookingInput = z.object({

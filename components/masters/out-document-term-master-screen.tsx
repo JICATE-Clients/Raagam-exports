@@ -10,7 +10,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { LookupDialogPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
@@ -29,7 +29,8 @@ import {
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin?: boolean; canExport?: boolean };
 type ProcessOption = { id: string; name: string };
@@ -171,7 +172,7 @@ export function OutDocumentTermMasterScreen({
 
   const columns: Column<OutDocumentTerm>[] = [
     { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.entry_date}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.entry_date)}</span> },
     { header: "Type", cell: (r) => <span className="text-sm">{r.type ?? "—"}</span> },
     {
       header: "Process",
@@ -194,20 +195,16 @@ export function OutDocumentTermMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.lines.length}</span>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={String(r.entry_no)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -308,7 +305,7 @@ export function OutDocumentTermMasterScreen({
                     Entry #{r.entry_no} · {r.type ?? "—"}
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
-                    {r.entry_date}
+                    {fmtDate(r.entry_date)}
                     {r.process_id ? ` · ${processLabel.get(r.process_id) ?? ""}` : ""}
                   </div>
                 </div>

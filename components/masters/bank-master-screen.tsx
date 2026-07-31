@@ -2,26 +2,27 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
-import { SectionGrid, SectionColumn } from "@/components/masters/section-grid";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { Combobox } from "@/components/ui/combobox";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
-import { RowActions } from "@/components/masters/row-actions";
+import { RecordViewSheet, ViewPairs, type ViewPair } from "@/components/masters/record-view-sheet";
 import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/contact-fields";
+import { effectiveWhatsApp, isWhatsAppSameAsMobile } from "@/lib/validation/contact";
 import { useFormDraft } from "@/lib/use-form-draft";
 import { createBank, updateBank, deleteBank } from "@/lib/masters/bank-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
-import { BANK_TYPES, type Bank, type BankInput, type BankType } from "@/lib/masters/bank-types";
+import { BANK_TYPES, type Bank, type BankBranch, type BankInput, type BankType } from "@/lib/masters/bank-types";
 import type { Country } from "@/lib/masters/country-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -63,6 +64,44 @@ const blankBranch = (key: string): BranchRow => ({
 });
 
 /**
+ * The one column whose LABEL depends on the header: `swift_rtgs_code` dual-holds
+ * a SWIFT code (Foreign) and an RTGS/NIFT one (Local). Module-level so the
+ * editor's branch card and the read-only view cannot label the same digits
+ * differently — "Swift Code" on a local bank would simply be wrong.
+ */
+function codeLabelFor(t: BankType | null): string {
+  return t === "Local" ? "RTGS/NIFT Code" : "Swift Code";
+}
+
+/**
+ * WHERE — CODE for one branch, so a collapsed card (or a line in the view sheet)
+ * says which branch it is without being read in full. Place falls back down
+ * country → state → city because a branch is keyed by its town in conversation
+ * ("the Chennai one"); the code falls back to SWIFT because a Foreign bank has
+ * no IFSC. Returns "" when the row is blank — the caller decides what to say.
+ *
+ * Takes the nullable shape so the stored `BankBranch` and the editor's
+ * all-strings `BranchRow` can both be passed.
+ */
+function branchSummary(
+  b: {
+    country_id: string | null;
+    state: string | null;
+    city: string | null;
+    ifs_code: string | null;
+    swift_rtgs_code: string | null;
+  },
+  countryLabel: Map<string, string>,
+): string {
+  const place =
+    (b.city ?? "").trim() ||
+    (b.state ?? "").trim() ||
+    (b.country_id ? countryLabel.get(b.country_id) ?? "" : "");
+  const code = (b.ifs_code ?? "").trim() || (b.swift_rtgs_code ?? "").trim();
+  return [place, code].filter(Boolean).join(" — ");
+}
+
+/**
  * Master-detail CRUD for the legacy "Bank" master: header (Code · Foreign/Local ·
  * Name · Inactive) + a "Bank Detail" branch grid. The single code column reads
  * "Swift Code" for Foreign banks and "RTGS/NIFT Code" for Local ones.
@@ -83,11 +122,13 @@ export function BankMasterScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
   const [branches, setBranches] = useState<BranchRow[]>([]);
+  // The record being LOOKED at, as opposed to edited. Null = closed.
+  const [viewRow, setViewRow] = useState<Bank | null>(null);
   const keySeq = useRef(0);
   const newKey = () => `b${keySeq.current++}`;
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
-  const codeLabel = form.bank_type === "Local" ? "RTGS/NIFT Code" : "Swift Code";
+  const codeLabel = codeLabelFor(form.bank_type);
 
   // Autosave the in-progress form to localStorage; offer to restore it if the
   // editor is re-opened after an accidental close/refresh (checklist Auto Save).
@@ -108,6 +149,32 @@ export function BankMasterScreen({
   }, [countries]);
 
   const isdOf = useIsdLookup(countries);
+
+  /**
+   * One stored branch as label→value rows for the view sheet. The country is
+   * folded into the address line rather than given a row of its own — a reader
+   * scanning branches wants one place, not five fragments — and every FK is
+   * resolved through `countryLabel`, the same map the editor's Combobox uses.
+   */
+  function branchPairs(bank: Bank, b: BankBranch): ViewPair[] {
+    const address = [b.street, b.city, b.state, b.pin, b.country_id ? countryLabel.get(b.country_id) : null]
+      .map((v) => (v ?? "").trim())
+      .filter(Boolean)
+      .join(", ");
+    return [
+      ["Address", address],
+      ["Land Line", b.land_line],
+      ["Mobile", b.mobile],
+      // NULL = "same as mobile" (lib/validation/contact), and the Mobile row
+      // directly above already shows that number — so only an explicitly
+      // DIFFERENT WhatsApp number earns a row.
+      ["WhatsApp", isWhatsAppSameAsMobile(b) ? null : effectiveWhatsApp(b)],
+      ["E-Mail", b.email],
+      [codeLabelFor(bank.bank_type), b.swift_rtgs_code],
+      ["IFS Code", b.ifs_code],
+      ["Current Acc No", b.current_acc_no],
+    ];
+  }
 
   function openAdd() {
     setEditId(null);
@@ -244,22 +311,26 @@ export function BankMasterScreen({
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex items-center justify-end gap-1">
-          {perms.canEdit && (
-            <RowActions
-              onEdit={() => openEdit(r)}
-              onDuplicate={perms.canCreate ? () => openDuplicate(r) : undefined}
-            />
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
+
+  /**
+   * Hold off the silent PWA auto-reload while there is work to lose
+   * (AGENTS.md, STANDING).
+   *
+   * Bank deliberately has NO `pristine` snapshot of its own: `useFormDraft`
+   * already holds exactly that — a JSON snapshot of `{ form, branches }` taken
+   * when the editor opened, recompared on every render — and exposes it as
+   * `isDirty`. A second copy here would be duplicate state that can only drift
+   * from the one driving the autosave.
+   *
+   * The call is still needed on top of that hook. `useFormDraft` registers
+   * `isDirty` alone, and `Sheet` registers only the OPEN OVERLAY — neither
+   * covers `isPending`, and a reload landing mid-server-action loses the
+   * success toast and leaves the user unsure whether the save committed. The
+   * guard is a counter, so the overlapping registration is harmless.
+   */
+  const dirty = draft.isDirty;
+  useUnsavedGuard(dirty || isPending);
 
   return (
     <div className="space-y-4">
@@ -273,6 +344,17 @@ export function BankMasterScreen({
         addLabel="+ Add Bank"
         onAdd={openAdd}
         columns={columns}
+        actions={{
+          onView: setViewRow,
+          onEdit: openEdit,
+          onDelete: remove,
+          // Duplicate lives behind the ⋮ — it is a create, not row CRUD, and it
+          // is the only master that offers one.
+          menu: (r) =>
+            perms.canCreate && perms.canEdit
+              ? [{ label: "Duplicate", icon: Copy, onClick: () => openDuplicate(r) }]
+              : [],
+        }}
         empty="No bank records yet."
         mobile={{
           title: (r) => r.name,
@@ -305,192 +387,301 @@ export function BankMasterScreen({
           </>
         }
       >
-        {/* Header LEFT, the Bank Detail branch grid RIGHT — a meaningful split,
-            so SectionColumns rather than auto-placement (LAYOUT.md §1). */}
-        <SectionGrid>
-          <SectionColumn>
-            {draft.hasDraft && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-info bg-info-soft px-3 py-2 text-sm text-info">
-                <span>Unsaved changes from an earlier session were found.</span>
-                <span className="flex gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={draft.restore}>
-                    Restore
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={draft.discard}>
-                    Discard
-                  </Button>
-                </span>
-              </div>
-            )}
-            <DetailSection label="Details" cols={12}>
-              <Field label="Code" size="sm" htmlFor="bk-code">
-                <Input
-                  id="bk-code"
-                  value={form.code}
-                  onChange={(e) => set({ code: e.target.value })}
-                />
-              </Field>
-              <Field label="Name" size="lg" required htmlFor="bk-name">
-                <Input
-                  id="bk-name"
-                  uppercase
-                  value={form.name}
-                  onChange={(e) => set({ name: e.target.value })}
-                  required
-                />
-              </Field>
-              {/* A radio set is one field with several controls; the inline gap
-                  is intra-control spacing, not page layout. `h-8` matches the
-                  compact control height so it sits on the same baseline. */}
-              <Field label="Type" size="md">
-                <div className="flex h-8 items-center gap-4">
-                  {BANK_TYPES.map((t) => (
-                    <label key={t} className="flex cursor-pointer items-center gap-1.5">
-                      <input
-                        type="radio"
-                        name="bank_type"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.bank_type === t}
-                        onChange={() => set({ bank_type: t })}
-                      />
-                      <span className="text-sm text-foreground">{t}</span>
-                    </label>
-                  ))}
-                </div>
-              </Field>
-              {editId && (
-                <Field size="md">
-                  <label className="flex h-8 cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.inactive}
-                      onChange={(e) => set({ inactive: e.target.checked })}
-                    />
-                    <span className="text-sm text-foreground">Inactive</span>
-                  </label>
-                </Field>
-              )}
-            </DetailSection>
-          </SectionColumn>
+        {/* Single column, header ABOVE the branches — BOTH visible at once, on
+            purpose.
 
-          <SectionColumn>
-            {/* Twelve fields per branch — well past the ~5 a row can hold, so
-                stacked cards with a FieldGrid inside (LAYOUT.md §6). The fields
-                were labelled by PLACEHOLDER, which disappears the moment anyone
-                types; they carry real labels now. Replaces a hand-rolled list
-                with its own header band, `#` column, remove button and a
-                `max-h-96` scroller. */}
-            <ChildGrid<BranchRow>
-              label="Bank Detail"
-              rows={branches}
-              onAdd={addBranch}
-              onRemove={(b) => removeBranch(b.key)}
-              addLabel="+ Add branch"
-              forceCards
-              pageSize={3}
-              // `forceCards` + `renderMobileRow` mean these never render; they
-              // are the fallback if this grid is ever switched back to a table.
-              columns={[
-                { header: "City", cell: (b) => b.city },
-                { header: "IFS Code", cell: (b) => b.ifs_code },
-              ]}
-              renderMobileRow={(b) => (
-                <FieldGrid>
-                  <Field label="Country" size="lg">
-                    <Combobox
-                      options={countries.map((c) => ({
-                        value: c.id,
-                        label: countryLabel.get(c.id) ?? c.name,
-                      }))}
-                      value={b.country_id}
-                      onChange={(v) => setBranchAt(b.key, { country_id: v })}
-                      placeholder="— Select —"
-                      clearable
+            This screen was converted to the `MasterFullScreen` section rail and
+            converted straight back (client 2026-07-29). Two reasons, and the
+            second is the one that decided it:
+
+            - There is nothing here to navigate to. Details is ONE row; a rail
+              whose whole job is navigation had two destinations, one of them
+              ~90px tall.
+            - `codeLabel` below is derived from `form.bank_type`, so the
+              Foreign/Local radio in Details RENAMES a column in the branch grid
+              ("Swift Code" ↔ "RTGS/NIFT Code"). A rail puts those two on
+              different screens: you flip the radio and cannot see what it did.
+              That coupling is particular to bank — it is why bank came off the
+              list of five and the other four stayed on it.
+
+            It was also a SectionGrid once, with Details LEFT and Bank Detail
+            RIGHT — but Details holds three fields, so the left half sat empty
+            for the whole height of the branch panel while the panel itself was
+            squeezed to ~570px. That is below `@lg/section` once the card's own
+            padding is taken off, so the twelve branch spans silently stopped
+            applying and every field stacked one per row. Stacking the two
+            sections gives the branch cards the full 1180px, which is what lets
+            four fields share a row. Same call, same reason, as
+            material-attribute-master-screen. */}
+        <div className="space-y-3">
+          {draft.hasDraft && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-info bg-info-soft px-3 py-2 text-sm text-info">
+              <span>Unsaved changes from an earlier session were found.</span>
+              <span className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={draft.restore}>
+                  Restore
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={draft.discard}>
+                  Discard
+                </Button>
+              </span>
+            </div>
+          )}
+          {/* 3 + 6 + 3 = 12, one flush row. It was sm + lg + md = 13, which
+              overflowed the track and wrapped Type onto a line of its own. */}
+          <DetailSection label="Details" cols={12}>
+            <Field label="Code" size="sm" htmlFor="bk-code">
+              <Input
+                uppercase
+                id="bk-code"
+                value={form.code}
+                onChange={(e) => set({ code: e.target.value })}
+              />
+            </Field>
+            <Field label="Name" size="lg" required htmlFor="bk-name">
+              <Input
+                id="bk-name"
+                uppercase
+                value={form.name}
+                onChange={(e) => set({ name: e.target.value })}
+                required
+              />
+            </Field>
+            {/* A radio set is one field with several controls; the inline gap
+                is intra-control spacing, not page layout. `h-8` matches the
+                compact control height so it sits on the same baseline. */}
+            <Field label="Type" size="sm">
+              <div className="flex h-8 items-center gap-4">
+                {BANK_TYPES.map((t) => (
+                  <label key={t} className="flex cursor-pointer items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="bank_type"
+                      className="h-4 w-4 cursor-pointer accent-primary"
+                      checked={form.bank_type === t}
+                      onChange={() => set({ bank_type: t })}
                     />
-                  </Field>
-                  <Field label="State" size="md">
-                    <Input
-                      value={b.state}
-                      onChange={(e) => setBranchAt(b.key, { state: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="City" size="md">
-                    <Input
-                      value={b.city}
-                      onChange={(e) => setBranchAt(b.key, { city: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Pin" size="sm">
-                    <ValidatedInput
-                      format="pincode"
-                      value={b.pin}
-                      onChange={(e) => setBranchAt(b.key, { pin: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Street" size="full">
-                    <Input
-                      value={b.street}
-                      onChange={(e) => setBranchAt(b.key, { street: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Land Line" size="md">
-                    <Input
-                      value={b.land_line}
-                      onChange={(e) => setBranchAt(b.key, { land_line: e.target.value })}
-                    />
-                  </Field>
-                  {/* Both render their own labels, so the Field carries none. */}
-                  <Field size="md">
-                    <MobileField
-                      id={`bk-${b.key}-mobile`}
-                      value={b.mobile}
-                      onChange={(v) => setBranchAt(b.key, { mobile: v })}
-                    />
-                  </Field>
-                  {/* Full width: the "Same as mobile" tick needs a line of its own. */}
-                  <Field size="full">
-                    <WhatsAppField
-                      id={`bk-${b.key}-whatsapp`}
-                      value={b.whatsapp}
-                      mobile={b.mobile}
-                      isdCode={isdOf.get(b.country_id) ?? null}
-                      onChange={(v) => setBranchAt(b.key, { whatsapp: v })}
-                    />
-                  </Field>
-                  <Field label="E-Mail" size="lg">
-                    <ValidatedInput
-                      format="email"
-                      value={b.email}
-                      onChange={(e) => setBranchAt(b.key, { email: e.target.value })}
-                    />
-                  </Field>
-                  <Field label={codeLabel} size="sm">
-                    <Input
-                      value={b.swift_rtgs_code}
-                      onChange={(e) => setBranchAt(b.key, { swift_rtgs_code: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="IFS Code" size="sm">
-                    <ValidatedInput
-                      format="ifsc"
-                      value={b.ifs_code}
-                      onChange={(e) => setBranchAt(b.key, { ifs_code: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Current Acc No" size="md">
-                    <ValidatedInput
-                      format="account"
-                      value={b.current_acc_no}
-                      onChange={(e) => setBranchAt(b.key, { current_acc_no: e.target.value })}
-                    />
-                  </Field>
-                </FieldGrid>
-              )}
-            />
-          </SectionColumn>
-        </SectionGrid>
+                    <span className="text-sm text-foreground">{t}</span>
+                  </label>
+                ))}
+              </div>
+            </Field>
+            {/* Edit only, so it takes a short second row rather than a share of
+                the first — that keeps row 1 identical between New and Edit. */}
+            {editId && (
+              <Field size="sm">
+                <label className="flex h-8 cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    checked={form.inactive}
+                    onChange={(e) => set({ inactive: e.target.checked })}
+                  />
+                  <span className="text-sm text-foreground">Inactive</span>
+                </label>
+              </Field>
+            )}
+          </DetailSection>
+
+          {/* Twelve fields per branch — well past the ~5 a row can hold, so
+              stacked cards with a FieldGrid inside (LAYOUT.md §6). The fields
+              were labelled by PLACEHOLDER, which disappears the moment anyone
+              types; they carry real labels now. Replaces a hand-rolled list
+              with its own header band, `#` column, remove button and a
+              `max-h-96` scroller. */}
+          <ChildGrid<BranchRow>
+            label="Bank Detail"
+            rows={branches}
+            onAdd={addBranch}
+            onRemove={(b) => removeBranch(b.key)}
+            addLabel="+ Add branch"
+            forceCards
+            pageSize={3}
+            // `forceCards` + `renderMobileRow` mean these never render; they
+            // are the fallback if this grid is ever switched back to a table.
+            columns={[
+              { header: "City", cell: (b) => b.city },
+              { header: "IFS Code", cell: (b) => b.ifs_code },
+            ]}
+            // WHERE — CODE (see `branchSummary`, shared with the view sheet so
+            // a branch reads the same collapsed as it does read-only). A
+            // brand-new row has neither and says so rather than rendering an
+            // empty band.
+            rowSummary={(b) => {
+              const summary = branchSummary(b, countryLabel);
+              if (!summary) {
+                return <span className="font-normal text-muted-foreground">New branch</span>;
+              }
+              return summary;
+            }}
+            // Every field is `sm` (3 of 12), so the twelve fall into three
+            // flush rows of FOUR — where / address + phones / email + codes.
+            // Tab follows that reading order; reordering this JSX reorders the
+            // keyboard path, which is the point.
+            renderMobileRow={(b) => (
+              <FieldGrid>
+                {/* Row 1 — where the branch is. 3+3+3+3 = 12 */}
+                <Field label="Country" size="sm">
+                  <Combobox
+                    options={countries.map((c) => ({
+                      value: c.id,
+                      label: countryLabel.get(c.id) ?? c.name,
+                    }))}
+                    value={b.country_id}
+                    onChange={(v) => setBranchAt(b.key, { country_id: v })}
+                    placeholder="— Select —"
+                    clearable
+                  />
+                </Field>
+                <Field label="State" size="sm">
+                  <Input
+                    uppercase
+                    value={b.state}
+                    onChange={(e) => setBranchAt(b.key, { state: e.target.value })}
+                  />
+                </Field>
+                <Field label="City" size="sm">
+                  <Input
+                    uppercase
+                    value={b.city}
+                    onChange={(e) => setBranchAt(b.key, { city: e.target.value })}
+                  />
+                </Field>
+                <Field label="Pin" size="sm">
+                  <ValidatedInput
+                    format="pincode"
+                    value={b.pin}
+                    onChange={(e) => setBranchAt(b.key, { pin: e.target.value })}
+                  />
+                </Field>
+
+                {/* Row 2 — the rest of the address, then the two phones.
+                    Street is `sm` ON PURPOSE, not by oversight. It was `full`
+                    (~570px) when this card lived in a half-width column. Four
+                    across is the standing rule for this card, and the only way
+                    to widen Street is to break it — `lg` here makes the rows go
+                    4/3/3/2 and leaves the last one half empty. Weighed and
+                    declined (client 2026-07-29): ~34 characters shows the
+                    common case and the field still scrolls past it. */}
+                <Field label="Street" size="sm">
+                  <Input
+                    uppercase
+                    value={b.street}
+                    onChange={(e) => setBranchAt(b.key, { street: e.target.value })}
+                  />
+                </Field>
+                <Field label="Land Line" size="sm">
+                  <Input
+                    value={b.land_line}
+                    onChange={(e) => setBranchAt(b.key, { land_line: e.target.value })}
+                  />
+                </Field>
+                {/* Both render their own labels, so the Field carries none.
+                    WhatsApp's "Same as mobile" tick sits BELOW its input, so
+                    this cell is ~18px taller and the row grows to match — that
+                    is the grid stretching, not a bug to align away. */}
+                <Field size="sm">
+                  <MobileField
+                    id={`bk-${b.key}-mobile`}
+                    value={b.mobile}
+                    onChange={(v) => setBranchAt(b.key, { mobile: v })}
+                  />
+                </Field>
+                <Field size="sm">
+                  <WhatsAppField
+                    id={`bk-${b.key}-whatsapp`}
+                    value={b.whatsapp}
+                    mobile={b.mobile}
+                    isdCode={isdOf.get(b.country_id) ?? null}
+                    onChange={(v) => setBranchAt(b.key, { whatsapp: v })}
+                  />
+                </Field>
+
+                {/* Row 3 — email and the three bank codes. */}
+                <Field label="E-Mail" size="sm">
+                  <ValidatedInput
+                    format="email"
+                    value={b.email}
+                    onChange={(e) => setBranchAt(b.key, { email: e.target.value })}
+                  />
+                </Field>
+                <Field label={codeLabel} size="sm">
+                  <Input
+                    uppercase
+                    value={b.swift_rtgs_code}
+                    onChange={(e) => setBranchAt(b.key, { swift_rtgs_code: e.target.value })}
+                  />
+                </Field>
+                <Field label="IFS Code" size="sm">
+                  <ValidatedInput
+                    format="ifsc"
+                    value={b.ifs_code}
+                    onChange={(e) => setBranchAt(b.key, { ifs_code: e.target.value })}
+                  />
+                </Field>
+                <Field label="Current Acc No" size="sm">
+                  <ValidatedInput
+                    format="account"
+                    value={b.current_acc_no}
+                    onChange={(e) => setBranchAt(b.key, { current_acc_no: e.target.value })}
+                  />
+                </Field>
+              </FieldGrid>
+            )}
+          />
+        </div>
       </Sheet>
+
+      {/* Read-only view — the same record, nothing editable, Edit in the footer
+          hands off to the editor above. Renders straight off the list row; a
+          bank arrives with its branches already attached, so nothing is
+          fetched here. */}
+      {viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          title={viewRow.name}
+          subtitle={viewRow.code}
+          status={
+            <StatusPill tone={viewRow.inactive ? "danger" : "success"}>
+              {viewRow.inactive ? "Inactive" : "Active"}
+            </StatusPill>
+          }
+          sections={[
+            {
+              label: "Details",
+              pairs: [
+                ["Type", viewRow.bank_type],
+                ["Branches", viewRow.branches.length],
+              ],
+            },
+            {
+              label: "Bank Detail",
+              // `content`, not `pairs`: a branch is twelve fields, and the
+              // reader's first question is WHICH branch — so each one leads
+              // with the same "place — code" line the editor's collapsed card
+              // shows, then lists what it holds. An empty list is worth saying
+              // out loud here: a bank with no branch has no account number and
+              // cannot be paid.
+              content:
+                viewRow.branches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No branches recorded.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {viewRow.branches.map((b) => (
+                      <div key={b.id} className="space-y-1.5 rounded-md border border-border p-2">
+                        <div className="text-sm font-medium text-foreground">
+                          {branchSummary(b, countryLabel) || `Branch ${b.sno}`}
+                        </div>
+                        <ViewPairs pairs={branchPairs(viewRow, b)} />
+                      </div>
+                    ))}
+                  </div>
+                ),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

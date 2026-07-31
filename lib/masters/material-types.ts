@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { nullableFormat, HSN_RE } from "@/lib/validation/formats";
+import { nullableFormat, HSN_RE, capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
 // Material — the rich master over `items` (0226). Header (Item Class + HSN) +
@@ -268,7 +268,7 @@ export const materialInput = z.object({
    *  (client 2026-07-23: don't ask users for a code). Edit passes the existing
    *  code through unchanged. */
   code: z.string().optional().default(""),
-  name: z.string().optional().nullable(), // falls back to code
+  name: capsTextNullable(), // falls back to code
   is_active: z.boolean().default(true),
   item_class_id: uuidN,
   hsn_code: nullableFormat(HSN_RE, "HSN/SAC must be 4, 6 or 8 digits"),

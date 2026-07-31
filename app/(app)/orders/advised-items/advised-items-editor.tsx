@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber } from "@/lib/format";
 
@@ -162,21 +163,12 @@ export function AdvisedItemsEditor({
     },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (i: OrderAdvisedItem) => (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleDelete(i.id)}
-                disabled={isPending}
-                className="h-7 px-2 text-xs text-danger hover:opacity-80"
-              >
-                Delete
-              </Button>
-            ),
-          } satisfies Column<OrderAdvisedItem>,
+          rowActionsColumn<OrderAdvisedItem>((i) => (
+            <RowActions
+              onDelete={() => handleDelete(i.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

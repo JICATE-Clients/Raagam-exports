@@ -13,13 +13,14 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   createWarpLengthAllowance,
   updateWarpLengthAllowance,
   deleteWarpLengthAllowance,
 } from "@/lib/masters/grid-master-actions";
 import type { WarpLengthAllowance, WarpLengthAllowanceInput } from "@/lib/masters/grid-master-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -152,18 +153,18 @@ export function WarpLengthAllowanceMasterScreen({
 
   const columns: Column<WarpLengthAllowance>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from}</span> },
+    { header: "Effective From", cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span> },
     { header: "Ranges", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.details.length}</span> },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -218,8 +219,8 @@ export function WarpLengthAllowanceMasterScreen({
           <div className="rounded-lg border border-border sm:col-span-2">
             <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Ranges</div>
             <div className="space-y-3 p-3">
-              {/* row area capped with internal scroll — Add button stays pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-lg border border-border/50 bg-surface-muted/30 p-3">
                   <div className="flex items-center gap-2">

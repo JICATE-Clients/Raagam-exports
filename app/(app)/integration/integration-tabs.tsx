@@ -27,9 +27,13 @@ const approvalColumns: Column<ApprovalItem>[] = [
   },
   { header: "Date", cell: (r) => fmtDate(r.created_at) },
   {
-    header: "",
+    /* Navigation, not the read-only view sheet — this leaves the page for the
+       record's own screen, so it is a labelled link column rather than the
+       action cell <RowActions> owns (LAYOUT.md §6a). `text-primary` replaces a
+       hard-coded text-blue-600 that never adapted to dark mode. */
+    header: "Open",
     cell: (r) => (
-      <Link href={r.href} className="text-blue-600 hover:underline text-sm">
+      <Link href={r.href} className="text-sm text-primary hover:underline">
         View
       </Link>
     ),
@@ -52,9 +56,13 @@ const crisisColumns: Column<CrisisItem>[] = [
   { header: "Reference", cell: (r) => r.reference },
   { header: "Date", cell: (r) => fmtDate(r.date) },
   {
-    header: "",
+    /* Navigation, not the read-only view sheet — this leaves the page for the
+       record's own screen, so it is a labelled link column rather than the
+       action cell <RowActions> owns (LAYOUT.md §6a). `text-primary` replaces a
+       hard-coded text-blue-600 that never adapted to dark mode. */
+    header: "Open",
     cell: (r) => (
-      <Link href={r.href} className="text-blue-600 hover:underline text-sm">
+      <Link href={r.href} className="text-sm text-primary hover:underline">
         View
       </Link>
     ),

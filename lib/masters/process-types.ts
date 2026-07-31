@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsName } from "@/lib/validation/formats";
 
 // ============================================================================
 // Processes — master-detail (0227). Legacy EDP2 "Process" form: a header (name,
@@ -47,7 +48,7 @@ export const processSubCategoryInput = z.object({
   hsn_code: z.string().optional().nullable(),
 });
 export const processInput = z.object({
-  name: z.string().min(1, "Process name is required"),
+  name: capsName("Process name is required"),
   short_description: z.string().optional().nullable(),
   commodity_id: z.string().uuid().nullable().default(null),
   billing_on: z.enum(BILLING_ON).nullable().default(null),

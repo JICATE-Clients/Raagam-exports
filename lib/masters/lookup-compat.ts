@@ -13,6 +13,7 @@ import type { EmployeeCategory } from "./employee-category-types";
 import type { PaymentTerm } from "./payment-term-types";
 import type { State } from "./state-types";
 import type { HsnDetail } from "./hsn-detail-types";
+import type { Category } from "./category-types";
 
 export function departmentsAsLookups(rows: Department[]): ConfigLookup[] {
   return rows.map((d) => ({
@@ -72,6 +73,34 @@ export function statesAsLookups(rows: State[]): ConfigLookup[] {
     kind: "state" as const,
     code: d.code ?? null,
     name: d.name,
+    notes: null,
+    is_active: !d.inactive,
+    created_at: d.created_at,
+    updated_at: d.updated_at,
+  }));
+}
+
+/**
+ * Categories for a picker that consumes `ConfigLookup[]`.
+ *
+ * Caller must scope by item class FIRST — a category only means anything inside
+ * one. Customer ▸ Supplied Items was reading `config_lookups` where kind =
+ * 'material_category', which holds the two GROUP names ("Sewing Accessory",
+ * "Packing Accessory") rather than the categories inside them, so both of its
+ * cards offered the same two wrong values (client 2026-07-29, 0356).
+ *
+ * `kind: "material_category"` is kept on the output only because that is the
+ * discriminator the picker components read; the rows are `categories`, and the
+ * ids are `categories.id`. Any picker fed from this must therefore run with
+ * `canCreate`/`canEdit` OFF — its inline Add/Modify writes to `config_lookups`,
+ * which is now the wrong table for these values.
+ */
+export function categoriesAsLookups(rows: Category[]): ConfigLookup[] {
+  return rows.map((d) => ({
+    id: d.id,
+    kind: "material_category" as const,
+    code: d.short_name ?? null,
+    name: d.name ?? d.short_name ?? "—",
     notes: null,
     is_active: !d.inactive,
     created_at: d.created_at,

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -140,30 +141,16 @@ export function DestinationMasterScreen({
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => remove(r)}
-            >
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -237,9 +224,14 @@ export function DestinationMasterScreen({
           </>
         }
       >
-        {/* Two fields plus a flag — one flat section (LAYOUT.md §4). */}
+        {/* Two fields plus a flag — one flat section (LAYOUT.md §4), all on one
+            row: 3 + 3 + 3 = 9. Every field is the same `sm` box as everywhere
+            else in the masters, small form or not — the client asked for one
+            width across the whole module rather than each field sized to its
+            data (client 2026-07-29). The flag was `full`, which put a single
+            tick on a 12-col row of its own. */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Name" size="lg" required htmlFor="de-name">
+          <Field label="Name" size="sm" required htmlFor="de-name">
             <Input
               id="de-name"
               uppercase
@@ -249,7 +241,7 @@ export function DestinationMasterScreen({
             {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
           </Field>
           {/* CountryPicker renders its own label — see the note on port. */}
-          <Field size="md">
+          <Field size="sm">
             <CountryPicker
               countries={countries}
               value={form.country_id || null}
@@ -259,7 +251,7 @@ export function DestinationMasterScreen({
             />
           </Field>
           {editId && (
-            <Field size="full">
+            <Field size="sm">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

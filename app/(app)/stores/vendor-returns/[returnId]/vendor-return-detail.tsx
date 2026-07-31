@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -78,13 +79,13 @@ export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDe
     { header: "Replacement qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.replacement_qty)}</span> },
     ...(canEdit && editable
       ? [
-          {
-            header: "",
-            cell: (r: VendorReturnLine) => (
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger"
-                disabled={isPending} onClick={() => run(() => deleteVrtLine(r.id, docId), "Removed")}>Remove</Button>
-            ),
-          } satisfies Column<VendorReturnLine>,
+          rowActionsColumn<VendorReturnLine>((r) => (
+            <RowActions
+              onDelete={() => run(() => deleteVrtLine(r.id, docId), "Removed")}
+              deleteLabel="Remove"
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

@@ -17,7 +17,7 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   createPackingInstruction,
   updatePackingInstruction,
@@ -154,20 +154,16 @@ export function PackingInstructionMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.packing_no}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -285,6 +281,7 @@ export function PackingInstructionMasterScreen({
                 Packing Type <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="pi-type"
                 value={form.packing_type}
                 onChange={(e) => setForm({ ...form, packing_type: e.target.value })}
@@ -308,6 +305,7 @@ export function PackingInstructionMasterScreen({
             <div>
               <Label htmlFor="pi-ref">Reference</Label>
               <Input
+                uppercase
                 id="pi-ref"
                 value={form.reference}
                 onChange={(e) => setForm({ ...form, reference: e.target.value })}

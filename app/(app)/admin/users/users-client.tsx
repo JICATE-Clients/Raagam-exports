@@ -369,17 +369,20 @@ export default function UsersClient({
       ),
     },
     {
-      header: "",
+      /* Not row CRUD — opens the per-user roles/locations panel below the table
+         (LAYOUT.md §6a). */
+      header: "Manage",
       align: "right",
       cell: (r) => (
         <Button
           variant="ghost"
           size="sm"
+          aria-expanded={managingUserId === r.id}
           onClick={() =>
             setManagingUserId(managingUserId === r.id ? null : r.id)
           }
         >
-          Manage
+          {managingUserId === r.id ? "Close" : "Manage"}
         </Button>
       ),
     },

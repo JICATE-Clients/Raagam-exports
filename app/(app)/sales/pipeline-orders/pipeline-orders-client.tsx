@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -94,14 +95,52 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
     { header: "Category", cell: (r) => r.order_category ?? "—" },
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    /*
+     * Confirm is a WORKFLOW step, not row CRUD, so it keeps its own labelled
+     * column rather than hiding in the action cell's ⋮ — it is the whole point
+     * of this screen and a labelled column reads better than a bare button
+     * anyway (LAYOUT.md §6a).
+     */
     {
-      header: "", align: "right", cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {r.status === "draft" && <Button variant="ghost" size="sm" onClick={() => startTransition(async () => { const res = await confirmPipelineOrder(r.id); if (res.ok) { success("Confirmed."); router.refresh(); } else error(res.error); })} disabled={isPending}>Confirm</Button>}
-          {r.status === "draft" && <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deletePipelineOrder(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button>}
-        </div>
-      ),
+      header: "Confirm",
+      align: "right",
+      cell: (r) =>
+        r.status === "draft" ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isPending}
+            onClick={() =>
+              startTransition(async () => {
+                const res = await confirmPipelineOrder(r.id);
+                if (res.ok) {
+                  success("Confirmed.");
+                  router.refresh();
+                } else error(res.error);
+              })
+            }
+          >
+            Confirm
+          </Button>
+        ) : null,
     },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() =>
+          startTransition(async () => {
+            const res = await deletePipelineOrder(r.id);
+            if (res.ok) {
+              success("Deleted.");
+              router.refresh();
+            } else error(res.error);
+          })
+        }
+        /* Once confirmed the order is downstream history. */
+        canDelete={r.status === "draft"}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -203,11 +242,22 @@ function SeasonalTab({ rows }: { rows: SeasonalOrder[] }) {
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
     { header: "Order No", cell: (r) => r.order_no ?? "—" },
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
-    {
-      header: "", align: "right", cell: (r) => r.status === "draft" ? (
-        <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deleteSeasonalOrder(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button>
-      ) : null,
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.order_no}
+        onDelete={() =>
+          startTransition(async () => {
+            const res = await deleteSeasonalOrder(r.id);
+            if (res.ok) {
+              success("Deleted.");
+              router.refresh();
+            } else error(res.error);
+          })
+        }
+        canDelete={r.status === "draft"}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

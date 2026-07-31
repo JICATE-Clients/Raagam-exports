@@ -244,6 +244,7 @@ export function ChildGrid<T extends { key: string }>({
   hideAdd = false,
   inlineCards = false,
   listRows = false,
+  rowSummary,
   startIndex = 0,
 }: {
   label: ReactNode;
@@ -292,6 +293,23 @@ export function ChildGrid<T extends { key: string }>({
    * The row still carries `data-grid-row`, so keyboard nav is unaffected.
    */
   listRows?: boolean;
+  /**
+   * Who this row IS, drawn beside its `#N` in the cards-mode header band.
+   *
+   * A `forceCards` grid paginates identical-looking boxes: with `pageSize={3}`
+   * you page through "#4 #5 #6" and the only way to tell a bank's Chennai
+   * branch from its Coimbatore one is to read the fields. The band already
+   * exists and is mostly empty, so the identity costs no extra height.
+   *
+   * Return a plain string for the common case; the band styles it. Return your
+   * own element when a row can be blank — a new, untouched row has no identity
+   * yet and should say so in muted text rather than render an empty line.
+   *
+   * `listRows` ignores this: there the row draws its own header, summary and
+   * all. Table and `inlineCards` modes ignore it too — both already carry a
+   * per-column header that names the values.
+   */
+  rowSummary?: (row: T, index: number) => ReactNode;
   /** Offset for the displayed "#" numbers — set to the page offset when the
    *  caller paginates `rows`, so numbering stays global (11, 12… on page 2)
    *  instead of restarting at 1 each page. Defaults to 0. */
@@ -499,9 +517,16 @@ export function ChildGrid<T extends { key: string }>({
             )}
           >
             {!listRows && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
-                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+              /* `ml-auto` on the remove button, not `justify-between` on the
+                 row: with a summary between them, space-between would push the
+                 index and the summary to opposite ends of the card instead of
+                 keeping them together as one label. */
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
+                {rowSummary && (
+                  <span className="truncate text-sm font-medium text-foreground">{rowSummary(row, i)}</span>
+                )}
+                <Button type="button" variant="ghost" size="sm" className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
                   <X className="h-4 w-4 shrink-0" />
                 </Button>
               </div>

@@ -18,7 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 
 interface Props {
@@ -76,24 +78,26 @@ export function CostCentresClient({
     },
     ...(canEdit || canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (g: CostCentreGroup) => (
-              <div className="flex justify-end gap-1">
-                {canEdit && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => toggleGroup(g.id, !g.is_active), "Updated")} disabled={isPending} className="h-7 px-2 text-xs">
-                    {g.is_active ? "Deactivate" : "Activate"}
-                  </Button>
-                )}
-                {canDelete && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => deleteGroup(g.id), "Removed")} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                    Delete
-                  </Button>
-                )}
-              </div>
-            ),
-          } satisfies Column<CostCentreGroup>,
+          rowActionsColumn<CostCentreGroup>((g) => (
+            <RowActions
+              onDelete={() => run(() => deleteGroup(g.id), "Removed")}
+              canDelete={canDelete}
+              isPending={isPending}
+            /* Activate/Deactivate is a lifecycle toggle, not row CRUD — it
+               belongs behind the ⋮ rather than competing with Delete. */
+            menu={
+              canEdit
+                ? [
+                    {
+                      label: g.is_active ? "Deactivate" : "Activate",
+                      icon: g.is_active ? Ban : CheckCircle2,
+                      onClick: () => run(() => toggleGroup(g.id, !g.is_active), "Updated"),
+                    },
+                  ]
+                : []
+            }
+            />
+          )),
         ]
       : []),
   ];
@@ -112,24 +116,26 @@ export function CostCentresClient({
     },
     ...(canEdit || canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (c: CostCentreRow) => (
-              <div className="flex justify-end gap-1">
-                {canEdit && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => toggleCentre(c.id, !c.is_active), "Updated")} disabled={isPending} className="h-7 px-2 text-xs">
-                    {c.is_active ? "Deactivate" : "Activate"}
-                  </Button>
-                )}
-                {canDelete && (
-                  <Button size="sm" variant="ghost" onClick={() => run(() => deleteCentre(c.id), "Removed")} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                    Delete
-                  </Button>
-                )}
-              </div>
-            ),
-          } satisfies Column<CostCentreRow>,
+          rowActionsColumn<CostCentreRow>((c) => (
+            <RowActions
+              onDelete={() => run(() => deleteCentre(c.id), "Removed")}
+              canDelete={canDelete}
+              isPending={isPending}
+            /* Activate/Deactivate is a lifecycle toggle, not row CRUD — it
+               belongs behind the ⋮ rather than competing with Delete. */
+            menu={
+              canEdit
+                ? [
+                    {
+                      label: c.is_active ? "Deactivate" : "Activate",
+                      icon: c.is_active ? Ban : CheckCircle2,
+                      onClick: () => run(() => toggleCentre(c.id, !c.is_active), "Updated"),
+                    },
+                  ]
+                : []
+            }
+            />
+          )),
         ]
       : []),
   ];

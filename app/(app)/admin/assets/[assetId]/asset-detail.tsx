@@ -74,7 +74,7 @@ export function AssetDetail({ assetId, status, assignments, itemName, canEdit, c
     { header: "Returned", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.returned_date)}</span> },
     { header: "Status", cell: (r) => <StatusPill tone={r.status === "assigned" ? "info" : "success"}>{r.status === "assigned" ? "Assigned" : "Returned"}</StatusPill> },
     ...(canEdit
-      ? [{ header: "", cell: (r: AssetAssignment) => (
+      ? [{ header: "Return", align: "right" as const, cell: (r: AssetAssignment) => (
           r.status === "assigned" ? (
             <Button size="sm" variant="subtle" className="h-7 px-2 text-xs" disabled={isPending}
               onClick={() => run(() => returnAsset(r.id, assetId), "Returned")}>Return</Button>

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -79,10 +80,11 @@ export function MastersClient({ workTypes, operations, canCreate, canDelete }: P
     { header: "Short", cell: (r) => <span className="text-sm">{r.short_name ?? "—"}</span> },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     ...(canDelete
-      ? [{ header: "", cell: (r: WorkType) => (
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
-            onClick={() => run(() => deleteWorkType(r.id), "Deleted")}>Del</Button>
-        ) } satisfies Column<WorkType>]
+      ? [
+        rowActionsColumn<WorkType>((r) => (
+          <RowActions onDelete={() => run(() => deleteWorkType(r.id), "Deleted")} isPending={isPending} />
+        )),
+      ]
       : []),
   ];
 
@@ -91,10 +93,11 @@ export function MastersClient({ workTypes, operations, canCreate, canDelete }: P
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
     { header: "SMV", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.smv != null ? fmtNumber(r.smv) : "—"}</span> },
     ...(canDelete
-      ? [{ header: "", cell: (r: SewingOperation) => (
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-danger hover:border-danger" disabled={isPending}
-            onClick={() => run(() => deleteSewingOperation(r.id), "Deleted")}>Del</Button>
-        ) } satisfies Column<SewingOperation>]
+      ? [
+        rowActionsColumn<SewingOperation>((r) => (
+          <RowActions onDelete={() => run(() => deleteSewingOperation(r.id), "Deleted")} isPending={isPending} />
+        )),
+      ]
       : []),
   ];
 

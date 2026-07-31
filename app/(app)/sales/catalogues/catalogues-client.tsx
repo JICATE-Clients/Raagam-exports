@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -46,7 +47,21 @@ function CatalogueTab({ rows }: { rows: StyleCatalogue[] }) {
     { header: "Price", align: "right", cell: (r) => <span className="tabular-nums">{r.basic_price != null ? fmtMoney(r.basic_price) : "—"}</span> },
     { header: "HSN", cell: (r) => r.hsn_code ?? "—" },
     { header: "Status", cell: (r) => <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill> },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deleteCatalogue(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button> },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() =>
+          startTransition(async () => {
+            const res = await deleteCatalogue(r.id);
+            if (res.ok) {
+              success("Deleted.");
+              router.refresh();
+            } else error(res.error);
+          })
+        }
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -112,7 +127,21 @@ function PriceListTab({ rows }: { rows: StylePriceList[] }) {
     { header: "Type", cell: (r) => r.style_type ?? "—" },
     { header: "Rate For", cell: (r) => r.rate_for ?? "—" },
     { header: "Status", cell: (r) => <StatusPill tone={r.blocked ? "danger" : "success"}>{r.blocked ? "Blocked" : "Active"}</StatusPill> },
-    { header: "", align: "right", cell: (r) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deletePriceList(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button> },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() =>
+          startTransition(async () => {
+            const res = await deletePriceList(r.id);
+            if (res.ok) {
+              success("Deleted.");
+              router.refresh();
+            } else error(res.error);
+          })
+        }
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -184,7 +213,23 @@ function PiEnquiryTab({ rows }: { rows: PiEnquiryRow[] }) {
     { header: "Reference", cell: (r) => r.customer_reference ?? "—" },
     { header: "Season", cell: (r) => [r.season, r.season_yr].filter(Boolean).join(" ") || "—" },
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
-    { header: "", align: "right", cell: (r) => r.status === "draft" ? <Button variant="ghost" size="sm" className="text-red-600" onClick={() => startTransition(async () => { const res = await deletePiEnquiry(r.id); if (res.ok) { success("Deleted."); router.refresh(); } else error(res.error); })} disabled={isPending}>Delete</Button> : null },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() =>
+          startTransition(async () => {
+            const res = await deletePiEnquiry(r.id);
+            if (res.ok) {
+              success("Deleted.");
+              router.refresh();
+            } else error(res.error);
+          })
+        }
+        /* Only a draft can be withdrawn; a confirmed enquiry is history. */
+        canDelete={r.status === "draft"}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

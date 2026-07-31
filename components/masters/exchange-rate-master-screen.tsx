@@ -12,7 +12,6 @@ import { type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import {
   createExchangeRateEntry,
@@ -27,6 +26,7 @@ import {
   type ExchangeRateRegister,
 } from "@/lib/masters/exchange-rate-types";
 import type { Currency } from "@/lib/masters/types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type LineRow = { key: string; currency_code: string; ex_rate: string };
@@ -169,7 +169,7 @@ export function ExchangeRateMasterScreen({
 
   const columns: Column<ExchangeRateEntry>[] = [
     { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.entry_date}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.entry_date)}</span> },
     { header: "For", cell: (r) => <span className="text-sm">{r.rate_for ?? "—"}</span> },
     {
       header: "Period",
@@ -179,20 +179,6 @@ export function ExchangeRateMasterScreen({
       header: "Currencies",
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm">{r.lines.length}</span>,
-    },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
     },
   ];
 
@@ -209,10 +195,11 @@ export function ExchangeRateMasterScreen({
         addLabel="+ Add Entry"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No exchange-rate entries yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · ${r.rate_for ?? "—"}`,
-          meta: (r) => `${r.entry_date} · ${periodLabel(r)} · ${r.lines.length} currencies`,
+          meta: (r) => `${fmtDate(r.entry_date)} · ${periodLabel(r)} · ${r.lines.length} currencies`,
           onEdit: openEdit,
           onDelete: remove,
         }}
@@ -325,9 +312,9 @@ export function ExchangeRateMasterScreen({
               {lines.length === 0 && (
                 <p className="text-xs text-muted-foreground">No currencies yet.</p>
               )}
-              {/* Row area capped with an internal scroll (ChildGrid maxBodyHeight
-                  rule) — the Add button stays pinned below. */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
+                  no longer exists; the pager replaced it.) */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">

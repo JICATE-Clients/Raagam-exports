@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -108,24 +109,26 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
     { header: "Order Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.order_qty}</span> },
     { header: "SQ Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.sq_qty}</span> },
     { header: "Status", cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? "neutral"}>{r.status}</StatusPill> },
+    /* Confirm is the workflow step this screen exists for — its own labelled
+       column, not a ⋮ item (LAYOUT.md §6a). */
     {
-      header: "",
+      header: "Confirm",
       align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {r.status === "draft" && (
-            <Button variant="ghost" size="sm" onClick={() => confirm(r.id)} disabled={isPending}>
-              Confirm
-            </Button>
-          )}
-          {r.status === "draft" && (
-            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => remove(r.id)} disabled={isPending}>
-              Delete
-            </Button>
-          )}
-        </div>
-      ),
+      cell: (r) =>
+        r.status === "draft" ? (
+          <Button variant="outline" size="sm" onClick={() => confirm(r.id)} disabled={isPending}>
+            Confirm
+          </Button>
+        ) : null,
     },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onDelete={() => remove(r.id)}
+        canDelete={r.status === "draft"}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

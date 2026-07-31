@@ -55,6 +55,16 @@ PRIMITIVES = {
     # The shared picker trigger/clear classes -- the same role input.tsx plays
     # for inputs, so it owns the size and type rules rather than repeating them.
     "components/masters/picker-classes.ts",
+    # Owns the row-action cluster's flex/gap and the action column's fixed width
+    # (LAYOUT.md 6a), so it is the one place those classes are correct.
+    "components/ui/row-actions.tsx",
+    "components/ui/tooltip.tsx",
+    # The mobile two-step delete, and the mobile card that hosts it -- both
+    # legitimately render an action cluster, just not the desktop one.
+    "components/masters/delete-confirm-button.tsx",
+    "components/masters/mobile-card-list.tsx",
+    # The two engines that OWN the desktop cell on behalf of their screens.
+    "components/masters/simple-master-screen.tsx",
 }
 
 # Full-page singleton editors: a settings form that legitimately has no Sheet and
@@ -274,12 +284,168 @@ def check_text_size_noop(path: Path, code: str, slug: str):
         )
 
 
+# Field names whose values are digits, an address or a URL rather than words --
+# LAYOUT.md §11's "digit formats" exemption, expressed as the binding name.
+CONTACT_FIELD = re.compile(
+    r"value=\{[^}]*\b("
+    r"land_?line|mobile|whats_?app|phone|fax|pin|pincode|isd|"
+    r"email|website|url"
+    r")\b",
+    re.I,
+)
+
+
+def _jsx_open_tag(code: str, start: int) -> str:
+    """The full opening tag beginning at `start`, brace-aware.
+
+    A naive `<Input[^>]*` stops at the `>` of an arrow function -- and almost
+    every JSX input has an `onChange={(e) => ...}`, so it would read only the
+    first attribute or two and miss `uppercase` sitting after the handler. Track
+    brace depth and end at the first `>` that is genuinely outside a JSX
+    expression container.
+    """
+    depth = 0
+    for i in range(start, len(code)):
+        c = code[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        elif c == ">" and depth == 0:
+            return code[start : i + 1]
+    return code[start : start + 400]
+
+
+def check_caps_input(path: Path, code: str, slug: str):
+    """Master field values are stored in CAPITALS (client 2026-07-23).
+
+    `<Input uppercase>` is the mechanism: it uppercases the keystroke AND adds a
+    CSS text-transform, so rows saved before the rule still display in caps.
+
+    Scoped to `components/masters/` on purpose. A repo-wide version fires on
+    hundreds of legitimate numeric, date and id fields and gets ignored, which is
+    how the layout contract was ignored by 58 of 60 editors before this script
+    existed. Narrow and believed beats broad and muted.
+
+    An `<Input` is exempt when it declares a `type=` (number / date / password /
+    email are not caps candidates), because free text is the only case the rule
+    is about. `ValidatedInput` is a different tag and never matches -- it owns
+    its own casing via the format's transform.
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    if "components/masters/" not in slug:
+        return
+    for m in re.finditer(r"<Input\b", code):
+        tag = _jsx_open_tag(code, m.start())
+        if "uppercase" in tag or "type=" in tag:
+            continue
+        # A search box is not a field value -- forcing the operator's query to
+        # caps changes nothing about what is stored and everything about how the
+        # toolbar reads. Every master list has one, which is why this exemption
+        # is worth more than the findings it removes.
+        if re.search(r'placeholder="Search', tag, re.I):
+            continue
+        # A derived / auto-generated field the user cannot type into. These
+        # render placeholders like "(auto)" and "#3"; uppercasing turns them
+        # into "(AUTO)", which reads as data rather than as a hint.
+        if re.search(r"\b(readOnly|disabled)\b", tag):
+            continue
+        # Digit / contact formats. LAYOUT.md §11 exempts these because
+        # `uppercase` is a no-op on digits -- adding it would be noise that
+        # reads as a mistake. Matched on the bound field name, which is the
+        # only signal available statically.
+        #
+        # These SHOULD be `ValidatedInput format="…"`, and several still are
+        # not; that is a real gap this check cannot express, because the tag it
+        # would flag is the tag it is told to ignore. Fix them by conversion,
+        # not by adding `uppercase`.
+        if re.search(CONTACT_FIELD, tag):
+            continue
+        yield Finding(
+            "caps-input", path, line_of(code, m.start()),
+            "field value not in CAPS; add `uppercase` to <Input> or give it a type=",
+        )
+
+
+def check_row_actions(path: Path, code: str, slug: str):
+    """LAYOUT.md 6a: no screen writes its own View/Edit/Delete cell.
+
+    131 files declared their own `header: ""` action column and drifted into six
+    incompatible dialects with four different delete confirmations -- inline
+    two-step, `window.confirm`, one-click-no-confirm, and Deactivate-only. Three
+    signals, because the dialects do not look alike:
+
+      1. a hand-declared `header: ""` column   -> use rowActionsColumn/actions
+      2. a ghost Edit/Delete/Del/Deactivate    -> the labels the dialects used
+         button inside a table cell
+      3. `window.confirm`                      -> never the delete confirmation
+
+    Signal 2 deliberately looks for the LABEL, not the handler: `remove(r)` is
+    also called from a Sheet footer, which is fine.
+    """
+    if slug in PRIMITIVES:
+        return
+
+    # A headerless column is not automatically an action column -- a colour
+    # swatch or an expand chevron legitimately has no header. Require something
+    # clickable in the next few lines before calling it one.
+    for m in re.finditer(r'header:\s*""', code):
+        window = code[m.start(): m.start() + 600]
+        if not re.search(r"<Button|onClick=|<RowActions", window):
+            continue
+        yield Finding(
+            "row-actions", path, line_of(code, m.start()),
+            'hand-declared `header: ""` action column; use rowActionsColumn() '
+            "or MasterListShell's `actions` (LAYOUT.md 6a)",
+        )
+
+    # A row action's giveaway is the label sitting in a `cell:` renderer. The
+    # `cell:` lookback matters: the same button in a Sheet footer or on a detail
+    # card is not a row action, and flagging it sends the reader somewhere the
+    # rule does not apply.
+    for m in re.finditer(
+        r'<Button[^>]*?>\s*(Edit|Delete|Del|Deactivate|Activate)\s*</Button>', code, re.S
+    ):
+        if "cell:" not in code[max(0, m.start() - 500): m.start()]:
+            continue
+        yield Finding(
+            "row-actions", path, line_of(code, m.start()),
+            f"`{m.group(1)}` rendered as its own button; row CRUD belongs to "
+            "<RowActions> (LAYOUT.md 6a)",
+        )
+
+    # This flags confirm() only where it is guarding a DELETE, which is the thing
+    # standardised here. Two narrowings, both to keep the finding truthful:
+    #
+    #   * a file declaring its own `confirm` is not calling the browser dialog --
+    #     several workflow screens have a local `function confirm(id)` that
+    #     confirms a RECORD;
+    #   * a confirm() in a file with no delete action is guarding something else
+    #     (a status transition that wins an opportunity, say). That may still be
+    #     worth replacing with an in-app dialog, but it is not this rule's claim.
+    #
+    # reload-guard owns the one confirm() that is correct by design.
+    deletes_something = re.search(r"\bdelete[A-Z]\w*\s*\(", code) is not None
+    if slug != "lib/reload-guard.ts" and deletes_something:
+        shadowed = re.search(r"\b(?:function|const|let)\s+confirm\b", code) is not None
+        pattern = r"\bwindow\.confirm\s*\(" if shadowed else r"\b(?:window\.)?confirm\s*\("
+        for m in re.finditer(pattern, code):
+            yield Finding(
+                "row-actions", path, line_of(code, m.start()),
+                "window.confirm as a delete guard; the app's only delete "
+                "confirmation is the two-step in <RowActions> (LAYOUT.md 6a)",
+            )
+
+
 CHECKS = {
     "screen-grid": check_screen_grid,
     "screen-table": check_screen_table,
     "field-track": check_field_track,
     "editor-clone": check_editor_clone,
     "text-size-noop": check_text_size_noop,
+    "caps-input": check_caps_input,
+    "row-actions": check_row_actions,
 }
 
 

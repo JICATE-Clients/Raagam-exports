@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
 // Compositions — master-detail (0225). Legacy EDP2 "Composition" form: header
@@ -31,7 +32,7 @@ export const compositionLineInput = z.object({
 export const compositionInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
   short_name: z.string().optional().nullable(),
-  name: z.string().optional().nullable(),
+  name: capsTextNullable(),
   inactive: z.boolean().default(false),
   lines: z.array(compositionLineInput).default([]),
 });

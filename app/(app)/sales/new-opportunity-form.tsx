@@ -158,6 +158,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
               <div className="sm:col-span-2 lg:col-span-1">
                 <Label htmlFor="nof-title">Title *</Label>
                 <Input
+                  uppercase
                   id="nof-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -169,6 +170,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
               <div>
                 <Label htmlFor="nof-season">Season (text)</Label>
                 <Input
+                  uppercase
                   id="nof-season"
                   value={season}
                   onChange={(e) => setSeason(e.target.value)}
@@ -209,6 +211,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
               <div>
                 <Label htmlFor="nof-currency">Currency</Label>
                 <Input
+                  uppercase
                   id="nof-currency"
                   value={currencyCode}
                   onChange={(e) => setCurrencyCode(e.target.value)}
@@ -287,6 +290,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
               <div>
                 <Label htmlFor="nof-agent">Agent</Label>
                 <Input
+                  uppercase
                   id="nof-agent"
                   value={agentName}
                   onChange={(e) => setAgentName(e.target.value)}
@@ -297,6 +301,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
               <div>
                 <Label htmlFor="nof-cust-dept">Customer Department</Label>
                 <Input
+                  uppercase
                   id="nof-cust-dept"
                   value={customerDept}
                   onChange={(e) => setCustomerDept(e.target.value)}
@@ -306,6 +311,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
               <div>
                 <Label htmlFor="nof-cust-ref">Customer Reference</Label>
                 <Input
+                  uppercase
                   id="nof-cust-ref"
                   value={customerRef}
                   onChange={(e) => setCustomerRef(e.target.value)}
@@ -345,8 +351,10 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   onChange={(e) => setDeliveryMode(e.target.value)}
                 >
                   <option value="">Select…</option>
+                  {/* Printed as stored — CAPS at rest since migration 0368, so
+                      the old first-letter re-casing is dead weight. */}
                   {DELIVERY_MODES.map((v) => (
-                    <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
+                    <option key={v} value={v}>{v}</option>
                   ))}
                 </Select>
               </div>
@@ -354,6 +362,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
               <div>
                 <Label htmlFor="nof-del-to">Delivery To</Label>
                 <Input
+                  uppercase
                   id="nof-del-to"
                   value={deliveryTo}
                   onChange={(e) => setDeliveryTo(e.target.value)}

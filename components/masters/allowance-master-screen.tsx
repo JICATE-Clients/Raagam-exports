@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { type Column } from "@/components/ui/data-table";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -140,20 +139,6 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -168,6 +153,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
         addLabel="+ Add Allowance"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No allowances yet."
         mobile={{
           title: (r) => r.name,
@@ -313,6 +299,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
                 </label>
                 <div className="min-w-[160px] flex-1">
                   <Input
+                    uppercase
                     value={form.calc_basis}
                     onChange={(e) => set({ calc_basis: e.target.value })}
                     placeholder="Basis…"

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useToast } from "@/components/ui/toast";
 import { fmtMoney } from "@/lib/format";
 import {
@@ -78,7 +79,13 @@ function StyleCostsSummaryTab({ styleCosts, costSheetId, opportunityId, currency
     { header: "CMT", align: "right", cell: (r) => <span className="tabular-nums">{fmtMoney(r.cmt_cost, currency)}</span> },
     { header: "Total", align: "right", cell: (r) => <span className="tabular-nums font-semibold">{fmtMoney(r.expenses_total, currency)}</span> },
     { header: "P/L %", align: "right", cell: (r) => <span className={`tabular-nums ${r.profit_loss_pct >= 0 ? "text-green-600" : "text-red-600"}`}>{r.profit_loss_pct.toFixed(1)}%</span> },
-    ...(canEdit ? [{ header: "" as const, align: "right" as const, cell: (r: IocStyleCost) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => removeRow(r.id)} disabled={isPending}>x</Button> }] : []),
+    ...(canEdit
+      ? [
+          rowActionsColumn<IocStyleCost>((r) => (
+            <RowActions onDelete={() => removeRow(r.id)} isPending={isPending} />
+          )),
+        ]
+      : []),
   ];
 
   return (
@@ -150,7 +157,13 @@ function FabricRatesTab({ fabricRates, costSheetId, opportunityId, currency, can
     { header: "Rate (w/o loss)", align: "right", cell: (r) => <span className="tabular-nums">{r.fabric_rate_without_loss.toFixed(2)}</span> },
     { header: "Loss %", align: "right", cell: (r) => <span className="tabular-nums">{r.process_loss_pct.toFixed(1)}%</span> },
     { header: "Fabric Rate", align: "right", cell: (r) => <span className="tabular-nums font-semibold">{r.fabric_rate.toFixed(2)}</span> },
-    ...(canEdit ? [{ header: "" as const, align: "right" as const, cell: (r: IocFabricRate) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => removeRow(r.id)} disabled={isPending}>x</Button> }] : []),
+    ...(canEdit
+      ? [
+          rowActionsColumn<IocFabricRate>((r) => (
+            <RowActions onDelete={() => removeRow(r.id)} isPending={isPending} />
+          )),
+        ]
+      : []),
   ];
 
   return (
@@ -222,7 +235,13 @@ function OtherExpensesTab({ expenses, costSheetId, opportunityId, currency, canE
     { header: "Qty", align: "right", cell: (r) => <span className="tabular-nums">{r.cons_qty || "—"}</span> },
     { header: "Rate", align: "right", cell: (r) => <span className="tabular-nums">{r.rate.toFixed(2)}</span> },
     { header: "Cost", align: "right", cell: (r) => <span className="tabular-nums font-semibold">{fmtMoney(r.cost, currency)}</span> },
-    ...(canEdit ? [{ header: "" as const, align: "right" as const, cell: (r: IocOtherExpense) => <Button variant="ghost" size="sm" className="text-red-600" onClick={() => removeRow(r.id)} disabled={isPending}>x</Button> }] : []),
+    ...(canEdit
+      ? [
+          rowActionsColumn<IocOtherExpense>((r) => (
+            <RowActions onDelete={() => removeRow(r.id)} isPending={isPending} />
+          )),
+        ]
+      : []),
   ];
 
   const total = expenses.reduce((sum, e) => sum + e.cost, 0);

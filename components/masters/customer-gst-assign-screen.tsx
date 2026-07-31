@@ -3,8 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
@@ -12,6 +12,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { saveCustomerGst, type CustomerGstChange } from "@/lib/masters/customer-gst-actions";
 import type { CustomerGstRow } from "@/lib/masters/customer-gst-service";
+import { GstinCell, gstinProblem } from "@/components/masters/gstin-cell";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type CityOption = { id: string; code: string | null; name: string | null };
@@ -37,10 +38,13 @@ function statusTone(s: (typeof STATUSES)[number]): "success" | "danger" | "warni
 export function CustomerGstAssignScreen({
   rows,
   cities,
+  companyGstin,
   perms,
 }: {
   rows: CustomerGstRow[];
   cities: CityOption[];
+  /** Our own GSTIN — turns each row's GSTIN into within-state / other-state. */
+  companyGstin: string | null;
   perms: Perms;
 }) {
   const router = useRouter();
@@ -50,6 +54,7 @@ export function CustomerGstAssignScreen({
   const [query, setQuery] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fCity, setFCity] = useState(""); // "" | cityId | "__none"
+  const [fNo, setFNo] = useState(""); // "" | "__missing" | "__invalid" | "__checkdigit"
 
   const [edits, setEdits] = useState<Map<string, string | null>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -80,6 +85,23 @@ export function CustomerGstAssignScreen({
     });
   }
 
+  /**
+   * What the free offline decode says about each row's CURRENT GSTIN — wrong
+   * shape or wrong check digit. (No supply cross-check here: unlike a vendor, a
+   * customer record carries no within-state / other-state classification to
+   * contradict.) Computed over every row so the counter, the filter and the
+   * cell marker can never disagree.
+   */
+  const problems = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof gstinProblem>>();
+    for (const r of rows) {
+      const p = gstinProblem(cur(r));
+      if (p) m.set(r.id, p);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, edits]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
@@ -87,11 +109,27 @@ export function CustomerGstAssignScreen({
       if (fStatus && statusOf(r) !== fStatus) return false;
       if (fCity === "__none" && r.city_id) return false;
       if (fCity && fCity !== "__none" && r.city_id !== fCity) return false;
+      // Without this the "to check" counter names a problem the operator has no
+      // way to find — the search box matches code and name only.
+      if (fNo === "__missing" && (cur(r) ?? "").trim()) return false;
+      if (fNo && fNo !== "__missing" && problems.get(r.id) !== fNo.slice(2)) return false;
       return true;
     });
-  }, [rows, query, fStatus, fCity]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, query, fStatus, fCity, fNo, problems]);
 
   const missing = useMemo(() => rows.filter((r) => !cur(r)).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Edited rows whose GSTIN is not even the right SHAPE. They block Save: the
+   * server rejects the whole batch on the first one. A failed CHECK DIGIT does
+   * not block — a number copied off an invoice must stay savable while the
+   * customer is chased.
+   */
+  const blocking = useMemo(
+    () => [...edits.values()].filter((v) => gstinProblem(v) === "invalid").length,
+    [edits],
+  );
 
   // ---- selection (operates on the currently-filtered rows) ----
   const filteredIds = useMemo(() => filtered.map((r) => r.id), [filtered]);
@@ -117,8 +155,11 @@ export function CustomerGstAssignScreen({
   function clearSel() {
     setSelected(new Set());
   }
+  /** A blank bulk box means "clear the GSTIN on these rows", which is allowed. */
+  const bulkInvalid = gstinProblem(bulkNo) === "invalid";
+
   function bulkApplyNo() {
-    if (selected.size === 0) return;
+    if (selected.size === 0 || bulkInvalid) return;
     const val = bulkNo.trim() || null;
     selected.forEach((id) => setEdit(id, val));
     success(`GSTIN applied to ${selected.size} customer${selected.size === 1 ? "" : "s"}.`);
@@ -128,13 +169,14 @@ export function CustomerGstAssignScreen({
     setQuery("");
     setFStatus("");
     setFCity("");
+    setFNo("");
   }
 
   // Ctrl/⌘+S and Enter both save through here. This screen is neither a Sheet
   // nor a MasterFullScreen, so it inherits neither; and `submitSurface` cannot
   // reach its Save button by DOM, so registering is what makes Enter save.
   useRegisterShortcut("save", () => {
-    if (dirty > 0 && !isPending) save();
+    if (dirty > 0 && !isPending && blocking === 0) save();
   });
 
   function save() {
@@ -159,14 +201,12 @@ export function CustomerGstAssignScreen({
   }
 
   const gstInput = (r: CustomerGstRow) => (
-    <Input
-      value={cur(r) ?? ""}
-      onChange={(e) => setEdit(r.id, e.target.value)}
+    <GstinCell
+      value={cur(r)}
+      onChange={(v) => setEdit(r.id, v)}
       disabled={!perms.canEdit}
-      maxLength={15}
-      placeholder="—"
-      aria-label={`GSTIN for ${r.name}`}
-      className="h-8 w-40 font-mono text-base md:text-sm"
+      label={`GSTIN for ${r.name}`}
+      companyGstin={companyGstin}
     />
   );
 
@@ -177,11 +217,16 @@ export function CustomerGstAssignScreen({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search customer code or name…"
-        activeCount={[fStatus, fCity].filter(Boolean).length}
+        activeCount={[fStatus, fCity, fNo].filter(Boolean).length}
         onReset={resetFilters}
         right={
           <>
             {filtered.length} of {rows.length} · {missing} missing GSTIN
+            {problems.size > 0 && (
+              <span className="ml-1 font-semibold text-amber-600 dark:text-amber-500">
+                · {problems.size} to check
+              </span>
+            )}
           </>
         }
       >
@@ -202,6 +247,12 @@ export function CustomerGstAssignScreen({
           ))}
           <option value="__none">— No city —</option>
         </Select>
+        <Select value={fNo} onChange={(e) => setFNo(e.target.value)} aria-label="Filter GSTIN" className="h-9 text-base md:text-sm">
+          <option value="">All GSTINs</option>
+          <option value="__missing">— No GSTIN —</option>
+          <option value="__invalid">Not a valid GSTIN</option>
+          <option value="__checkdigit">Check digit wrong</option>
+        </Select>
       </FilterBar>
 
       {/* bulk action bar */}
@@ -210,15 +261,17 @@ export function CustomerGstAssignScreen({
           <span className="text-sm font-semibold text-primary">{selected.size} selected</span>
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Set GSTIN</span>
-            <Input
+            {/* One GSTIN going onto many customers is the single most damaging
+                thing this screen can do, so it gets the same rule as a row. */}
+            <ValidatedInput
+              format="gstin"
               value={bulkNo}
               onChange={(e) => setBulkNo(e.target.value)}
-              maxLength={15}
               placeholder="15-digit GSTIN"
               aria-label="Bulk GSTIN"
               className="h-8 w-44 font-mono text-sm"
             />
-            <Button variant="outline" size="sm" onClick={bulkApplyNo}>
+            <Button variant="outline" size="sm" disabled={bulkInvalid} onClick={bulkApplyNo}>
               Apply to selection
             </Button>
           </div>
@@ -335,7 +388,14 @@ export function CustomerGstAssignScreen({
       {/* sticky save footer */}
       <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm">
         <span className="text-sm text-muted-foreground">
-          {dirty === 0 ? "No unsaved changes." : (
+          {blocking > 0 ? (
+            <span className="font-medium text-danger">
+              {blocking} edited row{blocking === 1 ? " is" : "s are"} not a valid GSTIN — fix{" "}
+              {blocking === 1 ? "it" : "them"} to save.
+            </span>
+          ) : dirty === 0 ? (
+            "No unsaved changes."
+          ) : (
             <>
               <b className="text-warning tabular-nums">{dirty}</b> customer{dirty === 1 ? "" : "s"} with unsaved GSTIN changes.
             </>
@@ -346,7 +406,7 @@ export function CustomerGstAssignScreen({
             <Button variant="outline" size="md" disabled={dirty === 0 || isPending} onClick={discard}>
               Discard
             </Button>
-            <Button size="md" disabled={dirty === 0 || isPending} onClick={save}>
+            <Button size="md" disabled={dirty === 0 || isPending || blocking > 0} onClick={save}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </div>

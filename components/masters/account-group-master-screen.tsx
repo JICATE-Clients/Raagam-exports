@@ -5,14 +5,13 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Field } from "@/components/ui/field";
+import { Field, type FieldSize } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -40,6 +39,37 @@ const blankForm = () => ({
   credit_schedule_id: null as string | null,
   inactive: false,
 });
+
+/**
+ * How wide each field is on the 12-col track, sized to the data it holds.
+ *
+ * THE SPANS OF A ROW MUST SUM TO 12 — nothing in the build catches a row that
+ * goes past it, the last field just wraps onto an otherwise empty line. This
+ * screen was doing exactly that: parent 4 + name 6 + nature 4 = 14, so Nature
+ * of Group sat alone on row 2.
+ *
+ *   row 1 — parent 3 + name 4 + nature 2 + debit_schedule 3 = 12
+ *   row 2 — credit_schedule 3 + inactive 2 = 5  (inactive is edit-only)
+ *
+ * Four per row is the target (client 2026-07-29). The two Schedule pickers do
+ * end up split across the two rows; they stay adjacent in tab order, and the
+ * alternative — keeping the pair together — costs a whole field off row 1,
+ * because legacy field ORDER is fixed here (see the section comment below).
+ */
+/**
+ * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29) —
+ * the City / State / Pin / Country shape, applied across the masters instead of
+ * sizing each field to its own data. Rows here are 3+3+3+3 = 12 then 3+3 = 6.
+ * See applicant-master-screen for the rule and what it trades away.
+ */
+const FIELD_SIZE = {
+  parent_id: "sm",
+  name: "sm",
+  nature_of_group: "sm",
+  debit_schedule_id: "sm",
+  credit_schedule_id: "sm",
+  inactive: "sm",
+} satisfies Record<string, FieldSize>;
 
 export function AccountGroupMasterScreen({
   rows,
@@ -137,20 +167,6 @@ export function AccountGroupMasterScreen({
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -169,6 +185,7 @@ export function AccountGroupMasterScreen({
         addLabel="+ Add Account Group"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No account groups yet."
         mobile={{
           title: (r) => r.name,
@@ -201,14 +218,15 @@ export function AccountGroupMasterScreen({
           </>
         }
       >
-        {/* Five fields — one flat section (LAYOUT.md §4). Legacy field ORDER is
+        {/* Six fields — one flat section (LAYOUT.md §4). Legacy field ORDER is
             preserved (Under first): these operators are migrating from
             RP-Software and type by muscle memory, so tab order is not ours to
             improve. The Inactive tick used to need a hand-tuned `mt-7` to clear
-            the picker's label — on the 12-col track it just takes its own cell. */}
+            the picker's label — on the 12-col track it just takes its own cell.
+            Widths come from FIELD_SIZE at the top of this file. */}
         <DetailSection label="Details" cols={12}>
           {/* The pickers render their own labels — never double-label them. */}
-          <Field size="md">
+          <Field size={FIELD_SIZE.parent_id}>
             <AccountGroupPicker
               groups={rows}
               value={form.parent_id}
@@ -217,7 +235,7 @@ export function AccountGroupMasterScreen({
               label="Under"
             />
           </Field>
-          <Field label="Name" size="lg" required htmlFor="ag-name">
+          <Field label="Name" size={FIELD_SIZE.name} required htmlFor="ag-name">
             <Input
               id="ag-name"
               uppercase
@@ -225,7 +243,7 @@ export function AccountGroupMasterScreen({
               onChange={(e) => set({ name: e.target.value })}
             />
           </Field>
-          <Field label="Nature of Group" size="md" htmlFor="ag-nature">
+          <Field label="Nature of Group" size={FIELD_SIZE.nature_of_group} htmlFor="ag-nature">
             <Select
               id="ag-nature"
               value={form.nature_of_group}
@@ -239,7 +257,7 @@ export function AccountGroupMasterScreen({
               ))}
             </Select>
           </Field>
-          <Field size="md">
+          <Field size={FIELD_SIZE.debit_schedule_id}>
             <LookupDialogPicker
               kind="account_schedule"
               label="Debit Schedule"
@@ -250,7 +268,7 @@ export function AccountGroupMasterScreen({
               canEdit={perms.canEdit}
             />
           </Field>
-          <Field size="md">
+          <Field size={FIELD_SIZE.credit_schedule_id}>
             <LookupDialogPicker
               kind="account_schedule"
               label="Credit Schedule"
@@ -262,7 +280,7 @@ export function AccountGroupMasterScreen({
             />
           </Field>
           {editId && (
-            <Field size="md">
+            <Field size={FIELD_SIZE.inactive}>
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"

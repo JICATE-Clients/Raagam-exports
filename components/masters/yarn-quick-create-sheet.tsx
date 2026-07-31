@@ -275,6 +275,7 @@ export function YarnQuickCreateSheet({
           <div>
             <Label htmlFor="yqc-shade">Shade</Label>
             <Input
+              uppercase
               id="yqc-shade"
               value={shade}
               onChange={(e) => setShade(e.target.value)}

@@ -71,6 +71,68 @@ export const GST_STATE_NAMES: Record<string, string> = {
   "99": "Centre Jurisdiction",
 };
 
+/**
+ * Alternate spellings a hand-typed State master row might carry, keyed by GST
+ * state code. Only ever consulted AFTER the code match fails — it exists because
+ * `public.states` ships unseeded and its rows get typed by whoever set the
+ * system up ("Tamilnadu", "Orissa", "Pondicherry").
+ *
+ * Lived as a private const in vendor-master-screen.tsx and again in
+ * consignee-master-screen.tsx, and the two had already drifted — consignee knew
+ * three spellings, vendor knew seven, so the same State master resolved on one
+ * screen and not the other. One copy, here, beside the state names it aliases.
+ */
+export const GST_STATE_ALIASES: Record<string, string[]> = {
+  "05": ["Uttaranchal"],
+  "07": ["NCT of Delhi", "New Delhi"],
+  "21": ["Orissa"],
+  "25": ["Daman and Diu"],
+  "26": ["Dadra & Nagar Haveli", "Daman & Diu", "Dadra and Nagar Haveli"],
+  "33": ["Tamilnadu"],
+  "34": ["Pondicherry"],
+  "35": ["Andaman and Nicobar", "Andamans"],
+};
+
+/** The shape of a State-master row this module can match against. */
+export interface GstStateOption {
+  id: string;
+  code?: string | null;
+  name: string;
+}
+
+/**
+ * The State-master row a GSTIN's state code points at, or null.
+ *
+ * `public.states.code` IS the GST state code, so that is the primary match and
+ * the only exact one. The name/alias ladder below it is a fallback for rows that
+ * were typed before anyone filled the code in; it normalises away case,
+ * punctuation and spacing ("Dadra & Nagar Haveli" vs "DADRA AND NAGAR HAVELI").
+ *
+ * Never creates a State row — an unmatched code simply yields null and the
+ * caller offers nothing.
+ */
+export function matchGstinState<T extends GstStateOption>(
+  decoded: Pick<GstinDecoded, "stateCode" | "stateName"> | null | undefined,
+  states: readonly T[],
+): T | null {
+  if (!decoded) return null;
+  const byCode = states.find(
+    (s) => (s.code ?? "").trim().padStart(2, "0") === decoded.stateCode,
+  );
+  if (byCode) return byCode;
+  if (!decoded.stateName) return null;
+  // "&" becomes "AND" BEFORE the strip, not after it. Our canonical names use
+  // the ampersand ("Jammu & Kashmir", "Dadra & Nagar Haveli and Daman & Diu")
+  // and a hand-typed State row is at least as likely to spell it out; dropping
+  // "&" as punctuation would leave "JAMMUKASHMIR" against "JAMMUANDKASHMIR" and
+  // silently fail to match the state the operator did type.
+  const norm = (v: string) => v.toUpperCase().replace(/&/g, "AND").replace(/[^A-Z]/g, "");
+  const wanted = new Set(
+    [decoded.stateName, ...(GST_STATE_ALIASES[decoded.stateCode] ?? [])].map(norm),
+  );
+  return states.find((s) => wanted.has(norm(s.name))) ?? null;
+}
+
 /** Constitution of the entity, encoded in the 4th character of the PAN. */
 export const PAN_CONSTITUTION: Record<string, string> = {
   A: "Association of Persons",

@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type Column } from "@/components/ui/data-table";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -23,6 +22,7 @@ import {
 import type { WorkTiming, WorkTimingInput } from "@/lib/masters/work-timing-types";
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -163,34 +163,20 @@ export function WorkTimingMasterScreen({
 
   const columns: Column<WorkTiming>[] = [
     { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.date?.slice(0, 10)}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
     {
       header: "Location",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.location?.name ?? "—"}</span>,
     },
     {
       header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.effective_from?.slice(0, 10)}</span>,
+      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
     },
     {
       header: "Shifts",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.lines.length || "—"}</span>,
     },
     { header: "Status", cell: (r) => statusPill(r) },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -205,6 +191,7 @@ export function WorkTimingMasterScreen({
         addLabel="+ Add Work Timing"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No work timings yet."
         mobile={{
           title: (r) => `#${r.entry_no}${r.location?.name ? ` · ${r.location.name}` : ""}`,
@@ -303,9 +290,9 @@ export function WorkTimingMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {lines.length === 0 && <p className="text-xs text-muted-foreground">No shifts yet.</p>}
-              {/* Row area capped with an internal scroll (ChildGrid maxBodyHeight
-                  rule) — a growing shift list never stretches the sheet. */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
+                  no longer exists; the pager replaced it.) */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">

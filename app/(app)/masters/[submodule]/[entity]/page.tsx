@@ -57,6 +57,7 @@ import { listVendorGst } from "@/lib/masters/vendor-gst-service";
 import { GstAssignScreen } from "@/components/masters/gst-assign-screen";
 import { listCustomerGst } from "@/lib/masters/customer-gst-service";
 import { CustomerGstAssignScreen } from "@/components/masters/customer-gst-assign-screen";
+import { GstinCheckScreen } from "@/components/masters/gstin-check-screen";
 import { listProcessHsn } from "@/lib/masters/process-hsn-service";
 import { ProcessHsnAssignScreen } from "@/components/masters/process-hsn-assign-screen";
 import { listMaterialHsn } from "@/lib/masters/material-hsn-service";
@@ -101,6 +102,7 @@ import {
   paymentTermsAsLookups,
   statesAsLookups,
   hsnDetailsAsLookups,
+  categoriesAsLookups,
 } from "@/lib/masters/lookup-compat";
 
 export default async function SubEntityPage({
@@ -273,6 +275,7 @@ export default async function SubEntityPage({
         desigRows,
         stateRows,
         company,
+        catRows,
       ] = await Promise.all([
         listCustomers(),
         listApplicants(),
@@ -292,7 +295,21 @@ export default async function SubEntityPage({
         // source the Vendor branch below already uses; null is fine (the strip
         // just omits the supply fact).
         getCompanyProfile(),
+        // The real Category master, for Supplied Items. NOT the two
+        // `config_lookups` rows of kind 'material_category' — those are the
+        // GROUP names ("Sewing Accessory", "Packing Accessory"), not the
+        // categories inside them, which is what both cards used to offer
+        // (client 2026-07-29, migration 0356).
+        listCategories(),
       ]);
+      // Supplied Items has one card per accessory group, so each needs the
+      // categories of ITS OWN item class — a category only means anything
+      // inside one. Resolved by class CODE rather than by name so a renamed
+      // class does not silently empty a card.
+      const sewClassId = all.find((l) => l.kind === "item_class" && (l.code ?? "").toUpperCase() === "SEW")?.id ?? null;
+      const packClassId = all.find((l) => l.kind === "item_class" && (l.code ?? "").toUpperCase() === "PACK")?.id ?? null;
+      const sewingCategories = categoriesAsLookups(catRows.filter((c) => c.item_class_id === sewClassId && !c.inactive));
+      const packingCategories = categoriesAsLookups(catRows.filter((c) => c.item_class_id === packClassId && !c.inactive));
       // Fetch packing column configs for all formats in use
       const formatIds = [...new Set(customers.map((c) => c.packing_list_format_id).filter(Boolean))] as string[];
       const packingColumns = (await Promise.all(formatIds.map((fid) => listPackingFormatColumns(fid)))).flat();
@@ -309,7 +326,8 @@ export default async function SubEntityPage({
           companyGstin={company?.gstin ?? null}
           currencies={currencies}
           shipTypes={all.filter((l) => l.kind === "ship_type")}
-          categories={all.filter((l) => l.kind === "material_category")}
+          sewingCategories={sewingCategories}
+          packingCategories={packingCategories}
           agentTypes={all.filter((l) => l.kind === "agent_type")}
           agentOptions={all.filter((l) => l.kind === "agent")}
           packingFormats={all.filter((l) => l.kind === "packing_list_format")}
@@ -477,16 +495,32 @@ export default async function SubEntityPage({
       const [tcsRows, countries] = await Promise.all([listCustomerTcs(), listCountries()]);
       screen = <TcsAssignScreen rows={tcsRows} countries={countries} perms={perms} />;
     } else if (child.custom === "gst_assign") {
-      const rows = await listVendorGst();
-      screen = <GstAssignScreen rows={rows} perms={perms} />;
+      // Our own GSTIN — same source as the Vendor master. It is what turns each
+      // row's GSTIN into within-state / other-state, so the grid can flag a
+      // number whose state contradicts the vendor's own type (IGST vs CGST+SGST).
+      const [rows, company] = await Promise.all([listVendorGst(), getCompanyProfile()]);
+      screen = <GstAssignScreen rows={rows} companyGstin={company?.gstin ?? null} perms={perms} />;
     } else if (child.custom === "customer_gst_assign") {
-      const [rows, all] = await Promise.all([listCustomerGst(), listConfigLookups()]);
+      const [rows, all, company] = await Promise.all([
+        listCustomerGst(),
+        listConfigLookups(),
+        getCompanyProfile(),
+      ]);
       screen = (
         <CustomerGstAssignScreen
           rows={rows}
           cities={all.filter((l) => l.kind === "city")}
+          companyGstin={company?.gstin ?? null}
           perms={perms}
         />
+      );
+    } else if (child.custom === "gstin_check") {
+      // Read-only test bench — no perms beyond the module's own view gate, and
+      // no save path at all. It needs the State master only so it can show WHICH
+      // row a state code resolves to.
+      const [stateRows, company] = await Promise.all([listStates(), getCompanyProfile()]);
+      screen = (
+        <GstinCheckScreen states={statesAsLookups(stateRows)} companyGstin={company?.gstin ?? null} />
       );
     } else if (child.custom === "allowance") {
       const allowances = await listAllowances();

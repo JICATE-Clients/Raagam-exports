@@ -226,7 +226,10 @@ export function PrepareCostSheetClient({
     { header: "Target FOB", align: "right", cell: (c) => <span className="tabular-nums text-muted-foreground">{fmtMoney(c.target_fob, c.currency_code)}</span> },
     { header: "Computed FOB", align: "right", cell: (c) => <span className="tabular-nums font-medium">{fmtMoney(c.computed_fob, c.currency_code)}</span> },
     {
-      header: "",
+      /* Pure WORKFLOW column — Submit / Approve / Reject / Clone, no row CRUD at
+         all — so it is labelled rather than being the unnamed action cell that
+         <RowActions> owns (LAYOUT.md §6a). */
+      header: "Workflow",
       align: "right",
       cell: (c) => (
         <div className="flex items-center justify-end gap-1 whitespace-nowrap">

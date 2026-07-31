@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { gridKeyNav } from "@/components/masters/child-grid";
@@ -238,7 +239,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
   }
 
   function del(r: PackingAdvice) {
-    if (!confirm(`Delete packing advice ${r.code ?? ""}?`)) return;
+    /* No confirm() — <RowActions> asks in the row (LAYOUT.md §6a). */
     start(async () => {
       const res = await deletePackingAdvice(r.id);
       if (res.ok) {
@@ -277,24 +278,16 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
         header: "Status",
         cell: (r) => <StatusPill tone={plaStatusTone(r.status)}>{PLA_STATUS_LABELS[r.status]}</StatusPill>,
       },
-      {
-        header: "",
-        align: "right",
-        cell: (r) => (
-          <div className="flex justify-end gap-1">
-            {perms.canEdit && (
-              <Button variant="outline" size="sm" onClick={() => openEdit(r)}>
-                Edit
-              </Button>
-            )}
-            {perms.canDelete && (
-              <Button variant="outline" size="sm" onClick={() => del(r)}>
-                Delete
-              </Button>
-            )}
-          </div>
-        ),
-      },
+      rowActionsColumn((r) => (
+        <RowActions
+          label={r.code}
+          onEdit={() => openEdit(r)}
+          canEdit={perms.canEdit}
+          onDelete={() => del(r)}
+          canDelete={perms.canDelete}
+          isPending={isPending}
+        />
+      )),
     ];
 
     return (

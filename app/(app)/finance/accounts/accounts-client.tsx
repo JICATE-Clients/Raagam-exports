@@ -7,6 +7,7 @@ import type { GlAccount, GlAccountInput } from "@/lib/finance/types";
 import { ACCOUNT_TYPES } from "@/lib/finance/types";
 import { createAccount, updateAccount } from "@/lib/finance/gl-actions";
 import { DataTable } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
@@ -122,15 +123,9 @@ export function AccountsClient({
     },
     ...(canEdit
       ? [
-          {
-            header: "" as const,
-            align: "right" as const,
-            cell: (r: GlAccount) => (
-              <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-                Edit
-              </Button>
-            ),
-          },
+          rowActionsColumn<GlAccount>((r) => (
+            <RowActions label={r.name} onEdit={() => openEdit(r)} />
+          )),
         ]
       : []),
   ];

@@ -1,12 +1,13 @@
 "use client";
 
+import { fmtDate } from "@/lib/format";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Field } from "@/components/ui/field";
+import { Field, type FieldSize } from "@/components/ui/field";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { type Column } from "@/components/ui/data-table";
@@ -14,7 +15,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   createReceivableTerm,
@@ -48,6 +48,48 @@ const blankForm = () => ({
   description: "",
   inactive: false,
 });
+
+/**
+ * How wide each field is on the 12-column track (LAYOUT.md §3).
+ *
+ * `sm` (3 of 12 — four per row) is the working default and nothing on this form
+ * argues its way out of it: a Pay Mode is a 2-6 character code (CHEQUE, DA, LC),
+ * a date is a date, an entry number is three digits. Pay Mode was `md`, which
+ * held a row to three fields for a value that never needed the width (client
+ * 2026-07-29).
+ *
+ * Both sections sit in a `SectionGrid`, so each is only ~583px wide and one
+ * `sm` is ~137px — already narrow. That is why Credit Days moved UP from `xs`
+ * (~87px): it lands row 1 exactly on 12, and `xs` here is small enough to crowd
+ * a 3-digit number against its own spinner.
+ *
+ * THE SPANS OF ONE ROW MUST SUM TO 12 — a row past 12 does not shrink, its last
+ * field wraps onto a line of its own with the rest of that line left empty.
+ *   Details row 1  entry_no 3 + entry_date 3 + pay_mode 3 + credit_days 3 = 12
+ *   Details row 2  with_interest 3 + inactive 3 (edit only)              =  6
+ *   Details row 3  description 12
+ *   AT      row 1  at_basis 3 + at_when 3 + at_event 6                   = 12
+ *
+ * Row 2 is deliberately short: the only fields left are two toggles, and
+ * Description is a textarea, which §3 keeps at `full`. Nothing can be pulled up
+ * to fill it without giving the textarea a partial row.
+ *
+ * `payment-term-master-screen.tsx` is the same form for the other side of the
+ * ledger and carries an identical map — change one, change both.
+ */
+const FIELD_SIZE = {
+  entry_no: "sm", // 3 — server-assigned, three digits; `sm` keeps row 1 flush
+  entry_date: "sm", // 3 — a native date control needs ~130px
+  pay_mode: "sm", // 3 — CHEQUE · DA · DD · DP · LC · OTH · PDC · TT
+  credit_days: "sm", // 3 — 0-90; see the note above on `xs` in a half-width section
+  with_interest: "sm", // 3 — a Yes/No radio pair, both captions on one line
+  inactive: "sm", // 3 — a tick box; it only needs room for its own caption
+  description: "full", // 12 — a textarea stands alone (LAYOUT.md §3)
+  at_basis: "sm", // 3 — SIGHT · OPEN · DAYS
+  at_when: "sm", // 3 — AFTER · FROM
+  at_event: "sm", // 3 — "RECEIPT OF DOCUMENTS" now scrolls inside the box
+  //                     (uniform 4-per-row, client 2026-07-29)
+} satisfies Record<string, FieldSize>;
 
 /** Human-readable "AT" phrase from the three dropdowns. */
 function atPhrase(r: Pick<ReceivableTerm, "at_basis" | "at_when" | "at_event" | "credit_days">): string {
@@ -136,7 +178,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
 
   const columns: Column<ReceivableTerm>[] = [
     { header: "Entry", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{r.entry_date}</span> },
+    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.entry_date)}</span> },
     { header: "Pay Mode", cell: (r) => <span className="text-sm">{r.pay_mode ?? "—"}</span> },
     { header: "AT", cell: (r) => <span className="text-sm text-muted-foreground">{atPhrase(r)}</span> },
     {
@@ -148,20 +190,6 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
       header: "Status",
       cell: (r) => (
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
-      ),
-    },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
       ),
     },
   ];
@@ -180,6 +208,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
         addLabel="+ Add Receivable Term"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No receivable terms yet."
         mobile={{
           title: (r) => `Entry #${r.entry_no} · ${r.pay_mode ?? "—"}`,
@@ -219,10 +248,10 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
           <DetailSection label="Details" cols={12}>
             {/* Entry No is server-assigned; `disabled` already keeps it out of
                 the Tab order, so it needs no skipTab. */}
-            <Field label="Entry No" size="sm" htmlFor="rt-entry">
+            <Field label="Entry No" size={FIELD_SIZE.entry_no} htmlFor="rt-entry">
               <Input id="rt-entry" value={editEntryNo ?? "(auto)"} disabled />
             </Field>
-            <Field label="Date" size="sm" htmlFor="rt-date">
+            <Field label="Date" size={FIELD_SIZE.entry_date} htmlFor="rt-date">
               <Input
                 id="rt-date"
                 type="date"
@@ -230,7 +259,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 onChange={(e) => set({ entry_date: e.target.value })}
               />
             </Field>
-            <Field label="Pay Mode" size="md" htmlFor="rt-paymode">
+            <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="rt-paymode">
               <Select
                 id="rt-paymode"
                 value={form.pay_mode}
@@ -244,7 +273,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 ))}
               </Select>
             </Field>
-            <Field label="Credit Days" size="xs" htmlFor="rt-credit">
+            <Field label="Credit Days" size={FIELD_SIZE.credit_days} htmlFor="rt-credit">
               <Input
                 id="rt-credit"
                 type="number"
@@ -255,7 +284,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
             </Field>
             {/* A radio pair is one field with two controls — it keeps its own
                 inline gaps, which are intra-control spacing, not page layout. */}
-            <Field label="With Interest" size="md">
+            <Field label="With Interest" size={FIELD_SIZE.with_interest}>
               <div className="flex h-8 items-center gap-4">
                 <label className="flex cursor-pointer items-center gap-1.5">
                   <input
@@ -280,7 +309,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
               </div>
             </Field>
             {editId && (
-              <Field size="md">
+              <Field size={FIELD_SIZE.inactive}>
                 <label className="flex h-8 cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
@@ -292,7 +321,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 </label>
               </Field>
             )}
-            <Field label="Description" size="full" htmlFor="rt-desc">
+            <Field label="Description" size={FIELD_SIZE.description} htmlFor="rt-desc">
               <Textarea
                 id="rt-desc"
                 rows={3}
@@ -304,9 +333,12 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
 
           {/* The three dropdowns read as one phrase ("AT <basis> <when>
               <event>"), so they stay unlabelled and keep their aria-labels —
-              per-field captions would break the sentence. Three `md` = 12. */}
+              per-field captions would break the sentence. Widths are the
+              phrase's own shape, not three equal thirds: two short enums at
+              `sm` and the event list at `lg`, because "RECEIPT OF DOCUMENTS"
+              is 20 characters and the other two are one word. 3+3+6 = 12. */}
           <DetailSection label="AT" cols={12}>
-            <Field size="md">
+            <Field size={FIELD_SIZE.at_basis}>
               <Select
                 value={form.at_basis}
                 onChange={(e) => set({ at_basis: e.target.value as "" | AtBasis })}
@@ -320,7 +352,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 ))}
               </Select>
             </Field>
-            <Field size="md">
+            <Field size={FIELD_SIZE.at_when}>
               <Select
                 value={form.at_when}
                 onChange={(e) => set({ at_when: e.target.value as "" | AtWhen })}
@@ -334,7 +366,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 ))}
               </Select>
             </Field>
-            <Field size="md">
+            <Field size={FIELD_SIZE.at_event}>
               <Select
                 value={form.at_event}
                 onChange={(e) => set({ at_event: e.target.value as "" | AtEvent })}

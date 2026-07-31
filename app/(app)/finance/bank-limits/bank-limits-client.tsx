@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
 
 interface Props {
@@ -95,15 +96,12 @@ export function BankLimitsClient({ limits, currencies, canCreate, canDelete }: P
     { header: "Valid until", cell: (l) => <span className="tabular-nums text-xs text-muted-foreground">{fmtDate(l.valid_until)}</span> },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (l: BankLimit) => (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(l.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                Delete
-              </Button>
-            ),
-          } satisfies Column<BankLimit>,
+          rowActionsColumn<BankLimit>((l) => (
+            <RowActions
+              onDelete={() => handleDelete(l.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

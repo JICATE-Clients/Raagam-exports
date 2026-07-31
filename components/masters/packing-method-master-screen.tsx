@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -190,30 +191,20 @@ export function PackingMethodMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && !r.inactive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => deactivate(r)}
-            >
-              Deactivate
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    /* This master never hard-deletes — the row is deactivated, so the verb
+       stays "Deactivate" rather than promising something else. Already-inactive
+       rows have nothing left to do. */
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.packing_type}
+        onEdit={() => openEdit(r)}
+        onDelete={() => deactivate(r)}
+        deleteLabel="Deactivate"
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete && !r.inactive}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -347,6 +338,7 @@ export function PackingMethodMasterScreen({
                 Packing Type <span className="text-danger">*</span>
               </Label>
               <Input
+                uppercase
                 id="pm-type"
                 value={form.packing_type}
                 onChange={(e) => setForm({ ...form, packing_type: e.target.value })}
@@ -358,6 +350,7 @@ export function PackingMethodMasterScreen({
             <div>
               <Label htmlFor="pm-ref">Reference</Label>
               <Input
+                uppercase
                 id="pm-ref"
                 value={form.reference}
                 onChange={(e) => setForm({ ...form, reference: e.target.value })}
@@ -423,8 +416,8 @@ export function PackingMethodMasterScreen({
               {childRows.length === 0 && (
                 <p className="text-xs text-muted-foreground">No categories yet.</p>
               )}
-              {/* row area capped with internal scroll — header + Add stay pinned */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addChildRow)} className="max-h-56 space-y-2 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addChildRow)} className="space-y-2">
               {childRows.map((row, i) => (
                 <div data-grid-row key={row.key} className="flex items-center gap-2">
                   <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
@@ -438,6 +431,7 @@ export function PackingMethodMasterScreen({
                     className="w-20 shrink-0 text-base md:text-sm"
                   />
                   <Input
+                    uppercase
                     placeholder="Category name"
                     value={row.category_name}
                     onChange={(e) => updateChild(row.key, "category_name", e.target.value)}

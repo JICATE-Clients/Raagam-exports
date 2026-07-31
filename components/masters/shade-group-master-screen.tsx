@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -179,30 +180,20 @@ export function ShadeGroupMasterScreen({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && !r.inactive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-danger"
-              disabled={isPending}
-              onClick={() => deactivate(r)}
-            >
-              Deactivate
-            </Button>
-          )}
-        </div>
-      ),
-    },
+    /* This master never hard-deletes — the row is deactivated, so the verb
+       stays "Deactivate" rather than promising something else. Already-inactive
+       rows have nothing left to do. */
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => deactivate(r)}
+        deleteLabel="Deactivate"
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete && !r.inactive}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -388,30 +379,30 @@ export function ShadeGroupMasterScreen({
                     header: "ID",
                     className: "w-24",
                     cell: (r) => (
-                      <Input value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
+                      <Input uppercase value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
                     ),
                   },
                   {
                     header: "Short",
                     className: "w-28",
                     cell: (r) => (
-                      <Input value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
+                      <Input uppercase value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
                     ),
                   },
                   {
                     header: "Shade Name",
                     cell: (r) => (
-                      <Input value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
+                      <Input uppercase value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
                     ),
                   },
                 ]}
                 renderMobileRow={(r) => (
                   <>
-                    <Input value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
+                    <Input uppercase value={r.shade_name} onChange={(e) => updateChild(r.key, "shade_name", e.target.value)} placeholder="Shade name" className="text-base md:text-sm" />
                     {/* fields pair up two-per-row inside cards */}
                     <div className="grid grid-cols-2 gap-2">
-                      <Input value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
-                      <Input value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
+                      <Input uppercase value={r.shade_id} onChange={(e) => updateChild(r.key, "shade_id", e.target.value)} placeholder="ID" className="text-base md:text-sm" />
+                      <Input uppercase value={r.short_name} onChange={(e) => updateChild(r.key, "short_name", e.target.value)} placeholder="Short" className="text-base md:text-sm" />
                     </div>
                   </>
                 )}

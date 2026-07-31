@@ -11,7 +11,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { DetailSection } from "@/components/masters/detail-section";
 import { LocationPicker } from "@/components/masters/location-picker";
 import {
@@ -225,20 +224,6 @@ export function DepartmentMasterScreen({
         <StatusPill tone={r.inactive ? "danger" : "success"}>{r.inactive ? "Inactive" : "Active"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -253,6 +238,7 @@ export function DepartmentMasterScreen({
         addLabel="+ Add Department"
         onAdd={openAdd}
         columns={columns}
+        actions={{ onEdit: openEdit, onDelete: remove }}
         empty="No departments yet."
         mobile={{
           title: (r) => r.short_name,
@@ -305,6 +291,7 @@ export function DepartmentMasterScreen({
             <div>
               <Label htmlFor="dep-prefix">Doc Prefix</Label>
               <Input
+                uppercase
                 id="dep-prefix"
                 value={form.doc_prefix}
                 onChange={(e) => set({ doc_prefix: e.target.value })}
@@ -395,9 +382,9 @@ export function DepartmentMasterScreen({
             </div>
             <div className="space-y-3 p-3">
               {locs.length === 0 && <p className="text-xs text-muted-foreground">No locations yet.</p>}
-              {/* Row area capped with an internal scroll (same rule as ChildGrid
-                  maxBodyHeight) — a growing list never pushes the Add button away. */}
-              <div className="max-h-56 space-y-3 overflow-y-auto">
+              {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
+                  no longer exists; the pager replaced it.) */}
+              <div className="space-y-3">
               {locs.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">

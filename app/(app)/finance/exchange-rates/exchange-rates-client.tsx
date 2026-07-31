@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtNumber, fmtDate } from "@/lib/format";
 
 interface Props {
@@ -113,15 +114,12 @@ export function ExchangeRatesClient({ rates, currencies, canCreate, canDelete }:
     { header: "Date", cell: (r) => <span className="tabular-nums text-xs text-muted-foreground">{fmtDate(r.rate_date)}</span> },
     ...(canDelete
       ? [
-          {
-            header: "",
-            align: "right",
-            cell: (r: ExchangeRateDetail) => (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(r.id)} disabled={isPending} className="h-7 px-2 text-xs text-danger hover:opacity-80">
-                Delete
-              </Button>
-            ),
-          } satisfies Column<ExchangeRateDetail>,
+          rowActionsColumn<ExchangeRateDetail>((r) => (
+            <RowActions
+              onDelete={() => handleDelete(r.id)}
+              isPending={isPending}
+            />
+          )),
         ]
       : []),
   ];

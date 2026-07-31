@@ -8,12 +8,13 @@ import {
   deletePoDeliverySize,
   addPoItemSizeDelivery,
   deletePoItemSizeDelivery,
+  // Reads come through actions, not from `po-service` directly: the service is
+  // `server-only` and this is a client component, so importing it here failed
+  // the build outright.
+  fetchPoSizeDeliveries,
+  fetchPoDeliverySizes,
+  fetchPoItemSizeDeliveries,
 } from "@/lib/purchase/po-actions";
-import {
-  getPoSizeDeliveries,
-  getPoDeliverySizes,
-  getPoItemSizeDeliveries,
-} from "@/lib/purchase/po-service";
 import type {
   PoSizeDelivery,
   PoDeliverySize,
@@ -44,7 +45,7 @@ function SizeDeliveryRow({
   function loadSizes() {
     setExpanded((v) => {
       if (!v) {
-        getPoDeliverySizes(sd.id).then(setSizes);
+        fetchPoDeliverySizes(sd.id).then(setSizes);
       }
       return !v;
     });
@@ -67,7 +68,7 @@ function SizeDeliveryRow({
       });
       if (result.ok) {
         success("Size added.");
-        getPoDeliverySizes(sd.id).then(setSizes);
+        fetchPoDeliverySizes(sd.id).then(setSizes);
       } else {
         toastError(result.error);
       }
@@ -169,7 +170,7 @@ function ItemSizeDeliveriesPanel({
   const [loaded, setLoaded] = useState(false);
 
   function load() {
-    getPoItemSizeDeliveries(lineItemId).then((d) => {
+    fetchPoItemSizeDeliveries(lineItemId).then((d) => {
       setDeliveries(d);
       setLoaded(true);
     });
@@ -274,7 +275,7 @@ export function PoDeliveryEditor({
   const [loaded, setLoaded] = useState(false);
 
   function load() {
-    getPoSizeDeliveries(lineItemId).then((d) => {
+    fetchPoSizeDeliveries(lineItemId).then((d) => {
       setSizeDeliveries(d);
       setLoaded(true);
     });

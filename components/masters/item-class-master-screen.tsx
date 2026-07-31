@@ -12,13 +12,16 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createItemClass, updateItemClass, deleteItemClass } from "@/lib/masters/extras-actions";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
+import type { Attribute } from "@/lib/masters/extras-types";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { Select } from "@/components/ui/select";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
+import { MobileCardList } from "@/components/masters/mobile-card-list";
+import { RecordViewSheet } from "@/components/masters/record-view-sheet";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { fmtDate, fmtDateTime } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -27,17 +30,22 @@ const BLANK = { code: "", name: "", type_code: "", has_attribute: false, inactiv
 /**
  * Item Class master (doc/update.md #1-3) — the simple half of the Item Class /
  * Attribute split. Fields: Name + Has Attribute (Yes/No). Backed by
- * config_lookups kind 'item_class'. The per-class value list lives on the
- * Attribute screen and is shown there only when Has Attribute = Yes.
+ * config_lookups kind 'item_class'. The per-class value list is EDITED on the
+ * Attribute screen (only when Has Attribute = Yes) but is READ here, in the
+ * view sheet — "Has Attribute: Yes" is not an answer to "which attributes?",
+ * and that question shouldn't require opening a second screen's editor. The
+ * rows arrive with `values` already attached (one join, same table), so the
+ * view fetches nothing.
  * The Inactive toggle appears only when editing (blocking after create, #8).
  */
-export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; perms: Perms }) {
+export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
+  const [viewRow, setViewRow] = useState<Attribute | null>(null);
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
     rows,
@@ -66,7 +74,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
     setForm(BLANK);
     setOpen(true);
   }
-  function openEdit(r: ConfigLookup) {
+  function openEdit(r: Attribute) {
     setEditId(r.id);
     setForm({
       code: r.code ?? "",
@@ -99,7 +107,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
     });
   }
 
-  function remove(r: ConfigLookup) {
+  function remove(r: Attribute) {
     startTransition(async () => {
       const res = await deleteItemClass(r.id);
       if (res.ok) {
@@ -115,7 +123,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
     });
   }
 
-  const columns: Column<ConfigLookup>[] = [
+  const columns: Column<Attribute>[] = [
     { header: "Name", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
     {
       header: "Has Attribute",
@@ -124,10 +132,19 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
       ),
     },
     {
+      header: "Attributes",
+      align: "right",
+      cell: (r) => (
+        <span className="tabular-nums text-sm text-muted-foreground">
+          {(r.values ?? []).length || "—"}
+        </span>
+      ),
+    },
+    {
       header: "Created Date",
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
-          {new Date(r.created_at).toLocaleDateString("en-GB")}
+          {fmtDate(r.created_at)}
         </span>
       ),
     },
@@ -139,20 +156,17 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onView={() => setViewRow(r)}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -219,34 +233,30 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
         <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {pg.paged.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No item classes yet.
-          </div>
-        ) : (
-          pg.paged.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    Has Attribute: {r.has_attribute ? "Yes" : "No"}
-                  </div>
-                </div>
-                <StatusPill tone={r.is_active ? "success" : "danger"}>
-                  {r.is_active ? "Active" : "Inactive"}
-                </StatusPill>
-              </div>
-            </button>
-          ))
-        )}
+      {/* mobile cards — the shared list, so the phone gets the same eye icon the
+          table has (tapping the card body is edit, which is no way to just look). */}
+      <div className="md:hidden">
+        <MobileCardList
+          rows={pg.paged}
+          getKey={(r) => r.id}
+          title={(r) => r.name}
+          meta={(r) =>
+            `Has Attribute: ${r.has_attribute ? "Yes" : "No"}${
+              (r.values ?? []).length ? ` · ${(r.values ?? []).length} attributes` : ""
+            }`
+          }
+          pill={(r) => (
+            <StatusPill tone={r.is_active ? "success" : "danger"}>
+              {r.is_active ? "Active" : "Inactive"}
+            </StatusPill>
+          )}
+          onEdit={perms.canEdit ? openEdit : undefined}
+          onView={(r) => setViewRow(r)}
+          canDelete={perms.canDelete}
+          onDelete={remove}
+          isPending={isPending}
+          empty="No item classes yet."
+        />
       </div>
 
       <PaginationBar
@@ -313,6 +323,64 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: ConfigLookup[]; p
           )}
         </div>
       </Sheet>
+
+      {/* read-only view — renders straight off the list row, nothing fetched */}
+      {viewRow && (
+        <RecordViewSheet
+          open
+          onClose={() => setViewRow(null)}
+          title={viewRow.name}
+          status={
+            <StatusPill tone={viewRow.is_active ? "success" : "danger"}>
+              {viewRow.is_active ? "Active" : "Inactive"}
+            </StatusPill>
+          }
+          sections={[
+            {
+              label: "Details",
+              pairs: [
+                ["Has Attribute", viewRow.has_attribute ? "Yes" : "No"],
+                ["Attributes", (viewRow.values ?? []).length],
+                ["Notes", viewRow.notes],
+                ["Created By", viewRow.created_by],
+                ["Created", fmtDateTime(viewRow.created_at)],
+                ["Last Updated", fmtDateTime(viewRow.updated_at)],
+              ],
+            },
+            {
+              // `content`, not `pairs`: an attribute is a name plus how it is
+              // answered (a list of options, or a number), which is two lines,
+              // not a label→value row. Never auto-hidden — "none defined yet" on
+              // a class flagged Has Attribute is the whole point of looking.
+              label: "Attributes",
+              content: !viewRow.has_attribute ? (
+                <p className="text-sm text-muted-foreground">
+                  This class does not use attributes.
+                </p>
+              ) : (viewRow.values ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No attributes defined yet — add them on Materials ▸ Attribute.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {(viewRow.values ?? []).map((v) => (
+                    <li key={v.id} className="text-sm">
+                      <span className="font-medium text-foreground">{v.value}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {v.input_type === "option_list"
+                          ? (v.options ?? []).length > 0
+                            ? (v.options ?? []).map((o) => o.value).join(", ")
+                            : "Option list — no options yet"
+                          : "Numeric range"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -30,12 +31,12 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
   extraColumns: [
     {
       header: "Created Date",
-      cell: (r) => new Date(r.created_at).toLocaleDateString("en-GB"),
+      cell: (r) => fmtDate(r.created_at),
     },
     { header: "Created User", cell: (r) => r.created_by || "—" },
   ],
   mobileMeta: (r) =>
-    `${new Date(r.created_at).toLocaleDateString("en-GB")}${r.created_by ? ` · ${r.created_by}` : ""}`,
+    `${fmtDate(r.created_at)}${r.created_by ? ` · ${r.created_by}` : ""}`,
   fromRow: (r) => ({ name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),

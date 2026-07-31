@@ -30,7 +30,7 @@ import type { Commodity } from "@/lib/masters/commodity-types";
 import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-picker";
 import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 
@@ -466,20 +466,15 @@ export function MaterialAttributeMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.lines.length}</span>,
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && (
-            <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-              Edit
-            </Button>
-          )}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

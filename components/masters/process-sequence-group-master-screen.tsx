@@ -17,7 +17,7 @@ import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import {
   createProcessSequenceGroup,
   updateProcessSequenceGroup,
@@ -133,16 +133,16 @@ export function ProcessSequenceGroupMasterScreen({
         <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-1">
-          {perms.canEdit && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>}
-          {perms.canDelete && <DeleteConfirmButton isPending={isPending} onConfirm={() => remove(r)} />}
-        </div>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.name}
+        onEdit={() => openEdit(r)}
+        onDelete={() => remove(r)}
+        canEdit={perms.canEdit}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (
@@ -224,8 +224,8 @@ export function ProcessSequenceGroupMasterScreen({
             <div className="rounded-lg border border-border">
               <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Sequences</div>
               <div className="space-y-2 p-3">
-                {/* row area capped with internal scroll — Add button stays pinned */}
-                <div className="max-h-56 space-y-2 overflow-y-auto">
+                {/* No inner scroll — see ChildGrid's `pageSize` note. */}
+                <div className="space-y-2">
                   {lines.map((l, i) => (
                     <div key={l.key} className="flex items-center gap-2">
                       <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>

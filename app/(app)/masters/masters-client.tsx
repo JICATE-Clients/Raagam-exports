@@ -6,6 +6,7 @@ import type { Buyer, Item, Uom, Currency } from "@/lib/masters/types";
 import type { BuyerInput, ItemInput, UomInput } from "@/lib/masters/types";
 import { Tabs } from "@/components/ui/tabs";
 import { DataTable } from "@/components/ui/data-table";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
@@ -131,15 +132,9 @@ function BuyersSection({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-          Edit
-        </Button>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions label={r.name} onEdit={() => openEdit(r)} />
+    )),
   ];
 
   return (
@@ -393,15 +388,9 @@ function ItemsSection({
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-          Edit
-        </Button>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions label={r.name} onEdit={() => openEdit(r)} />
+    )),
   ];
 
   return (
@@ -596,15 +585,9 @@ function UomsSection({ uoms, io }: { uoms: Uom[]; io: IoPerms }) {
         </StatusPill>
       ),
     },
-    {
-      header: "",
-      align: "right",
-      cell: (r) => (
-        <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
-          Edit
-        </Button>
-      ),
-    },
+    rowActionsColumn((r) => (
+      <RowActions label={r.name} onEdit={() => openEdit(r)} />
+    )),
   ];
 
   return (
