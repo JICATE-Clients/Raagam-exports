@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { StatePicker } from "@/components/masters/state-picker";
+import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
 import { createApplicant, updateApplicant, deleteApplicant } from "@/lib/masters/applicant-actions";
@@ -1163,8 +1164,7 @@ export function ApplicantMasterScreen({
                 </Select>
                 </Field>
                 <Field label="Payment Terms" size={FIELD_SIZE.payment_term_id}>
-                <LookupDialogPicker
-                kind="payment_term"
+                <PaymentTermPicker
                 label="Payment Terms"
                 options={paymentTerms}
                 value={form.payment_term_id || null}

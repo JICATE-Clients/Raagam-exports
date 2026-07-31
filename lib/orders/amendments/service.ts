@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { listCountries } from "@/lib/masters/country-service";
 import { listCurrencies } from "@/lib/masters/service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
+import { listPaymentTerms } from "@/lib/masters/payment-term-service";
+import { paymentTermsAsLookups } from "@/lib/masters/lookup-compat";
 import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -224,6 +226,13 @@ export type AmendmentFormData = {
   countries: Country[];
   currencies: Currency[];
   lookups: ConfigLookup[];
+  /**
+   * The Payment Term MASTER (0242), reshaped by `paymentTermsAsLookups`, NOT
+   * `lookups.filter(kind === 'payment_term')` — 0375 repointed
+   * `garment_order_amendments.pay_terms_id` at `public.payment_terms` and
+   * deleted the lookup rows, which are now a shape without a table.
+   */
+  paymentTerms: ConfigLookup[];
   styles: StylePickerRow[];
   uoms: PickerRow[];
   dyeColors: DyeColorRow[];
@@ -239,6 +248,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     countries,
     currencies,
     lookups,
+    paymentTermRows,
     styles,
     uoms,
     dyeColors,
@@ -250,6 +260,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     listCountries(),
     listCurrencies(),
     listConfigLookups(),
+    listPaymentTerms(),
     getStyleRows(),
     getUomRows(),
     getDyeColorRows(),
@@ -262,6 +273,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     countries,
     currencies,
     lookups,
+    paymentTerms: paymentTermsAsLookups(paymentTermRows),
     styles,
     uoms,
     dyeColors,

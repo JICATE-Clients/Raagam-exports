@@ -31,6 +31,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { StatePicker } from "@/components/masters/state-picker";
+import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
 import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
@@ -1627,8 +1628,7 @@ export function VendorMasterScreen({
                 />
               </Field>
               <Field size={FIELD_SIZE.payment_term_id}>
-                <LookupDialogPicker
-                  kind="payment_term"
+                <PaymentTermPicker
                   label="Payment Terms"
                   options={paymentTerms}
                   value={r.payment_term_id || null}
@@ -1692,8 +1692,7 @@ export function VendorMasterScreen({
                 />
               </Field>
               <Field size={FIELD_SIZE.payment_term_id}>
-                <LookupDialogPicker
-                  kind="payment_term"
+                <PaymentTermPicker
                   label="Payment Terms"
                   options={paymentTerms}
                   value={r.payment_term_id || null}
@@ -1741,8 +1740,7 @@ export function VendorMasterScreen({
                 />
               </Field>
               <Field size={FIELD_SIZE.payment_term_id}>
-                <LookupDialogPicker
-                  kind="payment_term"
+                <PaymentTermPicker
                   label="Payment Terms"
                   options={paymentTerms}
                   value={r.payment_term_id || null}
@@ -1785,8 +1783,7 @@ export function VendorMasterScreen({
                 />
               </Field>
               <Field size={FIELD_SIZE.payment_term_id}>
-                <LookupDialogPicker
-                  kind="payment_term"
+                <PaymentTermPicker
                   label="Payment Terms"
                   options={paymentTerms}
                   value={r.payment_term_id || null}

@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { StatePicker } from "@/components/masters/state-picker";
+import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
@@ -1479,8 +1480,7 @@ export function ConsigneeMasterScreen({
                         `space-y-4` — the widest control on the tab for a value like
                         "60 Days DA". */}
                     <Field label="Payment Terms" size={FIELD_SIZE.payment_term_id}>
-                      <LookupDialogPicker
-                        kind="payment_term"
+                      <PaymentTermPicker
                         label="Payment Term"
                         options={paymentTerms}
                         value={form.payment_term_id || null}

@@ -95,6 +95,17 @@ export function LookupDialogPicker({
    * vanished on the next refresh and returned an id that was not a valid
    * `state_id`. Harmless while State fields passed no permissions; the
    * 2026-07-31 sweep gave them CRUD and exposed it.
+   *
+   * NOT for kind="payment_term" either — use
+   * `components/masters/payment-term-picker.tsx`. Identical shape (the master is
+   * `public.payment_terms`, 0242; the FKs were repointed by 0375, and
+   * `paymentTermsAsLookups()` is the shim), but it never had State's saving
+   * coincidence: no term shared an id across the two tables, so simply PICKING
+   * one already failed every save with a foreign-key violation.
+   *
+   * The pattern to check before adding a kind here: if the field's options come
+   * from `lookup-compat.ts` rather than `config_lookups`, this component is the
+   * wrong one — its writes and that field's reads are different tables.
    */
 
   // Values created / edited in this session, merged over the server rows. The
