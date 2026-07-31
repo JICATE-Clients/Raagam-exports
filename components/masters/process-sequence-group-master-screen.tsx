@@ -2,9 +2,11 @@
 import { X } from "lucide-react";
 import { deletedToast } from "@/lib/masters/delete-message";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { gridKeyNav } from "@/components/masters/child-grid";
+import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -28,8 +30,8 @@ import type { ProcessSequence } from "@/lib/masters/grid-master-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
-type LineRow = { key: string; sequence_id: string; sequence_name: string };
-const blankLine = (key: string): LineRow => ({ key, sequence_id: "", sequence_name: "" });
+type LineRow = { key: string; sequence_id: string };
+const blankLine = (key: string): LineRow => ({ key, sequence_id: "" });
 
 export function ProcessSequenceGroupMasterScreen({
   rows,
@@ -74,7 +76,6 @@ export function ProcessSequenceGroupMasterScreen({
     setLines(r.details.slice().sort((a, b) => a.sno - b.sno).map((d) => ({
       key: newKey(),
       sequence_id: d.sequence_id ?? "",
-      sequence_name: sequences.find((s) => s.id === d.sequence_id)?.name ?? "",
     })));
     setOpen(true);
   }
@@ -85,10 +86,12 @@ export function ProcessSequenceGroupMasterScreen({
   }
   function removeLine(key: string) { setLines((ls) => ls.filter((l) => l.key !== key)); }
 
-  function pickSequence(key: string, seqId: string) {
-    const seq = sequences.find((s) => s.id === seqId);
-    setLineAt(key, { sequence_id: seqId, sequence_name: seq?.name ?? "" });
-  }
+  // Select-only: a Process Sequence is a header plus its own step grid, so it is
+  // built on the Process Sequence master, never quick-created from a group line.
+  const sequenceItems: PickerItem[] = useMemo(
+    () => sequences.map((s) => ({ id: s.id, code: s.code, name: s.name })),
+    [sequences],
+  );
 
   function submit() {
     startTransition(async () => {
@@ -224,25 +227,25 @@ export function ProcessSequenceGroupMasterScreen({
             <div className="rounded-lg border border-border">
               <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">Sequences</div>
               <div className="space-y-2 p-3">
-                {/* No inner scroll — see ChildGrid's `pageSize` note. */}
-                <div className="space-y-2">
+                {/* No inner scroll — see ChildGrid's `pageSize` note. The
+                    markers + gridKeyNav are what let ↓ open the picker and
+                    Enter walk down the rows, as in every other child grid. */}
+                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-2">
                   {lines.map((l, i) => (
-                    <div key={l.key} className="flex items-center gap-2">
+                    <div data-grid-row key={l.key} className="flex items-center gap-2">
                       <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
-                      {sequences.length > 0 ? (
-                        <Select value={l.sequence_id}
-                          onChange={(e) => pickSequence(l.key, e.target.value)}
-                          className="flex-1 text-base md:text-sm">
-                          <option value="">— select sequence —</option>
-                          {sequences.map((s) => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Input placeholder="Sequence name" uppercase value={l.sequence_name}
-                          onChange={(e) => setLineAt(l.key, { sequence_name: e.target.value })}
-                          className="flex-1 text-base md:text-sm" />
-                      )}
+                      <div className="min-w-0 flex-1">
+                        {/* The free-text fallback this replaces wrote to a field
+                            the payload never sent — a typed name was silently
+                            dropped on Save. Only a picked sequence_id is stored. */}
+                        <RecordPicker
+                          label="Sequence"
+                          compact
+                          items={sequenceItems}
+                          value={l.sequence_id || null}
+                          onChange={(v) => setLineAt(l.key, { sequence_id: v ?? "" })}
+                        />
+                      </div>
                       <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
                         onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                     </div>

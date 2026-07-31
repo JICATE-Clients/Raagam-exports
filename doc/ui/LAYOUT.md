@@ -258,6 +258,115 @@ record references comes back deactivated with the referencing table named in the
 `<Select>` / `Combobox` over a fixed code list (AIR · SEA · ROAD, Yes/No) stays as it is. There
 is nothing to create, and it already drops down and already searches.
 
+### Which `<Select>`s must go (STANDING)
+
+The sweep converted 78 fields and **missed several**, which shipped and the client found them.
+The rule is not "most stored data"; the line is where the options come from:
+
+| The `<option>`s are | Verdict | Because |
+|---|---|---|
+| mapped off **table rows** — `<option key={c.id} value={c.id}>` | **convert** | a row id in an option means a record, and a record can be added, renamed and deleted |
+| a **module constant** — `MADE_TYPES`, `COUNTRY_GROUPS`, `BUSINESS_ENTITIES`, Yes/No, a status enum | leave | "Enums are not this" |
+| a **list filter** — the block opens `<option value="">All …`, or it lives in `filter-bar.tsx` | leave | a filter edits the query, not the record; there is nothing to create |
+
+A field select's blank first option reads `— Select —` / `— None —`; a filter's reads `All`. That
+is the whole difference and it is worth keeping consistent, because it is the signal both a reader
+and the audit go by.
+
+Which adapter, by where the rows live: a `config_lookups` **kind** → `LookupDialogPicker`
+(inline name-only Add/Modify/Delete). Its **own table** → the thin `DataPicker` adapter for that
+entity (`CountryPicker`, `CurrencyPicker`, `BankPicker`, `CommodityPicker`, `LevyPicker` …), with
+`onAddOverride` to a quick-create sheet if the record's other fields do something.
+**Transaction-scale** (Customer, Vendor, Applicant, Employee, Location) → select-only.
+Never a new picker shell — see `.claude/skills/raagam-masters-picker-wiring` for the full map.
+
+Select-only is still a `DataPicker`: a field the operator may not create into drops the CRUD
+icons, it does not drop back to a `<Select>`.
+
+**A `<Select>` may stay only when converting it would break something, and the reason goes in the
+file.** Three shapes have come up, all real — one about the form, one about the data, one about the
+adapter:
+
+- **The field decides which questions the form asks.** Every one of these is Item Class or a
+  class-like parent, and that is the pattern rather than a coincidence: Materials' Item Class picks
+  the whole form from the class code, Category's drives `showFabricStructure` and `showSubCategories`,
+  Material Attribute's supplies the attribute values the panel lines up, the Commodity quick-create's
+  classifies the row *into* a class other screens branch on. A class created from inside one of those
+  forms selects itself and opens a form that does not exist. Materials' Fabric Type is the same shape
+  one level down — Shade and the Mixing grid gate on `"melange"` / `"yarn dyed"`, so a value added
+  does nothing and a value *renamed* breaks both silently. **A field that selects the form's shape
+  cannot also be a field the operator extends from inside that form.**
+- **The column is not a row id.** Process HSN writes `processes.hsn_code`, a plain `TEXT` column,
+  so the option's value is a code string and `DataPicker`'s `value`-is-the-row-id contract does not
+  fit.
+- **The adapter cannot express a value the field needs.** Material HSN writes `items.hsn_id`, a uuid
+  FK — the data is a textbook picker case — but the field must be able to go back to **null**, and
+  clearing is half of what a bulk assign screen does. `LookupDialogPicker` passes `clearable={false}`
+  and an `onChange` of `(id) => onChange(id ?? "")`, which never emits null; that is right for the
+  ~78 config-lookup fields it serves, which clear by picking something else. So the two HSN screens
+  stay `<Select>`s for two *different* reasons — Process because of its column, Materials because of
+  the adapter. Check which one you have before reusing either as precedent.
+
+None of the three is a licence to leave a field alone because a picker is more work, and "the
+operator should not create these" is not among them — that is a select-only `DataPicker`.
+
+Named exemptions live in `STRUCTURAL_SELECTS` in the audit, keyed on the field's own name — its
+`id=`, its `aria-label`, or the helper's name where the element has neither — never a line number,
+which any edit above it moves. Exemptions are per **field**, not per file: a new stored-row
+`<Select>` added to one of these screens is still flagged. The audit repeats each reason because it
+strips comments before it runs, so it cannot read the very thing that justifies the exemption. Put
+the reason in **both** places.
+
+**A field whose conversion is undecided goes in `OPEN_QUESTIONS`, not `STRUCTURAL_SELECTS`.** Two
+today, and both could convert tomorrow: Materials' `uomSelect`, where `uoms` has no picker and one
+would have to carry `limitTo` — a list narrowed by *another* field's rows, which no existing picker
+does; and the pair of Material HSN selects, where a bare `DataPicker` **does** support `clearable`,
+so only the per-row cost of hundreds of instances argues against it. Nothing structural forbids
+either. They are silenced rather than left flagged for a reason worth stating: a check carrying a
+permanent known hit teaches people to skim output that should be empty, and a skimmed audit protects
+nothing. The separate set is what stops "silenced" reading as "settled" — these entries are debts to
+pay, not exemptions to defend, and each disappears the day its blocker does.
+
+Checked by `python scripts/audit_layout.py . --check stored-select`.
+
+**Where that check is blind, so nobody discovers it the hard way.** It keys on `value={….id}`, which
+is what lets the two HSN screens come out differently — and it means **a `<Select>` storing a natural
+key from a real table is invisible to it.** Code-keyed is not the same as not-stored-data:
+`CurrencyPicker` is the live proof, since `currencies`' primary key *is* the code. So a code-keyed
+select can still deserve a picker, and nothing static tells it apart from Process HSN's free `TEXT`
+column — only a human reading the column type can. Reviewing a new screen, look at the column, not
+just at the audit's silence.
+
+### The right component with no permissions is the same bug (STANDING)
+
+**Pass `canCreate` / `canEdit` / `canDelete` to every managed picker.** They all default to
+**false**, so a `<LookupDialogPicker>` handed none of them renders a list with no pencil, no bin
+and no "+ Add" — on screen, indistinguishable from the plain `<Select>` this section exists to
+remove, while passing any check that hunts for a `<Select>`. Employee's Category, Department and
+Designation shipped exactly that way, beside a Team field on the same row that had them.
+
+One of the three is enough to declare intent; `canDelete` defaults to `canEdit`. They are the
+**host screen's** permissions standing in for "may I maintain this shared list" — an Employee
+editor passes its own `perms`. Opt a single field out with `canDelete={false}`, not by passing
+nothing.
+
+**Structural select-only is a different thing, and it is marked by the missing scoping prop —
+not by missing permissions.** `<ItemPicker>` builds its CRUD bar from
+`quickCreateClassId && (canCreate || canEdit || canDelete)`: with no item class, a quick-created
+yarn would have nothing to belong to, so the three rate screens omit `quickCreateClassId` and
+perms there would be dead code. `quickCreateClassId` **with** no perms is the bug — the author
+asked for the bar and silently did not get one. `<CategoryPicker>` is **not** symmetrical: only
+its Add is gated (`canAdd = canCreate && !!itemClassId`), so `canEdit` / `canDelete` light up the
+pencil and bin with or without `itemClassId`. Omitting all three there always loses something.
+
+Checked by `python scripts/audit_layout.py . --check picker-perms`, over **masters, orders and
+sales** — every managed-picker call site in the repo. It covers a wider tree than `stored-select`
+on purpose: this one sits at zero, so a new tree is free insurance, while `stored-select` has live
+hits and would only gain an untriaged backlog. Seven pickers are watched — `LookupDialogPicker`,
+`CategoryPicker`, `ItemPicker`, `CountryPicker`, `BankPicker`, `CurrencyPicker`, `CommodityPicker`.
+The last four were added while already clean; that is the point, since a picker is cheapest to
+cover before it has a violation.
+
 ---
 
 ## 6. Child rows (line items)

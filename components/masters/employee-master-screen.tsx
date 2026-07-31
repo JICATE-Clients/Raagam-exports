@@ -1078,7 +1078,11 @@ export function EmployeeMasterScreen({
               />
             </Field>
             {/* The label is `Field`'s, so it lines up with the inputs beside it;
-                `compact` stops the picker rendering a second one of its own. */}
+                `compact` stops the picker rendering a second one of its own.
+                The perms are the host screen's, exactly as Team below already
+                passed them — without them the picker renders as a plain
+                dropdown and Category is the one code list on this form that
+                cannot be extended from the form that needs it. */}
             <Field label="Category" size={FIELD_SIZE.category_id}>
               <LookupDialogPicker
                 kind="employee_category"
@@ -1086,6 +1090,9 @@ export function EmployeeMasterScreen({
                 options={categories}
                 value={form.category_id || null}
                 onChange={(id) => set({ category_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
               />
             </Field>
@@ -1140,6 +1147,9 @@ export function EmployeeMasterScreen({
                 options={departments}
                 value={form.department_id || null}
                 onChange={(id) => set({ department_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
               />
             </Field>
@@ -1150,6 +1160,9 @@ export function EmployeeMasterScreen({
                 options={designations}
                 value={form.designation_id || null}
                 onChange={(id) => set({ designation_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
               />
             </Field>
@@ -1170,6 +1183,7 @@ export function EmployeeMasterScreen({
                 onChange={(id) => set({ team_id: id })}
                 canCreate={perms.canCreate}
                 canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
               />
             </Field>

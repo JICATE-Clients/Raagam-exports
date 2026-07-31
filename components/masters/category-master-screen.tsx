@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { LevyPicker } from "@/components/masters/lookup-picker";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
@@ -24,7 +25,6 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import {
   MADE_TYPES,
-  showsUserDefined,
   showsSubCategories,
   type Category,
   type CategoryInput,
@@ -66,8 +66,8 @@ type SubRow = { key: string; id: string | null; name: string };
 
 /**
  * Rich CRUD for the legacy "Category" master. Item Class/Levy/Commodity are
- * dialog pickers over their stored master data; User Defined and Fabric
- * Structure only render for the item classes the legacy form shows them on.
+ * dialog pickers over their stored master data; Fabric Structure and the Sub
+ * Categories grid only render for the item classes the legacy form shows them on.
  */
 export function CategoryMasterScreen({
   rows,
@@ -119,13 +119,11 @@ export function CategoryMasterScreen({
   }, [fabricStructures]);
 
   // The selected Item Class's code drives which extra fields the legacy form
-  // shows — User Defined (Capital/General/Sewing/Packing/Garments) and Fabric
-  // Structure (Fabric only).
+  // shows — Fabric Structure (Fabric only) and the Sub Categories grid.
   const selectedClassCode = useMemo(
     () => itemClasses.find((c) => c.id === form.item_class_id)?.code?.toUpperCase() ?? null,
     [itemClasses, form.item_class_id],
   );
-  const showUserDefined = showsUserDefined(selectedClassCode);
   const showFabricStructure = selectedClassCode === "FABRIC";
   const showSubCategories = showsSubCategories(selectedClassCode);
 
@@ -452,6 +450,14 @@ export function CategoryMasterScreen({
       >
         <div className="space-y-4">
           <DetailSection label="Classification" cols={2}>
+            {/* Item Class stays a plain <Select>, unlike every other stored
+                list on this form: the FORM ITSELF branches on the chosen class.
+                `showFabricStructure` / `showSubCategories` / the Category Type
+                field above are all read off `selectedClassCode`, so a class
+                quick-created from here would open a form that does not exist.
+                Item Classes are maintained on their own master, where the
+                questions each class asks are decided. Same reasoning as the
+                Materials form's own Item Class field. */}
             <div>
               <Label htmlFor="cat-item-class">
                 Item Class <span className="text-danger">*</span>
@@ -473,20 +479,12 @@ export function CategoryMasterScreen({
               </Select>
             </div>
 
-            {showUserDefined && (
-              <div>
-                <Label htmlFor="cat-user-defined">User Defined</Label>
-                <Select
-                  id="cat-user-defined"
-                  value={form.user_defined ? "yes" : "no"}
-                  onChange={(e) => setForm({ ...form, user_defined: e.target.value === "yes" })}
-                  className="text-base md:text-sm"
-                >
-                  <option value="no">No</option>
-                  <option value="yes">Yes</option>
-                </Select>
-              </div>
-            )}
+            {/* "User Defined" (Yes/No) used to sit here for Sewing/Packing/
+                Garments. The client's answer to "what does it do?" was to remove
+                it (2026-07-30), so the question is no longer asked. The
+                categories.user_defined column is still written from `form` below
+                so a stored value round-trips untouched — no row has ever held
+                true. See doc/masters-open-questions.md #6. */}
 
             {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only;
                 Fabric classifies via Fabric Structure below instead. */}
@@ -508,24 +506,21 @@ export function CategoryMasterScreen({
                 </Select>
               </div>
             )}
+            {/* Fabric Structure is a stored list, so it is a picker with inline
+                Add / Modify / Delete — unlike Category Type above, which is a
+                fixed three-value enum the operator can never extend. */}
             {showFabricStructure && (
               <div>
-                <Label htmlFor="cat-fabric-structure">Fabric Structure</Label>
-                <Select
-                  id="cat-fabric-structure"
+                <LookupDialogPicker
+                  kind="fabric_structure"
+                  label="Fabric Structure"
+                  options={fabricStructures}
                   value={form.fabric_structure_id}
-                  onChange={(e) => setForm({ ...form, fabric_structure_id: e.target.value })}
-                  className="text-base md:text-sm"
-                >
-                  <option value="">— Select —</option>
-                  {fabricStructures
-                    .filter((s) => s.is_active || s.id === form.fabric_structure_id)
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                </Select>
+                  onChange={(v) => setForm({ ...form, fabric_structure_id: v })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
+                />
               </div>
             )}
             {/* General stores buy by category-then-type — ELECTRICAL ▸ LIGHTS /

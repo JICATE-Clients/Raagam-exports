@@ -116,7 +116,6 @@ export type DetailFieldKey =
   | "item_type_name"
   | "item_base_name"
   | "material_type"
-  | "user_defined"
   | "specifications"
   | "short_spec"
   | "count_id"
@@ -135,10 +134,11 @@ export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
  *  generic, switch-rendered. Fabric and Yarn diverged too far (structure
  *  inheritance, nature-driven branching, %-mixing) for the generic switch — they
  *  get their own dedicated form components in the screen (0279). */
-// Form A (Button/Capital/Sewing/Packing): Category + User defined +
-// Transaction Type. Description/Short-Spec dropped from the UI (client 2026-07-25 —
-// the item name comes from the attributes, not a free-text description); the
-// specifications/short_spec DB columns are kept for round-trip.
+// Form A (Button/Capital/Sewing/Packing): Category + Transaction Type.
+// Description/Short-Spec dropped from the UI (client 2026-07-25 — the item name
+// comes from the attributes, not a free-text description); the
+// specifications/short_spec DB columns are kept for round-trip. "User defined"
+// was dropped on 2026-07-30 — see the note on form C below.
 // `sub_category_id` sits right after the Category it hangs off. Only the classes
 // in SUB_CATEGORY_CLASS_CODES (category-types.ts) show it, so the screen filters
 // it out of this list rather than the registry carrying two variants of form A
@@ -147,22 +147,24 @@ export type MaterialForm = { fields: DetailFieldKey[]; mixing: boolean };
 // Form GEN (General) split out of A on 2026-07-28. A consumable is identified by
 // Category ▸ Sub Category ▸ Item Type ▸ Item Name, and the Name is composed from
 // exactly those four — nothing is typed by hand. The two fields A shows are noise
-// here: "User defined" is a read-only echo of the Category that explains an
-// attribute flow General doesn't have, and the Transaction Type only ever has one
-// answer, since a consumable is always bought (the screen sends "Purchased"
-// silently). Both columns still round-trip; they are simply not asked for.
+// here: the Transaction Type only ever has one answer, since a consumable is
+// always bought (the screen sends "Purchased" silently). The column still
+// round-trips; it is simply not asked for.
 // Form C (Garments) is deliberately SHORTER than A. A garment is identified by
 // its category and its name and nothing else — the client asked for "Category
 // Name and Item Name", with none of the consumption/conversion modelling that
 // sewing thread or buttons need, and no Transaction Type (client 2026-07-28).
-// `user_defined` stays only because it is READ-ONLY here: it is inherited from
-// the Category and shown to explain itself (see the `user_defined` case in
-// material-master-screen.tsx). The items.material_type column is untouched and
-// still round-trips — it is simply no longer asked for on this form.
+// "USER DEFINED" IS GONE FROM ALL THREE FORMS (client 2026-07-30). It was a
+// Yes/No asked on the Category and echoed read-only here to explain why the
+// Attributes grid had appeared. The client's answer to "what does it do?" was to
+// remove it. `categories.user_defined` and `items.user_defined` still exist and
+// still round-trip; no row has ever been set to true, so nothing about the
+// attribute flow changes — see the note at `attributeDriven` in
+// material-master-screen.tsx.
 export const MATERIAL_FORMS: Record<"A" | "GEN" | "C", MaterialForm> = {
-  A: { fields: ["category_id", "sub_category_id", "user_defined", "material_type"], mixing: false },
+  A: { fields: ["category_id", "sub_category_id", "material_type"], mixing: false },
   GEN: { fields: ["category_id", "sub_category_id", "item_type_name", "item_base_name"], mixing: false },
-  C: { fields: ["category_id", "user_defined"], mixing: false },
+  C: { fields: ["category_id"], mixing: false },
 };
 
 export type MaterialFormKey = "A" | "FABRIC" | "YARN" | "GEN" | "C";

@@ -41,9 +41,18 @@ export interface Notify {
   whatsapp: string | null;
   email: string | null;
   web_site: string | null;
+  /**
+   * Published by Customer ▸ Also Notify / Consignee ▸ Also Notify (0371). At
+   * most one is ever set (DB CHECK). Non-null means the Name is read-only here
+   * and the row is removed by un-ticking that box on its source.
+   */
+  source_customer_id: string | null;
+  source_consignee_id: string | null;
   created_at: string;
   updated_at: string;
   country?: { id: string; code: string | null; name: string } | null;
+  source_customer?: { id: string; name: string } | null;
+  source_consignee?: { id: string; name: string } | null;
   contacts: NotifyContact[];
 }
 

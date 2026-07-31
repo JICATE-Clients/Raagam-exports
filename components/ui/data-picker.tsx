@@ -26,6 +26,7 @@ import { deletedToast } from "@/lib/masters/delete-message";
 // cycle. The alternative was a second copy of the Escape/Tab block, which is
 // the exact mistake picker-keys.ts was created to undo.
 import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker-keys";
+import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
 import { cn } from "@/lib/utils";
 
 /** One selectable record. `sublabel` renders muted beside the label. */
@@ -73,6 +74,20 @@ export type ManageConfig = {
   draftOf: (row: PickerRow) => PickerDraft;
   /** Show a "Type" field in the Add/Modify form — `kind='item_class'` only. */
   showTypeField?: boolean;
+  /**
+   * Live "already exists" check for the inline Add / Modify form.
+   *
+   * Without it the only feedback is whatever the server returns on Save, and for
+   * a `config_lookups` value that is the raw Postgres unique-violation string
+   * from `uq_config_lookups_kind_name` — a stack trace where a sentence belongs.
+   * Wired once here, so every adapter that passes it gets the check
+   * (`LookupDialogPicker` alone is ~78 fields).
+   *
+   * `scope` must match how the DB scopes uniqueness — `{ kind }` for config
+   * lookups, `{ item_class_id }` for categories — or the check disagrees with
+   * the constraint that actually rejects the row.
+   */
+  dupCheck?: { table: string; nameColumn?: string; scope?: Record<string, string | null> };
 };
 
 const FINE_POINTER = "(hover: hover) and (pointer: fine)";
@@ -252,6 +267,18 @@ export function DataPicker({
   // and must not block the PWA's silent update.
   useModalGuard(open && mode !== "list");
 
+  // Told as you type, not on Save. `excludeId` on edit or renaming a row would
+  // report it colliding with itself; `enabled` keeps the round trip off every
+  // keystroke in list mode, where there is no draft to check.
+  const dupError = useDuplicateCheck({
+    table: manage?.dupCheck?.table ?? "",
+    name: draftName,
+    nameColumn: manage?.dupCheck?.nameColumn,
+    excludeId: mode === "edit" ? (highlight ?? undefined) : undefined,
+    scope: manage?.dupCheck?.scope,
+    enabled: !!manage?.dupCheck && (mode === "add" || mode === "edit"),
+  });
+
   const selected = useMemo(() => rows.find((r) => r.id === value) ?? null, [rows, value]);
 
   // Shared with the trigger's onChange below, which has to know what the list
@@ -348,7 +375,7 @@ export function DataPicker({
   }
 
   function saveDraft() {
-    if (!manage) return;
+    if (!manage || dupError) return;
     start(async () => {
       const draft: PickerDraft = {
         // Create derives the code from the name (there is no Code input any
@@ -620,9 +647,16 @@ export function DataPicker({
               id="dp-name"
               autoFocus
               uppercase
+              aria-invalid={dupError ? true : undefined}
+              aria-describedby={dupError ? "dp-name-dup" : undefined}
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
             />
+            {dupError && (
+              <p id="dp-name-dup" className="mt-1 text-xs text-danger">
+                {dupError}
+              </p>
+            )}
           </div>
           {manage?.showTypeField && (
             <div className="w-40">
@@ -653,7 +687,7 @@ export function DataPicker({
         <Button
           type="button"
           size="md"
-          disabled={isPending || !draftName.trim()}
+          disabled={isPending || !draftName.trim() || !!dupError}
           onClick={saveDraft}
         >
           {isPending ? "Saving…" : "Save"}

@@ -11,13 +11,14 @@ import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
+import { CurrencyPicker } from "@/components/masters/currency-picker";
+import { RecordPicker } from "@/components/masters/record-picker";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import {
   createBuyer,
@@ -28,9 +29,16 @@ import {
   updateUom,
 } from "@/lib/masters/actions";
 
-/** Import/Export/Delete permission flags threaded to each master section. */
+/**
+ * Permission flags threaded to each master section.
+ *
+ * `canEdit` joins the I/O three because the fields carrying stored data are
+ * pickers now, and a picker's pencil/bin are gated on it — without it the
+ * Currency field would offer Add but no Modify.
+ */
 interface IoPerms {
   canCreate: boolean;
+  canEdit: boolean;
   canExport: boolean;
   canDelete: boolean;
 }
@@ -196,22 +204,21 @@ function BuyersSection({
                   }
                 />
               </div>
+              {/* Currency lists stored rows, so it is the shared picker, not a
+                  <Select> — searchable, with Add/Modify/Delete in the panel.
+                  The picker renders its own label; never double-label it. */}
               <div>
-                <Label htmlFor="b-currency">Currency</Label>
-                <Select
-                  id="b-currency"
-                  value={form.currency_code ?? ""}
-                  onChange={(e) =>
-                    setForm({ ...form, currency_code: e.target.value || null })
+                <CurrencyPicker
+                  label="Currency"
+                  currencies={currencies}
+                  value={form.currency_code ?? null}
+                  onChange={(code) =>
+                    setForm({ ...form, currency_code: code || null })
                   }
-                >
-                  <option value="">— Select —</option>
-                  {currencies.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code} — {c.name}
-                    </option>
-                  ))}
-                </Select>
+                  canCreate={io.canCreate}
+                  canEdit={io.canEdit}
+                  canDelete={io.canDelete}
+                />
               </div>
               <div>
                 <Label htmlFor="b-email">Contact Email</Label>
@@ -452,22 +459,17 @@ function ItemsSection({
                   }
                 />
               </div>
+              {/* Select-only: a UOM is a rich record (decimal places, the
+                  item-class scoping flags) created on the Stock Unit master,
+                  so a name-only inline Add would be born incomplete. Search
+                  and clear remain; the CRUD icons do not render. */}
               <div>
-                <Label htmlFor="i-uom">Unit of Measure</Label>
-                <Select
-                  id="i-uom"
-                  value={form.uom_id ?? ""}
-                  onChange={(e) =>
-                    setForm({ ...form, uom_id: e.target.value || null })
-                  }
-                >
-                  <option value="">— Select —</option>
-                  {uoms.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.code})
-                    </option>
-                  ))}
-                </Select>
+                <RecordPicker
+                  label="Unit of Measure"
+                  items={uoms}
+                  value={form.uom_id ?? null}
+                  onChange={(id) => setForm({ ...form, uom_id: id })}
+                />
               </div>
               <div className="col-span-2 flex items-center gap-2">
                 <input
@@ -707,6 +709,7 @@ export default function MastersClient({
   gstRates = [],
   initialTab,
   canCreate = false,
+  canEdit = false,
   canExport = false,
   canDelete = false,
 }: {
@@ -719,10 +722,11 @@ export default function MastersClient({
   gstRates?: GstRate[];
   initialTab?: string;
   canCreate?: boolean;
+  canEdit?: boolean;
   canExport?: boolean;
   canDelete?: boolean;
 }) {
-  const io: IoPerms = { canCreate, canExport, canDelete };
+  const io: IoPerms = { canCreate, canEdit, canExport, canDelete };
   const tabs = [
     {
       key: "buyers",

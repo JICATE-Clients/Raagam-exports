@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { notifyInput, type NotifyInput } from "./notify-types";
 import { deleteOrDeactivate } from "./delete-guard";
+import { checkDuplicateName } from "./dup-guard";
 
 type Result = { ok: true } | { ok: false; error: string };
 type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
@@ -51,6 +52,8 @@ export async function createNotify(data: NotifyInput): Promise<Result> {
   const p = notifyInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "notifies", p.data.name);
+  if (!dup.ok) return fail(dup.error);
   const { contacts: _drop, ...header } = p.data;
   void _drop;
   const { data: created, error } = await s.from("notifies").insert(header).select("id").single();
@@ -71,6 +74,8 @@ export async function updateNotify(id: string, data: NotifyInput): Promise<Resul
   const p = notifyInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dup = await checkDuplicateName(s, "notifies", p.data.name, { excludeId: id });
+  if (!dup.ok) return fail(dup.error);
   const { contacts: _drop, ...header } = p.data;
   void _drop;
   const { error } = await s.from("notifies").update(header).eq("id", id);

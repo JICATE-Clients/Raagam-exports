@@ -224,6 +224,13 @@ export function Combobox({
         <button
           type="button"
           aria-label="Clear"
+          // Out of the Tab order, same as DataPicker's clear (data-picker.tsx:755).
+          // It renders ONLY once a value is chosen and sits inside the input's pr-8,
+          // so leaving it focusable made "Tab after picking" look like it did nothing
+          // — focus had moved onto a ✕ drawn on top of the field. `lib/focus.ts`
+          // enumerates `button`, so this also keeps it out of the ↑↓←→ spatial walk
+          // and the Sheet focus trap, not just native Tab. Clicking still clears.
+          tabIndex={-1}
           onClick={() => commit("")}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
         >

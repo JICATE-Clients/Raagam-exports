@@ -28,6 +28,7 @@ const descriptor: SimpleMasterDescriptor<Row> = {
     name: String(v.name),
     is_active: s.active,
   }),
+  dupCheck: { table: "beam_types", fieldKey: "name", nameColumn: "name" },
   actions: { create: createBeamType, update: updateBeamType, remove: deleteBeamType },
 };
 

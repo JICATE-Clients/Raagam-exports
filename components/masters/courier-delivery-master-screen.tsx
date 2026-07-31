@@ -18,6 +18,7 @@ import { MasterListShell } from "@/components/masters/master-list-shell";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { StatePicker } from "@/components/masters/state-picker";
 import {
   createCourierDeliveryAddress,
   updateCourierDeliveryAddress,
@@ -202,16 +203,22 @@ export function CourierDeliveryAddressMasterScreen({
   }
   function openEdit(r: CourierDeliveryAddress) {
     setEditId(r.id);
+    // One visible Country field now feeds both stored columns (see the
+    // pickers below) — `country_id` is authoritative (it is what the list
+    // column, header chip and read-only view all resolve), so it wins; a row
+    // saved before this fix that only ever had `address_country_id` filled in
+    // still opens with a country rather than a blank picker.
+    const countryId = r.country_id ?? r.address_country_id ?? "";
     const nextForm: HeaderForm = {
       code: r.code ?? "",
       name: r.name,
       inactive: r.inactive,
-      country_id: r.country_id ?? "",
+      country_id: countryId,
       street: r.street ?? "",
       city_id: r.city_id ?? "",
       state_id: r.state_id ?? "",
       pin: r.pin ?? "",
-      address_country_id: r.address_country_id ?? "",
+      address_country_id: countryId,
       land_line: r.land_line ?? "",
       mobile: r.mobile ?? "",
       // NOT `?? ""` — a stored NULL is the "same as mobile" state.
@@ -333,15 +340,14 @@ export function CourierDeliveryAddressMasterScreen({
       },
       {
         label: "Address",
+        // No "Country" pair here — it lived under Identity above until the
+        // single-Country-field fix (2026-07-31); `address_country_id` is kept
+        // in sync with `country_id` and would only repeat that line.
         pairs: [
           ["Street", r.street],
           ["City", r.city_id ? (cityLabel.get(r.city_id) ?? null) : null],
           ["State", nameOf(states, r.state_id)],
           ["Pin", r.pin],
-          [
-            "Country",
-            r.address_country_id ? (countryLabel.get(r.address_country_id) ?? null) : null,
-          ],
         ],
       },
       {
@@ -570,14 +576,20 @@ export function CourierDeliveryAddressMasterScreen({
                   required
                 />
               </Field>
-              {/* Pickers render their own labels — never double-label them. */}
+              {/* Pickers render their own labels — never double-label them.
+                  The ONLY Country field on this form now (client complaint
+                  2026-07-31: two boxes both labelled "Country" read as a
+                  duplicate). It writes BOTH `country_id` and
+                  `address_country_id` — see the Address section below, which
+                  used to carry its own picker for the second column. */}
               <Field size={FIELD_SIZE.country}>
                 <CountryPicker
                   countries={countries}
                   value={form.country_id || null}
-                  onChange={(id) => set({ country_id: id })}
+                  onChange={(id) => set({ country_id: id, address_country_id: id })}
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
                 />
               </Field>
               {editId && (
@@ -630,12 +642,14 @@ export function CourierDeliveryAddressMasterScreen({
                 />
               </Field>
               <Field size={FIELD_SIZE.state}>
-                <LookupDialogPicker
-                  kind="state"
+                <StatePicker
                   label="State"
                   options={states}
                   value={form.state_id || null}
                   onChange={(id) => set({ state_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
                 />
               </Field>
               <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="cda-pin">
@@ -645,15 +659,14 @@ export function CourierDeliveryAddressMasterScreen({
                   onChange={(e) => set({ pin: e.target.value })}
                 />
               </Field>
-              <Field size={FIELD_SIZE.address_country}>
-                <CountryPicker
-                  countries={countries}
-                  value={form.address_country_id || null}
-                  onChange={(id) => set({ address_country_id: id })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-              </Field>
+              {/* Country used to have its OWN field here, bound to
+                  `address_country_id` — right beside Identity's `country_id`
+                  one, the same country asked twice. The column still exists
+                  in the DB (data-io round-trips it, and old rows may only
+                  have this one filled in) but it is now written from the
+                  single Identity Country picker above, not from a visible
+                  field here. Do not add this field back without re-reading
+                  that picker's comment first. */}
             </DetailSection>
 
             <DetailSection label="Communication" cols={12}>
@@ -754,6 +767,9 @@ export function CourierDeliveryAddressMasterScreen({
                       options={departments}
                       value={c.department_id || null}
                       onChange={(id) => setContactAt(c.key, { department_id: id })}
+                      canCreate={perms.canCreate}
+                      canEdit={perms.canEdit}
+                      canDelete={perms.canDelete}
                       compact
                     />
                   </Field>
@@ -764,6 +780,9 @@ export function CourierDeliveryAddressMasterScreen({
                       options={designations}
                       value={c.designation_id || null}
                       onChange={(id) => setContactAt(c.key, { designation_id: id })}
+                      canCreate={perms.canCreate}
+                      canEdit={perms.canEdit}
+                      canDelete={perms.canDelete}
                       compact
                     />
                   </Field>

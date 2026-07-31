@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -165,21 +166,44 @@ export function MaterialHsnAssignScreen({
     setEdits(new Map());
   }
 
+  // The HSN list, as the picker wants it. Code and description are joined into
+  // the label ("6109 — T-SHIRTS…") because both are how an operator recognises
+  // an HSN, and the picker filters on the label as you type.
+  const hsnItems: PickerItem[] = useMemo(
+    () => hsnOptions.map((o) => ({ id: o.id, code: o.code, name: hsnLabel(o) })),
+    [hsnOptions],
+  );
+
+  // `RecordPicker`, not `LookupDialogPicker`, and the difference is not cosmetic:
+  // these rows come from the **hsn_details** master (`hsnDetailsAsLookups`), not
+  // from `config_lookups` — migration 0314 moved every HSN picker onto that table
+  // and dropped the sync trigger that used to mirror the two. `LookupDialogPicker`
+  // would hang a pencil and a bin off each row and send them to `updateLookup` /
+  // `deleteLookup`, which edit `config_lookups` by id: rows that are not there.
+  // HSN values are maintained on the HSN Details master, so this field selects
+  // and does not manage — which is exactly what `RecordPicker` is for.
+  //
+  // Clearable on purpose: "not set" is a real value here, and clearing in bulk is
+  // half of what this screen does (`bulkApply` reports "— cleared —").
+  //
+  // The label is per ROW, via `id` + a screen-reader-only <label>: `compact`
+  // drops the picker's own label, and "HSN" repeated down 500 rows tells a
+  // screen-reader user nothing about which item they are on.
   const hsnSelect = (r: MaterialHsnRow) => (
-    <Select
-      value={cur(r) ?? ""}
-      onChange={(e) => setEdit(r.id, e.target.value || null)}
-      disabled={!perms.canEdit}
-      className="h-8 w-52 text-base md:text-sm"
-      aria-label={`HSN for ${r.name}`}
-    >
-      <option value="">— Not set —</option>
-      {hsnOptions.map((o) => (
-        <option key={o.id} value={o.id}>
-          {hsnLabel(o)}
-        </option>
-      ))}
-    </Select>
+    <div className="w-52">
+      <label htmlFor={`hsn-${r.id}`} className="sr-only">
+        HSN for {r.name}
+      </label>
+      <RecordPicker
+        id={`hsn-${r.id}`}
+        label="HSN"
+        compact
+        items={hsnItems}
+        value={cur(r)}
+        onChange={(v) => setEdit(r.id, v)}
+        disabled={!perms.canEdit}
+      />
+    </div>
   );
 
   return (
@@ -228,14 +252,22 @@ export function MaterialHsnAssignScreen({
           <span className="text-sm font-semibold text-primary">{selected.size} selected</span>
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Set HSN</span>
-            <Select value={bulkHsn} onChange={(e) => setBulkHsn(e.target.value)} aria-label="Bulk HSN" className="h-8 w-52 text-sm">
-              <option value="">— Not set —</option>
-              {hsnOptions.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {hsnLabel(o)}
-                </option>
-              ))}
-            </Select>
+            {/* The same picker as the row field — see the note beside `hsnSelect`
+                — holding the value "Apply to selection" stamps onto the checked
+                rows. Clearing it is the bulk CLEAR. */}
+            <div className="w-52">
+              <label htmlFor="hsn-bulk" className="sr-only">
+                HSN to apply to the selected items
+              </label>
+              <RecordPicker
+                id="hsn-bulk"
+                label="HSN"
+                compact
+                items={hsnItems}
+                value={bulkHsn || null}
+                onChange={(v) => setBulkHsn(v ?? "")}
+              />
+            </div>
             <Button variant="outline" size="sm" onClick={bulkApply}>
               Apply to selection
             </Button>

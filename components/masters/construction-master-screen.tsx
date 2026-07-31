@@ -16,6 +16,8 @@ import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { ItemPicker } from "@/components/masters/lookup-picker";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -25,6 +27,7 @@ import {
   deleteConstruction,
 } from "@/lib/masters/grid-master-actions";
 import type { Construction, ConstructionInput } from "@/lib/masters/grid-master-types";
+import type { ConfigLookup } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -43,7 +46,11 @@ const BLANK = {
   construct_for: "G", weave_tech_desc: "", is_direct_purchase: false, inactive: false,
 };
 
-export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows: Construction[]; counts: LookupOption[]; items: LookupOption[]; perms: Perms }) {
+// `counts` arrives as WHOLE config_lookups rows — the line's count field is the
+// real lookup picker, which needs `is_active` (an inactive count still resolves
+// for a line already pointing at it) and the row to Modify / Delete through.
+// `items` stays flattened: ItemPicker's own contract is {id, code, name}.
+export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows: Construction[]; counts: ConfigLookup[]; items: LookupOption[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -307,22 +314,37 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
                       <option value="P">Warp (P)</option>
                       <option value="T">Weft (T)</option>
                     </Select>
-                    <Select value={l.count_lookup_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { count_lookup_id: e.target.value || null })}
-                      className="flex-1 text-base md:text-sm">
-                      <option value="">— count —</option>
-                      {counts.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </Select>
-                    <Select value={l.item_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
-                      className="flex-1 text-base md:text-sm">
-                      <option value="">— yarn item —</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.name}</option>
-                      ))}
-                    </Select>
+                    {/* Count is a stored list (config_lookups 'yarn_count'), so
+                        the line adds / renames / drops a count in place rather
+                        than sending the operator to the Yarn Count master and
+                        back. `compact` keeps the line one row high; the trigger
+                        still reads "— Select Count —" until one is picked. */}
+                    <div className="min-w-0 flex-1">
+                      <LookupDialogPicker
+                        kind="yarn_count"
+                        label="Count"
+                        compact
+                        options={counts}
+                        value={l.count_lookup_id}
+                        onChange={(v) => setLineAt(l.key, { count_lookup_id: v || null })}
+                        canCreate={perms.canCreate}
+                        canEdit={perms.canEdit}
+                        canDelete={perms.canDelete}
+                      />
+                    </div>
+                    {/* Select-only, deliberately: a yarn quick-created from a
+                        construction line has no item class to belong to, so it
+                        would be born broken. Yarns are maintained on the
+                        Material master — same rule as the rate-line screens. */}
+                    <div className="min-w-0 flex-1">
+                      <ItemPicker
+                        label="Yarn"
+                        compact
+                        items={items}
+                        value={l.item_id ?? ""}
+                        onChange={(v) => setLineAt(l.key, { item_id: v || null })}
+                      />
+                    </div>
                     <Button type="button" variant="ghost" size="sm" className="text-muted-foreground hover:text-danger"
                       onClick={() => removeLine(l.key)} aria-label="Remove"><X className="h-4 w-4 shrink-0" /></Button>
                   </div>

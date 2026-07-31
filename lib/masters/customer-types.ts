@@ -152,10 +152,17 @@ export interface Customer {
   tcs_applicable: boolean;
   gst_no: string | null;
   is_draft: boolean;
+  /**
+   * Published by Applicant ▸ Also Customer (0371). Non-null means this row is
+   * owned by that applicant: its Name is read-only here and it is deleted by
+   * un-ticking the box over there, not from this screen.
+   */
+  source_applicant_id: string | null;
   created_at: string;
   updated_at: string;
   // embedded for display
   country?: { id: string; code: string | null; name: string } | null;
+  source_applicant?: { id: string; name: string } | null;
   contacts: CustomerContact[];
   applicants: CustomerApplicant[];
   agents: CustomerAgent[];

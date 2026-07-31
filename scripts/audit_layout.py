@@ -438,6 +438,326 @@ def check_row_actions(path: Path, code: str, slug: str):
             )
 
 
+# An <option ...> opening tag. No `>` can appear inside the attributes of one --
+# option attrs are `key={x}` / `value={x}`, never an arrow function -- so the
+# lazy character class is safe here in a way it is not for <Input (see
+# _jsx_open_tag).
+OPTION_TAG = re.compile(r"<option\b[^>]*>")
+
+# The row's primary key handed straight to the <option> AS ITS VALUE:
+# `<option key={c.id} value={c.id}>`. A row id in an option's value is a stored
+# record by definition -- an enum member is its own value (`value={m}`,
+# `value={o.value}`), it has no id.
+#
+# `value=`, not the whole tag, and the distinction earns its keep: the two HSN
+# Assign screens are built alike but store different things. Materials writes
+# `items.hsn_id`, a uuid FK -> `value={o.id}` -> a picker fits and it is flagged.
+# Processes writes `processes.hsn_code`, a plain TEXT column -> `key={o.id}
+# value={o.code ?? ""}` -> DataPicker's contract is `value` = row id, so the
+# id-based picker does not fit and it is not flagged.
+#
+# The gap this leaves, stated rather than hidden: a select storing a natural KEY
+# from a real table is now invisible here. Those exist -- `CurrencyPicker` is
+# code-keyed (`currencies` PK = code) -- so a code-keyed select CAN deserve a
+# picker. Nothing static separates that from Process HSN's TEXT column; the
+# column type decides, and only a human can read it.
+STORED_ID = re.compile(r"\bvalue=\{[^}]*\.id\b[^}]*\}")
+
+# `{MADE_TYPES.map((m) => …)}` -- a module-level constant, not a table. Belt and
+# braces beside STORED_ID (a const array of strings has no `.id` to match), but
+# it states the exemption instead of leaving it to a coincidence.
+SCREAMING_CASE = re.compile(r"[A-Z][A-Z0-9_]{2,}")
+TRAILING_IDENT = re.compile(r"([A-Za-z_$][\w$]*)\s*$")
+
+# A blank first option reading "All …" is a list filter, not a field: it edits
+# the query, not the record, so there is nothing to Add / Modify / Delete.
+FILTER_ALL = re.compile(r'<option\s+value=""\s*>\s*All\b')
+
+SELECT_ID = re.compile(r'\bid="([^"]+)"')
+SELECT_ARIA = re.compile(r'\baria-label="([^"]+)"')
+DECL_NAME = re.compile(r"\b(?:const|let|function)\s+([A-Za-z_$][\w$]*)\s*[=(]")
+
+# How far a declaration may sit above a `<Select>` and still be read as its
+# name. A helper whose whole body is the select -- `const uomSelect = (…) => (`
+# -- puts them within a line or two; anything further is a declaration the
+# element merely happens to follow. Without the cap, `const hsnSelect` claimed
+# all five selects in its file including one 2,807 characters later, which would
+# have let one exemption silence a field nobody had looked at.
+DECL_REACH = 200
+
+
+def _select_names(code: str, start: int) -> set[str]:
+    """The names a `<Select>` goes by, for the exemption sets below.
+
+    Three sources, in the order a reader would reach for them:
+
+      * `id=` -- most fields have one;
+      * `aria-label="…"` -- what the control is called when it has no id, and
+        the name a screen reader already announces (`"Bulk HSN"`);
+      * the declaration immediately above it, within DECL_REACH -- for a helper
+        whose entire body is the select, rendered from several call sites and so
+        owning no single id (`uomSelect`, `hsnSelect`).
+
+    All three beat a line number, which every edit above the field moves.
+    """
+    names = set()
+    tag = _jsx_open_tag(code, start)
+    for pattern in (SELECT_ID, SELECT_ARIA):
+        attr = pattern.search(tag)
+        if attr:
+            names.add(attr.group(1))
+    decls = DECL_NAME.findall(code[:start])
+    if decls and start - code.rfind(decls[-1], 0, start) <= DECL_REACH:
+        names.add(decls[-1])
+    return names
+
+
+# Fields that are select-only for a STRUCTURAL reason no static check can see:
+# application code branches on the VALUE, so the list must not grow. Each one
+# carries its reasoning beside it in its own file; it is repeated here because
+# comments are stripped before the checks run, so the script cannot read the one
+# thing that justifies the exemption.
+#
+#   mt-fabric-type   (material-master) Shade and the Mixing grid gate on the
+#                    NAME -- `.includes("yarn") && .includes("dyed")` and
+#                    `=== "melange"`. A type added here would do nothing; one
+#                    RENAMED here breaks both silently.
+#   mt-item-class    (material-master) `itemClassForm(selectedClassCode)` picks
+#                    the whole form from the class CODE, so a class added here
+#                    opens a form that does not exist.
+#   cat-item-class   (category-master) same shape: `showFabricStructure`,
+#                    `showSubCategories` and Category Type are all read off
+#                    `selectedClassCode`.
+#   cop-class        (commodity-picker) the class a commodity is classified
+#                    INTO, and the screens reading commodities branch on it. A
+#                    class invented inside a quick-create would classify the row
+#                    into something no form knows how to show.
+#   ma-item-class    (material-attribute) the rest of the form is read off the
+#                    chosen class -- its attribute values and its code -- and
+#                    the list is pre-filtered to accessory classes, which a
+#                    picker's "+ Add" would quietly widen.
+#
+# All five are Item Class or a class-like parent, which is the pattern rather
+# than a coincidence: a field that selects which QUESTIONS the form asks cannot
+# also be a field the operator extends from inside that form.
+#
+# Widening this set is a decision about the app, not about the audit: add to it
+# only when the code genuinely branches on the value, and put the reason in BOTH
+# places.
+STRUCTURAL_SELECTS = {
+    ("components/masters/material-master-screen.tsx", "mt-fabric-type"),
+    ("components/masters/material-master-screen.tsx", "mt-item-class"),
+    ("components/masters/category-master-screen.tsx", "cat-item-class"),
+    ("components/masters/commodity-picker.tsx", "cop-class"),
+    ("components/masters/material-attribute-master-screen.tsx", "ma-item-class"),
+}
+
+# NOT settled -- deliberately a separate set, and the separation is the point.
+# These are silenced so the check can reach zero, because a report carrying a
+# permanent known hit trains people to skim output that should be empty, and a
+# skimmed audit protects nothing. But nothing about them has been DECIDED, so
+# they do not belong in a list named "structural" where a later reader would
+# take them for resolved.
+#
+#   uomSelect  (material-master) The `uoms` master has no picker in this
+#              codebase, and one written for it would have to carry `limitTo` --
+#              a list narrowed by ANOTHER field's rows, which no existing picker
+#              does. So this is a new shared component plus a decision about
+#              what "+ Add" means when the list is deliberately restricted (a
+#              unit added inline would sit outside every conversion row and
+#              reintroduce the unreachable Purchase Uom the limit exists to
+#              prevent). Converting it is a design question, not a swap.
+#
+#   hsnSelect  (material-hsn-assign, the row field) The ADAPTER cannot express
+#   Bulk HSN   (material-hsn-assign, the bulk field) a value this field needs:
+#              null. Clearing an HSN is half of what a bulk assign screen does
+#              -- `bulkApply` offers "— cleared —" and writes null to
+#              `items.hsn_id` -- and `LookupDialogPicker` is `clearable={false}`
+#              with an `onChange` of `(id) => onChange(id ?? "")`, which never
+#              emits null. That is correct for the ~78 config-lookup fields it
+#              serves, which clear by picking something else. Two costs on top:
+#              there is nothing for a CRUD bar to do (the HSN list is maintained
+#              on the HSN master; this screen only assigns from it), and it is
+#              one control per row across a bulk grid, where hundreds of
+#              `DataPicker` instances buy nothing.
+#
+#              Open, not structural: a bare `DataPicker` DOES support
+#              `clearable`, so this converts the day someone decides
+#              search-as-you-type is worth the per-row cost. Nothing forbids it.
+#              Its sibling `process-hsn-assign-screen.tsx` needs no entry at
+#              all -- storing a code string in `value=`, it falls out of the
+#              rule by itself.
+#
+# When UOM gets a picker, when a clearable HSN picker is worth building, these
+# entries go away -- they are not exemptions to defend, they are debts to pay.
+OPEN_QUESTIONS = {
+    ("components/masters/material-master-screen.tsx", "uomSelect"),
+    ("components/masters/material-hsn-assign-screen.tsx", "hsnSelect"),
+    ("components/masters/material-hsn-assign-screen.tsx", "Bulk HSN"),
+}
+
+
+def _select_blocks(code: str):
+    """Yield `(start, body)` for every `<Select> … </Select>` pair.
+
+    Paired with a stack so a Select nested inside another is attributed to the
+    inner one. Comments are already stripped by the caller, which matters more
+    here than anywhere else in this file: four masters screens *describe* a
+    `<Select>` in prose and would otherwise leave an unclosed open tag that
+    swallows the rest of the file into one block.
+    """
+    events = sorted(
+        [(m.start(), "open") for m in re.finditer(r"<Select\b", code)]
+        + [(m.start(), "close") for m in re.finditer(r"</Select\s*>", code)]
+    )
+    stack: list[int] = []
+    for idx, kind in events:
+        if kind == "open":
+            stack.append(idx)
+        elif stack:
+            start = stack.pop()
+            yield start, code[start:idx]
+
+
+def check_stored_select(path: Path, code: str, slug: str):
+    """LAYOUT.md §5a: stored data is a DataPicker, never a plain <Select>.
+
+    A `<Select>` whose `<option>`s are mapped off table rows is a dropdown the
+    operator cannot add to, rename from or delete out of -- they leave the form
+    they are filling, go to that master's own screen, create the row, come back
+    and start again. That is the flow §5a removed for 78 fields; the ones that
+    were missed stayed as plain `<Select>`s and the client found them.
+
+    The tell is a row id reaching the option AS ITS VALUE -- `<option key={c.id}
+    value={c.id}>` -- because only a stored record has one (see STORED_ID for
+    what a code-keyed value means and why it is left alone).
+
+    Four things that are NOT this:
+
+      * `filter-bar.tsx` and any block with a blank `All …` option -- a filter
+        owns no record;
+      * a fixed code list (`MADE_TYPES`, `BUSINESS_ENTITIES`, Yes/No, a status
+        enum). §5a's own words: "Enums are not this." There is nothing to
+        create, and it already drops down and already searches;
+      * the primitives, which render whatever options their caller passes;
+      * the named `STRUCTURAL_SELECTS` and `OPEN_QUESTIONS` -- the judgement
+        calls, and the only exemptions here a reader has to take on trust. Both
+        are keyed on the field's own name and both write out why, in the screen
+        as well as here; the second set says the question is still open.
+
+    Scoped to `components/masters/` for the same reason check_caps_input is:
+    narrow and believed beats broad and muted.
+    """
+    if slug in PRIMITIVES or slug == "components/masters/filter-bar.tsx":
+        return
+    if "components/masters/" not in slug:
+        return
+    for start, body in _select_blocks(code):
+        if FILTER_ALL.search(body):
+            continue
+        if any(
+            (slug, n) in STRUCTURAL_SELECTS or (slug, n) in OPEN_QUESTIONS
+            for n in _select_names(code, start)
+        ):
+            continue
+        for m in OPTION_TAG.finditer(body):
+            tag = m.group(0)
+            if "key={" not in tag or not STORED_ID.search(tag):
+                continue
+            # Walk back to the `.map(` that produced this option and let a
+            # SCREAMING_CASE source off -- that is a constant, not a query.
+            mapped = body.rfind(".map(", 0, m.start())
+            ident = TRAILING_IDENT.search(body, 0, mapped) if mapped != -1 else None
+            if ident and SCREAMING_CASE.fullmatch(ident.group(1)):
+                continue
+            yield Finding(
+                "stored-select", path, line_of(code, start),
+                "plain <Select> over stored rows; stored data is a "
+                "<DataPicker> -- LookupDialogPicker for a config_lookups kind, "
+                "a thin adapter for a table (LAYOUT.md 5a)",
+            )
+            break
+
+
+# The pickers whose CRUD bar is switched on by permission props alone. The
+# select-only ones -- LevyPicker, AttributePicker, a bare RecordPicker -- accept
+# no perms at all, so there is nothing here for them to omit.
+#
+# The rich-master four were added when every one of their 36 call sites already
+# passed a permission, so they cost nothing on the day. That IS the point: this
+# check earns its keep on the call site nobody has written yet, and a picker is
+# cheapest to cover before it has a violation, not after.
+MANAGED_PICKERS = (
+    "LookupDialogPicker",
+    "CategoryPicker",
+    "ItemPicker",
+    "CountryPicker",
+    "BankPicker",
+    "CurrencyPicker",
+    "CommodityPicker",
+)
+
+PICKER_PERM = re.compile(r"\bcan(?:Create|Edit|Delete)\b")
+
+
+def check_picker_perms(path: Path, code: str, slug: str):
+    """LAYOUT.md 5a: a managed picker with no permissions is a dead dropdown.
+
+    `LookupDialogPicker` defaults every permission to false, so a call site that
+    passes none of `canCreate` / `canEdit` / `canDelete` renders a list with no
+    pencil, no bin and no "+ Add" -- indistinguishable, on screen, from the plain
+    `<Select>` the picker sweep was meant to replace, while passing every check
+    that looks for a `<Select>`. Employee's Category / Department / Designation
+    shipped exactly like that, next to a Team field on the same row that had
+    them. The right component with no permissions is the same bug as the wrong
+    component.
+
+    One of the three is enough -- the omission of all three is the tell, and
+    `canDelete` deliberately defaults to `canEdit`.
+
+    `<ItemPicker>` is exempt WITHOUT `quickCreateClassId`. Its manage config is
+    `quickCreateClassId && (canCreate || canEdit || canDelete)`, so with no class
+    to create into there is nothing to scope a new item to and perms would be
+    dead code -- the three rate screens that do this each say so in a comment.
+    That is a STRUCTURAL select-only, marked by the missing scoping prop rather
+    than by the missing perms, and `quickCreateClassId` WITH no perms is still a
+    bug: the author asked for a CRUD bar and silently did not get one.
+
+    `<CategoryPicker>` gets NO such exemption, despite looking symmetrical.
+    Only its Add is gated (`canAdd = canCreate && !!itemClassId`); `manage` is
+    `canAdd || canEdit || canDelete`, so `canEdit` / `canDelete` light up the
+    pencil and bin with or without `itemClassId`. Perms are never dead code
+    there, so omitting all three is always a real loss.
+
+    Scoped WIDER than check_stored_select -- masters plus orders and sales --
+    and the asymmetry is deliberate. This check sits at zero, so a new tree adds
+    insurance and no noise. `stored-select` has live hits and a documented blind
+    spot; pointing it at trees this sweep never audited would hand it a backlog
+    nobody has triaged, and an audit carrying a standing backlog stops being read.
+    """
+    if slug in PRIMITIVES:
+        return
+    if not any(
+        s in slug
+        for s in ("components/masters/", "app/(app)/masters/",
+                  "app/(app)/orders/", "app/(app)/sales/")
+    ):
+        return
+    for m in re.finditer(r"<(" + "|".join(MANAGED_PICKERS) + r")\b", code):
+        name = m.group(1)
+        tag = _jsx_open_tag(code, m.start())
+        if PICKER_PERM.search(tag):
+            continue
+        if name == "ItemPicker" and "quickCreateClassId" not in tag:
+            continue
+        yield Finding(
+            "picker-perms", path, line_of(code, m.start()),
+            f"<{name}> passes none of canCreate/canEdit/canDelete; it renders "
+            "with no Add / Modify / Delete -- a picker-shaped <Select> "
+            "(LAYOUT.md 5a)",
+        )
+
+
 CHECKS = {
     "screen-grid": check_screen_grid,
     "screen-table": check_screen_table,
@@ -446,6 +766,8 @@ CHECKS = {
     "text-size-noop": check_text_size_noop,
     "caps-input": check_caps_input,
     "row-actions": check_row_actions,
+    "stored-select": check_stored_select,
+    "picker-perms": check_picker_perms,
 }
 
 

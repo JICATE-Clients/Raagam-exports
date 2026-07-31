@@ -18,7 +18,7 @@ import {
   updateYarnDebitRate,
   deleteYarnDebitRate,
 } from "@/lib/masters/grid-master-actions";
-import { Select } from "@/components/ui/select";
+import { ItemPicker } from "@/components/masters/lookup-picker";
 import type { YarnDebitRate, YarnDebitRateInput } from "@/lib/masters/grid-master-types";
 import { fmtDate } from "@/lib/format";
 
@@ -186,14 +186,20 @@ export function YarnDebitRateMasterScreen({
                 {lines.map((l, i) => (
                   <div data-grid-row key={l.key} className="flex items-center gap-2">
                     <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}</span>
-                    <Select value={l.item_id ?? ""}
-                      onChange={(e) => setLineAt(l.key, { item_id: e.target.value || null })}
-                      className="flex-1 text-base md:text-sm">
-                      <option value="">— select yarn —</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>{it.name}</option>
-                      ))}
-                    </Select>
+                    {/* One-line row, so the picker goes label-less; `title` still
+                        names it in the panel and its toasts. Select-only: a yarn
+                        quick-created from a rate line would have no item class to
+                        belong to — Materials is its own master. */}
+                    <div className="min-w-0 flex-1">
+                      <ItemPicker
+                        label=""
+                        title="Yarn"
+                        items={items}
+                        value={l.item_id ?? ""}
+                        onChange={(v) => setLineAt(l.key, { item_id: v || null })}
+                        placeholder="— Yarn —"
+                      />
+                    </div>
                     <Input type="number" placeholder="Rate/KG" value={l.rate_per_kg} min={0} step="0.01"
                       onChange={(e) => setLineAt(l.key, { rate_per_kg: e.target.value })}
                       className="w-24 text-base md:text-sm" />

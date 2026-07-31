@@ -23,6 +23,9 @@ export interface DefectDetail {
 export interface DefectGroup {
   id: string;
   name: string;
+  /** Carried so the picker can grey an inactive group without dropping it —
+   *  a defect that already points at one must still resolve its name. */
+  is_active: boolean;
 }
 
 export const defectDetailInput = z.object({

@@ -14,7 +14,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import type { ConfigLookup, LookupKind } from "@/lib/masters/extras-types";
+import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -106,7 +106,11 @@ export function LookupMasterScreen({
   }
 
   const columns: Column<ConfigLookup>[] = [
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    // Same label the pickers show, so the list you maintain the values in reads
+    // exactly like the field that offers them — Ship Type carries its Incoterm,
+    // every other kind is the bare name (lookupLabel). The editor below still
+    // loads and saves the raw `name`.
+    { header: "Name", cell: (r) => <span className="text-sm">{lookupLabel(kind, r)}</span> },
     {
       header: "Notes",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.notes ?? "—"}</span>,
@@ -176,7 +180,7 @@ export function LookupMasterScreen({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
+                  <div className="truncate text-[15px] font-semibold text-foreground">{lookupLabel(kind, r)}</div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "neutral"}>
                   {r.is_active ? "Active" : "Inactive"}

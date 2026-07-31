@@ -18,7 +18,15 @@ import { MasterListShell } from "@/components/masters/master-list-shell";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { StatePicker } from "@/components/masters/state-picker";
 import { createNotify, updateNotify, deleteNotify } from "@/lib/masters/notify-actions";
+import {
+  partyOrigin,
+  OriginBadge,
+  originNameHint,
+  originDeleteBlock,
+  type PartyOrigin,
+} from "@/components/masters/party-origin";
 import { deletedToast } from "@/lib/masters/delete-message";
 import type { Notify, NotifyInput } from "@/lib/masters/notify-types";
 import type { Country } from "@/lib/masters/country-types";
@@ -43,6 +51,27 @@ type HeaderForm = {
   email: string;
   web_site: string;
 };
+/**
+ * Two masters can publish a notify party — Customer ▸ Also Notify and
+ * Consignee ▸ Also Notify (0371). The DB CHECK guarantees at most one link is
+ * set, so the first hit is the answer.
+ */
+const notifyOrigin = (r: Notify) =>
+  partyOrigin([
+    {
+      id: r.source_customer_id,
+      source: r.source_customer,
+      from: "Customer",
+      flag: "Also Notify",
+    },
+    {
+      id: r.source_consignee_id,
+      source: r.source_consignee,
+      from: "Consignee",
+      flag: "Also Notify",
+    },
+  ]);
+
 const BLANK: HeaderForm = {
   code: "",
   name: "",
@@ -170,6 +199,13 @@ export function NotifyMasterScreen({
   /** The record being LOOKED at — read-only, never the editor's record. */
   const [viewRow, setViewRow] = useState<Notify | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  /**
+   * Set while editing a row that a tick box published (0371). Its Name belongs
+   * to the source and is read-only here — that removes the rename conflict
+   * rather than resolving it: the name syncs one way and this side cannot fight
+   * it. Everything else on the record is genuinely its own.
+   */
+  const [editOrigin, setEditOrigin] = useState<PartyOrigin | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const keySeq = useRef(0);
@@ -190,6 +226,7 @@ export function NotifyMasterScreen({
 
   function openAdd() {
     setEditId(null);
+    setEditOrigin(null);
     const blankContacts = [blankContact(newKey())];
     setForm(BLANK);
     setContacts(blankContacts);
@@ -201,16 +238,23 @@ export function NotifyMasterScreen({
   }
   function openEdit(r: Notify) {
     setEditId(r.id);
+    setEditOrigin(notifyOrigin(r));
+    // One visible Country field now feeds both stored columns (see the
+    // pickers below) — `country_id` is authoritative (it is what the list
+    // column, header chip and read-only view all resolve), so it wins; a row
+    // saved before this fix that only ever had `address_country_id` filled in
+    // still opens with a country rather than a blank picker.
+    const countryId = r.country_id ?? r.address_country_id ?? "";
     const nextForm: HeaderForm = {
       code: r.code ?? "",
       name: r.name,
       inactive: r.inactive,
-      country_id: r.country_id ?? "",
+      country_id: countryId,
       street: r.street ?? "",
       city_id: r.city_id ?? "",
       state_id: r.state_id ?? "",
       pin: r.pin ?? "",
-      address_country_id: r.address_country_id ?? "",
+      address_country_id: countryId,
       land_line: r.land_line ?? "",
       mobile: r.mobile ?? "",
       // NOT `?? ""` — a stored NULL is the "same as mobile" state.
@@ -287,6 +331,14 @@ export function NotifyMasterScreen({
   }
 
   function remove(r: Notify) {
+    // A published row is owned by its source. Deleting it here while the tick
+    // box stayed on would simply republish it on that record's next save, so we
+    // point at the box instead of pretending the delete worked.
+    const origin = notifyOrigin(r);
+    if (origin) {
+      error(originDeleteBlock(origin));
+      return;
+    }
     startTransition(async () => {
       const res = await deleteNotify(r.id);
       if (res.ok) {
@@ -313,6 +365,7 @@ export function NotifyMasterScreen({
    * drift: the two masters hold the same record. Change one, change both.
    */
   function viewSections(r: Notify): ViewSection[] {
+    const origin = notifyOrigin(r);
     const filled = r.contacts.filter(
       (c) =>
         c.contact_name ||
@@ -326,19 +379,23 @@ export function NotifyMasterScreen({
     const sections: ViewSection[] = [
       {
         label: "Identity",
-        pairs: [["Country", r.country_id ? (countryLabel.get(r.country_id) ?? null) : null]],
+        pairs: [
+          ["Country", r.country_id ? (countryLabel.get(r.country_id) ?? null) : null],
+          // Only when it IS published — a null pair on an ordinary notify party
+          // would invite the question "published by what?" for no reason.
+          ...(origin ? [[`From ${origin.from}`, `${origin.name} (${origin.flag})`] as const] : []),
+        ],
       },
       {
         label: "Address",
+        // No "Country" pair here — it lived under Identity above until the
+        // single-Country-field fix (2026-07-31); `address_country_id` is kept
+        // in sync with `country_id` and would only repeat that line.
         pairs: [
           ["Street", r.street],
           ["City", r.city_id ? (cityLabel.get(r.city_id) ?? null) : null],
           ["State", nameOf(states, r.state_id)],
           ["Pin", r.pin],
-          [
-            "Country",
-            r.address_country_id ? (countryLabel.get(r.address_country_id) ?? null) : null,
-          ],
         ],
       },
       {
@@ -390,7 +447,18 @@ export function NotifyMasterScreen({
   }
 
   const columns: Column<Notify>[] = [
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    {
+      header: "Name",
+      cell: (r) => {
+        const origin = notifyOrigin(r);
+        return (
+          <span className="flex flex-wrap items-center gap-1.5 text-sm">
+            {r.name}
+            <OriginBadge origin={origin} />
+          </span>
+        );
+      },
+    },
     {
       header: "Country",
       cell: (r) => (
@@ -474,7 +542,17 @@ export function NotifyMasterScreen({
         empty="No notify parties yet."
         mobile={{
           title: (r) => r.name,
-          meta: (r) => (r.country_id ? countryLabel.get(r.country_id) ?? null : null),
+          meta: (r) => {
+            const o = notifyOrigin(r);
+            return (
+              [
+                r.country_id ? (countryLabel.get(r.country_id) ?? null) : null,
+                o ? `from ${o.from} ${o.name}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || null
+            );
+          },
           pill: (r) => (
             <StatusPill tone={r.inactive ? "danger" : "success"}>
               {r.inactive ? "Inactive" : "Active"}
@@ -502,6 +580,7 @@ export function NotifyMasterScreen({
           badges: (
             <>
               {form.inactive && <StatusPill tone="danger">Inactive</StatusPill>}
+              <OriginBadge origin={editOrigin} />
               {dirty && <span className="text-[11px] font-medium text-warning">● Unsaved</span>}
             </>
           ),
@@ -553,23 +632,39 @@ export function NotifyMasterScreen({
             content: (
               <SectionBody title="Identity" hint="Who this notify party is, and the country it sits in.">
             <DetailSection label="Details" cols={12}>
-              <Field label="Name" size={FIELD_SIZE.name} required htmlFor="nt-name">
+              <Field
+                label="Name"
+                size={FIELD_SIZE.name}
+                required
+                htmlFor="nt-name"
+                hint={editOrigin ? originNameHint(editOrigin) : undefined}
+              >
+                {/* `readOnly`, not `disabled`: the value still submits, still
+                    copies, still reads normally — and Input's own readOnly sets
+                    tabIndex={-1}, so it leaves the Tab order for free. */}
                 <Input
                   id="nt-name"
                   uppercase
+                  readOnly={!!editOrigin}
                   value={form.name}
                   onChange={(e) => set({ name: e.target.value })}
                   required
                 />
               </Field>
-              {/* Pickers render their own labels — never double-label them. */}
+              {/* Pickers render their own labels — never double-label them.
+                  The ONLY Country field on this form now (client complaint
+                  2026-07-31: two boxes both labelled "Country" read as a
+                  duplicate). It writes BOTH `country_id` and
+                  `address_country_id` — see the Address section below, which
+                  used to carry its own picker for the second column. */}
               <Field size={FIELD_SIZE.country}>
                 <CountryPicker
                   countries={countries}
                   value={form.country_id || null}
-                  onChange={(id) => set({ country_id: id })}
+                  onChange={(id) => set({ country_id: id, address_country_id: id })}
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
                 />
               </Field>
               {editId && (
@@ -622,12 +717,14 @@ export function NotifyMasterScreen({
                 />
               </Field>
               <Field size={FIELD_SIZE.state}>
-                <LookupDialogPicker
-                  kind="state"
+                <StatePicker
                   label="State"
                   options={states}
                   value={form.state_id || null}
                   onChange={(id) => set({ state_id: id })}
+                  canCreate={perms.canCreate}
+                  canEdit={perms.canEdit}
+                  canDelete={perms.canDelete}
                 />
               </Field>
               <Field label="Pin" size={FIELD_SIZE.pin} htmlFor="nt-pin">
@@ -637,15 +734,14 @@ export function NotifyMasterScreen({
                   onChange={(e) => set({ pin: e.target.value })}
                 />
               </Field>
-              <Field size={FIELD_SIZE.address_country}>
-                <CountryPicker
-                  countries={countries}
-                  value={form.address_country_id || null}
-                  onChange={(id) => set({ address_country_id: id })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-              </Field>
+              {/* Country used to have its OWN field here, bound to
+                  `address_country_id` — right beside Identity's `country_id`
+                  one, the same country asked twice. The column still exists
+                  in the DB (data-io round-trips it, and old rows may only
+                  have this one filled in) but it is now written from the
+                  single Identity Country picker above, not from a visible
+                  field here. Do not add this field back without re-reading
+                  that picker's comment first. */}
             </DetailSection>
 
             <DetailSection label="Communication" cols={12}>
@@ -744,6 +840,9 @@ export function NotifyMasterScreen({
                       options={departments}
                       value={c.department_id || null}
                       onChange={(id) => setContactAt(c.key, { department_id: id })}
+                      canCreate={perms.canCreate}
+                      canEdit={perms.canEdit}
+                      canDelete={perms.canDelete}
                       compact
                     />
                   </Field>
@@ -754,6 +853,9 @@ export function NotifyMasterScreen({
                       options={designations}
                       value={c.designation_id || null}
                       onChange={(id) => setContactAt(c.key, { designation_id: id })}
+                      canCreate={perms.canCreate}
+                      canEdit={perms.canEdit}
+                      canDelete={perms.canDelete}
                       compact
                     />
                   </Field>

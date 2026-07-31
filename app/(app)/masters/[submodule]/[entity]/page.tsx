@@ -63,6 +63,8 @@ import { ProcessHsnAssignScreen } from "@/components/masters/process-hsn-assign-
 import { listMaterialHsn } from "@/lib/masters/material-hsn-service";
 import { MaterialHsnAssignScreen } from "@/components/masters/material-hsn-assign-screen";
 import { listCategories } from "@/lib/masters/category-service";
+import { listLevies } from "@/lib/masters/levy-service";
+import { listProcesses } from "@/lib/masters/process-service";
 import { listCommodities } from "@/lib/masters/commodity-service";
 import { CurrencyMasterScreen } from "@/components/masters/currency-master-screen";
 import { listExchangeRateEntries } from "@/lib/masters/exchange-rate-service";
@@ -469,16 +471,36 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "vendor") {
-      const [vendors, countries, all, accountGroups, stateRows, company] = await Promise.all([
-        listVendors(),
-        listCountries(),
-        listConfigLookups(),
-        listAccountGroups(),
-        listStates(),
-        // Our own GSTIN — the reference point for classifying a vendor's GSTIN
-        // as within-state or other-state. Null is fine (the strip just omits it).
-        getCompanyProfile(),
-      ]);
+      const [
+        vendors,
+        countries,
+        all,
+        accountGroups,
+        stateRows,
+        company,
+        categories,
+        levies,
+        ptRows,
+        processRows,
+      ] = await Promise.all([
+          listVendors(),
+          listCountries(),
+          listConfigLookups(),
+          listAccountGroups(),
+          listStates(),
+          // Our own GSTIN — the reference point for classifying a vendor's GSTIN
+          // as within-state or other-state. Null is fine (the strip just omits it).
+          getCompanyProfile(),
+          // Item Category tab (0369) — the real Category master (scoped per row
+          // by Item Class), the Levy master (split into VAT and Duty by `type`)
+          // and Payment Terms.
+          listCategories(),
+          listLevies(),
+          listPaymentTerms(),
+          // Process + SubContractor tabs (0370 / 0372) — the same Process master
+          // feeds both grids.
+          listProcesses(),
+        ]);
       screen = (
         <VendorMasterScreen
           rows={vendors}
@@ -488,6 +510,14 @@ export default async function SubEntityPage({
           groups={all.filter((l) => l.kind === "vendor_group")}
           accountGroups={accountGroups}
           companyGstin={company?.gstin ?? null}
+          itemClasses={all.filter((l) => l.kind === "item_class")}
+          categories={categories}
+          levies={levies}
+          paymentTerms={paymentTermsAsLookups(ptRows)}
+          itemForms={all.filter((l) => l.kind === "vendor_item_form")}
+          supplyTypes={all.filter((l) => l.kind === "vendor_supply_type")}
+          processes={processRows}
+          serviceTypes={all.filter((l) => l.kind === "vendor_service_type")}
           perms={perms}
         />
       );

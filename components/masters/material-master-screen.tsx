@@ -49,7 +49,6 @@ import type { ConfigLookup, Attribute, AttributeValue } from "@/lib/masters/extr
 import type { MaterialAttribute } from "@/lib/masters/material-attribute-types";
 import {
   showsSubCategories,
-  showsUserDefined,
   type Category,
   type CategorySubCategory,
 } from "@/lib/masters/category-types";
@@ -356,9 +355,24 @@ export function MaterialMasterScreen({
       ) ?? null,
     [materialAttributes, form.item_class_id, form.category_id],
   );
-  // A category drives the attribute flow only when User Defined = No (client
-  // 2026-07-24). Yes = manual free-text name (like General); No = the system
-  // asks the configured questions and auto-generates the name.
+  // Sewing/Packing accessories are named from their configured attribute
+  // questions rather than typed by hand.
+  //
+  // The `user_defined === false` half is now a formality and is kept on purpose.
+  // "User Defined" used to be a Yes/No on the Category — Yes meaning "name this
+  // by hand" — but the client dropped the question entirely (2026-07-30) and it
+  // is no longer asked anywhere. No row has ever held `true` (0 of 19 categories,
+  // 0 items), and with the field gone from both Category forms nothing can set
+  // one, so this reads as `true` for every category and the flow is effectively
+  // unconditional. It stays readable rather than collapsed for two reasons: the
+  // column is still there pending the full-delete decision, and a category can
+  // be flipped by SQL if that decision reverses. Note the strict `=== false` —
+  // with no category picked yet this is false, which is what keeps the Name
+  // editable and the questions hidden until one is chosen.
+  //
+  // The server never consulted the flag at all: material-actions.ts gates
+  // mandatory-answer enforcement on the class code alone, so a category set to
+  // Yes was in fact unsaveable.
   const attributeDriven = isAccessoryClass(selectedClassCode) && selectedCategory?.user_defined === false;
   // The attribute-driven category has no configured question set yet.
   const attributeSetMissing = attributeDriven && !matchedAttrSet;
@@ -550,6 +564,20 @@ export function MaterialMasterScreen({
         blend_pct: m.blend_pct != null ? String(m.blend_pct) : "",
       })),
     );
+    // Same seed as picking "Using" (handleFabricUsingChange): a fabric that
+    // declares a composition re-opens with row 1 present rather than an empty
+    // grid it was never possible to save empty from. addMix appends functionally,
+    // so it lands on top of the rows just set; normMixings drops it again if the
+    // user leaves it untouched.
+    const openedClassCode = itemClasses.find((c) => c.id === r.item_class_id)?.code ?? null;
+    if (
+      itemClassForm(openedClassCode) === "FABRIC" &&
+      r.fabric_using &&
+      !r.direct_purchase &&
+      r.mixings.length === 0
+    ) {
+      addMix();
+    }
     setConversions(
       r.conversions.map((c) => ({
         key: newKey(),
@@ -642,6 +670,21 @@ export function MaterialMasterScreen({
     } else {
       setConversions([]);
     }
+  };
+  /** Fabric "Using" declares that this fabric HAS a composition, so the
+   *  Attributes (Mixing) grid is the very next thing to fill. Seed its first row
+   *  on pick, so the grid isn't an empty box the user has to click "+ Add" to
+   *  use — and Single Yarn is capped at that one row (hideAdd below), so the
+   *  click was pure ceremony for the only row it will ever have. Same shape as
+   *  toggleAltUom above.
+   *
+   *  Clearing back to "— None —" deliberately LEAVES the rows: they are the
+   *  composition, not an artefact of this dropdown (Direct Purchase is the
+   *  switch that clears them), and normMixings drops a row that was never
+   *  filled, so a seeded-and-abandoned row never reaches the DB. */
+  const handleFabricUsingChange = (v: string) => {
+    set({ fabric_using: v });
+    if (v && mixings.length === 0) addMix();
   };
   // No add/edit/remove handlers: the Using (Items) grid is gone from the form.
   // `usingItems` is still loaded and saved so legacy rows round-trip untouched.
@@ -753,6 +796,15 @@ export function MaterialMasterScreen({
   // twice and invites a Purchase Uom that no conversion can reach (client
   // 2026-07-28). The current value is always kept in the list, or editing an old
   // record would silently drop a unit that is no longer offered.
+  //
+  // Still a <Select> while the rest of this form is pickers, and not by
+  // oversight: the `uoms` master has no picker in this codebase, and the one
+  // written for it would have to carry `limitTo` — a list narrowed by ANOTHER
+  // field's rows, which no existing picker does. That is a new shared component
+  // plus a decision about what "+ Add" means when the list is deliberately
+  // restricted (a unit added inline would sit outside every conversion row and
+  // reintroduce exactly the unreachable Purchase Uom the limit was added to
+  // prevent), not a swap. Left as-is until UOM gets a picker of its own.
   const uomSelect = (value: string, onChange: (v: string) => void, limitTo?: Set<string>) => (
     <Select value={value} onChange={(e) => onChange(e.target.value)} className="text-base md:text-sm">
       <option value="">— None —</option>
@@ -785,25 +837,26 @@ export function MaterialMasterScreen({
   /**
    * How wide each Classification field should be, on the 12-column track.
    *
-   * Sized to the data, not to the grid: "User defined" is a Yes/No, Count is
-   * "40'S", Purity is a word — none of them need the half-row they used to get
-   * (client 2026-07-24 #3). Description is the only genuinely long free text.
-   * Adjust here, not at the call sites — this map is the single source of truth
-   * for the generic classes (General / SEW / PACK / CAP / Garments).
+   * Sized to the data, not to the grid: Count is "40'S", Purity is a word —
+   * neither needs the half-row they used to get (client 2026-07-24 #3).
+   * Description is the only genuinely long free text. Adjust here, not at the
+   * call sites — this map is the single source of truth for the generic classes
+   * (General / SEW / PACK / CAP / Garments).
    *
-   * THE SPANS OF ONE ROW MUST SUM TO 12. A General material shows Category, Sub
-   * Category, User defined and Type; at 4+4+3+3 = 14 they overflowed the track
-   * and Type wrapped onto a row of its own, with the empty rest of that row
+   * A ROW MUST NOT EXCEED 12. A General material shows Category, Sub Category,
+   * Item Type and Item Name; at 4+4+3+3 = 14 they overflowed the track and the
+   * last field wrapped onto a row of its own, with the empty rest of that row
    * under it (client 2026-07-28). Sizing each to what it actually holds lands on
-   * exactly 12. Widen one of these and something else has to give.
-   *
-   * Both four-field rows have to hit 12 with the SAME category/sub-category
-   * spans, since this map is per FIELD, not per form:
-   *   form A   — Category 4 + Sub Category 3 + User defined 2 + Type 3 = 12
+   * exactly 12:
    *   form GEN — Category 4 + Sub Category 3 + Item Type 2 + Item Name 3 = 12
    * That leaves 5 to split between the two General fields, and Item Name
    * ("NYLON 4 INCH") is the longer of the pair, so it takes 3 and Item Type
-   * ("BRUSH", "PEN") takes 2.
+   * ("BRUSH", "PEN") takes 2. Widen one of these and something else has to give.
+   *
+   * The other two forms now sit UNDER 12 and that is fine — the failure mode was
+   * overflow, never a short row. Since "User defined" was dropped
+   * (client 2026-07-30) form A is Category 4 + Type 3 = 7 (sub-category filters
+   * out for every class in A) and form C is Category 4 alone.
    */
   const DETAIL_FIELD_SIZE: Record<DetailFieldKey, FieldSize> = {
     category_id: "md", // 4 — picker, holds the longest value of the four
@@ -811,7 +864,6 @@ export function MaterialMasterScreen({
     item_type_name: "xs", // 2 — General only: BRUSH, PEN, CABLE
     item_base_name: "sm", // 3 — General only: the specific item, NYLON 4 INCH
     material_type: "sm", // 3 — Purchased / Converted / Production
-    user_defined: "xs", // 2 — read-only, renders just the word "Yes"/"No"
     specifications: "lg", // free-text description
     short_spec: "md",
     count_id: "sm", // "40'S", "20'S/2"
@@ -919,24 +971,6 @@ export function MaterialMasterScreen({
             />
           </div>
         );
-      case "user_defined": {
-        // Defined once on the Category and only meaningful there — it is what
-        // flips `attributeDriven` between a manual free-text name and the
-        // configured attribute questions. The material's own items.user_defined
-        // column drives nothing, so re-asking it here let the user set a value
-        // that contradicted the Category with no effect (client 2026-07-27).
-        // Shown read-only instead, so it still explains WHY the Attributes grid
-        // appeared and the Name went read-only.
-        const cat = selectedCategory;
-        return (
-          <div key={key}>
-            <Label>User defined</Label>
-            <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-foreground">
-              {cat ? (cat.user_defined ? "Yes" : "No") : "—"}
-            </div>
-          </div>
-        );
-      }
       case "specifications":
         return (
           <div key={key}>
@@ -1150,7 +1184,12 @@ export function MaterialMasterScreen({
    *  `description`/`uom_id` stay in the row data for legacy rows, just not
    *  editable here. */
   function mixingGrid(variant: "fabric" | "yarn" = "yarn") {
-    const pctBadge = mixings.length > 0 && (
+    // Gated on a row carrying DATA, not on a row existing: picking "Using" now
+    // seeds row 1 (handleFabricUsingChange), and a bare `mixings.length > 0`
+    // would flash a red "0% of 100%" the instant they pick it, before they have
+    // done anything wrong. Save is unaffected either way — mixPctSumInvalid
+    // already requires a non-null blend_pct.
+    const pctBadge = mixings.some((m) => m.component_item_id || numOrNull(m.blend_pct) != null) && (
       <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
         {mixPctSum}% of 100%
       </span>
@@ -1279,7 +1318,16 @@ export function MaterialMasterScreen({
             <Field size="sm">
               {/* Fixed 3-value classification (Solid/Yarn Dyed/Melange) — plain
                   dropdown, no Add/Modify/Delete (client 2026-07-23, Screenshot
-                  2070): users must pick, never grow this list. */}
+                  2070): users must pick, never grow this list.
+
+                  Deliberately NOT converted to a picker in the 2026-07-31 sweep
+                  that gave Count / Purity / Category theirs, and the reason is
+                  structural rather than a preference: code branches on this
+                  value's NAME — `.includes("yarn") && .includes("dyed")` (:637)
+                  and `=== "melange"` (:468, :1335) gate the Shade field and the
+                  Mixing grid's rules. A type added here would do nothing, and a
+                  type RENAMED here would silently break both. Widen this list
+                  only alongside the branches that read it. */}
               <Label htmlFor="mt-fabric-type" className="flex items-center gap-1">
                 Fabric Type <span className="text-danger">*</span>
                 <span title="Solid, Yarn Dyed or Melange — determines the dyeing PO type." className="cursor-help text-muted-foreground">
@@ -1331,7 +1379,7 @@ export function MaterialMasterScreen({
             </Field>
             {!form.direct_purchase && (
               <Field label="Using" size="sm">
-                <Select value={form.fabric_using} onChange={(e) => set({ fabric_using: e.target.value })}>
+                <Select value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
                   <option value="">— None —</option>
                   {FABRIC_USING.map((u) => (
                     <option key={u} value={u}>
@@ -1368,21 +1416,17 @@ export function MaterialMasterScreen({
             one row instead of taking a stacked column each (client 2026-07-24
             #3). */}
         <DetailSection label="Yarn Type" cols={12}>
-            <Field label="Yarn Type" size="md" htmlFor="mt-yarn-type">
-              <Select
-                id="mt-yarn-type"
+            <Field size="md">
+              <LookupDialogPicker
+                kind="yarn_type"
+                label="Yarn Type"
+                options={yarnTypes}
                 value={form.yarn_type_id}
-                onChange={(e) => handleYarnTypeChange(e.target.value)}
-              >
-                <option value="">— Select —</option>
-                {yarnTypes
-                  .filter((y) => y.is_active || y.id === form.yarn_type_id)
-                  .map((y) => (
-                    <option key={y.id} value={y.id}>
-                      {y.name}
-                    </option>
-                  ))}
-              </Select>
+                onChange={handleYarnTypeChange}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
             </Field>
             {/* Melange yarn carries its shade (client 2026-07-23) */}
             {ytName === "melange" && (
@@ -1399,23 +1443,23 @@ export function MaterialMasterScreen({
         {/* Count ("40'S/2"), Nature and Purity are all short values; only
             Category carries a long name. Four fields now fit one row. */}
         <DetailSection label="Classification" cols={12}>
-            <Field label="Count" size="sm" htmlFor="mt-yarn-count">
-              {/* Plain dropdown, no Add/Modify/Delete (client 2026-07-23 #4) —
-                  counts are a fixed list users pick from, never grow here. */}
-              <Select
-                id="mt-yarn-count"
+            <Field size="sm">
+              {/* Was a plain dropdown with no Add/Modify/Delete (client
+                  2026-07-23 #4, "counts are a fixed list that never grows
+                  here") — REVERSED by the client on 2026-07-31: an operator hit
+                  a count the list didn't carry and had nowhere to add it. It is
+                  now the same shape as Category and Purity beside it, which is
+                  the inconsistency that was reported. */}
+              <LookupDialogPicker
+                kind="yarn_count"
+                label="Count"
+                options={counts}
                 value={form.count_id}
-                onChange={(e) => set({ count_id: e.target.value })}
-              >
-                <option value="">— Select —</option>
-                {counts
-                  .filter((c) => c.is_active || c.id === form.count_id)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </Select>
+                onChange={(v) => set({ count_id: v })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
+              />
             </Field>
             <Field size="md">
               <CategoryPicker
@@ -1675,6 +1719,12 @@ export function MaterialMasterScreen({
               a quarter of the row (client 2026-07-24 #3). */}
           <IdentityRow tracks="minmax(0,0.8fr) minmax(0,2fr) 10rem">
             <div>
+              {/* Also deliberately left a plain dropdown by the 2026-07-31
+                  picker sweep: `itemClassForm(selectedClassCode)` (:233-234)
+                  selects this whole form from the class's CODE, so a class
+                  added from here would open a form that does not exist. Item
+                  Class is maintained from its own master, where the code and
+                  its form are decided together. */}
               <Label htmlFor="mt-item-class">Item Class</Label>
               <Select
                 id="mt-item-class"
@@ -1728,6 +1778,9 @@ export function MaterialMasterScreen({
               options={hsnCodes}
               value={form.hsn_id}
               onChange={(v) => set({ hsn_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
             />
           </IdentityRow>
 
@@ -1758,10 +1811,6 @@ export function MaterialMasterScreen({
                 <DetailSection label="Classification" cols={12}>
                   {formDef?.fields
                     .filter((k) => k !== "sub_category_id" || subCategoryVisible)
-                    // The read-only "User defined" echo only makes sense for the
-                    // classes whose Category actually asks the question — on
-                    // Capital Goods it would sit there saying "No" forever.
-                    .filter((k) => k !== "user_defined" || showsUserDefined(selectedClassCode))
                     .map((k) => detailField(k))}
                 </DetailSection>
               )}

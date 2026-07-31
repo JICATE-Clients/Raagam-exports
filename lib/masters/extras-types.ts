@@ -24,6 +24,22 @@ export const LOOKUP_KINDS = [
   "item_class",
   "hsn_code",
   "city",
+  // SHAPE ONLY — there are no `config_lookups` rows of this kind, and there is
+  // no way to create one. States live in `public.states` (0355 repointed every
+  // `state_id` FK there; 0374 deleted the last stale copy). The kind survives
+  // because `statesAsLookups()` (lookup-compat.ts) and `state-picker.tsx` both
+  // build in-memory `ConfigLookup` values stamped `kind: "state"`, and both
+  // stop compiling without it.
+  //
+  // Do NOT add State to the registry in `app/(app)/masters/config-sections.tsx`
+  // — that would point the generic lookup master at an empty table. And do not
+  // render a State field with `LookupDialogPicker kind="state"`: it reads from
+  // `public.states` via the compat shim but WRITES to `config_lookups`, so Add
+  // silently saved to the wrong table until 2026-07-31. Use `StatePicker`.
+  //
+  // `city` above is the genuine article — Cities really are lookups with no
+  // master of their own (0355), which is why the two sit here side by side
+  // looking alike.
   "state",
   "department",
   "designation",
@@ -62,6 +78,13 @@ export const LOOKUP_KINDS = [
   "yarn_type",
   // Materials ▸ Levy ▸ Duty Structure ▸ Annexure Category (0282)
   "duty_category",
+  // Associates ▸ Vendor ▸ Item Category grid (0369). The legacy "Form" and
+  // "Type" are ▾ dropdowns whose contents no screenshot shows, so they are
+  // managed lists the operator fills rather than guessed constants.
+  "vendor_item_form",
+  "vendor_supply_type",
+  // Associates ▸ Vendor ▸ Service grid (0372) — same reasoning as the two above.
+  "vendor_service_type",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -113,7 +136,62 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   fabric_type: "Fabric Types",
   yarn_type: "Yarn Types",
   duty_category: "Duty Categories",
+  vendor_item_form: "Vendor Item Forms",
+  vendor_supply_type: "Vendor Supply Types",
+  vendor_service_type: "Vendor Service Types",
 };
+
+/**
+ * Kinds whose `code` is an industry-standard abbreviation the operator actually
+ * speaks in. Incoterms are the only one today: nobody in a shipping office says
+ * "delivered duty paid", they say DDP — but the expansion is what makes the term
+ * unambiguous on screen, so both belong there: `DELIVERED DUTY PAID (DDP)`.
+ *
+ * This is the deliberate exception to codes being backend-only (client
+ * 2026-07-23). That rule exists because a code is normally an internally
+ * generated key — "CAT-014" beside a category name is noise. An Incoterm code is
+ * the opposite: it IS the name of the thing in the trade, and the long form is
+ * the gloss. Do NOT widen this set to a kind whose codes are generated, and
+ * remember that a value added through the UI has no code of its own (see below).
+ */
+export const CODE_IN_LABEL_KINDS: ReadonlySet<LookupKind> = new Set<LookupKind>(["ship_type"]);
+
+/**
+ * How a `config_lookups` row reads on screen: `COST, INSURANCE & FREIGHT (CIF)`
+ * for the kinds above, the bare name for every other kind.
+ *
+ * Use it for BOTH the picker list and every read-only echo of the same value
+ * (view sheets, listing columns), so a field and the record card beside it never
+ * disagree about what the operator picked.
+ *
+ * Composed at render time, never stored: the abbreviation already lives in
+ * `code`, so writing it into `name` as well would let the two drift — and the
+ * picker's Modify form edits `name` directly, so the composed string would be
+ * saved back as the name the first time anyone opened it.
+ *
+ * Three rows are deliberately left alone:
+ *  - **No code, or a code equal to the name.** Every value added through the UI
+ *    lands here: there is no Code input anywhere (`data-picker.tsx`), and
+ *    `createLookupValue` defaults a blank code to the name. So an operator's own
+ *    ship type reads "MY TERM", never "MY TERM (MY TERM)". Only the seeded
+ *    Incoterms — and anything imported with a real code — carry the bracket.
+ *  - **A name that already ends in its own parenthetical.** The seeded CFR row
+ *    reads "COST & FREIGHT (C&F)" — the alias Indian exporters actually say,
+ *    baked into the name back when this list rendered names alone (0241). It
+ *    keeps that rather than stacking a second bracket; rename the row to
+ *    "COST & FREIGHT" from the picker's pencil to get "(CFR)" instead.
+ */
+export function lookupLabel(
+  kind: LookupKind,
+  row: { code?: string | null; name?: string | null },
+): string {
+  const name = (row.name ?? "").trim();
+  const code = (row.code ?? "").trim();
+  if (!code || !CODE_IN_LABEL_KINDS.has(kind)) return name;
+  if (name.toUpperCase() === code.toUpperCase()) return name;
+  if (/\([^()]*\)$/.test(name)) return name;
+  return `${name} (${code})`;
+}
 
 export interface ConfigLookup {
   id: string;

@@ -28,8 +28,49 @@ import type { ProcessSequence, ProcessSequenceInput } from "@/lib/masters/grid-m
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
-type LineRow = { key: string; description: string; loss_pct: string; rate: string };
-const blankLine = (key: string): LineRow => ({ key, description: "", loss_pct: "", rate: "" });
+/**
+ * The form asks for Description / Loss % / Rate. A step ROW stores six more
+ * columns, and they are carried here untouched rather than left out.
+ *
+ * They used to be hardcoded to `null` / `"P"` / `0` in `submit()` while
+ * `openEdit()` never read them back — so opening any existing sequence and
+ * saving it silently wiped its Process, Vendor, Stage and Process Group, and
+ * reset Loss For and Expected Loss. Editing a Rate destroyed five other fields.
+ *
+ * This is the standing minimal-forms rule in AGENTS.md: a field the form does
+ * not need is hidden from the UI, but the COLUMN keeps round-tripping. Hidden
+ * and discarded are not the same thing. If these ever want editing, they need
+ * a `processes` / vendors prop threaded from
+ * `app/(app)/masters/materials/[entity]/page.tsx` and `ProcessPicker` — a
+ * separate piece of work, and not a reason to keep destroying them meanwhile.
+ */
+type LineRow = {
+  key: string;
+  description: string;
+  loss_pct: string;
+  rate: string;
+  // Carried, not edited — see above.
+  stage: string | null;
+  process_id: string | null;
+  process_group: string | null;
+  vendor_id: string | null;
+  loss_for: string;
+  expected_loss_pct: number;
+};
+const blankLine = (key: string): LineRow => ({
+  key,
+  description: "",
+  loss_pct: "",
+  rate: "",
+  // Defaults for a genuinely NEW line only. An existing line gets its own
+  // values back from `openEdit`.
+  stage: null,
+  process_id: null,
+  process_group: null,
+  vendor_id: null,
+  loss_for: "P",
+  expected_loss_pct: 0,
+});
 
 export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequence[]; perms: Perms }) {
   const router = useRouter();
@@ -68,6 +109,13 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
       description: d.description ?? "",
       loss_pct: d.loss_pct != null ? String(d.loss_pct) : "",
       rate: d.rate != null ? String(d.rate) : "",
+      // Read back so `submit` can write them out unchanged.
+      stage: d.stage ?? null,
+      process_id: d.process_id ?? null,
+      process_group: d.process_group ?? null,
+      vendor_id: d.vendor_id ?? null,
+      loss_for: d.loss_for ?? "P",
+      expected_loss_pct: d.expected_loss_pct ?? 0,
     })));
     setOpen(true);
   }
@@ -89,14 +137,15 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
         is_active: !form.inactive,
         details: lines.map((l, i) => ({
           sno: i + 1,
-          stage: null,
-          process_id: null,
-          process_group: null,
+          // Written back from the line, NOT hardcoded — see LineRow.
+          stage: l.stage,
+          process_id: l.process_id,
+          process_group: l.process_group,
           loss_pct: numOrNull(l.loss_pct) ?? 0,
-          loss_for: "P",
+          loss_for: l.loss_for,
           rate: numOrNull(l.rate) ?? 0,
-          expected_loss_pct: 0,
-          vendor_id: null,
+          expected_loss_pct: l.expected_loss_pct,
+          vendor_id: l.vendor_id,
           description: l.description.trim() || null,
         })),
       };

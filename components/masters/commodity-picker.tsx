@@ -206,6 +206,12 @@ export function CommodityPicker({
             <Label htmlFor="cop-class">
               Item Class <span className="text-danger">*</span>
             </Label>
+            {/* Item Class stays a plain <Select>, the one field on this sheet
+                that is not a picker: it is the class a commodity is being
+                classified INTO, and the screens that read commodities branch on
+                it. A class invented from inside a commodity quick-create would
+                classify the row into something no form knows how to show. Item
+                Classes are maintained on their own master. */}
             <Select
               id="cop-class"
               value={form.item_class_id}

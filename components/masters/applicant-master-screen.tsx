@@ -20,6 +20,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { StatePicker } from "@/components/masters/state-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
 import { createApplicant, updateApplicant, deleteApplicant } from "@/lib/masters/applicant-actions";
@@ -31,7 +32,7 @@ import {
   type ApplicantInput,
 } from "@/lib/masters/applicant-types";
 import type { Country } from "@/lib/masters/country-types";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { lookupLabel, type ConfigLookup } from "@/lib/masters/extras-types";
 import type { Currency } from "@/lib/masters/types";
 import type { Bank } from "@/lib/masters/bank-types";
 
@@ -307,18 +308,24 @@ export function ApplicantMasterScreen({
   }
   function openEdit(r: Applicant) {
     setEditId(r.id);
+    // One visible Country field now feeds both stored columns (see the Address
+    // section below) — `country_id` is authoritative (it is what the list
+    // column, header chip and read-only view all resolve), so it wins; a row
+    // saved before this fix that only ever had `address_country_id` filled in
+    // still opens with a country rather than a blank picker.
+    const countryId = r.country_id ?? r.address_country_id ?? "";
     const nextForm: HeaderForm = {
       code: r.code ?? "",
       name: r.name,
       inactive: r.inactive,
       also_customer: r.also_customer,
       also_consignee: r.also_consignee,
-      country_id: r.country_id ?? "",
+      country_id: countryId,
       street: r.street ?? "",
       city_id: r.city_id ?? "",
       state_id: r.state_id ?? "",
       pin: r.pin ?? "",
-      address_country_id: r.address_country_id ?? "",
+      address_country_id: countryId,
       land_line: r.land_line ?? "",
       mobile: r.mobile ?? "",
       // NOT `?? ""` — a stored NULL is the "same as mobile" state.
@@ -432,6 +439,12 @@ export function ApplicantMasterScreen({
       half a dozen maps. */
   const nameOf = (options: { id: string; name: string }[], id: string | null) =>
     (id ? options.find((o) => o.id === id)?.name : null) ?? null;
+  /** Ship Type is the one list whose code is a term of the trade, so the view
+      echoes exactly what the picker offered — "FREE ON BOARD (FOB)". */
+  const shipTypeOf = (id: string | null) => {
+    const o = id ? shipTypes.find((s) => s.id === id) : null;
+    return o ? lookupLabel("ship_type", o) : null;
+  };
   /** Currencies key off `code`, not id — the row stores the code itself. */
   const currencyName = (code: string | null) =>
     code ? (currencies.find((c) => c.code === code)?.name ?? code) : null;
@@ -467,15 +480,14 @@ export function ApplicantMasterScreen({
       },
       {
         label: "Address",
+        // No "Country" pair here — it lived under Identity above until the
+        // single-Country-field fix (2026-07-31); `address_country_id` is kept
+        // in sync with `country_id` and would only repeat that line.
         pairs: [
           ["Street", r.street],
           ["City", r.city_id ? (cityLabel.get(r.city_id) ?? null) : null],
           ["State", nameOf(states, r.state_id)],
           ["Pin", r.pin],
-          [
-            "Country",
-            r.address_country_id ? (countryLabel.get(r.address_country_id) ?? null) : null,
-          ],
         ],
       },
       {
@@ -538,7 +550,7 @@ export function ApplicantMasterScreen({
           // Ship / pay mode are fixed lists stored as their own label — nothing
           // to resolve, unlike the two config_lookups beside them.
           ["Ship Mode", r.ship_mode],
-          ["Ship Type", nameOf(shipTypes, r.ship_type_id)],
+          ["Ship Type", shipTypeOf(r.ship_type_id)],
           ["Pay Mode", r.pay_mode],
           ["Payment Terms", nameOf(paymentTerms, r.payment_term_id)],
           ["Bank", nameOf(banks, r.bank_id)],
@@ -760,13 +772,19 @@ export function ApplicantMasterScreen({
                 </Field>
                 {/* `compact` on every picker below: each one prints its own <Label>
                 unless told not to, so without it the field is labelled twice. */}
+                {/* The ONLY Country field on this form now (client complaint
+                    2026-07-31: two boxes both labelled "Country" read as a
+                    duplicate). It writes BOTH `country_id` and
+                    `address_country_id` — see the Address section below,
+                    which used to carry its own picker for the second column. */}
                 <Field label="Country" size={FIELD_SIZE.country_id} required>
                 <CountryPicker
                 countries={countries}
                 value={form.country_id || null}
-                onChange={(id) => set({ country_id: id })}
+                onChange={(id) => set({ country_id: id, address_country_id: id })}
                 canCreate={perms.canCreate}
                 canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
                 />
                 </Field>
@@ -849,12 +867,14 @@ export function ApplicantMasterScreen({
                 />
                 </Field>
                 <Field label="State" size={FIELD_SIZE.state_id}>
-                <LookupDialogPicker
-                kind="state"
+                <StatePicker
                 label="State"
                 options={states}
                 value={form.state_id || null}
                 onChange={(id) => set({ state_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
                 />
                 </Field>
@@ -866,20 +886,14 @@ export function ApplicantMasterScreen({
                 onChange={(e) => set({ pin: e.target.value })}
                 />
                 </Field>
-                {/* No asterisk, unlike the header Country: the address country
-                saves as null and Save never checks it. The * this field used
-                to show came from the shared picker's own hard-coded label,
-                not from anything this form enforces. */}
-                <Field label="Country" size={FIELD_SIZE.address_country_id}>
-                <CountryPicker
-                countries={countries}
-                value={form.address_country_id || null}
-                onChange={(id) => set({ address_country_id: id })}
-                canCreate={perms.canCreate}
-                canEdit={perms.canEdit}
-                compact
-                />
-                </Field>
+                {/* The Address section used to carry its OWN Country field bound
+                    to `address_country_id`, right beside Identity's `country_id`
+                    one — the same country, asked twice. The column still exists
+                    in the DB (data-io round-trips it, and old rows may only have
+                    this one filled in) but it is now written from the single
+                    Identity Country picker above, not from a visible field here.
+                    Do not add this field back without re-reading that picker's
+                    comment first. */}
                 </DetailSection>
 
                 <DetailSection label="Communication" cols={12}>
@@ -971,6 +985,9 @@ export function ApplicantMasterScreen({
                 options={departments}
                 value={c.department_id || null}
                 onChange={(id) => setContactAt(c.key, { department_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
                 />
                 </Field>
@@ -993,6 +1010,9 @@ export function ApplicantMasterScreen({
                 options={designations}
                 value={c.designation_id || null}
                 onChange={(id) => setContactAt(c.key, { designation_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
                 />
                 </Field>
@@ -1149,6 +1169,9 @@ export function ApplicantMasterScreen({
                 options={paymentTerms}
                 value={form.payment_term_id || null}
                 onChange={(id) => set({ payment_term_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+                canDelete={perms.canDelete}
                 compact
                 />
                 </Field>

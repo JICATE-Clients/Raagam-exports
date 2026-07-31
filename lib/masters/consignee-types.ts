@@ -92,10 +92,22 @@ export interface Consignee {
   pan_no: string | null;
   gst_no: string | null;
   is_draft: boolean;
+  /**
+   * Published by Applicant ▸ Also Consignee / Customer ▸ Also Consignee (0371).
+   * At most one is ever set (DB CHECK). Non-null means the Name is read-only
+   * here and the row is removed by un-ticking that box on its source.
+   *
+   * NOT to be confused with `customer_id` above, which is the ordinary
+   * owning-customer picker the operator sets by hand.
+   */
+  source_applicant_id: string | null;
+  source_customer_id: string | null;
   created_at: string;
   updated_at: string;
   // embedded for display
   country?: { id: string; code: string | null; name: string } | null;
+  source_applicant?: { id: string; name: string } | null;
+  source_customer?: { id: string; name: string } | null;
   contacts: ConsigneeContact[];
   markings: ConsigneeMarking[];
   notify_refs: ConsigneeNotify[];

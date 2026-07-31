@@ -26,6 +26,8 @@ export function RecordPicker({
   onChange,
   compact = false,
   required = false,
+  disabled = false,
+  id,
 }: {
   label: string;
   items: PickerItem[];
@@ -33,6 +35,15 @@ export function RecordPicker({
   onChange: (id: string | null) => void;
   compact?: boolean;
   required?: boolean;
+  /** Read-only for a viewer — the field still shows what is stored. */
+  disabled?: boolean;
+  /**
+   * Lands on the trigger, so a caller can name it from outside with its own
+   * `<label htmlFor>`. `compact` drops the picker's own <Label>, and one field
+   * repeated down a grid needs a name per ROW ("HSN for GOLD ZIP"), which a
+   * single shared label cannot give — see `material-hsn-assign-screen.tsx`.
+   */
+  id?: string;
 }) {
   const rows: PickerRow[] = useMemo(
     () =>
@@ -50,6 +61,8 @@ export function RecordPicker({
       onChange={onChange}
       compact={compact}
       required={required}
+      disabled={disabled}
+      id={id}
     />
   );
 }

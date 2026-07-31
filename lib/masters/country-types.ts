@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { nullableFormat, ISD_RE } from "@/lib/validation/formats";
+import { capsName, nullableFormat, ISD_RE } from "@/lib/validation/formats";
 
 // ============================================================================
 // Countries — Associates master (0232). Legacy EDP2 "Country" form with a
@@ -24,7 +24,15 @@ export interface Country {
 
 export const countryInput = z.object({
   code: z.string().optional().nullable(),
-  name: z.string().min(1, "Name is required"),
+  // `capsName()` = trim + CAPS, per the standing CAPITALS rule — and load-bearing
+  // for the duplicate guard. `checkDuplicateName` matches with `ilike` against the
+  // STORED value, so a row saved as "INDIA " (trailing space) would slip past the
+  // guard and then be rejected by `uq_countries_name` (0373) — which normalises
+  // with `lower(trim(name))` — as a raw Postgres 23505 error the operator cannot
+  // read. Trimming on the way in keeps the guard and the index agreeing on what a
+  // duplicate is. It has to live here rather than in the action: lib/data-io
+  // parses imports with this same schema and writes straight to Postgres.
+  name: capsName(),
   country_group: z.enum(COUNTRY_GROUPS).nullable().default(null),
   ecgc_code: z.string().optional().nullable(),
   isd_code: nullableFormat(ISD_RE, "Enter a valid ISD code (e.g. +91)"),
