@@ -27,6 +27,25 @@ export type VendorType = (typeof VENDOR_TYPES)[number];
 export type VendorStatus = (typeof VENDOR_STATUSES)[number];
 export type GstRegStatus = (typeof GST_REG_STATUSES)[number];
 
+/**
+ * Is this vendor type one that can only be Indian?
+ *
+ * Vendor Type is the COUNTRY question already half-answered. "With in State" and
+ * "Other State" are not two countries — they are the two GST supply directions
+ * *inside* India (same state → CGST+SGST, another state → IGST), so both of them
+ * pin the country to India and neither can mean anywhere else. Only "Foreign
+ * Vendor" leaves the country genuinely open, and that is the one case where the
+ * operator has to say which country themselves.
+ *
+ * Lives here rather than in the screen because it is a fact about the enum, and
+ * the same three values are read by `gst-assign-screen` (`expectedSupply`) and by
+ * the `superRefine` below, which skips the 6-digit Indian PIN rule on exactly the
+ * types this returns false for.
+ */
+export function isDomesticVendorType(t: VendorType | "" | null | undefined): boolean {
+  return t === "With in State" || t === "Other State";
+}
+
 export interface VendorAddress {
   id: string;
   vendor_id: string;

@@ -32,6 +32,7 @@ export function Combobox({
   disabled = false,
   id,
   className,
+  inputClassName,
   openOnFocus = true,
 }: {
   options: ComboboxOption[];
@@ -41,7 +42,20 @@ export function Combobox({
   clearable?: boolean;
   disabled?: boolean;
   id?: string;
+  /** Wrapper classes — width, margins. The chevron, the clear button and the
+   *  popup are all positioned against this element, so width belongs here. */
   className?: string;
+  /**
+   * Classes for the visible control itself — height, text size, padding.
+   *
+   * Without this there was no way to resize a `<Select>` from a call site: the
+   * classes landed on the wrapper while the input kept its hardcoded `h-9 …
+   * px-3 … border`, so `className="h-8 border bg-surface px-2"` rendered a 32px
+   * bordered box with a 36px bordered box overflowing it and the text inset
+   * twice (8px + 12px). See `select.tsx`, which forwards `className` here as
+   * well so a `<Select>` keeps behaving like the native element it replaces.
+   */
+  inputClassName?: string;
   /**
    * Open the list as soon as the input is focused. Default true. Pass false for
    * a native-select feel: focus alone leaves the list closed (so Enter can
@@ -218,6 +232,11 @@ export function Combobox({
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
           !selected && !open && "text-muted-foreground",
+          // LAST, so a caller can override the height, text size and padding
+          // above. `className` styles the wrapper (width and the anchor the
+          // chevron and the popup are positioned against); this styles the box
+          // the operator actually sees.
+          inputClassName,
         )}
       />
       {clearable && selected && !open ? (

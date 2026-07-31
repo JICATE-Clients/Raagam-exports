@@ -67,13 +67,24 @@ export function paymentTermsAsLookups(rows: PaymentTerm[]): ConfigLookup[] {
   }));
 }
 
-export function statesAsLookups(rows: State[]): ConfigLookup[] {
+/**
+ * A state in `ConfigLookup` clothing, plus the one column that has no ConfigLookup
+ * equivalent. `country_id` is optional on the type so the six screens that still
+ * declare their prop as `ConfigLookup[]` stay assignable — an unscoped list simply
+ * behaves as it always did.
+ */
+export type StateLookup = ConfigLookup & { country_id: string | null };
+
+export function statesAsLookups(rows: State[]): StateLookup[] {
   return rows.map((d) => ({
     id: d.id,
     kind: "state" as const,
     code: d.code ?? null,
     name: d.name,
     notes: null,
+    // Carried through so State fields can scope by country; every other
+    // ConfigLookup consumer just ignores the extra key.
+    country_id: d.country_id ?? null,
     is_active: !d.inactive,
     created_at: d.created_at,
     updated_at: d.updated_at,

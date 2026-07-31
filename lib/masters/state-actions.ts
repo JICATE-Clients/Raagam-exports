@@ -24,11 +24,12 @@ export async function createState(data: StateInput): Promise<Result> {
   const p = stateInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  // Unscoped on purpose. `states.country_id` exists in the table but no code
-  // path writes it (it is absent from `StateInput`), so every row this app
-  // creates sits at country_id = null — the exact set `uq_states_name` (0373)
-  // collapses with `nulls not distinct`. Leaving the guard unscoped is the
-  // safe direction: it can only be STRICTER than the index, never looser.
+  // Unscoped on purpose. The State MASTER form has no country box, so a row
+  // created here sits at country_id = null — the exact set `uq_states_name`
+  // (0373) collapses with `nulls not distinct`. (`createStateQuick` below now
+  // does stamp a country, from the address field that called it.) Leaving the
+  // guard unscoped is the safe direction: it can only be STRICTER than the
+  // index, never looser.
   const dup = await checkDuplicateName(s, "states", p.data.name);
   if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("states").insert(p.data);
@@ -72,14 +73,34 @@ export async function updateState(id: string, data: StateInput): Promise<Result>
 export async function createStateQuick(
   name: string,
   code: string | null,
+  /**
+   * The country the calling field is scoped to, stamped onto the new row so a
+   * state added from a FRANCE address does not surface under India. Null (the
+   * default) reproduces the old behaviour and matches every existing row.
+   *
+   * Passed as an argument rather than added to `stateInput` on purpose: the
+   * schema is shared with `updateState`, which writes `update(p.data)` from a
+   * State-master form that has no country box — a `country_id` field with a
+   * `.default(null)` there would blank the column on every rename.
+   */
+  countryId: string | null = null,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = stateInput.safeParse({ code, name, is_default: false, inactive: false });
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  // Still unscoped, and now deliberately STRICTER than `uq_states_name` (0373),
+  // which keys on (country_id, name): this rejects "GEORGIA" under FRANCE while
+  // an Indian "GEORGIA" exists, where the index would allow it. Erring strict is
+  // the safe direction — the operator gets a clear "already exists" instead of a
+  // second row nobody can tell apart in a picker that shows names only.
   const dup = await checkDuplicateName(s, "states", p.data.name);
   if (!dup.ok) return fail(dup.error);
-  const { data, error } = await s.from("states").insert(p.data).select("id").single();
+  const { data, error } = await s
+    .from("states")
+    .insert({ ...p.data, country_id: countryId })
+    .select("id")
+    .single();
   if (error) return fail(error.message);
   rev();
   return { ok: true, id: data.id };

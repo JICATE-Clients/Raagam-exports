@@ -6,6 +6,25 @@ import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/d
 import { createStateQuick, updateStateQuick, deleteState } from "@/lib/masters/state-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 
+/** `StateLookup`, but with `country_id` optional so a plain `ConfigLookup[]`
+ *  (what five of the six host screens still declare) remains assignable. */
+type StateOption = ConfigLookup & { country_id?: string | null };
+
+/**
+ * Does this state belong under the country the address is in?
+ *
+ * `null` on the row means "unscoped", and unscoped means HOME — the master ships
+ * as the Indian GST list and nothing wrote the column until now, so every legacy
+ * row is an Indian state. Reading null as "matches anything" instead would put
+ * all 36 Indian states under FRANCE, which is the bug this scoping exists to fix.
+ */
+function inCountry(o: StateOption, countryId: string | null, homeCountryId: string | null): boolean {
+  if (!countryId) return true; // no country picked yet — don't hide anything
+  const own = o.country_id ?? null;
+  if (own) return own === countryId;
+  return countryId === homeCountryId;
+}
+
 /**
  * The State field, everywhere one appears (6 screens).
  *
@@ -45,6 +64,8 @@ export function StatePicker({
   options,
   value,
   onChange,
+  countryId = null,
+  homeCountryId = null,
   canCreate,
   canEdit = false,
   canDelete,
@@ -53,9 +74,22 @@ export function StatePicker({
 }: {
   label?: string;
   /** `statesAsLookups(stateRows)` — ids are `states.id`, codes are GST codes. */
-  options: ConfigLookup[];
+  options: StateOption[];
   value: string | null;
   onChange: (id: string) => void;
+  /**
+   * The country this address is in. Scopes the list, and stamps `country_id` on
+   * anything added inline. Leave it off (the default) and the field behaves
+   * exactly as it did before: every state, unscoped.
+   */
+  countryId?: string | null;
+  /**
+   * Our own country — `defaultCountryId(countries)`. The state rows that predate
+   * this scoping carry `country_id = null`, and they are the Indian GST list, so
+   * they show under this country and no other. Without it, `null` rows would be
+   * treated as belonging to whatever country happened to be selected.
+   */
+  homeCountryId?: string | null;
   canCreate?: boolean;
   canEdit?: boolean;
   /** Defaults to `canEdit` — same reasoning as `LookupDialogPicker`. Delete is
@@ -70,10 +104,10 @@ export function StatePicker({
   // States created / edited in this session, merged over the server rows. The
   // options arrive as a prop from a server component, so without this a state
   // the operator just added is invisible until `router.refresh()` lands.
-  const [extra, setExtra] = useState<ConfigLookup[]>([]);
+  const [extra, setExtra] = useState<StateOption[]>([]);
 
   const all = useMemo(() => {
-    const byId = new Map<string, ConfigLookup>();
+    const byId = new Map<string, StateOption>();
     for (const o of options) byId.set(o.id, o);
     for (const o of extra) byId.set(o.id, o); // session edits win
     return [...byId.values()];
@@ -88,11 +122,15 @@ export function StatePicker({
         // it (and renders greyed), but drops out of new selections. Without that
         // rule an existing record just looks empty.
         .filter((o) => o.is_active || o.id === value)
+        // Same escape hatch for the country scope: a record already pointing at
+        // an out-of-country state still renders its name rather than going blank
+        // — the operator sees what is stored and can correct it.
+        .filter((o) => inCountry(o, countryId, homeCountryId) || o.id === value)
         // Name only — the GST state code is backend data, not something the
         // operator picks by. Sorted by the name they actually read.
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((o) => ({ id: o.id, label: o.name, disabled: !o.is_active })),
-    [all, value],
+    [all, value, countryId, homeCountryId],
   );
 
   const manage: ManageConfig = {
@@ -103,7 +141,10 @@ export function StatePicker({
     // `uq_states_name` index (0373) — a DEACTIVATED state keeps its name
     // reserved, so the check must not filter on the active flag.
     dupCheck: { table: "states" },
-    onCreate: (d) => createStateQuick(d.name, d.code || null),
+    // Stamped with the country the address is in, so a state added under FRANCE
+    // stays under FRANCE instead of joining the Indian GST list. Null when the
+    // field is unscoped — which is what every existing row already carries.
+    onCreate: (d) => createStateQuick(d.name, d.code || null, countryId),
     onUpdate: (id, d) => updateStateQuick(id, d.name, d.code || null),
     onDelete: (id) => deleteState(id),
     onCreated: (id, d) => {
@@ -116,6 +157,7 @@ export function StatePicker({
           name: d.name,
           type_code: null,
           notes: null,
+          country_id: countryId,
           is_active: true,
           created_at: "",
           updated_at: "",
