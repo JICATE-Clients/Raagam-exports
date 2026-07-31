@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
   addOrderProcess,
   deleteOrderProcess,
@@ -45,6 +46,10 @@ export function GarmentProcessesClient({
   const [name, setName] = useState("");
   const [mode, setMode] = useState<ProcessMode>("in_house");
   const [notes, setNotes] = useState("");
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(formOpen || isPending);
 
   function resetForm() {
     setName("");

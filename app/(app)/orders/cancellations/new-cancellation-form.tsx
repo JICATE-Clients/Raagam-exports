@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { cancelOrder } from "@/lib/orders/cancellations/actions";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,10 @@ export function NewCancellationForm({ orders, buyers }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(open || isPending);
   useCreateIntent(() => setOpen(true));
 
   const [orderId, setOrderId] = useState<string | null>(null);

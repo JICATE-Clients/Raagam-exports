@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { createTaPlan, updateTaPlan, deleteTaPlan } from "@/lib/orders/ta-plan/actions";
 import type { TaPlanDoc } from "@/lib/orders/ta-plan/types";
@@ -81,6 +82,9 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   const activityName = useMemo(() => {
     const m = new Map<string, string>();

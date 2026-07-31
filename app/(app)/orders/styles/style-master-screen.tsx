@@ -16,6 +16,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -121,6 +122,9 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const [sizes, setSizes] = useState<SizeRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;

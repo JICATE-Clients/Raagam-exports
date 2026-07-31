@@ -14,6 +14,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { createPriceConfirmation, confirmPriceConf, amendPriceConf, deletePriceConf, addPcPurchaseItem, addPcProcess } from "@/lib/orders/pricing-actions";
 import { ITEM_CLASS_TYPES, PROCESS_TYPES } from "@/lib/orders/pricing-types";
 import type { PriceConfirmationRow } from "@/lib/orders/pricing-service";
@@ -111,6 +112,12 @@ function ProcessAddForm({ pcId, processType, onDone }: { pcId: string; processTy
 function CategoryTab({ pcId, type, kind }: { pcId: string; type: string; kind: "purchase" | "process" }) {
   const [adding, setAdding] = useState(false);
   const label = type.charAt(0).toUpperCase() + type.slice(1);
+
+  // These tabs render inline under the table, not inside the "New Price
+  // Confirmation" Sheet — nothing registers them with the reload guard. Guarding
+  // here rather than inside the two add-forms covers both with one call, since
+  // they only exist while `adding` is true.
+  useUnsavedGuard(adding);
 
   return (
     <div className="space-y-3">

@@ -13,6 +13,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtMoney } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
   addOrderLine,
   generateTaPlan,
@@ -70,6 +71,15 @@ function MilestoneEditRow({ milestone }: { milestone: TaMilestone }) {
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<MilestoneStatus>(milestone.status);
   const [actualDate, setActualDate] = useState(milestone.actual_date ?? "");
+
+  // Always-editable row, so there is no open/closed flag to lean on — compare
+  // against the milestone as loaded instead. A plain `true` here would pin the
+  // tab on an old build for as long as the order page is open.
+  useUnsavedGuard(
+    status !== milestone.status ||
+      actualDate !== (milestone.actual_date ?? "") ||
+      isPending,
+  );
 
   function handleUpdate() {
     startTransition(async () => {
@@ -136,6 +146,8 @@ function LineItemsTab({
   const [size, setSize] = useState("");
   const [qty, setQty] = useState("");
   const [formOpen, setFormOpen] = useState(false);
+
+  useUnsavedGuard(formOpen || isPending);
 
   const lineColumns: Column<SoLineItem>[] = [
     { header: "Colour", cell: (l) => l.color ?? "—" },
@@ -257,6 +269,11 @@ function TaTab({
   const [isPending, startTransition] = useTransition();
   const [method, setMethod] = useState<"template" | "auto">("template");
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
+
+  // Only `isPending` here. Picking a template is a one-click choice, not typed
+  // work — treating it as dirty would block auto-updates for anyone who merely
+  // opened this tab, and re-picking after a reload costs nothing.
+  useUnsavedGuard(isPending);
 
   const milestoneColumns: Column<TaMilestone>[] = [
     {
@@ -437,6 +454,8 @@ function AmendmentsTab({
 
   // reject inline form: tracks which amendment is in "reject" mode
   const [rejectForm, setRejectForm] = useState<{ id: string; reason: string } | null>(null);
+
+  useUnsavedGuard(formOpen || rejectForm !== null || isPending);
 
   function resetForm() {
     setAmendType("quantity");
@@ -727,6 +746,10 @@ function CoordColorsTab({ orderId }: { orderId: string }) {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ coordinate: "", color: "" });
 
+  // The five add-row tabs below all follow this shape: an inline panel gated on
+  // `adding`, no overlay, so nothing registers them automatically.
+  useUnsavedGuard(adding || isPending);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -755,6 +778,8 @@ function DescriptionsTab({ orderId }: { orderId: string }) {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ description_type: "", description: "" });
 
+  useUnsavedGuard(adding || isPending);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -781,6 +806,8 @@ function TrimsTab({ orderId }: { orderId: string }) {
   const [isPending, startTransition] = useTransition();
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ category: "", trims_specifications: "", supply_type: "", vendor_name: "" });
+
+  useUnsavedGuard(adding || isPending);
 
   return (
     <div className="space-y-3">
@@ -811,6 +838,8 @@ function FabricTab({ orderId }: { orderId: string }) {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ structure_name: "", composition: "", gsm: "", fabric_type: "" });
 
+  useUnsavedGuard(adding || isPending);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -839,6 +868,8 @@ function ApprovalParamsTab({ orderId }: { orderId: string }) {
   const [isPending, startTransition] = useTransition();
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ parameter_name: "", status: "", comment: "" });
+
+  useUnsavedGuard(adding || isPending);
 
   return (
     <div className="space-y-3">

@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
@@ -100,6 +101,9 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
+  useUnsavedGuard(mode === "edit" || isPending);
 
   const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
 

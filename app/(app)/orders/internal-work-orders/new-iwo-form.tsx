@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
 import { createInternalWorkOrder } from "@/lib/orders/internal-work-orders/actions";
 import { IWO_TYPES, IWO_FOR_OPTIONS } from "@/lib/orders/internal-work-orders/types";
@@ -32,6 +33,10 @@ export function NewIwoForm({ customers, employees, styles, itemClasses }: Props)
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(open || isPending);
   useCreateIntent(() => setOpen(true));
 
   const [iwoType, setIwoType] = useState<string>("Non-Order Related");

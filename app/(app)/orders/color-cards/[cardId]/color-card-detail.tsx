@@ -7,6 +7,7 @@ import {
   deleteColorCardColor,
   setColorCardStatus,
 } from "@/lib/orders/color-cards/actions";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { colorCardStatusTone } from "@/lib/orders/color-cards/types";
 import type { ColorCardColor } from "@/lib/orders/color-cards/types";
 import type { ColorCardDetail as ColorCardDetailType } from "@/lib/orders/color-cards/service";
@@ -39,6 +40,10 @@ export function ColorCardDetail({ card, colors, canEdit, canDelete }: Props) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [hex, setHex] = useState("");
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(formOpen || isPending);
 
   function resetForm() {
     setName("");

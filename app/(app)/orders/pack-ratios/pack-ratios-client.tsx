@@ -12,6 +12,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { fmtDate } from "@/lib/format";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { createPackRatio, deletePackRatio, addPackRatioLine } from "@/lib/orders/pack-ratio-actions";
 import type { PackRatioRow } from "@/lib/orders/pack-ratio-service";
 
@@ -28,6 +29,11 @@ export function PackRatiosClient({ rows }: { rows: PackRatioRow[] }) {
     style_no: "", combo: "", no_of_cartons: "", pcs_per_pack: "",
     s1: "", s2: "", s3: "", s4: "", s5: "", s6: "", s7: "", s8: "",
   });
+
+  // The "New Pack Ratio" Sheet below registers itself via useModalGuard, but
+  // this ratio-line editor is an inline panel on the page, outside that Sheet —
+  // so it has to declare itself or a silent auto-update discards the typed line.
+  useUnsavedGuard(addingLine || isPending);
 
   function submitLine() {
     if (!selectedId) return;

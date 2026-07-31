@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
 import { createColorCard } from "@/lib/orders/color-cards/actions";
 import { useToast } from "@/components/ui/toast";
@@ -28,6 +29,10 @@ export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(open || isPending);
   useCreateIntent(() => setOpen(true));
 
   const [buyerId, setBuyerId] = useState(fixedBuyer?.id ?? "");

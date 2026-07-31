@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
 import {
   createTaActivity,
@@ -51,6 +52,10 @@ export function TaMastersClient({
   const [name, setName] = useState("");
   const [typeId, setTypeId] = useState<string | null>(null);
   const [hasSub, setHasSub] = useState(false);
+
+  // Expand-in-place form, invisible to the guard's DOM scan — see
+  // new-order-form.tsx.
+  useUnsavedGuard(formOpen || isPending);
   const [considerDelivery, setConsiderDelivery] = useState(false);
   const [blocked, setBlocked] = useState(false);
 
