@@ -415,6 +415,22 @@ export function ChildGrid<T extends { key: string }>({
                     type="button"
                     variant="ghost"
                     size="sm"
+                    // Off the typing path, in all three layouts below too.
+                    // `ROW_FIELDS` above already leaves Remove out of a row's
+                    // navigable axis, so the arrows have always stepped over it
+                    // — but Tab is not handled here, it is handled globally by
+                    // cycleTab/FOCUSABLE_SELECTOR, which matches any <button>
+                    // that is not tabindex="-1". So Tab stopped on the ✕ while
+                    // the arrows did not, and tabbing along a row kept landing
+                    // on it (client 2026-08-01). This makes Tab agree with the
+                    // axis the grid already declares.
+                    //
+                    // The cost, accepted deliberately: the ✕ is now MOUSE-ONLY,
+                    // so a keyboard-only operator cannot delete a row. If that
+                    // bites, the answer is Ctrl+Del on the focused row — the key
+                    // the picker list already uses — NOT putting this back on
+                    // the Tab path.
+                    tabIndex={-1}
                     className="text-muted-foreground hover:text-danger"
                     onClick={() => onRemove(row)}
                     aria-label="Remove row"
@@ -481,6 +497,7 @@ export function ChildGrid<T extends { key: string }>({
                 type="button"
                 variant="ghost"
                 size="sm"
+                tabIndex={-1} // mouse-only — see the note on the table layout above
                 className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
                 onClick={() => onRemove(row)}
                 aria-label="Remove row"
@@ -528,7 +545,7 @@ export function ChildGrid<T extends { key: string }>({
                 {rowSummary && (
                   <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
                 )}
-                <Button type="button" variant="ghost" size="sm" className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+                <Button type="button" variant="ghost" size="sm" tabIndex={-1} className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
                   <X className="h-4 w-4 shrink-0" />
                 </Button>
               </div>
