@@ -31,6 +31,9 @@ const descriptor: SimpleMasterDescriptor<Division> = {
     document_prefix_id: String(v.document_prefix_id) || null,
     inactive: !s.active,
   }),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "divisions", fieldKey: "division_name", nameColumn: "division_name" },
   actions: { create: createDivision, update: updateDivision, remove: deleteDivision },
 };

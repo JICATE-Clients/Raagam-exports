@@ -28,6 +28,9 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
     notes: null,
     is_active: s.active,
   }),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "config_lookups", fieldKey: "name", scope: { kind: "gauge" } },
   actions: { create: createLookup, update: updateLookup, remove: deleteLookup },
 };

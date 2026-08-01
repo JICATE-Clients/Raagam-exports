@@ -26,6 +26,9 @@ const descriptor: SimpleMasterDescriptor<HostelCategory> = {
   fromRow: (r) => ({ code: r.code ?? "", name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "hostel_categories", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     code: String(v.code) || null,

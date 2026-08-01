@@ -41,6 +41,9 @@ const descriptor: SimpleMasterDescriptor<Deduction> = {
   }),
   searchText: (r) => [String(r.entry_no), r.name, r.calc_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "deductions", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     name: String(v.name),

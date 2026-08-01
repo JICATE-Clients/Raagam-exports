@@ -39,6 +39,9 @@ const descriptor: SimpleMasterDescriptor<AdvanceLoanType> = {
   }),
   searchText: (r) => [r.short_name, r.description, r.loan_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: {
     table: "advance_loan_types",
     fieldKey: "short_name",

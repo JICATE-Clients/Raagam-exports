@@ -32,6 +32,9 @@ const descriptor: SimpleMasterDescriptor<State> = {
   }),
   // Unscoped, matching the on-save guard in state-actions.ts: an inactive state
   // keeps its name reserved, and nothing in the app writes `states.country_id`.
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "states", fieldKey: "name" },
   actions: { create: createState, update: updateState, remove: deleteState },
 };
