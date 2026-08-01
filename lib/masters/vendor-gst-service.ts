@@ -24,6 +24,7 @@ export interface VendorGstRow {
   is_processor: boolean;
   is_service_provider: boolean;
   is_sub_contractor: boolean;
+  created_at: string;
 }
 
 export async function listVendorGst(): Promise<VendorGstRow[]> {
@@ -31,7 +32,7 @@ export async function listVendorGst(): Promise<VendorGstRow[]> {
   const { data } = await s
     .from("master_vendors")
     .select(
-      "id, code, name, vendor_type, status, gst_reg_status, gst_no, is_bought_items_vendor, is_processor, is_service_provider, is_sub_contractor",
+      "id, code, name, vendor_type, status, gst_reg_status, gst_no, is_bought_items_vendor, is_processor, is_service_provider, is_sub_contractor, created_at",
     )
     .order("name");
   return (data ?? []) as VendorGstRow[];

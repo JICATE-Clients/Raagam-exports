@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { Customer } from "@/lib/masters/customer-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Select-only picker over the `customers` master (the legacy "Customer" field
@@ -33,7 +34,7 @@ export function CustomerPicker({
     () =>
       [...customers]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((c) => ({ id: c.id, label: c.name })),
+        .map((c) => ({ id: c.id, label: c.name, inactive: isInactive(c) })),
     [customers],
   );
 

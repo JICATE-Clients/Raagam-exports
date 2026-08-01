@@ -1,8 +1,10 @@
 import "server-only";
+import { revalidatePath } from "next/cache";
 import { type createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { deleteOrBlock } from "./delete-guard";
+import { deleteOrBlock, humanizeTable } from "./delete-guard";
 import { generateUniqueCode } from "./auto-code";
+import { originDeleteBlock } from "./party-origin-text";
 
 type Db = Awaited<ReturnType<typeof createClient>>;
 
@@ -29,6 +31,8 @@ type Db = Awaited<ReturnType<typeof createClient>>;
 // ============================================================================
 
 export type PartyTargetTable = "customers" | "consignees" | "notifies";
+/** Every master that can be the root of a publish chain — the targets plus Applicant, which is only ever a source. */
+export type PartyTable = "applicants" | PartyTargetTable;
 export type PartySourceColumn =
   | "source_applicant_id"
   | "source_customer_id"
@@ -39,6 +43,8 @@ export type PartyLink = {
   table: PartyTargetTable;
   /** Link column on that table (0371). */
   column: PartySourceColumn;
+  /** Master the tick box lives on — the table `column` points at. */
+  sourceTable: PartyTable;
   /** The tick box, named as the operator sees it: "Also Customer". */
   flag: string;
   /** The master that owns the tick box: "Applicant". */
@@ -51,6 +57,7 @@ export const PARTY_LINKS = {
   applicantCustomer: {
     table: "customers",
     column: "source_applicant_id",
+    sourceTable: "applicants",
     flag: "Also Customer",
     from: "Applicant",
     into: "Customer",
@@ -58,6 +65,7 @@ export const PARTY_LINKS = {
   applicantConsignee: {
     table: "consignees",
     column: "source_applicant_id",
+    sourceTable: "applicants",
     flag: "Also Consignee",
     from: "Applicant",
     into: "Consignee",
@@ -65,6 +73,7 @@ export const PARTY_LINKS = {
   customerConsignee: {
     table: "consignees",
     column: "source_customer_id",
+    sourceTable: "customers",
     flag: "Also Consignee",
     from: "Customer",
     into: "Consignee",
@@ -72,6 +81,7 @@ export const PARTY_LINKS = {
   customerNotify: {
     table: "notifies",
     column: "source_customer_id",
+    sourceTable: "customers",
     flag: "Also Notify",
     from: "Customer",
     into: "Notify Party",
@@ -79,6 +89,7 @@ export const PARTY_LINKS = {
   consigneeNotify: {
     table: "notifies",
     column: "source_consignee_id",
+    sourceTable: "consignees",
     flag: "Also Notify",
     from: "Consignee",
     into: "Notify Party",
@@ -91,10 +102,16 @@ export const PARTY_LINKS = {
  * applicant that also ships goods almost always ships from the same address;
  * typing it twice is how the two drift apart.
  *
- * Deliberately absent: `inactive` (an applicant going quiet does not close the
- * customer account — open question in doc/masters-open-questions.md), and every
- * commercial field (GST, TCS, currency, terms). Those belong to the published
- * record, and the source has no business holding an opinion about them.
+ * Deliberately absent: `inactive`, and every commercial field (GST, TCS,
+ * currency, terms). Those belong to the published record, and the source has no
+ * business holding an opinion about them.
+ *
+ * `inactive` needs a word, because DELETE now propagates and this does not.
+ * They are different questions. An applicant going quiet does not close the
+ * customer account, so saving an inactive applicant still leaves its customer
+ * alone (open question P1). Deleting that applicant is a statement that the
+ * party should not exist at all, and takes the whole published subtree with it
+ * — see `deleteParty` (P3, answered 2026-07-31).
  */
 export type PartySeed = {
   name: string;
@@ -207,54 +224,135 @@ export async function publishParty(
   };
 }
 
-export type DetachedLink = { column: PartySourceColumn; table: PartyTargetTable; id: string };
+// ============================================================================
+// Deleting a party — the mirror of publishing it (0378)
+//
+// A published row exists only as an expression of the tick box that made it, so
+// deleting the source takes the whole subtree with it, recursively:
+//
+//   Applicant ─┬─ Customer ─┬─ Consignee ── Notify
+//              │            └─ Notify
+//              └─ Consignee ── Notify
+//
+// ONE FATE: if the root or any node is genuinely in use, NOTHING is deleted —
+// every node is marked inactive with its publish links left intact, so the tick
+// boxes keep telling the truth. Half a subtree going is the outcome that must
+// never happen: a source left alive with its boxes ticked republishes empty
+// rows on the very next save.
+//
+// All of that lives in the `party_delete_subtree` RPC rather than here, for two
+// reasons. supabase-js has no transaction, so "one fate" could only be an
+// intention in TypeScript. And the verdict is not answerable from this side at
+// all: `first_referencing_table` (0344) counts the publish link, the published
+// consignee's `customer_id` picker and two cascade grids as "in use", so a
+// customer with Also Consignee ticked can never hard-delete. 0378's header has
+// the full account.
+// ============================================================================
+
+export type PartyDeleteResult =
+  | { ok: true; inactive: boolean; usedBy?: string; alsoAffected?: string[] }
+  | { ok: false; error: string };
 
 /**
- * Before deleting a source, hand its published rows back to the world.
- *
- * Without this, `first_referencing_table` (0344) sees the publish link and
- * reports the source as "in use by Customers" — so deleting an applicant would
- * deactivate it instead, for no reason the operator could possibly guess.
- * Unlinked, the published customer survives on its own as an ordinary customer;
- * it may already be on a sales order and must not be dragged down.
+ * All four party pages, always. A subtree delete can reach any of them from any
+ * of them, and the four actions used to each revalidate their own guess at the
+ * blast radius — `deleteApplicant` missed Notify, which it can now reach two
+ * levels down.
  */
-export async function detachPublished(
-  s: Db,
-  links: readonly PartyLink[],
-  sourceId: string,
-): Promise<{ ok: true; detached: DetachedLink[] } | { ok: false; error: string }> {
-  const detached: DetachedLink[] = [];
+export function revalidatePartyMasters(): void {
+  revalidatePath("/masters/associates/applicant");
+  revalidatePath("/masters/associates/customer");
+  revalidatePath("/masters/associates/consignee");
+  revalidatePath("/masters/associates/notify");
+}
+
+type SubtreeNode = { table: string; label: string; name: string | null };
+type SubtreeResult = { inactive: boolean; used_by: string | null; nodes: SubtreeNode[] };
+
+/** Which publish links can be set ON a row of this table — i.e. how it could have been published. */
+const SOURCE_LINKS: Record<PartyTable, readonly PartyLink[]> = {
+  applicants: [],
+  customers: [PARTY_LINKS.applicantCustomer],
+  consignees: [PARTY_LINKS.applicantConsignee, PARTY_LINKS.customerConsignee],
+  notifies: [PARTY_LINKS.customerNotify, PARTY_LINKS.consigneeNotify],
+};
+
+/**
+ * A published row cannot be deleted from its own master — deleting it while the
+ * flag stayed ticked simply republishes it on the source's next save.
+ *
+ * The screens already say this (`originDeleteBlock`), but only in the browser.
+ * That was cosmetic while a delete affected one row; it is not now. Reaching
+ * `deleteCustomer` directly on a published customer would take that customer's
+ * own consignee and notify with it, and then the applicant's next save would
+ * republish the customer alone — a subtree amputated through a path with no UI.
+ *
+ * Entry point only. The recursion inside the RPC must of course delete
+ * published nodes; that is the entire feature.
+ */
+async function refusePublishedRoot(s: Db, table: PartyTable, id: string): Promise<string | null> {
+  const links = SOURCE_LINKS[table];
+  if (links.length === 0) return null;
+
+  const { data, error } = await s
+    .from(table)
+    .select(links.map((l) => l.column).join(", "))
+    .eq("id", id)
+    .maybeSingle();
+  // Missing row / unreadable: say nothing and let the RPC raise the real error
+  // rather than inventing a second, vaguer one here.
+  if (error || !data) return null;
+
+  const row = data as unknown as Record<PartySourceColumn, string | null>;
   for (const link of links) {
-    const { data, error } = await s
-      .from(link.table)
-      .update({ [link.column]: null })
-      .eq(link.column, sourceId)
-      .select("id");
-    if (error) return { ok: false, error: error.message };
-    for (const row of data ?? []) {
-      detached.push({ column: link.column, table: link.table, id: (row as { id: string }).id });
-    }
+    const sourceId = row[link.column];
+    if (!sourceId) continue;
+    const { data: src } = await s
+      .from(link.sourceTable)
+      .select("name")
+      .eq("id", sourceId)
+      .maybeSingle();
+    return originDeleteBlock({
+      from: link.from,
+      name: (src as { name?: string } | null)?.name ?? "—",
+      flag: link.flag,
+    });
   }
-  return { ok: true, detached };
+  return null;
 }
 
 /**
- * …and put them back if the delete guard only DEACTIVATED the source. A source
- * that still exists still owns what it published — drop the link and its tick
- * box would publish a second, duplicate row on the very next save.
+ * Delete a party and everything it published. The four `delete*` actions are
+ * one call each; the fate is decided in the DB, atomically.
  *
- * Cannot realistically collide: we freed these links moments ago and the
- * partial unique index means nobody else can claim them. If it fails anyway the
- * caller must say so, because the state really is wrong at that point.
+ * `alsoAffected` lists the published roles that went with it ("Customer",
+ * "Consignee") for the toast. Roles, not names: `publishParty` syncs the name
+ * down on every save, so naming them would repeat one word four times.
  */
-export async function reattachPublished(
+export async function deleteParty(
   s: Db,
-  detached: readonly DetachedLink[],
-  sourceId: string,
-): Promise<string | null> {
-  for (const d of detached) {
-    const { error } = await s.from(d.table).update({ [d.column]: sourceId }).eq("id", d.id);
-    if (error) return error.message;
-  }
-  return null;
+  table: PartyTable,
+  id: string,
+): Promise<PartyDeleteResult> {
+  if (!(await can("masters", "delete"))) return { ok: false, error: "Forbidden" };
+
+  const refusal = await refusePublishedRoot(s, table, id);
+  if (refusal) return { ok: false, error: refusal };
+
+  const { data, error } = await s.rpc("party_delete_subtree", { p_table: table, p_id: id });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePartyMasters();
+
+  const res = data as SubtreeResult;
+  // Node 0 is the row the operator actually clicked; the rest are what it
+  // published. Deduped because one party can publish two Notify Parties (one
+  // via its customer, one via its consignee) and the toast should say it once.
+  const alsoAffected = [...new Set(res.nodes.slice(1).map((n) => n.label))];
+  return {
+    ok: true,
+    inactive: res.inactive,
+    usedBy: res.used_by ? humanizeTable(res.used_by) : undefined,
+    alsoAffected: alsoAffected.length ? alsoAffected : undefined,
+  };
 }

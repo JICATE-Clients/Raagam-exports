@@ -4,18 +4,18 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { customerInput, type CustomerInput } from "./customer-types";
-import { deleteOrDeactivate } from "./delete-guard";
 import { checkDuplicateName } from "./dup-guard";
 import {
   PARTY_LINKS,
   partySeed,
   publishParty,
-  detachPublished,
-  reattachPublished,
+  deleteParty,
+  type PartyDeleteResult,
 } from "./party-publish";
+import { customerGeneralSeed } from "./party-fetch";
 
 type Result = { ok: true } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
+type DeleteResult = PartyDeleteResult;
 
 function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
@@ -176,9 +176,6 @@ async function checkGstinUnique(
   return res.ok ? null : res.error;
 }
 
-/** Both "Also …" tick boxes on this master. */
-const CUSTOMER_LINKS = [PARTY_LINKS.customerConsignee, PARTY_LINKS.customerNotify] as const;
-
 /** Reconcile "Also Consignee" / "Also Notify" with the masters they publish into. */
 async function syncAlsoFlags(
   s: Awaited<ReturnType<typeof createClient>>,
@@ -190,8 +187,24 @@ async function syncAlsoFlags(
   // owning-customer picker rather than leaving the operator to re-pick the very
   // record they published it from. (`customer_id` is that picker; it is NOT the
   // publish link, which is `source_customer_id`.)
+  //
+  // `customerGeneralSeed` rides along in the same INSERT-only `extra`: the
+  // General half a Customer can answer — currency 1/2/3, ship mode, ship type,
+  // pay mode, GST No — which `partySeed` deliberately omits because it is
+  // shared by all five publish pairs and an APPLICANT holds none of it. A
+  // customer does, and a consignee born without it sent the operator to retype
+  // what they had just keyed one screen over. Still birth-only: unticking and
+  // re-ticking re-seeds, an ordinary save does not. To pull a Customer's
+  // details into an EXISTING consignee — including its Contact and Marking
+  // grids, which no INSERT can reach from here — the Consignee screen has
+  // "Fetch from Customer" (lib/masters/party-fetch.ts).
+  //
+  // `payment_term_id` is NOT in that seed and must not be added: the Customer's
+  // `receivable_term_id` points at `receivable_terms`, the Consignee's at
+  // `config_lookups`. See the note in party-fetch.ts.
   const cons = await publishParty(s, PARTY_LINKS.customerConsignee, id, data.also_consignee, seed, {
     customer_id: id,
+    ...customerGeneralSeed(data),
   });
   if (!cons.ok) return cons;
   const notif = await publishParty(s, PARTY_LINKS.customerNotify, id, data.also_notify, seed);
@@ -208,6 +221,11 @@ export async function createCustomer(data: CustomerInput): Promise<Result> {
   const s = await createClient();
   const dupErr = await checkGstinUnique(s, p.data.gst_no);
   if (dupErr) return fail(dupErr);
+  // Two customers must not share a NAME. The GSTIN guard above cannot stand
+  // in for this: `gst_no` is nullable, so an unregistered party skips it
+  // entirely. Mirrored live on screen by `useDuplicateName`.
+  const dupName = await checkDuplicateName(s, "customers", p.data.name);
+  if (!dupName.ok) return fail(dupName.error);
   const { data: created, error } = await s
     .from("customers")
     .insert(headerOnly(p.data))
@@ -229,6 +247,8 @@ export async function updateCustomer(id: string, data: CustomerInput): Promise<R
   const s = await createClient();
   const dupErr = await checkGstinUnique(s, p.data.gst_no, id);
   if (dupErr) return fail(dupErr);
+  const dupName = await checkDuplicateName(s, "customers", p.data.name, { excludeId: id });
+  if (!dupName.ok) return fail(dupName.error);
   // Before the header write — see the note in updateApplicant. A refused untick
   // must leave the record untouched, not half-saved.
   const pub = await syncAlsoFlags(s, id, p.data);
@@ -242,20 +262,12 @@ export async function updateCustomer(id: string, data: CustomerInput): Promise<R
 }
 
 export async function deleteCustomer(id: string): Promise<DeleteResult> {
-  if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  // Free anything this customer published (see deleteApplicant).
-  const det = await detachPublished(s, CUSTOMER_LINKS, id);
-  if (!det.ok) return fail(det.error);
-  // Own children cascade; if referenced elsewhere, deactivate instead of delete.
-  const res = await deleteOrDeactivate(s, "customers", id, "inactive");
+  // Takes the Consignee and Notify it published, and anything THEY published
+  // (0378). Refused outright if this customer was itself published by an
+  // Applicant — that one is removed by unticking the box that made it.
+  const res = await deleteParty(s, "customers", id);
   if (!res.ok) return fail(res.error);
-  if (res.inactive && det.detached.length) {
-    const relinkErr = await reattachPublished(s, det.detached, id);
-    if (relinkErr) return fail(`Customer deactivated, but its published records could not be re-linked: ${relinkErr}`);
-  }
   rev();
-  revalidatePath("/masters/associates/consignee");
-  revalidatePath("/masters/associates/notify");
-  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
+  return res;
 }

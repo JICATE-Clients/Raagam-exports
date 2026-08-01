@@ -4,18 +4,17 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { consigneeInput, type ConsigneeInput } from "./consignee-types";
-import { deleteOrDeactivate } from "./delete-guard";
 import { checkDuplicateName } from "./dup-guard";
 import {
   PARTY_LINKS,
   partySeed,
   publishParty,
-  detachPublished,
-  reattachPublished,
+  deleteParty,
+  type PartyDeleteResult,
 } from "./party-publish";
 
 type Result = { ok: true } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
+type DeleteResult = PartyDeleteResult;
 
 function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
@@ -125,9 +124,6 @@ async function checkGstinUnique(
   return res.ok ? null : res.error;
 }
 
-/** The one "Also …" tick box on this master. */
-const CONSIGNEE_LINKS = [PARTY_LINKS.consigneeNotify] as const;
-
 /**
  * Reconcile "Also Notify" with the Notify master. This is the answer to open
  * question J: `also_notify` does NOT gate the Notify tab — that tab lists which
@@ -158,6 +154,11 @@ export async function createConsignee(data: ConsigneeInput): Promise<Result> {
   const s = await createClient();
   const dupErr = await checkGstinUnique(s, p.data.gst_no);
   if (dupErr) return fail(dupErr);
+  // Two consignees must not share a NAME. The GSTIN guard above cannot stand
+  // in for this: `gst_no` is nullable, so an unregistered party skips it
+  // entirely. Mirrored live on screen by `useDuplicateName`.
+  const dupName = await checkDuplicateName(s, "consignees", p.data.name);
+  if (!dupName.ok) return fail(dupName.error);
   const { contacts: _c, markings: _m, notify_refs: _n, ...header } = p.data;
   void _c;
   void _m;
@@ -190,6 +191,8 @@ export async function updateConsignee(id: string, data: ConsigneeInput): Promise
   const s = await createClient();
   const dupErr = await checkGstinUnique(s, p.data.gst_no, id);
   if (dupErr) return fail(dupErr);
+  const dupName = await checkDuplicateName(s, "consignees", p.data.name, { excludeId: id });
+  if (!dupName.ok) return fail(dupName.error);
   const { contacts: _c, markings: _m, notify_refs: _n, ...header } = p.data;
   void _c;
   void _m;
@@ -216,19 +219,11 @@ export async function updateConsignee(id: string, data: ConsigneeInput): Promise
 }
 
 export async function deleteConsignee(id: string): Promise<DeleteResult> {
-  if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  // Free anything this consignee published (see deleteApplicant).
-  const det = await detachPublished(s, CONSIGNEE_LINKS, id);
-  if (!det.ok) return fail(det.error);
-  // Own contacts cascade; if referenced elsewhere, deactivate instead of delete.
-  const res = await deleteOrDeactivate(s, "consignees", id, "inactive");
+  // Takes the Notify Party it published (0378). Refused outright if this
+  // consignee was itself published by an Applicant or a Customer.
+  const res = await deleteParty(s, "consignees", id);
   if (!res.ok) return fail(res.error);
-  if (res.inactive && det.detached.length) {
-    const relinkErr = await reattachPublished(s, det.detached, id);
-    if (relinkErr) return fail(`Consignee deactivated, but its published records could not be re-linked: ${relinkErr}`);
-  }
   rev();
-  revalidatePath("/masters/associates/notify");
-  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
+  return res;
 }

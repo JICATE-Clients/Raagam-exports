@@ -220,7 +220,7 @@ export function MasterListShell<Row>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusOf, extraFilters]);
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, isStale } = useMasterFilter<
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, isStale, dateFilter } = useMasterFilter<
     Row,
     Record<string, string>
   >(rows, {
@@ -258,6 +258,9 @@ export function MasterListShell<Row>({
   );
 
   const hasFacets = !!statusOf || (extraFilters?.length ?? 0) > 0;
+  // Created Date counts as a filter for the Reset link — a list whose only facet
+  // is the date still needs a way back to "everything".
+  const canReset = hasFacets || dateFilter.enabled;
 
   return (
     <div className="space-y-4">
@@ -272,13 +275,20 @@ export function MasterListShell<Row>({
           searchPlaceholder={searchPlaceholder}
           activeCount={activeCount}
           onReset={
-            hasFacets
+            canReset
               ? () => {
                   reset();
                   pg.setPage(1);
                 }
               : undefined
           }
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
         >
           {hasFacets ? (
             <>

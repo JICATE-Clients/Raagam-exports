@@ -140,7 +140,7 @@ export function LevyMasterScreen({
   // 2-3 box layout — this just saves typing the same half twice.
   const [gstTotalPct, setGstTotalPct] = useState("");
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.type, r.description, String(r.entry_no)].filter(Boolean).join(" "),
@@ -436,6 +436,13 @@ export function LevyMasterScreen({
           }}
           searchPlaceholder="Search levies…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={reset}
         >
           <div>

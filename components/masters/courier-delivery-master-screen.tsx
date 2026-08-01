@@ -31,6 +31,8 @@ import type {
 } from "@/lib/masters/courier-delivery-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -178,6 +180,16 @@ export function CourierDeliveryAddressMasterScreen({
   const newKey = () => `c${keySeq.current++}`;
 
   const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "courier_delivery_addresses",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -536,7 +548,7 @@ export function CourierDeliveryAddressMasterScreen({
           onCancel: () => setOpen(false),
           onSave: submit,
           saveLabel: "Save courier address",
-          canSave: !!form.name.trim(),
+          canSave: !!form.name.trim() && !dupError,
           // No `onSaveDraft`: unlike Applicant, `courier_delivery_addresses` has
           // no is_draft column, so there is nothing a draft could be saved as.
           isPending,
@@ -574,7 +586,9 @@ export function CourierDeliveryAddressMasterScreen({
                   value={form.name}
                   onChange={(e) => set({ name: e.target.value })}
                   required
+                  {...dupFieldProps(dupError, "cda-name")}
                 />
+                <DuplicateError error={dupError} id="cda-name" />
               </Field>
               {/* Pickers render their own labels — never double-label them.
                   The ONLY Country field on this form now (client complaint

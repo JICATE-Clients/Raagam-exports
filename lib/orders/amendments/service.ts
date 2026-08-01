@@ -9,9 +9,17 @@ import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { GarmentOrderAmendment } from "./types";
+import type { Deactivatable } from "@/lib/masters/inactive";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
-export type PickerRow = { id: string; code: string | null; name: string };
+/**
+ * The disable flag rides along (optional, and in any of the schema's three
+ * spellings) so a picker can hide a retired buyer / user / UOM while an
+ * amendment that already names one still resolves it. Several lists on this
+ * screen — contacts, colour-card colours — come off flag-less tables and simply
+ * omit it.
+ */
+export type PickerRow = { id: string; code: string | null; name: string } & Deactivatable;
 
 /**
  * An order row for the SCNo picker. Carries the order's buyer / currency /
@@ -95,8 +103,7 @@ async function getBuyerRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("buyers")
-    .select("id, code, name")
-    .eq("is_active", true)
+    .select("id, code, name, is_active")
     .order("name");
   return (data ?? []) as PickerRow[];
 }
@@ -106,12 +113,19 @@ async function getMerchandiserRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("profiles")
-    .select("id, employee_code, full_name")
-    .eq("is_active", true)
+    .select("id, employee_code, full_name, is_active")
     .order("full_name");
-  return ((data ?? []) as { id: string; employee_code: string | null; full_name: string | null }[]).map(
-    (r) => ({ id: r.id, code: r.employee_code, name: r.full_name ?? "(unnamed)" }),
-  );
+  return ((data ?? []) as {
+    id: string;
+    employee_code: string | null;
+    full_name: string | null;
+    is_active: boolean;
+  }[]).map((r) => ({
+    id: r.id,
+    code: r.employee_code,
+    name: r.full_name ?? "(unnamed)",
+    is_active: r.is_active,
+  }));
 }
 
 /**
@@ -143,6 +157,8 @@ export type StylePickerRow = {
   article_no: string | null;
   style_category: string | null;
   style_description: string | null;
+  /** `garment_styles` spells its disable flag `blocked` (0124). */
+  blocked: boolean;
 };
 
 /**
@@ -165,7 +181,7 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
   const { data } = await s
     .from("garment_styles")
     .select(
-      "id, code, style_name, article_no, style_description, " +
+      "id, code, style_name, article_no, style_description, blocked, " +
         "category:config_lookups!garment_styles_style_category_id_fkey(name)",
     )
     .order("created_at", { ascending: false });
@@ -175,6 +191,7 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     style_name: string | null;
     article_no: string | null;
     style_description: string | null;
+    blocked: boolean;
     category?: { name: string } | null;
   }[]).map((r) => ({
     id: r.id,
@@ -183,6 +200,7 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     article_no: r.article_no,
     style_category: r.category?.name ?? null,
     style_description: r.style_description,
+    blocked: r.blocked,
   }));
 }
 
@@ -191,8 +209,7 @@ async function getUomRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("uoms")
-    .select("id, code, name")
-    .eq("is_active", true)
+    .select("id, code, name, is_active")
     .order("name");
   return (data ?? []) as PickerRow[];
 }

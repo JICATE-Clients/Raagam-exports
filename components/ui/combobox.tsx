@@ -3,12 +3,31 @@
 import { ChevronDown, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Tooltip } from "@/components/ui/tooltip";
+import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 
 export interface ComboboxOption {
   value: string;
   label: string;
   sublabel?: string;
+  /**
+   * Shown, greyed, and not choosable — by the mouse, by Enter, or by ↑/↓.
+   *
+   * This is what `<option disabled>` means, and until now a desktop `<Select>`
+   * silently ignored it: `parseOptions` (select.tsx) read the flag only to spot
+   * a placeholder prompt and dropped it for every other row, so a disabled
+   * option was refused on touch (native `<select>`) and freely selectable on a
+   * mouse. Same list, two answers.
+   *
+   * Its first real use is pick-once — a value already taken by another row of a
+   * repeating grid. The equivalent on the master-data side is `usedIds` in
+   * components/ui/data-picker.tsx, and the two deliberately look identical.
+   */
+  disabled?: boolean;
+  /** Why it is greyed, in words, e.g. "(already added)". Opacity alone reads as
+   *  a rendering glitch rather than a reason. */
+  disabledNote?: string;
 }
 
 /**
@@ -74,11 +93,21 @@ export function Combobox({
 
   const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(q));
-  }, [options, query]);
+  // Shared with the input's onChange below, which has to know what the list
+  // WILL be: `filtered` is still the previous render's when the keystroke fires.
+  // Same split as components/ui/data-picker.tsx, for the same reason.
+  const matching = useCallback(
+    (q: string) => {
+      const needle = q.trim().toLowerCase();
+      if (!needle) return options;
+      return options.filter((o) =>
+        `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(needle),
+      );
+    },
+    [options],
+  );
+
+  const filtered = useMemo(() => matching(query), [matching, query]);
 
   const measure = useCallback(() => {
     const el = inputRef.current;
@@ -126,7 +155,10 @@ export function Combobox({
   function openList() {
     if (disabled) return;
     setQuery("");
-    setHighlight(Math.max(0, options.findIndex((o) => o.value === value)));
+    // Seed on the current value; failing that, the first CHOOSABLE row rather
+    // than index 0, which may be greyed.
+    const at = options.findIndex((o) => o.value === value);
+    setHighlight(at >= 0 ? at : Math.max(0, options.findIndex((o) => !o.disabled)));
     setOpen(true);
   }
   function commit(v: string) {
@@ -146,7 +178,7 @@ export function Combobox({
    *          the keyboard-nav provider moves to the field above. ↑ must not be a
    *          second way to open a list, or a dropdown becomes a one-way door.
    *   Enter  pick the highlight and close — when closed, bubble so the provider
-   *          saves the record
+   *          moves to the next field (and saves off the last one)
    *   Tab    close the list without choosing, and let focus move on. Never
    *          preventDefault: the move itself belongs to native order or to
    *          Sheet's focus trap.
@@ -164,14 +196,28 @@ export function Combobox({
       // a grid cell would move the highlight AND jump the grid a row.
       e.preventDefault();
       e.stopPropagation();
-      setHighlight((h) =>
-        e.key === "ArrowDown" ? Math.min(h + 1, filtered.length - 1) : Math.max(h - 1, 0),
-      );
+      // A ROW YOU CANNOT PICK IS A ROW YOU CANNOT LAND ON — what a native
+      // <select> does with a disabled <option>. Step OVER disabled rows rather
+      // than onto them, or ↓ walks the operator onto a dead Enter. Clamped, not
+      // wrapping, exactly as before: holding ↓ stops at the end.
+      setHighlight((h) => {
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        for (let i = h + step; i >= 0 && i < filtered.length; i += step) {
+          if (!filtered[i].disabled) return i;
+        }
+        return h; // nothing choosable that way — stay put
+      });
     } else if (e.key === "Enter") {
       if (open && filtered[highlight]) {
         // Don't let the Sheet's Enter-advance also fire.
         e.preventDefault();
         e.stopPropagation();
+        // The mouse refuses a disabled row; so must Enter, and by doing NOTHING
+        // rather than falling through to the next choosable one — committing
+        // something other than what is visibly highlighted is worse than not
+        // moving. Arrow movement no longer lands here; this is the backstop for
+        // a highlight seeded on open or by typing.
+        if (filtered[highlight].disabled) return;
         commit(filtered[highlight].value);
       }
     } else if (e.key === "Tab") {
@@ -183,6 +229,12 @@ export function Combobox({
       // Close WITHOUT committing — "Tab never changes a value" is the rule that
       // survived — and deliberately do NOT preventDefault, or focus would stay
       // put: the move itself belongs to native tab order, or to Sheet's trap.
+      //
+      // "Tab always moves" has since acquired exactly one exception, and there
+      // is nothing to do about it here: a field showing a live duplicate-name
+      // error is held by a window-capture listener
+      // (components/shell/keyboard-nav-provider.tsx) that stops the event
+      // before React dispatches, so this branch never runs for a held field.
       if (open) {
         setOpen(false);
         setQuery("");
@@ -200,11 +252,24 @@ export function Combobox({
   // The input shows the live query while open, else the selected label.
   const shownValue = open ? query : selected?.label ?? "";
 
+  // An `<input>` clips without an ellipsis, so a label longer than the control
+  // simply stopped mid-word and read as the whole value. See data-picker.tsx.
+  const { ref: valueRef, overflowing: valueClipped } = useOverflow<HTMLInputElement>(shownValue);
+
   return (
     <div ref={rootRef} className={cn("relative", className)}>
+      <Tooltip
+        label={selected?.label ?? ""}
+        touch
+        disabled={!selected || open || !valueClipped}
+        className="block w-full"
+      >
       <input
         id={id}
-        ref={inputRef}
+        ref={(el) => {
+          inputRef.current = el;
+          valueRef.current = el;
+        }}
         type="text"
         role="combobox"
         aria-expanded={open}
@@ -217,8 +282,13 @@ export function Combobox({
           if (!open) openList();
         }}
         onChange={(e) => {
-          setQuery(e.target.value);
-          setHighlight(0);
+          const q = e.target.value;
+          setQuery(q);
+          // The first CHOOSABLE match of the NEW query — not index 0, which may
+          // be greyed, and not the stale `filtered`, which is still the previous
+          // render's. Either would leave Enter refusing what looks highlighted.
+          const next = matching(q).findIndex((o) => !o.disabled);
+          setHighlight(next < 0 ? 0 : next);
           if (!open) setOpen(true);
         }}
         onKeyDown={onKeyDown}
@@ -231,6 +301,10 @@ export function Combobox({
           "placeholder:text-muted-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
+          // Makes a clipped label end in "…" instead of stopping mid-word.
+          // truncate-reveal: exempt -- the ellipsis half of the rule; the
+          // reveal half is the <Tooltip> wrapping this input.
+          "text-ellipsis",
           !selected && !open && "text-muted-foreground",
           // LAST, so a caller can override the height, text size and padding
           // above. `className` styles the wrapper (width and the anchor the
@@ -239,6 +313,7 @@ export function Combobox({
           inputClassName,
         )}
       />
+      </Tooltip>
       {clearable && selected && !open ? (
         <button
           type="button"
@@ -278,19 +353,28 @@ export function Combobox({
                 key={o.value}
                 role="option"
                 aria-selected={o.value === value}
+                aria-disabled={o.disabled ? true : undefined}
                 // Focus stays in the input, so use mousedown to beat the blur.
                 onMouseDown={(e) => {
                   e.preventDefault();
+                  if (o.disabled) return;
                   commit(o.value);
                 }}
-                onMouseEnter={() => setHighlight(i)}
+                // Hover does not park the highlight on a row Enter will refuse.
+                onMouseEnter={() => { if (!o.disabled) setHighlight(i); }}
                 className={cn(
                   "cursor-pointer px-3 py-2 text-sm",
+                  o.disabled && "cursor-not-allowed opacity-40",
                   i === highlight ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-muted",
                 )}
               >
                 {o.label}
                 {o.sublabel && <span className="ml-2 text-xs text-muted-foreground">{o.sublabel}</span>}
+                {/* In words. 40% opacity on its own reads as a rendering
+                    glitch rather than as a reason. */}
+                {o.disabled && o.disabledNote && (
+                  <span className="ml-2 text-xs text-muted-foreground">{o.disabledNote}</span>
+                )}
               </li>
             ))}
           </ul>,

@@ -9,6 +9,7 @@ import {
   deleteDefectGroup,
 } from "@/lib/masters/simple-master-actions";
 import type { DefectGroup } from "@/lib/masters/defect-detail-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Picker over the `defect_groups` master — the "Defect Group" field on Defect
@@ -62,12 +63,11 @@ export function DefectGroupPicker({
   const rows: PickerRow[] = useMemo(
     () =>
       all
-        // An inactive group stays resolvable for a defect that already points at
-        // it (and renders greyed), but is out of the selectable list.
-        .filter((g) => g.is_active || g.id === value)
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((g) => ({ id: g.id, label: g.name, disabled: !g.is_active })),
-    [all, value],
+        // The hide-unless-it-is-the-stored-value rule lives in DataPicker now;
+        // this only has to say which rows are switched off.
+        .map((g) => ({ id: g.id, label: g.name, inactive: isInactive(g) })),
+    [all],
   );
 
   const manage: ManageConfig = {

@@ -27,7 +27,8 @@ import {
   deactivateCertification,
 } from "@/lib/masters/certification-actions";
 import type { Certification, CertificationInput } from "@/lib/masters/certification-types";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; valid_from: string; valid_to: string };
@@ -55,7 +56,7 @@ export function CertificationMasterScreen({
   const keyRef = useRef(0);
   const nextKey = () => `cert-${++keyRef.current}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.certification_name, r.description].filter(Boolean).join(" "),
@@ -69,12 +70,15 @@ export function CertificationMasterScreen({
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check on the name (mirrors the on-save guard).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "certifications",
     name: form.certification_name,
     nameColumn: "certification_name",
     excludeId: editId ?? undefined,
     enabled: !!form.certification_name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.certification_name,
   });
 
   function openAdd() {
@@ -203,6 +207,13 @@ export function CertificationMasterScreen({
           }}
           searchPlaceholder="Search certification..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -339,8 +350,9 @@ export function CertificationMasterScreen({
                   value={form.certification_name}
                   onChange={(e) => setForm({ ...form, certification_name: e.target.value })}
                   required
+                  {...dupFieldProps(dupError, "cert-name")}
                 />
-                {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+                <DuplicateError error={dupError} id="cert-name" />
               </Field>
               <Field label="Description" size="full" htmlFor="cert-desc">
                 <Textarea

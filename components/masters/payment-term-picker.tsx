@@ -9,6 +9,7 @@ import {
   deletePaymentTerm,
 } from "@/lib/masters/payment-term-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * The Payment Terms field, everywhere one appears (6 fields across 4 screens).
@@ -88,15 +89,11 @@ export function PaymentTermPicker({
   const rows: PickerRow[] = useMemo(
     () =>
       all
-        // An inactive term stays resolvable for a record that already points at
-        // it (and renders greyed), but drops out of new selections. Without that
-        // rule an existing record just looks empty.
-        .filter((o) => o.is_active || o.id === value)
         // Description only — `entry_no` is an auto-assigned serial, not something
         // the operator picks by. Sorted by the text they actually read.
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((o) => ({ id: o.id, label: o.name, disabled: !o.is_active })),
-    [all, value],
+        .map((o) => ({ id: o.id, label: o.name, inactive: isInactive(o) })),
+    [all],
   );
 
   const manage: ManageConfig = {

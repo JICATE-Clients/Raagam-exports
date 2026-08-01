@@ -9,7 +9,8 @@ import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { createCountryQuick, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import {
   COUNTRY_GROUPS,
@@ -17,6 +18,7 @@ import {
   type CountryGroup,
   type CountryInput,
 } from "@/lib/masters/country-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 type FormState = {
   code: string;
@@ -94,7 +96,7 @@ export function CountryPicker({
     () =>
       [...all]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((c) => ({ id: c.id, label: c.name })),
+        .map((c) => ({ id: c.id, label: c.name, inactive: isInactive(c) })),
     [all],
   );
 
@@ -134,11 +136,17 @@ export function CountryPicker({
   // told them the country already existed. `enabled` keeps the round trip off
   // the keystroke while the sheet is shut. Unscoped, like `uq_countries_name` —
   // a DEACTIVATED country keeps its name reserved.
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "countries",
     name: form.name,
     excludeId: formEditId ?? undefined,
     enabled: formOpen,
+    // `all`, not `countries` — a country added earlier in this same session is
+    // in the merge above and not yet in the server prop, and typing it a second
+    // time is precisely the mistake this check was added for.
+    rows: all,
+    rowId: (c) => c.id,
+    rowValue: (c) => c.name,
   });
 
   function saveForm() {
@@ -250,9 +258,9 @@ export function CountryPicker({
               uppercase
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              aria-invalid={!!dupError}
+              {...dupFieldProps(dupError, "cp-name")}
             />
-            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+            <DuplicateError error={dupError} id="cp-name" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

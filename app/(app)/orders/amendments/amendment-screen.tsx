@@ -267,7 +267,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
 
   // Style picker items {id, code, name}; keep the full rows for auto-fill lookup.
   const styleItems: PickerRow[] = useMemo(
-    () => data.styles.map((s) => ({ id: s.id, code: s.code, name: s.name })),
+    () => data.styles.map((s) => ({ id: s.id, code: s.code, name: s.name, blocked: s.blocked })),
     [data.styles],
   );
   const styleById = useMemo(() => {

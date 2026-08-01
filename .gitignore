@@ -56,3 +56,10 @@ next-env.d.ts
 
 # Local dev-server log capture
 .devlog.txt
+
+# Python bytecode from scripts/audit_layout.py — regenerated on every run
+__pycache__/
+*.py[cod]
+
+# MSYS/Git-Bash crash dumps, written into the repo root where the shell was
+*.stackdump

@@ -14,10 +14,11 @@ export type TaUserRightsFormData = {
 export async function getTaUserRightsFormData(): Promise<TaUserRightsFormData> {
   const s = await createClient();
   const [userRes, actRes] = await Promise.all([
+    // Flag selected, not filtered on: a departed user must stop being offered
+    // while the rights rows already assigned to them still resolve.
     s
       .from("profiles")
-      .select("id, full_name, email, employee_code")
-      .eq("is_active", true)
+      .select("id, full_name, email, employee_code, is_active")
       .order("full_name"),
     s
       .from("ta_activities")
@@ -32,11 +33,13 @@ export async function getTaUserRightsFormData(): Promise<TaUserRightsFormData> {
       full_name: string | null;
       email: string | null;
       employee_code: string | null;
+      is_active: boolean;
     }[]
   ).map((u) => ({
     id: u.id,
     code: u.employee_code,
     name: u.full_name ?? u.email ?? "User",
+    is_active: u.is_active,
   }));
 
   return { users, activities: (actRes.data ?? []) as ActivityRow[] };

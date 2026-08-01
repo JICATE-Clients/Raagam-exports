@@ -42,7 +42,7 @@ export type TaPlanFormData = {
 export async function getTaPlanFormData(): Promise<TaPlanFormData> {
   const s = await createClient();
   const [buyerRes, orderRes, shipRes, styleRes, actRes] = await Promise.all([
-    s.from("buyers").select("id, code, name").order("name"),
+    s.from("buyers").select("id, code, name, is_active").order("name"),
     s
       .from("sales_orders")
       .select("id, order_number, buyer_id, order_qty, ship_date")
@@ -51,9 +51,11 @@ export async function getTaPlanFormData(): Promise<TaPlanFormData> {
     s.from("shipment_plans").select("id, code, name").order("created_at", { ascending: false }),
     s
       .from("garment_styles")
-      .select("id, code, style_name")
+      .select("id, code, style_name, blocked")
       .order("created_at", { ascending: false }),
-    s.from("ta_activities").select("id, short_name, name").eq("is_active", true).order("name"),
+    // `shipment_plans` has no disable column; the other four carry theirs so the
+    // pickers can hide a retired row without losing the one a plan already names.
+    s.from("ta_activities").select("id, short_name, name, is_active").order("name"),
   ]);
 
   return {
@@ -61,10 +63,15 @@ export async function getTaPlanFormData(): Promise<TaPlanFormData> {
     orders: (orderRes.data ?? []) as OrderRow[],
     shipmentPlans: (shipRes.data ?? []) as PickerItem[],
     styles: (
-      (styleRes.data ?? []) as { id: string; code: string | null; style_name: string | null }[]
-    ).map((r) => ({ id: r.id, code: r.code, name: r.style_name ?? "(unnamed)" })),
+      (styleRes.data ?? []) as {
+        id: string;
+        code: string | null;
+        style_name: string | null;
+        blocked: boolean;
+      }[]
+    ).map((r) => ({ id: r.id, code: r.code, name: r.style_name ?? "(unnamed)", blocked: r.blocked })),
     activities: (
-      (actRes.data ?? []) as { id: string; short_name: string; name: string }[]
-    ).map((a) => ({ id: a.id, code: a.short_name, name: a.name })),
+      (actRes.data ?? []) as { id: string; short_name: string; name: string; is_active: boolean }[]
+    ).map((a) => ({ id: a.id, code: a.short_name, name: a.name, is_active: a.is_active })),
   };
 }

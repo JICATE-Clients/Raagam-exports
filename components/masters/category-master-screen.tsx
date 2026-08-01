@@ -22,7 +22,8 @@ import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import {
   MADE_TYPES,
   showsSubCategories,
@@ -148,18 +149,24 @@ export function CategoryMasterScreen({
   };
 
   // Real-time duplicate check on Name, scoped to the selected Item Class.
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "categories",
     name: form.name ?? "",
     scope: { item_class_id: form.item_class_id || null },
     excludeId: editId ?? undefined,
     enabled: !!(form.name && form.item_class_id),
+    // The synchronous half — `rowInScope` mirrors `scope` above, or a name
+    // reused under a DIFFERENT item class would read as a collision.
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+    rowInScope: (r) => r.item_class_id === form.item_class_id,
   });
 
   // No "did you mean?" suggestions on Name (client 2026-07-30) — the red
   // duplicate error above is the only feedback this field gives.
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       search: (r, q) =>
@@ -315,6 +322,13 @@ export function CategoryMasterScreen({
           }}
           searchPlaceholder="Search category…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -578,8 +592,9 @@ export function CategoryMasterScreen({
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "cat-name")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="cat-name" />
             </div>
             {/* Short Spec/Short Description dropped from the UI (client 2026-07-24 —
                 "use Description only"). The short_spec column is still round-tripped

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 
@@ -74,7 +75,12 @@ export function ViewPairs({ pairs }: { pairs: readonly ViewPair[] }) {
     <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
       {shown.map(([k, v]) => (
         <div key={k} className="contents">
-          <dt className="truncate text-muted-foreground">{k}</dt>
+          {/* Truncated renders spans, so it goes INSIDE the <dt> rather than
+              replacing it — the grid places `dt`/`dd` directly (the row div is
+              `contents`), and the pair is what makes this a description list. */}
+          <dt className="min-w-0 text-muted-foreground">
+            <Truncated text={k} />
+          </dt>
           <dd className="min-w-0 break-words text-foreground">{v}</dd>
         </div>
       ))}
@@ -121,7 +127,9 @@ export function RecordViewSheet({
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate text-lg font-semibold text-foreground">{title}</h3>
+            <h3 className="min-w-0 text-lg font-semibold text-foreground">
+              <Truncated text={title} />
+            </h3>
             {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
           </div>
           {status}

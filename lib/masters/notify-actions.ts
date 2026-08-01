@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { notifyInput, type NotifyInput } from "./notify-types";
-import { deleteOrDeactivate } from "./delete-guard";
 import { checkDuplicateName } from "./dup-guard";
+import { deleteParty, type PartyDeleteResult } from "./party-publish";
 
 type Result = { ok: true } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
+type DeleteResult = PartyDeleteResult;
 
 function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
@@ -95,11 +95,13 @@ export async function updateNotify(id: string, data: NotifyInput): Promise<Resul
 }
 
 export async function deleteNotify(id: string): Promise<DeleteResult> {
-  if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  // Own contacts cascade; if referenced elsewhere, deactivate instead of delete.
-  const res = await deleteOrDeactivate(s, "notifies", id, "inactive");
+  // Notify is a leaf — it publishes nothing, so this is just delete-or-
+  // deactivate. Routed through `deleteParty` anyway so all four party masters
+  // go through one door: a leaf with its own private delete path is how the
+  // fifth link, whenever someone adds one, ends up not cascading.
+  const res = await deleteParty(s, "notifies", id);
   if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
+  return res;
 }

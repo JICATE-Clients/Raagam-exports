@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
 import { getAccessoryBom } from "@/lib/planning/bom-detail-service";
+import { listVendorNominations, listVendorsForPicker } from "@/lib/masters/vendor-service";
 import { fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -36,8 +37,13 @@ export default async function AccessoryBomDetailPage({
   await requirePermission("planning", "view");
   const { bomId } = await params;
 
-  const [bom, canEdit, canDelete, canApprove] = await Promise.all([
+  // Vendors + nominations ride along with the BOM so the Items grid can narrow
+  // its Vendor cell to the customer's nominated list without a second round trip
+  // (`lib/masters/vendor-nominations.ts`).
+  const [bom, vendors, nominations, canEdit, canDelete, canApprove] = await Promise.all([
     getAccessoryBom(bomId),
+    listVendorsForPicker(),
+    listVendorNominations(),
     can("planning", "edit"),
     can("planning", "delete"),
     can("planning", "approve"),
@@ -59,6 +65,8 @@ export default async function AccessoryBomDetailPage({
 
       <AccessoryBomDetail
         bom={bom}
+        vendors={vendors}
+        nominations={nominations}
         canEdit={canEdit}
         canDelete={canDelete}
         canApprove={canApprove}

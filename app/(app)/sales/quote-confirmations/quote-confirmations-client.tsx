@@ -16,6 +16,7 @@ import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { fmtDate, fmtNumber } from "@/lib/format";
 
 interface Props {
@@ -40,9 +41,11 @@ export function QuoteConfirmationsClient({ rows, canEdit }: Props) {
     [rows],
   );
 
+  const dt = useCreatedDateFilter(rows);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
+    return rows.filter(dt.matches).filter((r) => {
       if (fStatus && r.status !== fStatus) return false;
       if (fCurrency && r.currency_code !== fCurrency) return false;
       if (q) {
@@ -51,9 +54,10 @@ export function QuoteConfirmationsClient({ rows, canEdit }: Props) {
       }
       return true;
     });
-  }, [rows, query, fStatus, fCurrency]);
+  }, [rows, dt.matches, query, fStatus, fCurrency]);
 
   function resetFilters() {
+    dt.reset();
     setFStatus("");
     setFCurrency("");
   }
@@ -164,7 +168,8 @@ export function QuoteConfirmationsClient({ rows, canEdit }: Props) {
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search quote no, customer or style…"
-        activeCount={[fStatus, fCurrency].filter(Boolean).length}
+        activeCount={[fStatus, fCurrency].filter(Boolean).length + dt.active}
+        dateFilter={dt.bind}
         onReset={resetFilters}
         right={
           <>

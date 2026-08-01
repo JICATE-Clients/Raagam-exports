@@ -95,7 +95,6 @@ export default async function InternalWorkOrdersPage() {
 
       <NewIwoForm
         customers={formData.customers}
-        employees={formData.employees}
         styles={formData.styles}
         itemClasses={formData.itemClasses}
       />

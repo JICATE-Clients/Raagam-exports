@@ -1,9 +1,10 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Vendor } from "./vendor-types";
+import type { VendorNomination } from "./vendor-nominations";
 
 /** id · code · name for a Vendor picker — no child grids, no joins. */
-export type VendorPickerRow = { id: string; code: string | null; name: string };
+export type VendorPickerRow = { id: string; code: string | null; name: string; inactive: boolean };
 
 /**
  * Vendors for a picker on ANOTHER screen (Customer ▸ Nominated / Recommended).
@@ -21,19 +22,42 @@ export type VendorPickerRow = { id: string; code: string | null; name: string };
  * correctly so: `purchase_orders`, `grns`, `rfqs` and 15 other transaction
  * tables FK there. Merging the two tables is a separate, much larger migration.
  *
- * Inactive vendors are filtered OUT rather than greyed: `RecordPicker` has no
- * disabled state, so a greyed row is not something it can express. A customer
- * already nominating a since-deactivated vendor keeps the row — the FK is
- * untouched — but the name resolves through the caller's own map.
+ * Every vendor comes back, `inactive` included — this used to filter them out in
+ * SQL because `RecordPicker` had no disabled state and could not express a greyed
+ * row. It has one now, so the flag travels and the picker decides: a deactivated
+ * vendor is not offered, but the one a customer already nominates still resolves
+ * to its name instead of leaving that row looking empty (AGENTS.md, "Disabled
+ * rows").
  */
 export async function listVendorsForPicker(): Promise<VendorPickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("master_vendors")
-    .select("id, code, name")
-    .eq("inactive", false)
+    .select("id, code, name, inactive")
     .order("name");
   return (data ?? []) as VendorPickerRow[];
+}
+
+/**
+ * Every customer's nominated / recommended vendors, for the rule in
+ * `lib/masters/vendor-nominations.ts`.
+ *
+ * Loaded whole rather than per-customer, and filtered in the browser: the table
+ * is master-sized (one row per customer per nominated vendor), a document's
+ * customer can change mid-edit without a round trip, and the Vendor cell stays
+ * instant as the operator tabs down a grid.
+ *
+ * Rows with a null `vendor_id` are dropped — 0376 blanks a nomination whose old
+ * `public.vendors` row has no counterpart in the master, and a null would narrow
+ * nothing while looking like a nomination.
+ */
+export async function listVendorNominations(): Promise<VendorNomination[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("customer_nominated_vendors")
+    .select("customer_id, vendor_id, list_kind")
+    .not("vendor_id", "is", null);
+  return (data ?? []) as VendorNomination[];
 }
 
 export async function listVendors(): Promise<Vendor[]> {

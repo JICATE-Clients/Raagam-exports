@@ -63,6 +63,9 @@ export function CurrencyPicker({
       [...all]
         .sort((a, b) => a.code.localeCompare(b.code))
         // The code IS the identity here, so it leads; the name follows muted.
+        // No `inactive`: `public.currencies` (0004) is code / name / symbol and
+        // has no disable column — an ISO currency is retired by deleting the row.
+        // Flag-less by construction, see FLAGLESS_PICKERS in audit_layout.py.
         .map((c) => ({ id: c.code, label: c.code, sublabel: c.name })),
     [all],
   );

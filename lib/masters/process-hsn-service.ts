@@ -21,13 +21,14 @@ export interface ProcessHsnRow {
   hsn_code: string | null; // TEXT — the HSN code we assign
   commodity_id: string | null; // config_lookups 'commodity' (replaces item class)
   inactive: boolean; // Status = Inactive when true
+  created_at: string;
 }
 
 export async function listProcessHsn(): Promise<ProcessHsnRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("processes")
-    .select("id, name, hsn_code, commodity_id, inactive")
+    .select("id, name, hsn_code, commodity_id, inactive, created_at")
     .order("name");
   return (data ?? []) as ProcessHsnRow[];
 }

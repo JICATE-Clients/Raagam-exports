@@ -515,7 +515,9 @@ bind their own `onKeyDown` for field navigation.
 - ↓ on a picker/dropdown → open its list · ↓/↑ otherwise → the field below / above, **spatially**
 - ←/→ → the field left / right, once the text caret is at the edge
 - Enter → pick the highlighted row if a list is open, tick a focused checkbox/radio, else
-  **save the record**
+  **the next field** — and off the last field it saves. On a `MasterFullScreen` rail editor
+  "off the last field" opens the next section first, exactly as Tab does, so Enter cannot
+  commit a record that has not reached the later sections. Ctrl+S saves from anywhere
 - Esc → close the list, then the surface (confirm if dirty), then leave the page
 - In a child grid ↑/↓ stay Excel-like (row up/down) — except ↓ on a picker cell, which opens
   its list (`gridKeyNav` stands down without `preventDefault` so the provider gets the key)
@@ -526,8 +528,17 @@ bind their own `onKeyDown` for field navigation.
   claiming the key also navigates the page away.
 - Auto-generated / derived fields carry `tabIndex={-1}` so Tab skips them — write it as
   `<Field skipTab>` (or `SimpleField.skipTab` in the descriptor tier), not by hand. It has to be a
-  real `tabIndex` on the control: under the v3 contract Tab is **native**, so no `data-` attribute
+  real `tabIndex` on the control: on a plain page form Tab is **native**, so no `data-` attribute
   and nothing in `lib/focus.ts` can take a control out of the Tab order.
+- **`data-focus-optional` — an opt-in control, off the default typing path.** Tab and Enter step
+  over it; ↑ ↓ ← → and the mouse still reach it, and Space/Enter on it then works normally. For the
+  escape-hatch toggle an operator should reach for deliberately rather than trip over —
+  Material ▸ Fabric ▸ **Direct Purchase**, which sat between Fabric Type and Using and, because
+  Enter *ticks* a checkbox instead of advancing, was one habitual Enter away from clearing the
+  mixing rows the operator had just typed. Not `tabIndex={-1}`, which would take it out of the
+  arrow contract too and leave it mouse-only. Only works inside a focus-trapped surface
+  (`Sheet` / `MasterFullScreen`), where `cycleTab` owns Tab; and prefer to drop the marker once the
+  operator has opted *in*, so the control that undoes the mode stays on the path.
 
 ---
 
@@ -707,3 +718,209 @@ there is nothing in this codebase that can override it.
 Forcing DD/MM/YYYY in the pickers means replacing the native control with a masked text input plus
 a calendar popover — a real component, not a formatting change. Until that exists, the guarantee is
 **display is DD/MM/YYYY everywhere the app draws the date itself**; the pickers follow the machine.
+
+### The Created Date filter (client 2026-08-01)
+
+Every list screen with a Filters panel can filter by when a record was created. It is **built into
+the shared primitives, not declared per screen**: `useMasterFilter` returns a `dateFilter` bundle
+and `<FilterBar dateFilter={…}>` renders it as the last cells of the panel, so `MasterListShell`
+and `SimpleMasterScreen` carry it to ~55 screens with no per-screen work. A screen that hand-rolls
+its filter state uses `useCreatedDateFilter` (`lib/masters/use-created-date-filter.ts`) instead —
+same vocabulary, same comparison.
+
+The vocabulary itself is `lib/date-filter.ts`, and the whole range travels as **one string** so it
+drops into the existing `Record<string, string>` facet shape:
+
+| Value | Means |
+|---|---|
+| `""` | no filter |
+| `today` · `yesterday` | that single day |
+| `thisWeek` | **Monday** of the current week → today |
+| `thisMonth` | 1st of the current month → today |
+| `lastMonth` | the whole previous calendar month |
+| `custom:FROM:TO` | either end may be empty — that is the "From Date" / "To Date" case |
+| `custom::` | the Custom row is open but empty: a UI state, **not** a filter |
+
+Four things here are load-bearing:
+
+1. **`created_at` is a `timestamptz`, delivered in UTC.** `slice(0, 10)` files every record made
+   before 05:30 IST under the previous day, so "Today" would silently hide the morning's work.
+   `isoDateInTZ` (`lib/calendar.ts`) is the only correct way to get the day, and the timezone
+   arithmetic lives there once — it used to be inside `lib/dashboard/range.ts`, which now
+   re-exports it.
+2. **Weeks start on Monday**, and the boundary is a calendar one: `thisWeek` is "this week", not
+   "the last 7 days". The dashboard's rolling `week` is a KPI comparison window and stays a
+   different thing on purpose.
+3. **An empty Custom range must be representable.** Collapsing `custom::` to `""` would unmount the
+   two date boxes on the same keystroke that revealed them. `resolveDateWindow` returns `null` for
+   it instead, so it filters nothing and never lights the active-count badge — ask the resolver,
+   never `!!value`.
+4. **The filter appears only where the data carries the column.** It is derived from the rows, not
+   declared: a service whose `.select()` lists columns by hand may not fetch `created_at`, and a
+   filter that silently matches nothing is worse than no filter. Adding the column to the service
+   makes the filter appear by itself — which is why `simple-master-service.ts` now selects a column
+   no table displays, and says so.
+
+Registers and transaction screens under `app/(app)` mostly have **no Filters panel at all** and are
+therefore not covered; giving them one is a separate piece of work.
+
+---
+
+## 13. Disabled rows
+
+**A master row that has been switched off is not offered for selection anywhere.**
+
+It is *hidden*, not greyed — a greyed row still answers a search, and an operator typing
+"SBI" should not find a bank the business has retired. The exception, and there is exactly
+one, is the value the record being edited **already holds**.
+
+### The two halves
+
+| | Rule | Why |
+|---|---|---|
+| **Choosing** | a disabled row is absent from the list *and* from search | it is not a valid choice; offering it invites a save nobody wants |
+| **Reading** | the row the record already points at stays, greyed, tagged `(inactive)`, unpickable | dropping it renders a filled field as empty, and the next save blanks the FK — silent data loss dressed up as tidiness |
+
+The second half is the one that gets forgotten, and it is why this rule is applied in the
+picker rather than in SQL. A `WHERE is_active` in the query satisfies "do not offer" and
+breaks "still reads": the id is stored, but nothing in the list resolves it.
+
+### Three column names, one reader
+
+The schema disables a row three ways, all live, none being renamed:
+
+| Column | Off when | Where |
+|---|---|---|
+| `inactive` | `true` | Associates — banks, countries, customers, `master_vendors`, employees, applicants, notifies, payment terms, account groups / heads, states. Renamed from `blocked` by migration `0315` |
+| `blocked` | `true` | bins, brands, colors, commodities, components, compositions, divisions, processes, seasons, our_banks, garment styles, attribute lines |
+| `is_active` | `false` | `config_lookups`, the Materials / HR simple masters, finance (cost heads, cost centres, `gl_accounts`), workers / staff, uoms, stores, buyers, profiles |
+
+Read them through **`isInactive()`** (`lib/masters/inactive.ts`), never by hand.
+`lib/masters/delete-guard.ts` already had to know all three to write the soft-disable patch;
+this is the read side of the same fact.
+
+### Where the rule is enforced
+
+- **`DataPicker`** (`components/ui/data-picker.tsx`) hides any row whose `inactive` is set,
+  keeping the one equal to its own `value`. Per instance — which matters in a grid, where
+  one picker repeats down many rows and each has a *different* current value. A parent-level
+  `.filter()` has to pick a single value to except and gets every other row wrong.
+- **`RecordPicker`** takes `PickerItem = {id, code, name} & Deactivatable`, so it reads all
+  three spellings off the raw service row. Call sites pass the row; there is nothing to map.
+- **`<Combobox>` / `<Select>`** have no inactive state, so their call sites filter:
+  `.filter((o) => !isInactive(o) || o.id === value)`. Precedents: the branch Country field
+  in `bank-master-screen.tsx`, the HSN cell in `process-hsn-assign-screen.tsx`.
+
+### What a screen must actually do
+
+Almost nothing — but the flag has to survive the trip:
+
+1. A service that returns option rows **selects its flag column**. Dropping `.eq("is_active",
+   true)` in favour of selecting `is_active` is the usual change. Keep the SQL filter only
+   where the list can *only* start a new document and never reopen one.
+2. A normalizer that flattens a master to `{id, code, name}` carries it along.
+3. A hand-rolled adapter passes `inactive: isInactive(row)`.
+
+### Exempt, by construction
+
+- **No disable column at all** — `ports`, `currencies`, `attribute_values` (a child of the
+  Attribute row; the parent is what gets switched off), and the documents that ride the same
+  shape (`sales_orders`, `shipment_plans`, `color_card_colors`).
+- **Filters, not fields.** A picker that narrows a list — the order chooser on Prepare
+  Advised Items, the Commodity facet on HSN Assign — legitimately offers everything;
+  searching for a since-retired buyer's old orders is a thing people do. The rule governs
+  fields that *write* a value.
+- **Master list screens** show active and inactive both, defaulting to All
+  (`master-list-shell.tsx`). That is where a row gets switched back on.
+
+Checked by `python scripts/audit_layout.py . --check picker-inactive`. Exemptions live in
+`FLAGLESS_PICKERS` in that script, keyed `<file>#<variable>` and each naming its reason.
+
+---
+
+## 14. Truncated values
+
+**An ellipsis is a promise that the rest is reachable.** A value clipped by `truncate` and
+left there is a dead end — the `…` says text is missing and nothing gets it back. Reported
+2026-07-31 against a Ship Type picker; it was never one field.
+
+### The worst case has no ellipsis at all
+
+A picker's closed trigger is a real `<input role="combobox">`, and deliberately so: `lib/focus.ts`
+(`ownsArrowKeys`) and `child-grid.tsx` (`gridKeyNav`) recognise inputs, and a `<button>` trigger
+would drop out of the keyboard contract. But a native input has **no `text-overflow`** — a long
+value stopped mid-word and read as the whole thing. Nothing on screen said otherwise.
+
+So an input trigger needs **both halves**, and one without the other is half a fix:
+
+| Half | What it does |
+|---|---|
+| `text-ellipsis` on the input | makes the clipping *visible* — the operator learns there is more |
+| the `Tooltip` wrapping it | makes it *readable* |
+
+That is what the `truncate-reveal: exempt` comments in `data-picker.tsx` and `combobox.tsx`
+say out loud: those two `text-ellipsis` classes are the rule being followed, not skipped.
+
+### The mechanism
+
+`<Truncated>` (`components/ui/truncated.tsx`) is the whole adoption surface:
+
+```tsx
+<Truncated className="text-[15px] font-semibold text-foreground">{title(row)}</Truncated>
+```
+
+It renders the `truncate` span itself, so the class comes **off** the call site. Props:
+`text` (bubble content; omit it and the component reads the rendered `textContent`, which is
+how it handles a `ReactNode` title), `children`, `className`, `side`, `touch`.
+
+Underneath, `useOverflow` measures `scrollWidth > clientWidth` and re-measures on
+`ResizeObserver`, `MutationObserver` and `document.fonts.ready` — a web font loading late is
+enough to change the answer. **A value that fits gets no bubble**, which is the regression that
+makes the whole feature feel broken if it slips. `useOverflow` is exported separately for the
+case where the measured element is not a span: that is how the two `<input>` triggers are wired.
+
+`Truncated` always renders the `Tooltip` wrapper and passes `disabled` when the text fits,
+rather than wrapping only on overflow. Wrapping conditionally remounts the element being
+measured and moves `className` onto a different box, so the measurement oscillates and never
+settles. One extra span, a stable layout.
+
+### Desktop and touch
+
+Hover opens the bubble after 350 ms. On touch it is **press-and-hold** (450 ms), and the hold
+swallows the tap that would otherwise also activate the control. The four policy constants
+(`HOLD_MS`, `MOVE_SLOP`, `SWALLOW_TAP`, `AUTO_HIDE_MS`) sit in one labelled block at the top
+of `components/ui/tooltip.tsx`; nothing else reads them.
+
+Touch is **opt-in** (`touch` defaults to `false` on `Tooltip`, `true` on `Truncated`), because
+the original component refused touch outright for a good reason — a bubble a tap cannot dismiss,
+in an installed PWA. It now dismisses on auto-hide, on the next `pointerdown` anywhere, and on
+scroll / resize / Escape.
+
+**Pass `touch={false}` where the control commits on `mousedown`.** Picker option rows do
+(`data-picker.tsx`), so a press-and-hold would reveal the value *and* pick the row — swallowing
+the click cannot undo that. Those rows simply wrap on touch instead, where the list is a Sheet
+with the vertical room.
+
+### Not a modal
+
+The tooltip deliberately does **not** call `useModalGuard` or `useUnsavedGuard`. A bubble is not
+a modal, and an ungated flag feeding `lib/reload-guard.ts` permanently blocks the silent PWA
+auto-update on that route (see AGENTS.md, "Auto-reload guard"). It must stay invisible to the
+guard.
+
+### Exempt
+
+- **Chrome with a fixed vocabulary** — nav labels, toolbars, notification previews, search
+  results, dashboard tiles, sheet chrome. Listed wholesale in `CHROME_TRUNCATION` in the audit
+  script, each with its reason. A file there that starts rendering *values* comes back off it.
+- **Responsive-only truncation** — `@2xl/editor:truncate` clips only at that container size and
+  wraps below it, so the text is already readable somewhere. Routing it through `Truncated`
+  would truncate it at *every* size and hide text that shows today.
+- **`DataTable` cells** — the table sits in `overflow-x-auto` (`components/ui/data-table.tsx`)
+  and scrolls. Nothing is hidden, so nothing needs revealing.
+
+Anything else opts out per line with a `truncate-reveal: exempt -- <reason>` comment, on the
+line or in the comment block directly above it. The judgement is "is this a value", and only
+the file can answer that.
+
+Checked by `python scripts/audit_layout.py . --check truncate-reveal`.

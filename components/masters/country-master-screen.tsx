@@ -13,7 +13,11 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { MasterListShell } from "@/components/masters/master-list-shell";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { COUNTRY_NAMES } from "@/lib/masters/geo-names";
 import { createCountry, updateCountry, deleteCountry } from "@/lib/masters/country-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { COUNTRY_GROUPS, type Country, type CountryGroup, type CountryInput } from "@/lib/masters/country-types";
@@ -108,11 +112,26 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
   // keystroke while the sheet is closed. Unscoped, matching the on-save guard
   // in country-actions.ts and `uq_countries_name` — a DEACTIVATED country
   // keeps its name reserved.
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "countries",
     name: form.name,
     excludeId: editId ?? undefined,
     enabled: open,
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
+
+  // "Did you mean GERMANY?" — the duplicate check above only fires on an EXACT
+  // collision, so GERMNY sails past it and becomes a second country nobody
+  // meant to create. Suppressed while dupError is showing: one line under the
+  // input, and the red error is the more urgent of the two.
+  const nameSuggestions = useSpellSuggest({
+    name: form.name,
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name),
+    seed: COUNTRY_NAMES,
+    enabled: open && !dupError,
   });
 
   function openAdd() {
@@ -256,9 +275,13 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
-              aria-invalid={!!dupError}
+              {...dupFieldProps(dupError, "co-name")}
             />
-            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+            <DuplicateError error={dupError} id="co-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggestions}
+              onApply={(v) => set({ name: v })}
+            />
           </Field>
           <Field label="Country Group" size={FIELD_SIZE.country_group} htmlFor="co-group">
             <Select

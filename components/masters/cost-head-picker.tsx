@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { CostHead } from "@/lib/finance/cost-heads/types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Select-only picker over the finance `cost_heads` master — the Account Head
@@ -31,7 +32,7 @@ export function CostHeadPicker({
     () =>
       [...costHeads]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((c) => ({ id: c.id, label: c.name, sublabel: c.category })),
+        .map((c) => ({ id: c.id, label: c.name, sublabel: c.category, inactive: isInactive(c) })),
     [costHeads],
   );
 

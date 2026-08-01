@@ -81,7 +81,7 @@ export function OutDocumentTermMasterScreen({
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter<
     OutDocumentTerm,
     { type: string; process: string; itemClass: string }
   >(rows, {
@@ -222,6 +222,13 @@ export function OutDocumentTermMasterScreen({
           }}
           searchPlaceholder="Search out document term…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={reset}
         >
           <Select

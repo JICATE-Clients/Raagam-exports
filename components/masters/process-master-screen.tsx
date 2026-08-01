@@ -16,7 +16,8 @@ import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createProcess, updateProcess, deleteProcess } from "@/lib/masters/process-actions";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { BILLING_ON, type BillingOn, type Process, type ProcessInput } from "@/lib/masters/process-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
@@ -92,7 +93,7 @@ export function ProcessMasterScreen({
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter<
     Process,
     { status: string; for: string; billingOn: string; commodity: string }
   >(rows, {
@@ -113,11 +114,14 @@ export function ProcessMasterScreen({
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check on the process name (mirrors the on-save guard).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "processes",
     name: form.name,
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   function openAdd() {
@@ -301,6 +305,13 @@ export function ProcessMasterScreen({
           }}
           searchPlaceholder="Search process…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={reset}
         >
           <Select
@@ -450,8 +461,9 @@ export function ProcessMasterScreen({
                 onChange={(e) => set({ name: e.target.value })}
                 required
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "pr-name")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="pr-name" />
             </div>
             <div>
               <Label htmlFor="pr-desc">Short Description</Label>

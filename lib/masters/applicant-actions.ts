@@ -4,18 +4,17 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { applicantInput, type ApplicantInput } from "./applicant-types";
-import { deleteOrDeactivate } from "./delete-guard";
 import { checkDuplicateName } from "./dup-guard";
 import {
   PARTY_LINKS,
   partySeed,
   publishParty,
-  detachPublished,
-  reattachPublished,
+  deleteParty,
+  type PartyDeleteResult,
 } from "./party-publish";
 
 type Result = { ok: true } | { ok: false; error: string };
-type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string };
+type DeleteResult = PartyDeleteResult;
 
 function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
@@ -53,9 +52,6 @@ function normalizeContacts(data: ApplicantInput): ContactRow[] {
     )
     .map((c, i) => ({ ...c, sno: i + 1 }));
 }
-
-/** Both "Also …" tick boxes on this master, in screen order. */
-const APPLICANT_LINKS = [PARTY_LINKS.applicantCustomer, PARTY_LINKS.applicantConsignee] as const;
 
 /**
  * Reconcile the two tick boxes with the masters they publish into. Also
@@ -139,23 +135,11 @@ export async function updateApplicant(id: string, data: ApplicantInput): Promise
 }
 
 export async function deleteApplicant(id: string): Promise<DeleteResult> {
-  if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  // Free anything this applicant published, so the 0344 reference check does not
-  // read its own publish link as "in use by Customers".
-  const det = await detachPublished(s, APPLICANT_LINKS, id);
-  if (!det.ok) return fail(det.error);
-  // Own contacts cascade; if referenced elsewhere, deactivate instead of delete.
-  const res = await deleteOrDeactivate(s, "applicants", id, "inactive");
+  // Takes the Customer and Consignee it published, and anything THEY published,
+  // all or nothing (0378). Own contacts cascade in SQL.
+  const res = await deleteParty(s, "applicants", id);
   if (!res.ok) return fail(res.error);
-  if (res.inactive && det.detached.length) {
-    // Only deactivated — the applicant is still here, so it still owns what it
-    // published. Left unlinked, its next save would publish a duplicate.
-    const relinkErr = await reattachPublished(s, det.detached, id);
-    if (relinkErr) return fail(`Applicant deactivated, but its published records could not be re-linked: ${relinkErr}`);
-  }
   rev();
-  revalidatePath("/masters/associates/customer");
-  revalidatePath("/masters/associates/consignee");
-  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
+  return res;
 }

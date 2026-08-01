@@ -4,6 +4,7 @@ import { type ReactNode } from "react";
 import { Eye } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 
 /**
  * The mobile (`md:hidden`) card list every master screen used to hand-roll —
@@ -71,7 +72,7 @@ export function MobileCardList<Row>({
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-[15px] font-semibold text-foreground">{title(r)}</div>
+                <Truncated className="text-[15px] font-semibold text-foreground">{title(r)}</Truncated>
                 {subtitle && (
                   <div className="mt-0.5 font-mono text-xs text-muted-foreground">{subtitle(r)}</div>
                 )}

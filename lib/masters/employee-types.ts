@@ -45,13 +45,17 @@ export interface EmployeeLocation {
   id: string;
   code: string;
   name: string;
+  is_active: boolean;
 }
 
-/** Slim self-reference row for the Manager picker. */
+/** Slim self-reference row for the Manager picker. Carries `inactive` because a
+ *  departed employee must stop being offered as somebody's manager, while still
+ *  resolving on the records that already name them. */
 export interface EmployeeRef {
   id: string;
   code: string | null;
   name: string;
+  inactive: boolean;
 }
 
 export interface Employee {

@@ -21,13 +21,14 @@ export interface MaterialHsnRow {
   item_class_id: string | null; // config_lookups 'item_class'
   category_id: string | null; // public.categories
   hsn_id: string | null; // config_lookups 'hsn_code'
+  created_at: string;
 }
 
 export async function listMaterialHsn(): Promise<MaterialHsnRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("items")
-    .select("id, code, name, is_active, item_class_id, category_id, hsn_id")
+    .select("id, code, name, is_active, item_class_id, category_id, hsn_id, created_at")
     .order("name");
   return (data ?? []) as MaterialHsnRow[];
 }

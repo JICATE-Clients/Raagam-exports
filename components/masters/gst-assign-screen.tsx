@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -125,9 +126,11 @@ export function GstAssignScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, edits, companyGstin]);
 
+  const dt = useCreatedDateFilter(rows);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
+    return rows.filter(dt.matches).filter((r) => {
       const c = edits.get(r.id) ?? { gst_reg_status: r.gst_reg_status, gst_no: r.gst_no };
       if (q && !`${r.code ?? ""} ${r.name}`.toLowerCase().includes(q)) return false;
       if (fStatus && r.status !== fStatus) return false;
@@ -142,7 +145,7 @@ export function GstAssignScreen({
       if (fNo && fNo !== "__missing" && problems.get(r.id) !== fNo.slice(2)) return false;
       return true;
     });
-  }, [rows, edits, query, fStatus, fType, fGst, fCat, fNo, problems]);
+  }, [rows, dt.matches, edits, query, fStatus, fType, fGst, fCat, fNo, problems]);
 
   const noType = useMemo(() => rows.filter((r) => !cur(r).gst_reg_status).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
   const noNumber = useMemo(() => rows.filter((r) => !(cur(r).gst_no ?? "").trim()).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -202,6 +205,7 @@ export function GstAssignScreen({
 
   function resetFilters() {
     setQuery("");
+    dt.reset();
     setFStatus("");
     setFType("");
     setFGst("");
@@ -273,8 +277,9 @@ export function GstAssignScreen({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search vendor code or name…"
-        activeCount={[fStatus, fType, fGst, fCat, fNo].filter(Boolean).length}
+        activeCount={[fStatus, fType, fGst, fCat, fNo].filter(Boolean).length + dt.active}
         onReset={resetFilters}
+        dateFilter={dt.bind}
         right={
           <>
             {filtered.length} of {rows.length} · {noType} no GST type · {noNumber} no GSTIN

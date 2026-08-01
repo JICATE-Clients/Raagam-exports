@@ -22,7 +22,8 @@ import {
   deleteComposition,
 } from "@/lib/masters/composition-actions";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
@@ -70,14 +71,17 @@ export function CompositionMasterScreen({
   }, [itemClasses]);
 
   // Real-time duplicate check on Name (mirrors the on-save guard in composition-actions).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "compositions",
     name: form.name ?? "",
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [r.name, r.short_name, classLabel.get(r.item_class_id), ...r.lines.map((l) => l.description)]
         .filter(Boolean)
@@ -209,6 +213,13 @@ export function CompositionMasterScreen({
           }}
           searchPlaceholder="Search composition…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -343,8 +354,9 @@ export function CompositionMasterScreen({
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     required
                     className="text-base md:text-sm"
+                    {...dupFieldProps(dupError, "cmp-name")}
                   />
-                  {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+                  <DuplicateError error={dupError} id="cmp-name" />
                 </div>
               </DetailSection>
 

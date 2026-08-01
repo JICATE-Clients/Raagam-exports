@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { AccountGroup } from "@/lib/masters/account-group-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * The legacy "Under" picker over the `account_groups` master itself.
@@ -34,7 +35,7 @@ export function AccountGroupPicker({
       groups
         .filter((g) => g.id !== excludeId)
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((g) => ({ id: g.id, label: g.name })),
+        .map((g) => ({ id: g.id, label: g.name, inactive: isInactive(g) })),
     [groups, excludeId],
   );
 

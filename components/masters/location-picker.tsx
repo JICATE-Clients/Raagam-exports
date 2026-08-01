@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Select-only picker over the `locations` master (GST entities: HO / Unit 2).
@@ -31,7 +32,7 @@ export function LocationPicker({
     () =>
       [...locations]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((l) => ({ id: l.id, label: l.name })),
+        .map((l) => ({ id: l.id, label: l.name, inactive: isInactive(l) })),
     [locations],
   );
 

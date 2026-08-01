@@ -71,22 +71,21 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "consignee", label: "Consignee", singular: "Consignee", description: "Export consignees", type: "custom", custom: "consignee" },
       { slug: "payment-term", label: "Payment Term", singular: "Payment Term", description: "Payment terms", type: "custom", custom: "payment_term" },
       { slug: "vendor", label: "Vendor", singular: "Vendor", description: "Suppliers / vendors", type: "custom", custom: "vendor" },
-      { slug: "employee", label: "Employee", singular: "Employee", description: "Employee master", type: "custom", custom: "employee" },
-      { slug: "account-group", label: "Account Group", singular: "Account Group", description: "Chart-of-accounts groups", type: "custom", custom: "account_group" },
-      { slug: "account-head", label: "Account Head", singular: "Account Head", description: "Ledger account heads", type: "custom", custom: "account_head" },
-      { slug: "merchandising-team", label: "Merchandising Team", singular: "Merchandising Team", description: "Merchandising teams", type: "custom", custom: "merchandising_team" },
-      { slug: "courier-delivery-address", label: "Courier Delivery Address", singular: "Courier Delivery Address", description: "Courier delivery addresses", type: "custom", custom: "courier_delivery_address" },
-      { slug: "tcs-assign-to-customers", label: "TCS Assign to Customers", singular: "TCS Assignment", description: "TCS assignment to customers", type: "custom", custom: "tcs_assign" },
-      { slug: "gst-assign-to-vendors", label: "GST Assign to Vendors", singular: "GST Assignment", description: "Bulk-assign GST Type & GSTIN to vendors", type: "custom", custom: "gst_assign" },
-      { slug: "gst-assign-to-customers", label: "GST Assign to Customers", singular: "Customer GST Assignment", description: "Bulk-assign GSTIN to customers", type: "custom", custom: "customer_gst_assign" },
       // A test bench, not a master: type a GSTIN and every detail the system can
       // derive is listed, including the ones it CANNOT (those need the paid
       // lookup). Saves nothing, owns no table.
       { slug: "gst-number-check", label: "GST Number Check", singular: "GST Number Check", description: "Test what a GST number reveals — no data is saved", type: "custom", custom: "gstin_check" },
       { slug: "our-banks", label: "Our Banks", singular: "Our Bank", description: "Company's own bank accounts", type: "custom", custom: "our_bank" },
       { slug: "zones", label: "Zones", singular: "Zone", description: "Sales territory zones", type: "custom", custom: "zone" },
-      { slug: "certifications", label: "Certifications", singular: "Certification", description: "Certification standards & validity", type: "custom", custom: "certification" },
-      { slug: "default-account-head", label: "Default Account Head", singular: "Default Account Head", description: "Default GL account heads for transactions", type: "custom", custom: "default_account_head" },
+      // ----------------------------------------------------------------------
+      // REMOVED 2026-08-01 (client): Employee, Account Group, Account Head,
+      // Merchandising Team, Courier Delivery Address, TCS Assign to Customers,
+      // GST Assign to Vendors, GST Assign to Customers, Certifications and
+      // Default Account Head are not part of this business process. Screens,
+      // services, actions and types are gone; their TABLES were deliberately
+      // KEPT, so the rows survive and the masters can be restored from git if
+      // the decision reverses. Do not re-add one of these without asking.
+      // ----------------------------------------------------------------------
     ],
   },
   {
@@ -128,12 +127,10 @@ export const SUBMODULES: SubmoduleDef[] = [
     label: "GST",
     description: "State codes, HSN classification & GST/HSN assignment",
     status: "ready",
-    note: "Legacy Configure ▸ GST — the 6 children in legacy order (screenshot). State + HSN detail are masters; the four Assign screens are bulk grids (like TCS Assign to Customers) that set gst_no / hsn_id on vendors / customers / materials / processes. (Old provisional GST Rate / Tax Type entries dropped — GST rate likely rides on HSN detail.)",
+    note: "Legacy Configure ▸ GST — State + HSN detail are masters; the two HSN Assign screens are bulk grids that set hsn_id on materials / processes. (Old provisional GST Rate / Tax Type entries dropped — GST rate likely rides on HSN detail. The two GST No Assign children were removed with the Associates screens they opened, 2026-08-01: a vendor's or customer's GSTIN is now set on that party's own master.)",
     children: [
       { slug: "state", label: "State", singular: "State", description: "GST state codes", type: "custom", custom: "gst_state" },
       { slug: "hsn-detail", label: "HSN detail", singular: "HSN Detail", description: "HSN master (code · description · GST rate)", type: "custom", custom: "hsn_detail" },
-      { slug: "gst-no-assign-vendor", label: "GST No Assign to Vendor", singular: "GST No Assignment (Vendor)", description: "Bulk-assign GST Type & GSTIN to vendors (opens the Associates screen)", type: "link", href: "/masters/associates/gst-assign-to-vendors" },
-      { slug: "gst-no-assign-customer", label: "GST No Assign to Customer", singular: "GST No Assignment (Customer)", description: "Bulk-assign GSTIN to customers (opens the Associates screen)", type: "link", href: "/masters/associates/gst-assign-to-customers" },
       { slug: "hsn-assign-material", label: "HSN Assign to Material", singular: "HSN Assignment (Material)", description: "Bulk-assign HSN codes to materials", type: "custom", custom: "hsn_assign_material" },
       { slug: "hsn-assign-process", label: "HSN Assign to Process", singular: "HSN Assignment (Process)", description: "Bulk-assign HSN codes to sub-contract processes", type: "custom", custom: "hsn_assign_process" },
     ],

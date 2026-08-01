@@ -4,6 +4,7 @@ import { deletedToast } from "@/lib/masters/delete-message";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,7 +14,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/extras-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -46,12 +48,17 @@ export function LookupMasterScreen({
 
   // Real-time duplicate check on Name, scoped to this kind (mirrors the
   // on-save guard in extras-actions createLookup/updateLookup).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "config_lookups",
     name: form.name ?? "",
     scope: { kind },
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    // No `rowInScope`: this shell is rendered per `kind`, so its rows are
+    // already exactly the scope above.
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   const filtered = useMemo(() => {
@@ -180,7 +187,7 @@ export function LookupMasterScreen({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">{lookupLabel(kind, r)}</div>
+                  <Truncated className="text-[15px] font-semibold text-foreground">{lookupLabel(kind, r)}</Truncated>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "neutral"}>
                   {r.is_active ? "Active" : "Inactive"}
@@ -222,8 +229,9 @@ export function LookupMasterScreen({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
               className="text-base md:text-sm"
+              {...dupFieldProps(dupError, "lk-name")}
             />
-            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+            <DuplicateError error={dupError} id="lk-name" />
           </div>
           <div className="sm:col-span-2">
             <Label htmlFor="lk-notes">Notes</Label>

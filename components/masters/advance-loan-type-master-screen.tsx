@@ -39,6 +39,12 @@ const descriptor: SimpleMasterDescriptor<AdvanceLoanType> = {
   }),
   searchText: (r) => [r.short_name, r.description, r.loan_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
+  dupCheck: {
+    table: "advance_loan_types",
+    fieldKey: "short_name",
+    nameColumn: "short_name",
+    label: "short name",
+  },
   toPayload: (v, s) => ({
     short_name: String(v.short_name),
     description: String(v.description) || null,

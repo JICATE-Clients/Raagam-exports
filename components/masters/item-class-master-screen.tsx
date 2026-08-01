@@ -20,7 +20,8 @@ import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { RecordViewSheet } from "@/components/masters/record-view-sheet";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
@@ -47,7 +48,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
   const [form, setForm] = useState(BLANK);
   const [viewRow, setViewRow] = useState<Attribute | null>(null);
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.code, r.name].filter(Boolean).join(" "),
@@ -61,12 +62,17 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
 
   const pg = usePagination(filtered, 10);
 
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "config_lookups",
     name: form.name,
     scope: { kind: "item_class" },
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    // No `rowInScope`: this screen only ever holds `kind: "item_class"` rows,
+    // so every row on it is already inside the scope above.
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   function openAdd() {
@@ -181,6 +187,13 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
           }}
           searchPlaceholder="Search item class…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -297,8 +310,9 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "ic-name")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="ic-name" />
             </div>
             <label className="flex h-9 cursor-pointer items-center gap-2 self-end">
               <input

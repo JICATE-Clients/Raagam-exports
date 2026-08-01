@@ -12,28 +12,24 @@ import { listProcesses } from "@/lib/masters/process-service";
 import { listComponents } from "@/lib/masters/component-service";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { listCommodities } from "@/lib/masters/commodity-service";
-import { listStyleNames } from "@/lib/masters/style-name-service";
-import { listStyleLevels } from "@/lib/masters/style-level-service";
-import { listPackingInstructions } from "@/lib/masters/packing-instruction-service";
-import { listPackingMethods } from "@/lib/masters/packing-method-service";
 import { listSeasons } from "@/lib/masters/season-service";
-import { listColors } from "@/lib/masters/color-service";
-import { listBrands } from "@/lib/masters/brand-service";
 import { listBins } from "@/lib/masters/bin-service";
-import { listSizeGroups } from "@/lib/masters/size-group-service";
-import { listShadeGroups } from "@/lib/masters/shade-group-service";
+import { listGarmentRejectionRules } from "@/lib/masters/garment-rejection-rule-service";
+import { listYarnCompositions, listDefectGroupsSimple } from "@/lib/masters/simple-master-service";
+import { listDefectDetails } from "@/lib/masters/defect-detail-service";
 import {
   MATERIALS_CHILDREN,
   isLookupChild,
   isLinkChild,
   isCustomChild,
+  type CustomChild,
 } from "@/lib/masters/registry";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 
 export default async function MaterialsMastersPage() {
   await requirePermission("masters", "view");
-  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, commodities, styleNames, styleLevels, packingInstructions, packingMethods, seasons, colors, brands, bins, sizeGroups, shadeGroups] =
+  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, commodities, seasons, bins] =
     await Promise.all([
       listConfigLookups(),
       listAttributes(),
@@ -47,17 +43,15 @@ export default async function MaterialsMastersPage() {
       listComponents(),
       listOutDocumentTerms(),
       listCommodities(),
-      listStyleNames(),
-      listStyleLevels(),
-      listPackingInstructions(),
-      listPackingMethods(),
       listSeasons(),
-      listColors(),
-      listBrands(),
       listBins(),
-      listSizeGroups(),
-      listShadeGroups(),
     ]);
+  const [rejectionRules, yarnCompositions, defectGroups, defectDetails] = await Promise.all([
+    listGarmentRejectionRules(),
+    listYarnCompositions(),
+    listDefectGroupsSimple(),
+    listDefectDetails(),
+  ]);
   const counts = new Map<string, number>();
   for (const l of lookups) counts.set(l.kind, (counts.get(l.kind) ?? 0) + 1);
   const attributeCount = attributes.length;
@@ -71,16 +65,43 @@ export default async function MaterialsMastersPage() {
   const componentCount = components.length;
   const outDocTermCount = outDocTerms.length;
   const commodityCount = commodities.length;
-  const styleNameCount = styleNames.length;
-  const styleLevelCount = styleLevels.length;
-  const packingInstructionCount = packingInstructions.length;
-  const packingMethodCount = packingMethods.length;
   const seasonCount = seasons.length;
-  const colorCount = colors.length;
-  const brandCount = brands.length;
   const binCount = bins.length;
-  const sizeGroupCount = sizeGroups.length;
-  const shadeGroupCount = shadeGroups.length;
+
+  /**
+   * One count per child, keyed on `custom`.
+   *
+   * This replaced a 25-deep nested ternary whose final `else` was
+   * `materialCount` — so every child without a named branch quietly displayed
+   * the Materials row count instead of its own. That is why five different
+   * cards all read "29". A `Record` over the union cannot do that: add a child
+   * to `CustomChild["custom"]` and this stops compiling until it is given a
+   * real number.
+   */
+  const countByChild: Record<CustomChild["custom"], number> = {
+    item_class: counts.get("item_class") ?? 0,
+    attributes: attributeCount,
+    levies: levyCount,
+    material_attributes: maCount,
+    categories: categoryCount,
+    stock_units: stockUnitCount,
+    counts: counts.get("yarn_count") ?? 0,
+    yarn_purities: counts.get("yarn_purity") ?? 0,
+    compositions: compositionCount,
+    materials: materialCount,
+    processes: processCount,
+    components: componentCount,
+    gauges: counts.get("gauge") ?? 0,
+    knitting_dias: counts.get("knitting_dia") ?? 0,
+    out_document_terms: outDocTermCount,
+    commodities: commodityCount,
+    seasons: seasonCount,
+    bins: binCount,
+    garment_rejection_rules: rejectionRules.length,
+    yarn_compositions: yarnCompositions.length,
+    defect_groups: defectGroups.length,
+    defect_details: defectDetails.length,
+  };
 
   return (
     <div className="space-y-4">
@@ -100,57 +121,7 @@ export default async function MaterialsMastersPage() {
           const count = isLookupChild(c)
             ? counts.get(c.kind) ?? 0
             : isCustomChild(c)
-              ? c.custom === "attributes"
-                ? attributeCount
-                : c.custom === "levies"
-                  ? levyCount
-                  : c.custom === "categories"
-                    ? categoryCount
-                    : c.custom === "material_attributes"
-                      ? maCount
-                      : c.custom === "counts"
-                        ? counts.get("yarn_count") ?? 0
-                        : c.custom === "yarn_purities"
-                          ? counts.get("yarn_purity") ?? 0
-                          : c.custom === "compositions"
-                            ? compositionCount
-                            : c.custom === "stock_units"
-                              ? stockUnitCount
-                              : c.custom === "materials"
-                                ? materialCount
-                                : c.custom === "processes"
-                                  ? processCount
-                                  : c.custom === "components"
-                                    ? componentCount
-                                    : c.custom === "gauges"
-                                      ? counts.get("gauge") ?? 0
-                                      : c.custom === "knitting_dias"
-                                        ? counts.get("knitting_dia") ?? 0
-                                        : c.custom === "out_document_terms"
-                                          ? outDocTermCount
-                                          : c.custom === "commodities"
-                                            ? commodityCount
-                                            : c.custom === "seasons"
-                                              ? seasonCount
-                                              : c.custom === "colors"
-                                                ? colorCount
-                                                : c.custom === "brands"
-                                                  ? brandCount
-                                                  : c.custom === "bins"
-                                                    ? binCount
-                                                    : c.custom === "size_groups"
-                                                      ? sizeGroupCount
-                                                      : c.custom === "shade_groups"
-                                                        ? shadeGroupCount
-                                                        : c.custom === "style_names"
-                                                          ? styleNameCount
-                                                          : c.custom === "style_levels"
-                                                            ? styleLevelCount
-                                                            : c.custom === "packing_instructions"
-                                                              ? packingInstructionCount
-                                                              : c.custom === "packing_methods"
-                                                                ? packingMethodCount
-                                                                : materialCount
+              ? countByChild[c.custom]
               : null;
           const href = isLink ? c.href : `/masters/materials/${c.slug}`;
           const empty = count === 0;

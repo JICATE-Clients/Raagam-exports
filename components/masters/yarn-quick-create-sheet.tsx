@@ -129,6 +129,10 @@ export function YarnQuickCreateSheet({
 
   // Real-time duplicate check on the generated Name, scoped to the Yarn class —
   // backstopped server-side by createMaterial's Count/Category/Purity guard.
+  //
+  // dup-check: server-only -- the name is COMPOSED here from counts/purities;
+  // the `items` rows it would collide with are never passed to this sheet. A
+  // late answer still catches the cursor (keyboard-nav-provider.tsx).
   const dupError = useDuplicateCheck({
     table: "items",
     name: previewName,
@@ -312,6 +316,10 @@ export function YarnQuickCreateSheet({
               Picking up the value you just added…
             </p>
           )}
+          {/* Deliberately NOT `dupFieldProps` / `<DuplicateError>`: the name here
+              is the composed <div> preview above, not an input, so there is no
+              field for the keyboard hold to hold. Save is gated on `dupError`
+              instead. Leave it alone. */}
           {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
         </div>
       </div>

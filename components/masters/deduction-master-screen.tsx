@@ -41,6 +41,7 @@ const descriptor: SimpleMasterDescriptor<Deduction> = {
   }),
   searchText: (r) => [String(r.entry_no), r.name, r.calc_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
+  dupCheck: { table: "deductions", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     name: String(v.name),
     sequence: Number(v.sequence) || 0,

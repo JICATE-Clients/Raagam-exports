@@ -16,7 +16,7 @@ import { createOrderBooking, deleteOrderBooking } from "@/lib/orders/booking-act
 import { RECEIPT_MODES, SHIP_MODES } from "@/lib/orders/booking-types";
 import type { OrderBookingRow } from "@/lib/orders/booking-service";
 
-export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBookingRow[]; certOptions?: { id: string; certification_name: string }[] }) {
+export function OrderBookingClient({ rows }: { rows: OrderBookingRow[] }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -34,21 +34,10 @@ export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBook
     pay_mode: "",
     material_composition: "",
     notes: "",
-    selectedCerts: [] as string[],
   });
-
-  function toggleCert(certName: string) {
-    setForm((f) => ({
-      ...f,
-      selectedCerts: f.selectedCerts.includes(certName)
-        ? f.selectedCerts.filter((c) => c !== certName)
-        : [...f.selectedCerts, certName],
-    }));
-  }
 
   function submit() {
     startTransition(async () => {
-      const certs = form.selectedCerts.map((c) => ({ certification: c }));
       const res = await createOrderBooking({
         sales_order_id: form.sales_order_id,
         booking_date: form.booking_date,
@@ -62,7 +51,10 @@ export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBook
         pay_mode: form.pay_mode || null,
         material_composition: form.material_composition || null,
         notes: form.notes || null,
-        certifications: certs,
+        // `certifications` is omitted, not empty-by-accident: the Certifications
+        // master was removed (2026-08-01) and this form no longer collects them.
+        // The Zod input defaults it to [], and `order_booking_certifications`
+        // rows written before the removal are untouched.
       });
       if (res.ok) { success("Order booking created."); setOpen(false); router.refresh(); }
       else error(res.error);
@@ -110,20 +102,6 @@ export function OrderBookingClient({ rows, certOptions = [] }: { rows: OrderBook
             <div><Label>Ship Mode</Label><Select value={form.ship_mode} onChange={(e) => setForm({ ...form, ship_mode: e.target.value })}><option value="">Select…</option>{SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}</Select></div>
             <div><Label>Pay Mode</Label><Input uppercase value={form.pay_mode} onChange={(e) => setForm({ ...form, pay_mode: e.target.value })} /></div>
             <div><Label>Material Composition</Label><Input uppercase value={form.material_composition} onChange={(e) => setForm({ ...form, material_composition: e.target.value })} /></div>
-          </DetailSection>
-          <DetailSection label="Certifications">
-            {certOptions.length > 0 ? (
-              <div className="flex flex-wrap gap-3">
-                {certOptions.map((c) => (
-                  <label key={c.id} className="flex items-center gap-1.5 cursor-pointer text-sm">
-                    <input type="checkbox" className="h-4 w-4 accent-primary" checked={form.selectedCerts.includes(c.certification_name)} onChange={() => toggleCert(c.certification_name)} />
-                    {c.certification_name}
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No certifications in master. Add them in Master Data → Certifications.</p>
-            )}
           </DetailSection>
         </div>
       </Sheet>

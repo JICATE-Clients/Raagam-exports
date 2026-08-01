@@ -12,6 +12,7 @@ import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/d
 import { createCommodity, updateCommodity, deleteCommodity } from "@/lib/masters/commodity-actions";
 import type { Commodity, CommodityInput } from "@/lib/masters/commodity-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 type FormState = { item_class_id: string; short_name: string; name: string; inactive: boolean };
 const BLANK_FORM: FormState = { item_class_id: "", short_name: "", name: "", inactive: false };
@@ -82,6 +83,7 @@ export function CommodityPicker({
           // The class is what disambiguates two commodities of the same name,
           // and it was a column in the dialog this replaced.
           sublabel: c.item_class_id ? (classLabel.get(c.item_class_id) ?? null) : null,
+          inactive: isInactive(c),
         })),
     [all, classLabel],
   );

@@ -25,7 +25,8 @@ import { LevyPicker } from "@/components/masters/lookup-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { createCategory } from "@/lib/masters/category-actions";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateCheck, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import {
   MADE_TYPES,
   type Category,
@@ -90,6 +91,10 @@ export function CategoryQuickCreateSheet({
 
   // Real-time duplicate check on Name, scoped to the parent Item Class —
   // backstopped server-side by createCategory's own duplicate guard.
+  //
+  // dup-check: server-only -- this sheet is opened FROM a Category picker and is
+  // never handed the category list, so there are no on-screen rows to scan. A
+  // late answer still catches the cursor (keyboard-nav-provider.tsx).
   const dupError = useDuplicateCheck({
     table: "categories",
     name,
@@ -197,16 +202,16 @@ export function CategoryQuickCreateSheet({
             uppercase
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter = save (client 2026-07-23)
-              if (e.key === "Enter" && !isPending && name.trim() && !dupError) {
-                e.preventDefault();
-                save();
-              }
-            }}
+            // No local Enter handler. It used to save from here (client
+            // 2026-07-23), which under Enter-advance means committing from field
+            // ONE and skipping Category Type and Fabric Structure below. The
+            // Sheet's footer already carries data-focus-region="footer" with Save
+            // last by position, so the global contract reaches it off the last
+            // field without help.
             className="text-base md:text-sm"
+            {...dupFieldProps(dupError, "cqc-name")}
           />
-          {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+          <DuplicateError error={dupError} id="cqc-name" />
         </div>
 
         {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only — it

@@ -124,7 +124,14 @@ export const orderBookingInput = z.object({
   notes: z.string().optional().nullable(),
   certifications: z.array(z.object({ certification: z.string().min(1) })).default([]),
 });
-export type OrderBookingInput = z.infer<typeof orderBookingInput>;
+/** `z.input`, not `z.infer` — this is the type of what callers SEND, and
+ *  `createOrderBooking` parses it. The difference is `.default()`: a defaulted
+ *  field is optional going in and guaranteed coming out, so `z.infer` would
+ *  force every caller to spell out the very fields the default exists to spare
+ *  them. `certifications` is the live case — the form deliberately omits it
+ *  (the Certifications master was withdrawn 2026-08-01) and relies on the
+ *  default, which `z.infer` rejected. */
+export type OrderBookingInput = z.input<typeof orderBookingInput>;
 
 export const dueDateConfirmationInput = z.object({
   sales_order_id: z.string().uuid(),

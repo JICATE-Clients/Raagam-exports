@@ -39,6 +39,8 @@ import { RecordViewSheet, type ViewSection } from "@/components/masters/record-v
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { fmtDate } from "@/lib/format";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -395,6 +397,22 @@ export function EmployeeMasterScreen({
   const [viewRow, setViewRow] = useState<Employee | null>(null);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
+
+  // The ID, NEVER the name. Two workers legitimately share a name, and a live
+  // duplicate error HOLDS THE CURSOR (data-dup-error, see the keyboard contract)
+  // -- checking `name` here would cage the operator on a perfectly correct value.
+  // The employee ID is the identity the payroll and attendance records key on.
+  const dupError = useDuplicateName({
+    table: "employees",
+    name: form.code,
+    nameColumn: "code",
+    label: "employee ID",
+    excludeId: editId ?? undefined,
+    enabled: !!form.code.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.code,
+  });
   const setAddr = (key: AddrKey, value: string) => set({ [key]: value } as Partial<Form>);
 
   /**
@@ -468,7 +486,7 @@ export function EmployeeMasterScreen({
   }
 
   const managerPool: EmployeeRef[] = useMemo(
-    () => rows.map((r) => ({ id: r.id, code: r.code, name: r.name })),
+    () => rows.map((r) => ({ id: r.id, code: r.code, name: r.name, inactive: r.inactive })),
     [rows],
   );
   const deptLabel = useMemo(() => {
@@ -1039,7 +1057,7 @@ export function EmployeeMasterScreen({
           onCancel: () => setOpen(false),
           onSave: () => submit(false),
           saveLabel: "Save employee",
-          canSave: !!form.name.trim(),
+          canSave: !!form.name.trim() && !dupError,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           draftLabel: "Save as Draft",
           isPending,
@@ -1075,7 +1093,9 @@ export function EmployeeMasterScreen({
                 id="emp-code"
                 value={form.code}
                 onChange={(e) => set({ code: e.target.value })}
+                {...dupFieldProps(dupError, "emp-code")}
               />
+              <DuplicateError error={dupError} id="emp-code" />
             </Field>
             {/* The label is `Field`'s, so it lines up with the inputs beside it;
                 `compact` stops the picker rendering a second one of its own.

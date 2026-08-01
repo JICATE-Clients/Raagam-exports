@@ -6,6 +6,7 @@ import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/d
 import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/extras-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * The `config_lookups` picker — City, State, Department, Designation, Internal
@@ -29,7 +30,9 @@ import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/e
  *
  * - **Inactive values** are excluded from new selections but still resolve for a
  *   record that already references one (and render greyed). Dropping a value
- *   from a list without that rule makes an existing record look empty.
+ *   from a list without that rule makes an existing record look empty. That rule
+ *   is now app-wide and lives in `DataPicker`; this file only reports which rows
+ *   are switched off.
  * - **`adminOnly`** additionally gates Add behind `isSuperAdmin` — legacy
  *   behaviour for lists like Structure that only an admin may extend on the fly.
  * - **`type_code`** is a functional grouping distinct from Code, and only
@@ -45,6 +48,7 @@ export function LookupDialogPicker({
   options,
   value,
   onChange,
+  usedIds,
   canCreate,
   canEdit = false,
   canDelete,
@@ -58,6 +62,12 @@ export function LookupDialogPicker({
   options: ConfigLookup[];
   value: string | null;
   onChange: (id: string) => void;
+  /**
+   * Pick-once inside a repeating grid: ids already taken by the sibling rows.
+   * Straight through to `DataPicker` — see the prop there for when it applies
+   * and, just as importantly, when it must not.
+   */
+  usedIds?: Iterable<string> | null;
   canCreate?: boolean;
   canEdit?: boolean;
   /**
@@ -125,7 +135,6 @@ export function LookupDialogPicker({
   const rows: PickerRow[] = useMemo(
     () =>
       all
-        .filter((o) => o.is_active || o.id === value)
         // Sorted by the NAME, not the composed label: alphabetical by the words
         // the operator reads first, so Ship Type still runs CARRIAGE… → COST… →
         // DELIVERED…, not CFR → CIF → CIP.
@@ -134,8 +143,8 @@ export function LookupDialogPicker({
         // ONE exception is a kind whose code is a term of the trade rather than a
         // generated key: Ship Type reads "FREE ON BOARD (FOB)", which also makes
         // it findable by typing the Incoterm (the filter matches the label).
-        .map((o) => ({ id: o.id, label: lookupLabel(kind, o), disabled: !o.is_active })),
-    [all, value, kind],
+        .map((o) => ({ id: o.id, label: lookupLabel(kind, o), inactive: isInactive(o) })),
+    [all, kind],
   );
 
   const manage: ManageConfig = {
@@ -215,6 +224,7 @@ export function LookupDialogPicker({
       // The legacy contract is "a picked id", never null — these fields clear by
       // picking something else, and every call site types `onChange` that way.
       onChange={(id) => onChange(id ?? "")}
+      usedIds={usedIds}
       clearable={false}
       required={required}
       compact={compact}

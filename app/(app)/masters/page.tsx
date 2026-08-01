@@ -1,5 +1,11 @@
 import { requirePermission, can } from "@/lib/auth/server";
-import { listBuyers, listItems, listUoms, listCurrencies } from "@/lib/masters/service";
+import {
+  listBuyers,
+  listItems,
+  listUoms,
+  listCurrencies,
+  listCustomersForPicker,
+} from "@/lib/masters/service";
 import {
   listConfigLookups,
   listTransporters,
@@ -26,6 +32,7 @@ export default async function MastersPage({
       items,
       uoms,
       currencies,
+      customers,
       lookups,
       transporters,
       gstRates,
@@ -38,6 +45,9 @@ export default async function MastersPage({
       listItems(),
       listUoms(),
       listCurrencies(),
+      // Feeds the Buyer ▸ Customer link, which is what lets an order reach that
+      // party's nominated / recommended vendor lists (0380).
+      listCustomersForPicker(),
       listConfigLookups(),
       listTransporters(),
       listGstRates(),
@@ -59,6 +69,7 @@ export default async function MastersPage({
           items={items}
           uoms={uoms}
           currencies={currencies}
+          customers={customers}
           lookups={lookups}
           transporters={transporters}
           gstRates={gstRates}

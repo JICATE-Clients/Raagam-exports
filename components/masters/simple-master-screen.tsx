@@ -1,10 +1,12 @@
 "use client";
 import { deletedToast } from "@/lib/masters/delete-message";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 
 import { useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -23,7 +25,8 @@ import { RowActions, ROW_ACTIONS_WIDTH } from "@/components/ui/row-actions";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { pairsFromRow } from "@/lib/record-pairs";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { validateFormat, type FormatKind } from "@/lib/validation/formats";
 import { cn } from "@/lib/utils";
 
@@ -119,6 +122,13 @@ export type SimpleMasterDescriptor<Row> = {
     scope?: Record<string, string | null>;
     /** Derive the checked value from all form values (defaults to values[fieldKey]). */
     value?: (values: SimpleValues) => string;
+    /**
+     * Word the message uses ("name", "code", "description", "ID"). Defaults to
+     * "name" — so a descriptor watching anything else MUST set this, or a
+     * repeated code reads "…already exists. Use a different name." while
+     * pointing at a field that is not the name.
+     */
+    label?: string;
   };
   /** Build the exact server-action payload (trimming already applied to text values). */
   toPayload: (values: SimpleValues, status: SimpleStatus) => unknown;
@@ -180,12 +190,14 @@ export function SimpleMasterScreen<Row>({
   const statusOf = useMemo(
     () =>
       d.statusOf ??
-      ((r: Row) =>
-        (r as Record<string, unknown>).is_active === false ? ("inactive" as const) : ("active" as const)),
+      // Reads all three spellings, not just `is_active`: a descriptor master on
+      // an `inactive` / `blocked` table that omitted `statusOf` used to report
+      // every row Active, so the Status facet quietly filtered nothing.
+      ((r: Row) => (isInactive(r as Deactivatable) ? ("inactive" as const) : ("active" as const))),
     [d.statusOf],
   );
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, isStale } = useMasterFilter<
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, isStale, dateFilter } = useMasterFilter<
     Row,
     Record<string, string>
   >(rows, {
@@ -240,6 +252,22 @@ export function SimpleMasterScreen<Row>({
     searchRef.current?.focus();
     searchRef.current?.select();
   });
+  /**
+   * An open inline row is a savable surface, and this is how it says so.
+   *
+   * These rows are plain page `<tr>`s — no Sheet, no footer region — so before
+   * this the ONLY way to commit one from the keyboard was a local Enter handler
+   * that saved from whichever cell the cursor happened to be in. Under
+   * Enter-advance that was actively wrong: on a 4-field row it committed from
+   * field one. Registering here instead puts the row on the same path every other
+   * editor uses, so Enter walks the cells and saves off the last, `save()`'s own
+   * canSave/isPending guard still applies, and Ctrl+S works on a row for free.
+   *
+   * NOT solved by marking `saveCancelButtons` as a footer region: it renders Save
+   * THEN Cancel, and the footer rule takes the last button by POSITION — so the
+   * marker alone would have made Enter click Cancel and discard the row.
+   */
+  useRegisterShortcut("save", save, !!editing);
 
   // Real-time duplicate check on the descriptor's unique field (mirrors the
   // on-save guard in the entity's actions; no-op when dupCheck is undeclared).
@@ -247,13 +275,35 @@ export function SimpleMasterScreen<Row>({
     editing && d.dupCheck
       ? d.dupCheck.value?.(editing.values) ?? String(editing.values[d.dupCheck.fieldKey] ?? "")
       : "";
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: d.dupCheck?.table ?? "",
     name: dupValue,
     nameColumn: d.dupCheck?.nameColumn,
     scope: d.dupCheck?.scope,
+    label: d.dupCheck?.label,
     excludeId: editing?.id ?? undefined,
     enabled: !!d.dupCheck && !!dupValue.trim(),
+    /**
+     * The synchronous half, for all 31 descriptor masters at once — without it,
+     * Enter pressed inside the 300ms debounce saves a duplicate this screen was
+     * already holding in memory.
+     *
+     * `rows`, NOT `filtered`: the operator typing a new name has usually just
+     * searched for it, and a search that found nothing is exactly when the
+     * filtered list cannot contain the row about to be collided with.
+     *
+     * The row value comes back through `fromRow` + the descriptor's own `value`
+     * derivation, so the local comparison reads the SAME field the server one
+     * does. A separate row accessor here would be a second place to keep in
+     * step, and the first thing to drift.
+     */
+    rows,
+    rowId: getId,
+    rowValue: (r) => {
+      if (!d.dupCheck) return "";
+      const v = d.fromRow(r);
+      return d.dupCheck.value?.(v) ?? String(v[d.dupCheck.fieldKey] ?? "");
+    },
   });
 
   const canSave =
@@ -307,41 +357,24 @@ export function SimpleMasterScreen<Row>({
   }
 
   /**
-   * Inline-edit row: Enter saves, Escape cancels. These rows are plain page
-   * `<tr>`s — no Sheet, so no Enter-advance — which makes Enter the ONLY
-   * keyboard save path here.
+   * Inline-edit row: Escape cancels. That is all that is left here.
    *
-   * Only controls with a real Enter of their own are excluded: a textarea
-   * (newline), a button (its own activation — Enter on the row's Cancel used to
-   * be swallowed and ran save() instead, so keyboard users could not cancel),
-   * and a picker trigger. Dropdowns are NOT excluded: an OPEN Combobox already
-   * stops the event itself (combobox.tsx), so only a closed one reaches here,
-   * and a closed dropdown is just a field. The older `tagName !== "SELECT"`
-   * test tried to do this but missed on desktop, where `<Select>` is an
-   * `<input role="combobox">` — so Enter saved on desktop and did nothing on
-   * touch. Excluding it outright then made Enter a dead key on Status, the last
-   * control in the row (client 2026-07-25).
+   * Enter used to save from this handler, because a plain page `<tr>` has no
+   * Sheet and no footer and there was nothing else to commit it. It is gone —
+   * the row now registers "save" with the global registry (see above), so Enter
+   * follows the same contract as every other surface: it walks the row's cells
+   * and commits off the last one. A local Enter here would have kept saving from
+   * cell one, i.e. exactly the premature save Enter-advance removes.
+   *
+   * Field navigation, including which controls keep their own Enter (a textarea,
+   * a button, a tick box, an open dropdown), is decided once in lib/focus.ts —
+   * this file no longer keeps a second copy of that list.
    */
   function onRowKeyDown(e: KeyboardEvent<HTMLElement>) {
-    const t = e.target as HTMLElement;
     // Arrow navigation comes from keyboard-nav-provider.tsx. The editing row
-    // carries `data-focus-scope`, so ↓/↑ stay within the row instead of walking
-    // the whole page — only one row is editable at a time, so "next field" is
-    // the right meaning for ↓ here. Enter-to-save below preventDefaults, which
-    // is what stops the provider from also advancing.
-    const tag = t.tagName;
-    const keepsOwnEnter =
-      tag === "TEXTAREA" ||
-      tag === "BUTTON" ||
-      t.matches("[data-field-trigger]") ||
-      // A tick box: Enter means "tick this", not "save the row". Left to bubble
-      // so `enterSaves` (lib/focus.ts) toggles it — the same rule the rest of
-      // the app follows, rather than a second copy of it here.
-      (t instanceof HTMLInputElement && /^(checkbox|radio)$/.test(t.type));
-    if (e.key === "Enter" && !keepsOwnEnter) {
-      e.preventDefault();
-      save();
-    } else if (e.key === "Escape") {
+    // carries `data-focus-scope`, so ↓/↑ and Enter stay within the row instead
+    // of walking the whole page — only one row is editable at a time.
+    if (e.key === "Escape") {
       e.preventDefault();
       cancelEdit();
     }
@@ -411,6 +444,7 @@ export function SimpleMasterScreen<Row>({
     const placeholder =
       f.placeholder ??
       (f.defaultsTo ? String(editing.values[f.defaultsTo] ?? "") || undefined : undefined);
+    const isDupField = d.dupCheck?.fieldKey === f.key;
     const common = {
       value: String(v ?? ""),
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value),
@@ -420,15 +454,20 @@ export function SimpleMasterScreen<Row>({
       // Auto/derived fields drop out of Tab order but stay clickable/editable.
       tabIndex: f.skipTab ? -1 : undefined,
       "aria-label": f.label,
+      // Spread inside `common`, which every branch below spreads LAST — so on a
+      // ValidatedInput it wins over that component's own `aria-invalid`. It
+      // emits no keys at all when there is no duplicate, which is what keeps
+      // required-field invalidity intact (see dupFieldProps).
+      ...(isDupField ? dupFieldProps(dupError) : null),
     };
     // Plain text fields type in CAPS (client 2026-07-23) — no-op for digits;
     // format-driven fields keep their own ValidatedInput transforms.
     const input = f.format ? <ValidatedInput format={f.format} {...common} /> : <Input uppercase {...common} />;
-    if (d.dupCheck?.fieldKey === f.key) {
+    if (isDupField) {
       return (
         <div>
           {input}
-          {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+          <DuplicateError error={dupError} />
         </div>
       );
     }
@@ -511,13 +550,20 @@ export function SimpleMasterScreen<Row>({
           searchPlaceholder={`Search ${d.entityLabel.toLowerCase()}...`}
           activeCount={activeCount}
           onReset={
-            hasStatus || (d.extraFilters?.length ?? 0) > 0
+            hasStatus || (d.extraFilters?.length ?? 0) > 0 || dateFilter.enabled
               ? () => {
                   reset();
                   pg.setPage(1);
                 }
               : undefined
           }
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
         >
           {hasStatus || (d.extraFilters?.length ?? 0) > 0 ? (
             <>
@@ -734,7 +780,7 @@ export function SimpleMasterScreen<Row>({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-[15px] font-semibold text-foreground">{title || "—"}</div>
+                      <Truncated className="text-[15px] font-semibold text-foreground">{title || "—"}</Truncated>
                       {d.mobileMeta && (
                         <div className="mt-0.5 text-xs text-muted-foreground">{d.mobileMeta(r)}</div>
                       )}
