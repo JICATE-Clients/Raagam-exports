@@ -12,15 +12,6 @@ import { createClient } from "@/lib/supabase/server";
 // filter from that screen. Keep it in the list.
 // ============================================================================
 
-export async function listYarnCompositions() {
-  const s = await createClient();
-  const { data } = await s
-    .from("yarn_compositions")
-    .select("id, code, name, is_active, created_at")
-    .order("code");
-  return (data ?? []) as { id: string; code: string; name: string; is_active: boolean; created_at: string }[];
-}
-
 export async function listDefectGroupsSimple() {
   const s = await createClient();
   const { data } = await s

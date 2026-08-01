@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Deduction } from "./deduction-types";
 
 export async function listDeductions(): Promise<Deduction[]> {
@@ -9,5 +10,5 @@ export async function listDeductions(): Promise<Deduction[]> {
     .select("*")
     .order("sequence")
     .order("entry_no");
-  return (data ?? []) as Deduction[];
+  return withCreators((data ?? []) as Deduction[]);
 }

@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Port } from "./port-types";
 
 export async function listPorts(): Promise<Port[]> {
@@ -8,5 +9,5 @@ export async function listPorts(): Promise<Port[]> {
     .from("ports")
     .select("*, country:countries(id,code,name)")
     .order("name", { nullsFirst: false });
-  return (data ?? []) as Port[];
+  return withCreators((data ?? []) as Port[]);
 }

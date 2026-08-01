@@ -18,7 +18,13 @@ import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  createdMeta,
+  createdSection,
+  hasCreatedInfo,
+  withCreatedColumns,
+} from "@/components/ui/created-columns";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkActionsBar } from "@/components/data-io/bulk-actions-bar";
@@ -184,12 +190,34 @@ export function MasterListShell<Row>({
   const autoView = view !== false && !actions?.onView;
   const onView = actions?.onView ?? (autoView ? setViewRow : undefined);
 
+  // Does the data carry creation info? The SAME gate the Created Date facet
+  // uses, so the column and the filter appear and disappear together.
+  const showCreated = useMemo(() => hasCreatedInfo(rows), [rows]);
+
+  // The screen's columns plus the Created pair, spliced in ahead of the
+  // trailing Status column. Kept separate from `tableColumns` because the
+  // derived view sheet below wants the DATA columns without the actions one.
+  const dataColumns = useMemo(() => withCreatedColumns(columns, rows), [columns, rows]);
+
+  // The Created line is APPENDED to the mobile card, not substituted for the
+  // screen's own meta — the card has room for both, and dropping the screen's
+  // line to make space would hide something the desktop table still shows.
+  const cardMeta = useMemo(() => {
+    if (!showCreated) return mobile.meta;
+    return (r: Row) => (
+      <>
+        {mobile.meta?.(r)}
+        <div className={mobile.meta ? "mt-0.5" : undefined}>{createdMeta(r)}</div>
+      </>
+    );
+  }, [showCreated, mobile.meta]);
+
   // The actions column is appended here, not declared by the screen, so its
   // header/alignment/width are the same on every list in the app.
   const tableColumns = useMemo(() => {
-    if (!actions && !autoView) return columns;
+    if (!actions && !autoView) return dataColumns;
     return [
-      ...columns,
+      ...dataColumns,
       rowActionsColumn<Row>((r) => (
         <RowActions
           label={nameOf(r)}
@@ -203,7 +231,7 @@ export function MasterListShell<Row>({
         />
       )),
     ];
-  }, [columns, actions, autoView, onView, nameOf, perms.canEdit, perms.canDelete, isPending]);
+  }, [dataColumns, actions, autoView, onView, nameOf, perms.canEdit, perms.canDelete, isPending]);
 
   const filterConfig = useMemo(() => {
     const filters: Record<string, (r: Row, v: string) => boolean> = {};
@@ -390,7 +418,7 @@ export function MasterListShell<Row>({
           title={mobile.title}
           subtitle={mobile.subtitle}
           pill={mobile.pill}
-          meta={mobile.meta}
+          meta={cardMeta}
           onView={actions?.onView ?? mobile.onView}
           onEdit={perms.canEdit ? actions?.onEdit ?? mobile.onEdit : undefined}
           canDelete={perms.canDelete}
@@ -420,11 +448,16 @@ export function MasterListShell<Row>({
           sections={[
             {
               label: "Details",
-              pairs: columns
-                .filter((c) => !!c.header)
+              // The Created pair is stripped back out here and re-added below as
+              // its own section, so the sheet words it exactly as the table does
+              // and an unknown creator drops out (the sheet hides empty pairs;
+              // a table cell has to show the dash).
+              pairs: dataColumns
+                .filter((c) => !!c.header && !/^created\s/i.test(c.header))
                 .map((c) => [c.header, c.cell(viewRow)] as ViewPair),
             },
             ...(typeof view === "object" ? view.sections?.(viewRow) ?? [] : []),
+            ...createdSection(viewRow),
           ]}
         />
       )}

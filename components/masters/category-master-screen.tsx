@@ -7,16 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
-import { LevyPicker } from "@/components/masters/lookup-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
-import { CommodityPicker } from "@/components/masters/commodity-picker";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
@@ -24,6 +23,7 @@ import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { focusField, focusFirstField } from "@/lib/focus";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
@@ -35,9 +35,7 @@ import {
 } from "@/lib/masters/category-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
-import type { Commodity } from "@/lib/masters/commodity-types";
 import type { SizeGroup } from "@/lib/masters/size-group-types";
-import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -48,7 +46,6 @@ const BLANK = {
   short_spec: "",
   made: "" as "" | MadeType,
   levy_id: "",
-  commodity_id: "",
   fabric_structure_id: "",
   wastage_per: 0,
   profit_per: 0,
@@ -68,15 +65,19 @@ const BLANK = {
 type SubRow = { key: string; id: string | null; name: string };
 
 /**
- * Rich CRUD for the legacy "Category" master. Item Class/Levy/Commodity are
- * dialog pickers over their stored master data; Fabric Structure and the Sub
- * Categories grid only render for the item classes the legacy form shows them on.
+ * Rich CRUD for the legacy "Category" master. Item Class is a dialog picker
+ * over its stored master data; Fabric Structure and the Sub Categories grid
+ * only render for the item classes the legacy form shows them on. (Levy
+ * Description was one of these pickers until the client hid it on 2026-08-01 —
+ * the column is still carried, see the note at its old position below.)
+ *
+ * Commodity was asked here until the client withdrew the whole Commodities
+ * master (2026-08-01) — the column stays in the database, unread and unwritten.
  */
 export function CategoryMasterScreen({
   rows,
   itemClasses,
   levies,
-  commodities,
   fabricStructures,
   sizeGroups,
   perms,
@@ -84,7 +85,6 @@ export function CategoryMasterScreen({
   rows: Category[];
   itemClasses: ConfigLookup[];
   levies: Levy[];
-  commodities: Commodity[];
   fabricStructures: ConfigLookup[];
   sizeGroups: SizeGroup[];
   perms: Perms;
@@ -110,11 +110,6 @@ export function CategoryMasterScreen({
     for (const l of levies) m.set(l.id, l.description || `Entry #${l.entry_no}`);
     return m;
   }, [levies]);
-  const commodityLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of commodities) m.set(c.id, c.name ?? c.short_name ?? "—");
-    return m;
-  }, [commodities]);
   const fabricStructureLabel = useMemo(() => {
     const m = new Map<string, string>();
     for (const f of fabricStructures) m.set(f.id, f.name);
@@ -128,12 +123,20 @@ export function CategoryMasterScreen({
     [itemClasses, form.item_class_id],
   );
   const showFabricStructure = selectedClassCode === "FABRIC";
+  /** Category Type (Natural / Manmade / Mixed) describes a FIBRE, so it is asked
+   *  of Yarn and nothing else. Named here rather than repeated inline because
+   *  the required check below must gate on exactly the same condition the render
+   *  does — required-but-invisible is unsaveable, and that is how Capital Goods
+   *  once became impossible to create (see ACCESSORY_CLASS_CODES in
+   *  material-types.ts for that story). */
+  const showCategoryType = selectedClassCode === "YARN";
   const showSubCategories = showsSubCategories(selectedClassCode);
   /** The Sub Categories question is about a category that exists — "does
    *  ELECTRICAL have types?" — so it waits for a Name (client 2026-08-01).
    *  Trimmed, so spaces alone do not count as an answer. Opening an existing
    *  category satisfies this immediately, which is what edit should do. */
   const nameEntered = !!form.name.trim();
+
 
   // Sub Categories child grid (General only, 0349).
   const [subs, setSubs] = useState<SubRow[]>([]);
@@ -142,6 +145,65 @@ export function CategoryMasterScreen({
   const addSub = () => setSubs((xs) => [...xs, { key: newKey(), id: null, name: "" }]);
   const setSubAt = (key: string, patch: Partial<SubRow>) =>
     setSubs((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  /**
+   * What still has to be filled before this category can be saved — every field
+   * the form still asks for (client 2026-08-01; the two it used to exclude,
+   * Levy Description and Commodity, are no longer on the form at all).
+   *
+   * ONE list, read by three things — the `*` on each label, the Save gate, and
+   * the message under Save. Three separate conditions would be three places to
+   * keep in step, and the message is the one that would silently go stale.
+   *
+   * It deliberately does NOT hold the cursor. The request was for Tab to refuse
+   * to leave an empty field; the keyboard contract allows exactly one refusal
+   * (a live duplicate name) because keying a hold off "required but empty" cages
+   * the operator in the first blank box of every form — they cannot fill out of
+   * order, cannot go back, and cannot reach Save. So the record is blocked, not
+   * the cursor: Save stays disabled, says which field is missing, and the
+   * keyboard save attempt jumps the cursor there.
+   *
+   * `fabric_structure_id` counts only while it is on screen — requiring a field
+   * the operator cannot see is unsaveable-by-invisible-field, which is how
+   * Capital Goods once became impossible to create.
+   */
+  const missingRequired = useMemo(() => {
+    const out: { id: string; label: string }[] = [];
+    if (!form.item_class_id) out.push({ id: "cat-item-class", label: "Item Class" });
+    // Each of these counts only while it is ON SCREEN. Category Type is asked of
+    // Yarn only and Fabric Structure of Fabric only, so requiring either
+    // unconditionally would make every other class unsaveable through a field
+    // the operator cannot even see.
+    if (showCategoryType && !form.made) out.push({ id: "cat-made", label: "Category Type" });
+    if (showFabricStructure && !form.fabric_structure_id)
+      out.push({ id: "cat-fabric-structure", label: "Fabric Structure" });
+    if (!form.name.trim()) out.push({ id: "cat-name", label: "Name" });
+    // Ticking the box is a promise of a second level; an empty grid does not
+    // keep it, and the server drops blank rows anyway (normalizeSubCategories),
+    // so this would otherwise save as "has sub categories" with none.
+    if (showSubCategories && nameEntered && form.has_sub_categories && !subs.some((s) => s.name.trim()))
+      out.push({ id: "cat-name", label: "at least one Sub Category" });
+    return out;
+  }, [
+    form.item_class_id, form.made, form.fabric_structure_id, form.name,
+    form.has_sub_categories, showCategoryType, showFabricStructure, showSubCategories,
+    nameEntered, subs,
+  ]);
+
+  /** Take the operator to the first thing that is missing, rather than leaving
+   *  a disabled button and no explanation. `focusField` (not a bare .focus())
+   *  puts the caret at the END of the value — a bare focus leaves it at 0 and
+   *  silently breaks the → key. */
+  function focusFirstMissing() {
+    const first = missingRequired[0];
+    if (!first) return;
+    const el = document.getElementById(first.id);
+    if (!el) return;
+    // Some targets ARE the control (a <Select>, the Name <Input>); Fabric
+    // Structure is a wrapper around a picker, so fall through to its trigger.
+    if (el.matches("input, select, textarea, button, [tabindex]")) focusField(el);
+    else focusFirstField(el);
+  }
   const removeSub = (key: string) => setSubs((xs) => xs.filter((r) => r.key !== key));
   /** Turning it ON seeds a first row so the revealed grid isn't an empty box;
    *  OFF clears them so nothing invisible is sent (the server mirrors this in
@@ -211,7 +273,6 @@ export function CategoryMasterScreen({
           r.made,
           classLabel.get(r.item_class_id),
           r.levy_id ? levyLabel.get(r.levy_id) : "",
-          r.commodity_id ? commodityLabel.get(r.commodity_id) : "",
         ]
           .filter(Boolean)
           .join(" ")
@@ -243,7 +304,6 @@ export function CategoryMasterScreen({
       short_spec: r.short_spec ?? "",
       made: r.made ?? "",
       levy_id: r.levy_id ?? "",
-      commodity_id: r.commodity_id ?? "",
       fabric_structure_id: r.fabric_structure_id ?? "",
       wastage_per: r.wastage_per ?? 0,
       profit_per: r.profit_per ?? 0,
@@ -269,7 +329,6 @@ export function CategoryMasterScreen({
         short_spec: form.short_spec.trim() || null,
         made: form.made ? form.made : null,
         levy_id: form.levy_id || null,
-        commodity_id: form.commodity_id || null,
         fabric_structure_id: form.fabric_structure_id || null,
         wastage_per: form.wastage_per,
         profit_per: form.profit_per,
@@ -322,8 +381,6 @@ export function CategoryMasterScreen({
         </span>
       ),
     },
-    { header: "Created Dt", cell: (r) => <span className="text-sm">{fmtDate(r.created_at)}</span> },
-    { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by_name || "—"}</span> },
     {
       header: "Inactive",
       cell: (r) => (
@@ -435,7 +492,7 @@ export function CategoryMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No category records yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No category records yet." />
       </div>
 
       {/* mobile cards */}
@@ -490,7 +547,28 @@ export function CategoryMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.item_class_id || !form.name.trim() || !!dupError} onClick={submit}>
+            {/* Says WHY Save is off, and clicking it takes the operator there.
+                A greyed button with no reason is the thing that makes people
+                hunt the form for the field they missed — which is the actual
+                complaint behind "don't let the cursor leave an empty field". */}
+            {missingRequired.length > 0 && !isPending && (
+              <button
+                type="button"
+                onClick={focusFirstMissing}
+                // Off the Tab path: it is a shortcut to a field, not a field.
+                // The operator can always reach the same box by Tab or mouse.
+                tabIndex={-1}
+                className="mr-auto text-left text-xs text-danger hover:underline"
+              >
+                {missingRequired[0].label} is required
+                {missingRequired.length > 1 ? ` (+${missingRequired.length - 1} more)` : ""}
+              </button>
+            )}
+            <Button
+              size="md"
+              disabled={isPending || missingRequired.length > 0 || !!dupError}
+              onClick={submit}
+            >
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -536,9 +614,11 @@ export function CategoryMasterScreen({
 
             {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only;
                 Fabric classifies via Fabric Structure below instead. */}
-            {selectedClassCode === "YARN" && (
+            {showCategoryType && (
               <div>
-                <Label htmlFor="cat-made">Category Type</Label>
+                <Label htmlFor="cat-made">
+                  Category Type <span className="text-danger">*</span>
+                </Label>
                 <Select
                   id="cat-made"
                   value={form.made}
@@ -558,9 +638,13 @@ export function CategoryMasterScreen({
                 Add / Modify / Delete — unlike Category Type above, which is a
                 fixed three-value enum the operator can never extend. */}
             {showFabricStructure && (
-              <div>
+              // id is the focus target for "jump to the first missing field" —
+              // LookupDialogPicker takes no id of its own, so the wrapper carries
+              // it and `focusFirstField` finds the trigger inside.
+              <div id="cat-fabric-structure">
                 <LookupDialogPicker
                   kind="fabric_structure"
+                  required
                   label="Fabric Structure"
                   options={fabricStructures}
                   value={form.fabric_structure_id}
@@ -662,21 +746,16 @@ export function CategoryMasterScreen({
                 "use Description only"). The short_spec column is still round-tripped
                 (form state + save) so historical data isn't lost; it's just no longer
                 edited here — descriptive data comes from structured attributes now. */}
-            <LevyPicker
-              label="Levy Description"
-              levies={levies}
-              value={form.levy_id}
-              onChange={(v) => setForm({ ...form, levy_id: v })}
-            />
-            <CommodityPicker
-              commodities={commodities}
-              itemClasses={itemClasses}
-              value={form.commodity_id}
-              onChange={(v) => setForm({ ...form, commodity_id: v })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-            />
+            {/* Levy Description dropped from the UI (client 2026-08-01 — the GST
+                structure is not chosen per category). Same treatment as
+                short_spec above: `levy_id` is still in form state, still read on
+                open and still written on save, so existing rows keep whatever
+                they were given and nothing is blanked by editing a category.
+                It is deliberately NOT removed from the type or the table — the
+                brief was "hide it, we may call it from a child" — so re-showing
+                it, here or on a child grid, is putting this picker back and
+                nothing else. Levies are still pickable where they're actually
+                decided: VAT / Duty / TDS on the Vendor master. */}
           </DetailSection>
 
           {editId && (

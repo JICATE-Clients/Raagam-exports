@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { StatusPill } from "@/components/ui/status-pill";

@@ -10,6 +10,7 @@ import {
   deleteDeduction,
 } from "@/lib/masters/deduction-actions";
 import { CALC_TYPES, type Deduction } from "@/lib/masters/deduction-types";
+import { DEDUCTION_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -41,9 +42,10 @@ const descriptor: SimpleMasterDescriptor<Deduction> = {
   }),
   searchText: (r) => [String(r.entry_no), r.name, r.calc_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
-  // Offers near-matching names already in THIS master while typing;
+  // Offers near-matching names — the curated vocabulary above plus the
+  // rows already in THIS master — while typing;
   // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
-  spellSuggest: true,
+  spellSuggest: { seed: DEDUCTION_NAMES },
   dupCheck: { table: "deductions", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     name: String(v.name),

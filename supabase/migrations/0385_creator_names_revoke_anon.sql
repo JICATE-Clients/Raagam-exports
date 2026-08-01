@@ -1,0 +1,34 @@
+-- ============================================================================
+-- Raagam ERP — 0385 creator_names(): close the anon EXECUTE grant
+--
+-- 0383 created creator_names() SECURITY DEFINER and did the right thing on
+-- paper — `revoke all ... from public` then `grant execute ... to
+-- authenticated`. It is not enough, and the reason is worth knowing because it
+-- applies to EVERY SECURITY DEFINER function added to this project:
+--
+--   Supabase ships `alter default privileges ... grant execute on functions to
+--   anon, authenticated`. That lands a DIRECT grant on the anon role at CREATE
+--   time. `revoke ... from public` removes the PUBLIC pseudo-role grant and
+--   leaves the direct one standing, so the function stays anon-callable while
+--   the migration reads as though it were locked down.
+--
+-- creator_names bypasses RLS on profiles by design (profiles_read_own hides
+-- other users' rows, which silently breaks the PostgREST embed the services
+-- use). Reachable by anon, it becomes an unauthenticated uuid -> person's-name
+-- oracle. Guessing a v4 uuid is not a practical attack, but "hard to reach" is
+-- not the guarantee 0383's own comment makes when it says the function "cannot
+-- become a way to read the staff directory".
+--
+-- Every analytics_* SECURITY DEFINER function here already has anon closed;
+-- this brings creator_names into line with them.
+--
+-- STILL OPEN, deliberately left for their own change rather than smuggled in
+-- here — three older SECURITY DEFINER functions carry the same stray anon
+-- grant, and one of them MUTATES:
+--
+--   first_referencing_table(...)    read-only (0344, delete guard)
+--   party_row_exists(...)           read-only (0378)
+--   party_setnull_referrers(...)    WRITES — nulls FK references (0378)
+-- ============================================================================
+
+revoke all on function public.creator_names(uuid[]) from anon;

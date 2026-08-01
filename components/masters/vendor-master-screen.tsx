@@ -20,6 +20,8 @@ import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { Select } from "@/components/ui/select";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
@@ -905,6 +907,25 @@ export function VendorMasterScreen({
   });
 
   /**
+   * "Did you mean?" — nameDupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    // No curated vocabulary, and there can never be one: these are the names of
+    // real trading parties. Rows only — which is exactly the useful check here,
+    // catching "ABC TEXTILES" typed beside an existing "ABC TEXTILE".
+    seed: [],
+    enabled: open && !nameDupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
+  });
+
+  /**
    * The GSTIN as loaded, so merely OPENING a record never auto-fills — that
    * would mark a freshly-opened form dirty and trip the unsaved-work guard.
    * Only a GSTIN the user actually changed feeds the auto-fill.
@@ -1353,9 +1374,16 @@ export function VendorMasterScreen({
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
+              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
               {...dupFieldProps(nameDupError, "ve-name")}
             />
             <DuplicateError error={nameDupError} id="ve-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              activeIndex={nameSuggest.activeIndex}
+              onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+            />
           </Field>
           <Field label="Type" size={FIELD_SIZE.vendor_type} htmlFor="ve-type">
             <Select

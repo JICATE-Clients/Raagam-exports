@@ -7,10 +7,15 @@ import { Button } from "@/components/ui/button";
 import { DateRangeFilter } from "@/components/ui/date-range-filter";
 
 /**
- * Compact filter toolbar for Master Data list/assign screens. The search box
- * stays visible; the filter <Select>s (passed as children) collapse behind a
- * "Filters" button with an active-count badge, and lay out in a tidy responsive
- * grid when expanded — instead of each dropdown spanning the full page width.
+ * Compact filter toolbar for every list screen — masters, assign grids and the
+ * registers under `app/(app)`. The search box stays visible; the filter
+ * <Select>s (passed as children) collapse behind a "Filters" button with an
+ * active-count badge, and lay out in a tidy responsive grid when expanded —
+ * instead of each dropdown spanning the full page width.
+ *
+ * It lived in `components/masters/` while masters were its only caller. It sits
+ * here now because the registers import it too, and because the thing it
+ * renders (`components/ui/date-range-filter.tsx`) was always here.
  *
  * `dateFilter` adds the shared Created Date facet as the LAST cells of that
  * grid. It is rendered here rather than passed in as a child so every list in

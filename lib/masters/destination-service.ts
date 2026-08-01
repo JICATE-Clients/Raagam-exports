@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Destination } from "./destination-types";
 
 export async function listDestinations(): Promise<Destination[]> {
@@ -8,5 +9,5 @@ export async function listDestinations(): Promise<Destination[]> {
     .from("destinations")
     .select("*")
     .order("name", { nullsFirst: false });
-  return (data ?? []) as Destination[];
+  return withCreators((data ?? []) as Destination[]);
 }

@@ -74,7 +74,6 @@ const WORDS: Record<string, string> = {
 
 /** Keys whose humanized form reads worse than a chosen label. */
 const LABELS: Record<string, string> = {
-  created_at: "Created",
   entry_date: "Date",
   short_name: "Short Name",
 };
@@ -91,10 +90,21 @@ export function humanizeKey(key: string): string {
     .trim();
 }
 
-/** Keys that are plumbing rather than content. */
+/**
+ * Keys that are plumbing rather than content.
+ *
+ * The `created_*` trio is skipped here because both engines append a dedicated
+ * "Created" section to the view sheet (`createdSection`, components/ui/
+ * created-columns.tsx). Left in, this file would render a SECOND, differently
+ * worded line — it labelled `created_at` "Created" and formatted it with
+ * `fmtDateTime` where every table shows `fmtDate`.
+ */
 const SKIP = new Set([
   "id",
+  "created_at",
   "created_by",
+  "created_by_name",
+  "creator",
   "updated_by",
   "updated_at",
   "deleted_at",

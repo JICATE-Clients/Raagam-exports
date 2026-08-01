@@ -56,6 +56,9 @@ const blankLine = (key: string): LineRow => ({
  * config_lookups 'shift_category' · No Of Shifts · Applicable For All
  * Categories). Save / Save-As-Drafts (draft persists with `is_draft = true`).
  */
+// dup-check: exempt -- header is an auto Entry No plus Location and Effective
+// From. The same location's timings are re-issued at a later date whenever a
+// shift pattern changes, and that second row is the revision, not a duplicate.
 export function WorkTimingMasterScreen({
   rows,
   locations,

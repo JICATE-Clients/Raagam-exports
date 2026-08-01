@@ -11,11 +11,9 @@ import { listMaterials } from "@/lib/masters/material-service";
 import { listProcesses } from "@/lib/masters/process-service";
 import { listComponents } from "@/lib/masters/component-service";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
-import { listCommodities } from "@/lib/masters/commodity-service";
-import { listSeasons } from "@/lib/masters/season-service";
 import { listBins } from "@/lib/masters/bin-service";
 import { listGarmentRejectionRules } from "@/lib/masters/garment-rejection-rule-service";
-import { listYarnCompositions, listDefectGroupsSimple } from "@/lib/masters/simple-master-service";
+import { listDefectGroupsSimple } from "@/lib/masters/simple-master-service";
 import { listDefectDetails } from "@/lib/masters/defect-detail-service";
 import {
   MATERIALS_CHILDREN,
@@ -29,7 +27,7 @@ import { cn } from "@/lib/utils";
 
 export default async function MaterialsMastersPage() {
   await requirePermission("masters", "view");
-  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, commodities, seasons, bins] =
+  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, bins] =
     await Promise.all([
       listConfigLookups(),
       listAttributes(),
@@ -42,13 +40,10 @@ export default async function MaterialsMastersPage() {
       listProcesses(),
       listComponents(),
       listOutDocumentTerms(),
-      listCommodities(),
-      listSeasons(),
       listBins(),
     ]);
-  const [rejectionRules, yarnCompositions, defectGroups, defectDetails] = await Promise.all([
+  const [rejectionRules, defectGroups, defectDetails] = await Promise.all([
     listGarmentRejectionRules(),
-    listYarnCompositions(),
     listDefectGroupsSimple(),
     listDefectDetails(),
   ]);
@@ -64,8 +59,6 @@ export default async function MaterialsMastersPage() {
   const processCount = processes.length;
   const componentCount = components.length;
   const outDocTermCount = outDocTerms.length;
-  const commodityCount = commodities.length;
-  const seasonCount = seasons.length;
   const binCount = bins.length;
 
   /**
@@ -94,11 +87,8 @@ export default async function MaterialsMastersPage() {
     gauges: counts.get("gauge") ?? 0,
     knitting_dias: counts.get("knitting_dia") ?? 0,
     out_document_terms: outDocTermCount,
-    commodities: commodityCount,
-    seasons: seasonCount,
     bins: binCount,
     garment_rejection_rules: rejectionRules.length,
-    yarn_compositions: yarnCompositions.length,
     defect_groups: defectGroups.length,
     defect_details: defectDetails.length,
   };

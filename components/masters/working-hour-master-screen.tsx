@@ -66,6 +66,9 @@ const BLANK_TIMES: Record<TimeKey, string> = {
  * time slots (Morning / Lunch / Evening breaks, Evening Out, OT In/Out). Save /
  * Save-As-Drafts (draft persists with `is_draft = true`).
  */
+// dup-check: exempt -- a dated set of shift times, identified by its Date rather
+// than by anything typed. Nothing on the form is a name: every field is a clock
+// time, and two units legitimately keep identical hours.
 export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();

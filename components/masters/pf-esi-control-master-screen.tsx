@@ -34,6 +34,9 @@ const pct = (n: number) => `${n.toFixed(2)}%`;
  * PF ESI Control master (HR). Flat, dated rate-version record — Entry No (auto),
  * Date, Effective From, and Employee/Employer PF % + ESI % contributions.
  */
+// dup-check: exempt -- a dated rate-version record (Effective From + the PF/ESI
+// percentages). A new statutory rate is entered as a new row, so a check on any
+// field here would block the only edit this master ever receives.
 export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();

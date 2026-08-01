@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
@@ -16,9 +16,6 @@ import { isInactive } from "@/lib/masters/inactive";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type Opt = { id: string; code: string | null; name: string | null };
-/** HSN options carry the flag; the commodity list does not need it — it drives a
- *  FILTER, and filtering by a since-retired commodity is a legitimate thing to
- *  want. The rule is about fields that SET a value. */
 type HsnOpt = Opt & { is_active: boolean };
 
 const hsnLabel = (o: Opt) => (o.code ? `${o.code}${o.name ? ` — ${o.name}` : ""}` : (o.name ?? "—"));
@@ -26,7 +23,7 @@ const hsnLabel = (o: Opt) => (o.code ? `${o.code}${o.name ? ` — ${o.name}` : "
 /**
  * "HSN Assign to Processes" (GST) — a single-screen bulk editor over the
  * `processes` master, replacing the legacy 2-step "HSN Assign to Process — By
- * Process" wizard. Filter processes (Status · Commodity + search), then set the
+ * Process" wizard. Filter processes (Status + search), then set the
  * HSN (processes.hsn_code, a TEXT column) per row inline or for a whole checkbox
  * selection at once. The HSN dropdown is sourced from the HSN master
  * (config_lookups 'hsn_code') and stores the chosen **code string**; any legacy
@@ -36,12 +33,10 @@ const hsnLabel = (o: Opt) => (o.code ? `${o.code}${o.name ? ` — ${o.name}` : "
 export function ProcessHsnAssignScreen({
   rows,
   hsnOptions,
-  commodities,
   perms,
 }: {
   rows: ProcessHsnRow[];
   hsnOptions: HsnOpt[];
-  commodities: Opt[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -50,17 +45,11 @@ export function ProcessHsnAssignScreen({
 
   const [query, setQuery] = useState("");
   const [fStatus, setFStatus] = useState("");
-  const [fCommodity, setFCommodity] = useState(""); // "" | commodityId | "__none"
 
   const [edits, setEdits] = useState<Map<string, string | null>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkHsn, setBulkHsn] = useState("");
 
-  const commodityName = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of commodities) m.set(c.id, c.name ?? c.code ?? "—");
-    return m;
-  }, [commodities]);
   // known HSN codes (as stored on rows) — anything not here is a legacy free-text leftover
   const knownCodes = useMemo(() => {
     const s = new Set<string>();
@@ -95,11 +84,9 @@ export function ProcessHsnAssignScreen({
       if (q && !r.name.toLowerCase().includes(q)) return false;
       if (fStatus === "Active" && r.inactive) return false;
       if (fStatus === "Inactive" && !r.inactive) return false;
-      if (fCommodity === "__none" && r.commodity_id) return false;
-      if (fCommodity && fCommodity !== "__none" && r.commodity_id !== fCommodity) return false;
       return true;
     });
-  }, [rows, dt.matches, query, fStatus, fCommodity]);
+  }, [rows, dt.matches, query, fStatus]);
 
   const missing = useMemo(() => rows.filter((r) => !cur(r)).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -138,7 +125,6 @@ export function ProcessHsnAssignScreen({
     setQuery("");
     dt.reset();
     setFStatus("");
-    setFCommodity("");
   }
 
   // Ctrl/⌘+S and Enter both save through here. This screen is neither a Sheet
@@ -204,7 +190,7 @@ export function ProcessHsnAssignScreen({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search process name…"
-        activeCount={[fStatus, fCommodity].filter(Boolean).length + dt.active}
+        activeCount={[fStatus].filter(Boolean).length + dt.active}
         onReset={resetFilters}
         dateFilter={dt.bind}
         right={
@@ -217,15 +203,6 @@ export function ProcessHsnAssignScreen({
           <option value="">All status</option>
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
-        </Select>
-        <Select value={fCommodity} onChange={(e) => setFCommodity(e.target.value)} aria-label="Filter commodity" className="h-9 text-base md:text-sm">
-          <option value="">All commodities</option>
-          {commodities.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name ?? c.code ?? "—"}
-            </option>
-          ))}
-          <option value="__none">— No commodity —</option>
         </Select>
       </FilterBar>
 
@@ -269,7 +246,7 @@ export function ProcessHsnAssignScreen({
                   aria-label="Select all"
                 />
               </th>
-              {["Process", "Commodity", "Status", "HSN"].map((h) => (
+              {["Process", "Status", "HSN"].map((h) => (
                 <th key={h} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {h}
                 </th>
@@ -279,7 +256,7 @@ export function ProcessHsnAssignScreen({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                <td colSpan={4} className="px-3 py-12 text-center text-sm text-muted-foreground">
                   No processes match these filters.
                 </td>
               </tr>
@@ -304,9 +281,6 @@ export function ProcessHsnAssignScreen({
                     <td className="px-3 py-2 text-sm font-medium text-foreground">
                       {r.name}
                       {d && <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-warning">Edited</span>}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-muted-foreground">
-                      {r.commodity_id ? (commodityName.get(r.commodity_id) ?? "—") : "—"}
                     </td>
                     <td className="px-3 py-2">
                       <StatusPill tone={r.inactive ? "danger" : "success"}>
@@ -339,9 +313,6 @@ export function ProcessHsnAssignScreen({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-[15px] font-semibold text-foreground">{r.name}</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      {r.commodity_id ? (commodityName.get(r.commodity_id) ?? "—") : "—"}
-                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {d && <span className="text-[10px] font-bold uppercase tracking-wide text-warning">Edited</span>}

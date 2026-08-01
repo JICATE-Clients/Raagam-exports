@@ -13,8 +13,9 @@ import { useOverlayFocus } from "@/lib/use-overlay-focus";
 import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { StatusPill } from "@/components/ui/status-pill";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -156,7 +157,6 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
       header: "Approval Status",
       cell: (r) => <StatusPill tone={approvalStatusTone(r.approval_status)}>{approvalStatusLabel(r.approval_status)}</StatusPill>,
     },
-    { header: "Created User", cell: (r) => <span className="text-sm">{r.creator?.full_name ?? "—"}</span> },
     {
       header: "Reason",
       cell: (r) => (
@@ -272,7 +272,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, rows)}
         rows={filtered}
         getKey={(r) => r.id}
         empty="No amendments awaiting approval."

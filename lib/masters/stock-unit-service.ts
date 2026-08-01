@@ -1,11 +1,12 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { StockUnit } from "./stock-unit-types";
 
 export async function listStockUnits(): Promise<StockUnit[]> {
   const s = await createClient();
   const { data } = await s.from("uoms").select("*").order("name");
-  return ((data ?? []) as StockUnit[]).map((u) => ({
+  return withCreators(((data ?? []) as StockUnit[]).map((u) => ({
     ...u,
     item_classes: u.item_classes ?? [],
     decimal_places_allowed: u.decimal_places_allowed ?? 2,
@@ -16,5 +17,5 @@ export async function listStockUnits(): Promise<StockUnit[]> {
     is_packing: u.is_packing ?? false,
     is_general: u.is_general ?? false,
     is_garment: u.is_garment ?? false,
-  }));
+  })));
 }

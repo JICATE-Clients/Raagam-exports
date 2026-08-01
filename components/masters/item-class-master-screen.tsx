@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -13,7 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createItemClass, updateItemClass, deleteItemClass } from "@/lib/masters/extras-actions";
 import type { Attribute } from "@/lib/masters/extras-types";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { Select } from "@/components/ui/select";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
@@ -22,7 +23,10 @@ import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { RecordViewSheet } from "@/components/masters/record-view-sheet";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
-import { fmtDate, fmtDateTime } from "@/lib/format";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { ITEM_CLASS_NAMES } from "@/lib/masters/name-vocabularies";
+import { fmtDateTime } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -73,6 +77,31 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     rows,
     rowId: (r) => r.id,
     rowValue: (r) => r.name,
+  });
+
+  /**
+   * "Did you mean SEWING ACCESSORIES?" — `dupError` above only fires on an EXACT
+   * collision, so SEWING ACCESSORY sails past it and becomes an eighth class
+   * meaning the same as one of the seven. Every downstream master scopes itself
+   * by item class (categories, HSN details, material attributes),
+   * so a split here fragments all of them at once.
+   *
+   * Seeded, unlike most masters: the seven classes are a CLOSED set the
+   * application itself reasons about (`itemClassForm()` in material-types.ts
+   * switches on them), and the table is small enough that a misspelling would
+   * otherwise sit unnoticed forever. The seed is named here and imported
+   * nowhere else — see the header of name-vocabularies.ts for why that matters.
+   *
+   * Suppressed while `dupError` shows: one line under the input, and the red
+   * error is the more urgent of the two.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name,
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name),
+    seed: ITEM_CLASS_NAMES,
+    enabled: open && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
   function openAdd() {
@@ -143,14 +172,6 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
       cell: (r) => (
         <span className="tabular-nums text-sm text-muted-foreground">
           {(r.values ?? []).length || "—"}
-        </span>
-      ),
-    },
-    {
-      header: "Created Date",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {fmtDate(r.created_at)}
         </span>
       ),
     },
@@ -243,7 +264,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No item classes yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
       {/* mobile cards — the shared list, so the phone gets the same eye icon the
@@ -308,11 +329,18 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 uppercase
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
                 required
                 className="text-base md:text-sm"
                 {...dupFieldProps(dupError, "ic-name")}
               />
               <DuplicateError error={dupError} id="ic-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </div>
             <label className="flex h-9 cursor-pointer items-center gap-2 self-end">
               <input
@@ -356,8 +384,8 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 ["Has Attribute", viewRow.has_attribute ? "Yes" : "No"],
                 ["Attributes", (viewRow.values ?? []).length],
                 ["Notes", viewRow.notes],
-                ["Created By", viewRow.created_by],
-                ["Created", fmtDateTime(viewRow.created_at)],
+                // Created Date / Created User come from `createdSection` below,
+                // so they read the same here as in the table.
                 ["Last Updated", fmtDateTime(viewRow.updated_at)],
               ],
             },

@@ -528,16 +528,12 @@ def _select_names(code: str, start: int) -> set[str]:
 #   cat-item-class   (category-master) same shape: `showFabricStructure`,
 #                    `showSubCategories` and Category Type are all read off
 #                    `selectedClassCode`.
-#   cop-class        (commodity-picker) the class a commodity is classified
-#                    INTO, and the screens reading commodities branch on it. A
-#                    class invented inside a quick-create would classify the row
-#                    into something no form knows how to show.
 #   ma-item-class    (material-attribute) the rest of the form is read off the
 #                    chosen class -- its attribute values and its code -- and
 #                    the list is pre-filtered to accessory classes, which a
 #                    picker's "+ Add" would quietly widen.
 #
-# All five are Item Class or a class-like parent, which is the pattern rather
+# All four are Item Class or a class-like parent, which is the pattern rather
 # than a coincidence: a field that selects which QUESTIONS the form asks cannot
 # also be a field the operator extends from inside that form.
 #
@@ -548,7 +544,6 @@ STRUCTURAL_SELECTS = {
     ("components/masters/material-master-screen.tsx", "mt-fabric-type"),
     ("components/masters/material-master-screen.tsx", "mt-item-class"),
     ("components/masters/category-master-screen.tsx", "cat-item-class"),
-    ("components/masters/commodity-picker.tsx", "cop-class"),
     ("components/masters/material-attribute-master-screen.tsx", "ma-item-class"),
 }
 
@@ -648,7 +643,7 @@ def check_stored_select(path: Path, code: str, slug: str):
     Scoped to `components/masters/` for the same reason check_caps_input is:
     narrow and believed beats broad and muted.
     """
-    if slug in PRIMITIVES or slug == "components/masters/filter-bar.tsx":
+    if slug in PRIMITIVES or slug == "components/ui/filter-bar.tsx":
         return
     if "components/masters/" not in slug:
         return
@@ -694,7 +689,6 @@ MANAGED_PICKERS = (
     "CountryPicker",
     "BankPicker",
     "CurrencyPicker",
-    "CommodityPicker",
 )
 
 PICKER_PERM = re.compile(r"\bcan(?:Create|Edit|Delete)\b")
@@ -841,9 +835,15 @@ def check_picker_inactive(path: Path, code: str, slug: str):
         )
 
 
-# Either half of the live duplicate check counts as wired: the descriptor field
-# (`SimpleMasterScreen`) or one of the two hooks (every other shell).
-DUP_WIRED = re.compile(r"\b(?:useDuplicateCheck|useDuplicateName|dupCheck)\b")
+# Any of the live duplicate check's forms counts as wired: the descriptor field
+# (`SimpleMasterScreen`), one of the two hooks (every other shell), or a bare
+# `dupFieldProps` call. That last one is not a loophole -- `dupFieldProps` is the
+# ONLY thing allowed to emit `data-dup-error` (see below), so a screen calling it
+# is by definition showing a live duplicate. It is how a duplicate that lives in
+# a CHILD GRID is reported, where the candidates are all already on screen and
+# there is no table to ask (attribute-master-screen.tsx: two identical attribute
+# values under one item class).
+DUP_WIRED = re.compile(r"\b(?:useDuplicateCheck|useDuplicateName|dupCheck|dupFieldProps)\b")
 # An opt-out, written in the screen it applies to and required to say why.
 # Matched against RAW text -- it is a comment, which `code` has blanked out.
 DUP_EXEMPT = re.compile(r"dup-check:\s*exempt\b[^\n]*\S", re.I)
@@ -903,6 +903,61 @@ def check_dup_check(path: Path, code: str, slug: str):
         "no live duplicate check -- wire useDuplicateName (or the SimpleMaster "
         "`dupCheck` descriptor) on this master's identity column, or add a "
         "`// dup-check: exempt -- <reason>` comment",
+    )
+
+
+# The near-miss half of the same rule. `spellSuggest` is the SimpleMaster
+# descriptor key; `useSpellSuggest` is the hook every other shell calls.
+SUGGEST_WIRED = re.compile(r"\b(?:useSpellSuggest|spellSuggest)\b")
+SUGGEST_EXEMPT = re.compile(r"spell-suggest:\s*exempt\b[^\n]*\S", re.I)
+
+
+def check_spell_suggest(path: Path, code: str, slug: str):
+    """AGENTS.md STANDING: a near-miss is offered, not just an exact collision.
+
+    The duplicate check fires only on an EXACT match, so TUTICORN typed beside an
+    existing TUTICORIN sails past it and becomes a second master meaning the same
+    thing -- and every record pointing at either one is now split across the two.
+    A master that runs a duplicate check therefore also offers the close names it
+    knows: `useSpellSuggest` + <SpellSuggestHint>, or `spellSuggest` on a
+    SimpleMaster descriptor.
+
+    Only screens that already have a duplicate check are flagged. The chip
+    attaches to the field the check guards, so without one there is nothing to
+    attach to, and the dup-check rule above is the finding that matters.
+
+    Exempt with a comment naming the reason, e.g.
+
+        // spell-suggest: exempt -- the guarded field is an account number; a
+        // digit string has no spelling, so every chip is a different real
+        // account offered beside the one being typed.
+
+    Genuinely exempt: a field holding an ID or code rather than a name (employee
+    ID, account number, leave-type code), a <Textarea>, where the strip would
+    claim the ArrowDown and Enter that mean "next line" and "new line", and a
+    name the SYSTEM composes (material-master-screen.tsx gates the hook on
+    `nameIsComposed` instead -- correcting the app's own output is not a typo fix).
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    if "components/masters/" not in slug or not slug.endswith("-master-screen.tsx"):
+        return
+    if not DUP_WIRED.search(code):
+        return  # no duplicate check to hang a suggestion off -- dup-check covers it
+    if SUGGEST_WIRED.search(code):
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    if SUGGEST_EXEMPT.search(raw):
+        return
+    yield Finding(
+        "spell-suggest", path, 1,
+        "duplicate check but no near-miss suggestion -- an EXACT-match check lets "
+        "a one-character miss create a second master meaning the same thing; wire "
+        "useSpellSuggest + <SpellSuggestHint> (or `spellSuggest` on the descriptor), "
+        "or add a `// spell-suggest: exempt -- <reason>` comment",
     )
 
 
@@ -1022,6 +1077,7 @@ def check_truncate_reveal(path: Path, code: str, slug: str):
 CHECKS = {
     "truncate-reveal": check_truncate_reveal,
     "dup-check": check_dup_check,
+    "spell-suggest": check_spell_suggest,
     "picker-inactive": check_picker_inactive,
     "screen-grid": check_screen_grid,
     "screen-table": check_screen_table,

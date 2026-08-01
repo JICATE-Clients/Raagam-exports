@@ -402,6 +402,12 @@ export function EmployeeMasterScreen({
   // duplicate error HOLDS THE CURSOR (data-dup-error, see the keyboard contract)
   // -- checking `name` here would cage the operator on a perfectly correct value.
   // The employee ID is the identity the payroll and attendance records key on.
+  //
+  // spell-suggest: exempt -- follows from the same fact. The suggestion strip
+  // attaches to whichever field the duplicate check guards, and that field here
+  // is an ID: "did you mean EMP0142?" is not a spelling correction, it is a
+  // guess at somebody else's employee. The name field, where a chip WOULD make
+  // sense, is deliberately unguarded for the reason above.
   const dupError = useDuplicateName({
     table: "employees",
     name: form.code,

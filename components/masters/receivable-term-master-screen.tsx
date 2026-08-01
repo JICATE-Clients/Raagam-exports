@@ -119,6 +119,10 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
 
+  // spell-suggest: exempt -- same as payment-term-master-screen.tsx: the guarded
+  // field is a <Textarea>, where ArrowDown and Enter already mean "next line" and
+  // "new line", and a sentence of trading conditions is not a name that can be
+  // misspelled into another one.
   const dupError = useDuplicateName({
     table: "receivable_terms",
     name: form.description,

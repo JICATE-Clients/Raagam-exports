@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Composition } from "./composition-types";
 
 export async function listCompositions(): Promise<Composition[]> {
@@ -8,8 +9,8 @@ export async function listCompositions(): Promise<Composition[]> {
     .from("compositions")
     .select("*, lines:composition_lines(*)")
     .order("name", { nullsFirst: false });
-  return ((data ?? []) as Composition[]).map((c) => ({
+  return withCreators(((data ?? []) as Composition[]).map((c) => ({
     ...c,
     lines: [...(c.lines ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

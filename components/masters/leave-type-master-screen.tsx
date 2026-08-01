@@ -21,6 +21,9 @@ import {
 } from "@/lib/masters/leave-type-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { LEAVE_TYPE_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -59,6 +62,27 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
     rows,
     rowId: (r) => r.id,
     rowValue: (r) => r.code,
+  });
+
+  /**
+   * "Did you mean CASUAL LEAVE?" — on DESCRIPTION, not on the field `dupError`
+   * guards. That is a deliberate departure from the usual pairing (see
+   * simple-master-screen.tsx, where the chip always sits on the dup field).
+   *
+   * The identity of a leave type is its code, so that is what the duplicate
+   * check watches; but a code has no spelling to correct, and the description is
+   * the thing an operator actually types words into. Wiring the chip to the code
+   * would offer other leave types' IDs as "corrections"; wiring it here offers
+   * the statutory names, which is what the field is for. The two are independent
+   * on this screen and nothing needs them to agree.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.description,
+    // The row being edited must not suggest its own description back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.description ?? "").filter(Boolean),
+    seed: LEAVE_TYPE_NAMES,
+    enabled: open,
+    onApply: (v) => set({ description: v }),
   });
 
   function openAdd() {
@@ -231,7 +255,14 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
               uppercase
               value={form.description}
               onChange={(e) => set({ description: e.target.value })}
+              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
               className="text-base md:text-sm"
+            />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              activeIndex={nameSuggest.activeIndex}
+              onApply={(v) => set({ description: v })}
             />
           </div>
 

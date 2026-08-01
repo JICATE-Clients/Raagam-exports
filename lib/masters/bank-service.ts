@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Bank } from "./bank-types";
 
 export async function listBanks(): Promise<Bank[]> {
@@ -8,8 +9,8 @@ export async function listBanks(): Promise<Bank[]> {
     .from("banks")
     .select("*, branches:bank_branches(*)")
     .order("name");
-  return ((data ?? []) as Bank[]).map((b) => ({
+  return withCreators(((data ?? []) as Bank[]).map((b) => ({
     ...b,
     branches: [...(b.branches ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

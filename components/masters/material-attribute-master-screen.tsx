@@ -15,7 +15,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createMaterialAttribute,
@@ -26,7 +26,6 @@ import type { MaterialAttribute, MaterialAttributeInput } from "@/lib/masters/ma
 import type { Attribute, ConfigLookup } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
-import type { Commodity } from "@/lib/masters/commodity-types";
 import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-picker";
 import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -85,8 +84,6 @@ export function MaterialAttributeMasterScreen({
   attributes,
   categories,
   levies,
-  commodities,
-  itemClasses,
   fabricStructures,
   perms,
 }: {
@@ -94,8 +91,6 @@ export function MaterialAttributeMasterScreen({
   attributes: Attribute[];
   categories: Category[];
   levies: Levy[];
-  commodities: Commodity[];
-  itemClasses: ConfigLookup[];
   fabricStructures: ConfigLookup[];
   perms: Perms;
 }) {
@@ -699,8 +694,6 @@ export function MaterialAttributeMasterScreen({
                 canEdit={perms.canEdit}
                 canDelete={perms.canDelete}
                 levies={levies}
-                commodities={commodities}
-                itemClasses={itemClasses}
                 fabricStructures={fabricStructures}
               />
             </Field>

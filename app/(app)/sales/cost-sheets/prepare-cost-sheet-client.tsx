@@ -13,7 +13,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { fmtMoney, fmtDate } from "@/lib/format";

@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 
 // ============================================================================
 // TCS Assign to Customers (Associates). A bulk-toggle grid over the existing
@@ -23,5 +24,5 @@ export async function listCustomerTcs(): Promise<CustomerTcsRow[]> {
     .from("customers")
     .select("id, code, name, doc_id, country_id, tcs_applicable, created_at")
     .order("name");
-  return (data ?? []) as CustomerTcsRow[];
+  return withCreators((data ?? []) as CustomerTcsRow[]);
 }

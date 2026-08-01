@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Applicant } from "./applicant-types";
 
 export async function listApplicants(): Promise<Applicant[]> {
@@ -8,8 +9,8 @@ export async function listApplicants(): Promise<Applicant[]> {
     .from("applicants")
     .select("*, country:countries!applicants_country_id_fkey(id,code,name), contacts:applicant_contacts(*)")
     .order("name");
-  return ((data ?? []) as Applicant[]).map((a) => ({
+  return withCreators(((data ?? []) as Applicant[]).map((a) => ({
     ...a,
     contacts: [...(a.contacts ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

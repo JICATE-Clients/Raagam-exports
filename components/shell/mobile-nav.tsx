@@ -429,6 +429,14 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
           <div className="flex h-11 items-center gap-2.5 rounded-xl border border-border bg-surface-muted px-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-ring">
             <Search className="h-[17px] w-[17px] text-muted-foreground" />
             <input
+              // The one raw <input> outside components/ui — so it has to say
+              // this itself. Chrome's list of previously-typed searches would
+              // stack on top of the results below it, and ↓ would walk Chrome's
+              // list instead of ours. Same reason as components/ui/input.tsx.
+              autoComplete="off"
+              data-1p-ignore=""
+              data-lpignore="true"
+              data-form-type="other"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search records, modules, actions…"

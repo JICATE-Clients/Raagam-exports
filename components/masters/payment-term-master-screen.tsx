@@ -121,6 +121,13 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
 
   // Mirrors the check the Payment Term PICKER already ran -- the same record was
   // guarded when quick-added from another form and unguarded on its own screen.
+  //
+  // spell-suggest: exempt -- the field this guards is a <Textarea>, and the
+  // suggestion strip claims ArrowDown and Enter. Inside a textarea those already
+  // mean "move the caret down a line" and "start a new line", so a chip would
+  // take the two keys the operator needs most to write a multi-line term. A
+  // sentence of trading conditions is also not a NAME: two terms that differ by
+  // one word are two different terms, not a typo of each other.
   const dupError = useDuplicateName({
     table: "payment_terms",
     name: form.description,

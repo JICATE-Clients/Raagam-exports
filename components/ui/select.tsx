@@ -111,7 +111,12 @@ export const Select = forwardRef<
   const enhance = useEnhance(nativeOnly);
 
   const native = (
-    <select ref={ref} className={cn(NATIVE_CLASS, className)} {...props}>
+    // `autoComplete="off"` for a different reason than input.tsx: a <select>
+    // has no typing to remember, so there is no pop-up — but Chrome will fill
+    // one from the saved address profile, which quietly rewrites a State or
+    // Country the operator never touched. The enhanced (desktop) branch below
+    // is a Combobox and carries its own `off`.
+    <select ref={ref} autoComplete="off" className={cn(NATIVE_CLASS, className)} {...props}>
       {children}
     </select>
   );

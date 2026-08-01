@@ -14,7 +14,7 @@ import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { ProcessPicker } from "@/components/masters/process-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createOutDocumentTerm,
@@ -44,6 +44,10 @@ const blankForm = () => ({ entry_date: todayISO(), type: "" as "" | OutDocTermTy
  * Master-detail CRUD for the legacy "Out Document Term" master: a header (auto
  * Entry No · Date · Type · Process · Item Class) plus a Description line grid.
  */
+// dup-check: exempt -- auto-numbered entry document (Entry No · Date · Type ·
+// Process · Item Class). Its identity is the header combination, not a typed
+// name, and the Description lines below it are free text that repeats across
+// terms by design.
 export function OutDocumentTermMasterScreen({
   rows,
   processes,

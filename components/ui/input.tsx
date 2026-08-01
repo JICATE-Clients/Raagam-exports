@@ -17,6 +17,43 @@ export const Input = forwardRef<
     ref={ref}
     readOnly={readOnly}
     /**
+     * THE BROWSER'S MEMORY IS NOT A MASTER LIST.
+     *
+     * Chrome remembers every value ever typed into a field and re-offers that
+     * list on focus — a plain white dropdown of whatever the last operator
+     * happened to type on THIS machine. On an ERP that is wrong three ways
+     * (client 2026-08-01):
+     *
+     *  - It looks authoritative and isn't. Beside a field whose real options
+     *    come from a master table, a browser-remembered "RAAGAM TEXTILS" reads
+     *    exactly like a stored row. Picking it writes a value no master has.
+     *  - It leaks between operators. A shared shop-floor machine offers the
+     *    previous user's customer names, salaries and party addresses to the
+     *    next one.
+     *  - It steals ↓. A field's list opens on ↓ (the `raagam-keyboard-contract`
+     *    skill); while Chrome's popup is showing, Chrome eats ↓ to walk ITS
+     *    suggestions instead. The contract breaks on exactly the fields that
+     *    matter most.
+     *
+     * `data-picker.tsx` and `combobox.tsx` already set this by hand, which is
+     * how we know it was hit before — but every plain Input was left uncovered.
+     * Default it here so a field cannot forget.
+     *
+     * OPTING BACK IN is just passing `autoComplete` — the spread below wins, so
+     * the login screen's `email` / `current-password` still reach the browser
+     * and its password manager. That is the ONLY legitimate case: a field whose
+     * value genuinely belongs to the person, not to the business.
+     *
+     * The `data-*` trio below is the same instruction to the password managers,
+     * which ignore `autocomplete` and read only their own opt-outs. They go
+     * undefined on an opted-in field for the reason just given — set them
+     * unconditionally and the login form loses 1Password / LastPass fill.
+     */
+    autoComplete={props.autoComplete ?? "off"}
+    data-1p-ignore={props.autoComplete ? undefined : ""}
+    data-lpignore={props.autoComplete ? undefined : "true"}
+    data-form-type={props.autoComplete ? undefined : "other"}
+    /**
      * A FIELD THE OPERATOR CANNOT TYPE INTO IS NEVER A TAB STOP.
      *
      * `readOnly` inputs are natively focusable, so a derived field — an

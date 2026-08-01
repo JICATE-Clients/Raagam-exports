@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { CourierDeliveryAddress } from "./courier-delivery-types";
 
 export async function listCourierDeliveryAddresses(): Promise<CourierDeliveryAddress[]> {
@@ -10,8 +11,8 @@ export async function listCourierDeliveryAddresses(): Promise<CourierDeliveryAdd
       "*, country:countries!courier_delivery_addresses_country_id_fkey(id,code,name), contacts:courier_delivery_contacts(*)",
     )
     .order("name");
-  return ((data ?? []) as CourierDeliveryAddress[]).map((r) => ({
+  return withCreators(((data ?? []) as CourierDeliveryAddress[]).map((r) => ({
     ...r,
     contacts: [...(r.contacts ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

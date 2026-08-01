@@ -11,13 +11,14 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { createLevy, updateLevy, deleteLevy } from "@/lib/masters/levy-actions";
@@ -115,6 +116,10 @@ function blankForm(): Form {
   };
 }
 
+// dup-check: exempt -- a levy is a DATED rate version. The same tax name at a new
+// effective-from date is how a rate revision is entered (an 18% GST becoming 12%
+// is a second LEVY row, not an edit of the first), so a name check here would
+// refuse the only way this master is meant to be used.
 export function LevyMasterScreen({
   rows,
   accounts,
@@ -270,7 +275,11 @@ export function LevyMasterScreen({
     startTransition(async () => {
       const res = editId ? await updateLevy(editId, payload) : await createLevy(payload);
       if (res.ok) {
-        success(editId ? "Levy updated." : "Levy added.");
+        // "GST", not "Levy", everywhere the operator can read it (client
+        // 2026-08-01) — see the label in lib/masters/registry.ts. The per-row
+        // sheet title still names the actual structure being edited (Duty /
+        // TDS / VAT …), so nothing is lost by the list-level wording.
+        success(editId ? "GST updated." : "GST added.");
         setOpen(false);
         router.refresh();
       } else {
@@ -283,7 +292,7 @@ export function LevyMasterScreen({
     startTransition(async () => {
       const res = await deleteLevy(r.id);
       if (res.ok) {
-        success(deletedToast("Levy", res));
+        success(deletedToast("GST", res));
         router.refresh();
       } else {
         error(res.error);
@@ -327,7 +336,6 @@ export function LevyMasterScreen({
       header: "Calc/Exempt",
       cell: (r) => <span className="text-sm">{r.calc_exempt === "calculated" ? "Calculated" : "Exempted"}</span>,
     },
-    { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by_name || "—"}</span> },
     {
       header: "Inactive",
       cell: (r) => (
@@ -434,7 +442,7 @@ export function LevyMasterScreen({
             setQuery(v);
             pg.setPage(1);
           }}
-          searchPlaceholder="Search levies…"
+          searchPlaceholder="Search GST entries…"
           activeCount={activeCount}
           dateFilter={{
             ...dateFilter,
@@ -504,7 +512,7 @@ export function LevyMasterScreen({
           <DataIoToolbar entityKey="levies" rows={filtered} canExport={perms.canExport} />
           {perms.canCreate && (
             <Button size="md" onClick={openAdd}>
-              + Add Levy
+              + Add GST
             </Button>
           )}
         </div>
@@ -512,14 +520,14 @@ export function LevyMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No levies yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No GST entries yet." />
       </div>
 
       {/* mobile cards */}
       <div className="space-y-2.5 md:hidden">
         {pg.paged.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No levies yet.
+            No GST entries yet.
           </div>
         ) : (
           pg.paged.map((r) => {

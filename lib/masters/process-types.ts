@@ -3,8 +3,13 @@ import { capsName } from "@/lib/validation/formats";
 
 // ============================================================================
 // Processes — master-detail (0227). Legacy EDP2 "Process" form: a header (name,
-// commodity, billing basis, "For" applicability flags, planning flags) + an
-// optional "Sub Categories" line grid.
+// billing basis, "For" applicability flags, planning flags) + an optional
+// "Sub Categories" line grid.
+//
+// Commodity was withdrawn from this master (client 2026-08-01) along with the
+// Commodities child itself. `processes.commodity_id` still EXISTS in the
+// database and keeps its stored value; leaving it out of this schema is what
+// stops every save from writing null over it.
 // ============================================================================
 export const BILLING_ON = ["Outward Qty", "Inward Qty/Wt", "Outward Qty/Wt"] as const;
 export type BillingOn = (typeof BILLING_ON)[number];
@@ -21,7 +26,6 @@ export interface Process {
   id: string;
   name: string;
   short_description: string | null;
-  commodity_id: string | null;
   billing_on: BillingOn | null;
   hsn_code: string | null;
   for_yarn: boolean;
@@ -50,7 +54,6 @@ export const processSubCategoryInput = z.object({
 export const processInput = z.object({
   name: capsName("Process name is required"),
   short_description: z.string().optional().nullable(),
-  commodity_id: z.string().uuid().nullable().default(null),
   billing_on: z.enum(BILLING_ON).nullable().default(null),
   hsn_code: z.string().optional().nullable(),
   for_yarn: z.boolean().default(false),

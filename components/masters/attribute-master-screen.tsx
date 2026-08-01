@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,13 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { saveAttributeValues } from "@/lib/masters/extras-actions";
 import { type Attribute } from "@/lib/masters/extras-types";
+import { dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 // An attribute value is just a NAME now — its numeric/option behaviour and value
@@ -72,6 +74,43 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
   function removeValueRow(key: string) {
     setValues((vs) => vs.filter((v) => v.key !== key));
   }
+
+  /**
+   * dup-check: the duplicate here is a REPEATED GRID ROW, not a repeated record.
+   *
+   * `useDuplicateName` is the wrong shape for it — there is no name field on
+   * this form (the class is picked, never typed) and nothing to ask the server,
+   * because every candidate is already on screen. `saveAttributeValues` replaces
+   * the whole list wholesale, so two rows reading GSM would both insert and the
+   * Material screen would then show the same attribute twice with no way to tell
+   * which one an item answered.
+   *
+   * Keyed by the row's own key so the FIRST occurrence stays clean and only the
+   * repeat is marked — marking both would tell the operator to change a row that
+   * is correct. The marker still comes from `dupFieldProps`, so the keyboard hold
+   * behaves identically to every other duplicate in the app.
+   *
+   * spell-suggest: exempt -- the check above lives in a CHILD GRID cell, and the
+   * suggestion strip is a wrapping row of chips that would push the grid's rows
+   * out of alignment as the operator types. It is also the one place a near-miss
+   * costs nothing to spot: a class holds a handful of attributes and all of them
+   * are on screen at once, directly above the cell being typed into.
+   */
+  const dupKeys = useMemo(() => {
+    const seen = new Map<string, string>();
+    const dups = new Set<string>();
+    for (const v of values) {
+      const norm = v.value.trim().toUpperCase();
+      if (!norm) continue;
+      if (seen.has(norm)) dups.add(v.key);
+      else seen.set(norm, v.key);
+    }
+    return dups;
+  }, [values]);
+  const dupFor = (v: ValueRow) =>
+    dupKeys.has(v.key)
+      ? `"${v.value.trim().toUpperCase()}" is already in this list. Use a different value.`
+      : null;
 
   function submit() {
     if (!editRow) return;
@@ -243,7 +282,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
               {editRow?.has_attribute ? "Cancel" : "Close"}
             </Button>
             {editRow?.has_attribute && (
-              <Button size="md" disabled={isPending} onClick={submit}>
+              <Button size="md" disabled={isPending || dupKeys.size > 0} onClick={submit}>
                 {isPending ? "Saving…" : "Save"}
               </Button>
             )}
@@ -271,24 +310,32 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                   {
                     header: "Value",
                     cell: (v) => (
-                      <Input
-                        value={v.value}
-                        uppercase
-                        onChange={(e) => setValueAt(v.key, e.target.value)}
-                        placeholder="Attribute value"
-                        className="text-base md:text-sm"
-                      />
+                      <>
+                        <Input
+                          value={v.value}
+                          uppercase
+                          onChange={(e) => setValueAt(v.key, e.target.value)}
+                          placeholder="Attribute value"
+                          className="text-base md:text-sm"
+                          {...dupFieldProps(dupFor(v), `attr-val-${v.key}`)}
+                        />
+                        <DuplicateError error={dupFor(v)} id={`attr-val-${v.key}`} />
+                      </>
                     ),
                   },
                 ]}
                 renderMobileRow={(v) => (
-                  <Input
-                    value={v.value}
-                    uppercase
-                    onChange={(e) => setValueAt(v.key, e.target.value)}
-                    placeholder="Attribute value"
-                    className="text-base md:text-sm"
-                  />
+                  <>
+                    <Input
+                      value={v.value}
+                      uppercase
+                      onChange={(e) => setValueAt(v.key, e.target.value)}
+                      placeholder="Attribute value"
+                      className="text-base md:text-sm"
+                      {...dupFieldProps(dupFor(v), `attr-val-m-${v.key}`)}
+                    />
+                    <DuplicateError error={dupFor(v)} id={`attr-val-m-${v.key}`} />
+                  </>
                 )}
               />
             </div>
