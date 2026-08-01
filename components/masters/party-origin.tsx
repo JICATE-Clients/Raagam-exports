@@ -1,5 +1,13 @@
 import { Link2 } from "lucide-react";
 import { StatusPill } from "@/components/ui/status-pill";
+import type { PartyOrigin } from "@/lib/masters/party-origin-text";
+
+// The two sentences live in lib/masters/party-origin-text.ts so the server can
+// say them too — `deleteParty` refuses a published row with the very same
+// words. Re-exported here because every screen already imports them from this
+// file, and one string having one home matters more than which file it is.
+export { originNameHint, originDeleteBlock } from "@/lib/masters/party-origin-text";
+export type { PartyOrigin } from "@/lib/masters/party-origin-text";
 
 // ============================================================================
 // Origin of a published party row — the "Also …" tick boxes (0371)
@@ -12,15 +20,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 // because the rule is one rule. Three copies is how the third one ends up
 // saying "from Customer" on a row an Applicant published.
 // ============================================================================
-
-export type PartyOrigin = {
-  /** The master that published this row: "Applicant". */
-  from: string;
-  /** That record's name, so the operator knows which one to go and untick. */
-  name: string;
-  /** The tick box that made it: "Also Customer". */
-  flag: string;
-};
 
 type OriginCandidate = {
   id: string | null | undefined;
@@ -59,16 +58,29 @@ export function OriginBadge({ origin }: { origin: PartyOrigin | null }) {
   );
 }
 
-/** Hint under the read-only Name field. Identity belongs to the source. */
-export function originNameHint(origin: PartyOrigin): string {
-  return `Name comes from ${origin.from} ${origin.name} — edit it there.`;
-}
-
 /**
- * Why this row cannot be deleted from here. Deleting it while the flag stayed
- * ticked would simply republish it on the source's next save, so we point at
- * the tick box instead of pretending the delete is possible.
+ * The mirror of OriginBadge, on the SOURCE side: what this row has published.
+ *
+ * It earns its place at delete time. Deleting an applicant now removes up to
+ * six records (0378) and the confirm strip cannot say so — `RowActions` pins
+ * that cell to a fixed width on purpose, and a sentence there would stretch
+ * every one of the ~131 lists that share it. So the row carries the
+ * consequence permanently instead of the click explaining it once.
+ *
+ * `roles` comes straight from the `also_*` booleans already on every list row —
+ * no extra query. It is one level deep, deliberately: an applicant knows it
+ * published a Customer, not whether that customer went on to publish a Notify.
+ * Naming the first level is what makes "this deletes more than one thing" land;
+ * the toast afterwards reports what actually went.
  */
-export function originDeleteBlock(origin: PartyOrigin): string {
-  return `This came from ${origin.from} ${origin.name} — untick ${origin.flag} there to remove it.`;
+export function PublishesBadge({ roles }: { roles: readonly string[] }) {
+  if (roles.length === 0) return null;
+  return (
+    <span title={`Also published as ${roles.join(" and ")} — deleting this removes ${roles.length > 1 ? "those" : "that"} too.`}>
+      <StatusPill tone="info">
+        <Link2 className="h-4 w-4 shrink-0" aria-hidden />
+        publishes {roles.join(" + ")}
+      </StatusPill>
+    </span>
+  );
 }

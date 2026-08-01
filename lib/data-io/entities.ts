@@ -276,6 +276,13 @@ export const IO_ENTITIES: IoEntity[] = [
     module: "masters",
     revalidate: ["/masters/materials/materials"],
     schema: materialInput,
+    // Code and Name only, which is also what keeps the Fabric UOM rule intact:
+    // `lib/data-io/actions.ts` writes straight to Postgres and never reaches
+    // `createMaterial`, so the fabric derivation in `applyFabricUomRule` is not
+    // in the path. Harmless today — an import cannot set item_class_id,
+    // fabric_structure_id or any *_uom_id, so it cannot make a fabric at all.
+    // Widen this list to include them and that stops being true: the rule would
+    // then have to move into the import path too, not just the action.
     fields: [
       { key: "code", header: "Code", kind: "string", required: true },
       { key: "name", header: "Name", kind: "string" },

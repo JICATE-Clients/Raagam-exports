@@ -11,6 +11,7 @@ import type { ConfigLookup, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Category } from "@/lib/masters/category-types";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 
 export type { ManageConfig, PickerRow };
 
@@ -60,6 +61,7 @@ export function LevyPicker({
         id: l.id,
         label: l.description || `Entry #${l.entry_no}`,
         sublabel: `Entry #${l.entry_no}`,
+        inactive: isInactive(l),
       })),
     [levies],
   );
@@ -95,6 +97,7 @@ export function ItemPicker({
   items,
   value,
   onChange,
+  usedIds,
   clearable = true,
   placeholder,
   compact = false,
@@ -106,9 +109,17 @@ export function ItemPicker({
 }: {
   label: string;
   title?: string;
-  items: { id: string; code: string; name: string }[];
+  /** Pass the WHOLE material rows — the disable flag rides along and the panel
+   *  hides switched-off items itself. Callers must not pre-filter. */
+  items: ({ id: string; code: string; name: string } & Deactivatable)[];
   value: string;
   onChange: (v: string) => void;
+  /**
+   * Pick-once inside a repeating grid: ids already taken by the sibling rows.
+   * Straight through to `DataPicker` — see the prop there for when it applies
+   * and, just as importantly, when it must not.
+   */
+  usedIds?: Iterable<string> | null;
   clearable?: boolean;
   placeholder?: string;
   /** Trigger-only (no label) for dense grid rows — as `LookupDialogPicker`. */
@@ -136,14 +147,19 @@ export function ItemPicker({
   const qcCommit = useRef<((id: string) => void) | null>(null);
   // Quick-created items, visible immediately; the server row (with its real
   // generated code) replaces the stub once router.refresh() lands.
-  const [extra, setExtra] = useState<{ id: string; code: string; name: string }[]>([]);
+  // Same shape as `items` so the merged list keeps the disable flag — a bare
+  // {id, code, name} here would widen `all` back to flag-less and silently
+  // un-hide every switched-off material.
+  const [extra, setExtra] = useState<
+    ({ id: string; code: string; name: string } & Deactivatable)[]
+  >([]);
   const all = useMemo(() => {
     const seen = new Set<string>();
     return [...items, ...extra].filter((it) => (seen.has(it.id) ? false : (seen.add(it.id), true)));
   }, [items, extra]);
   // Codes are backend-only (client 2026-07-23) — rows show just the name.
   const rows: PickerRow[] = useMemo(
-    () => all.map((it) => ({ id: it.id, label: it.name })),
+    () => all.map((it) => ({ id: it.id, label: it.name, inactive: isInactive(it) })),
     [all],
   );
 
@@ -188,6 +204,7 @@ export function ItemPicker({
         rows={rows}
         value={value}
         onChange={(v) => onChange(v ?? "")}
+        usedIds={usedIds}
         clearable={clearable}
         placeholder={placeholder}
         compact={compact}
@@ -239,6 +256,7 @@ export function CategoryPicker({
   categories,
   value,
   onChange,
+  usedIds,
   clearable = true,
   required = false,
   itemClassId,
@@ -255,6 +273,16 @@ export function CategoryPicker({
   categories: Category[];
   value: string;
   onChange: (v: string) => void;
+  /**
+   * Pick-once inside a repeating grid: ids already taken by the sibling rows.
+   * Straight through to `DataPicker` — see the prop there.
+   *
+   * Where the grid's real key is a PAIR (Vendor ▸ Item Category is unique on
+   * Item Class + Category), the caller must build this from the rows sharing
+   * this row's class — a flat set over the Category column alone would refuse a
+   * category that is legitimately used under a different class.
+   */
+  usedIds?: Iterable<string> | null;
   clearable?: boolean;
   required?: boolean;
   /** Parent Item Class id — new categories are created scoped to it; Add is
@@ -293,15 +321,13 @@ export function CategoryPicker({
 
   const rows: PickerRow[] = useMemo(
     () =>
-      all
-        .filter((c) => !c.inactive || c.id === value)
-        .map((c) => ({
-          id: c.id,
-          label: c.name || c.short_name || "—",
-          sublabel: c.short_spec,
-          disabled: c.inactive,
-        })),
-    [all, value],
+      all.map((c) => ({
+        id: c.id,
+        label: c.name || c.short_name || "—",
+        sublabel: c.short_spec,
+        inactive: isInactive(c),
+      })),
+    [all],
   );
 
   const canAdd = canCreate && !!itemClassId;
@@ -435,6 +461,7 @@ export function CategoryPicker({
         rows={rows}
         value={value}
         onChange={(v) => onChange(v ?? "")}
+        usedIds={usedIds}
         clearable={clearable}
         required={required}
         manage={manage}
@@ -497,6 +524,9 @@ export function AttributePicker({
    *  attribute may appear only once per set (0350). */
   invalid?: boolean;
 }) {
+  // No `inactive`: `attribute_values` has no disable column (it is a child of the
+  // Attribute row, which is what gets switched off). Flag-less by construction —
+  // see FLAGLESS_PICKERS in scripts/audit_layout.py.
   const rows: PickerRow[] = useMemo(
     () => values.map((v) => ({ id: v.id, label: v.value })),
     [values],
