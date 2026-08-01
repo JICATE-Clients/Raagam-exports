@@ -89,7 +89,13 @@ export const iwoInput = z.object({
   deli_date: nullableText,
   remarks: nullableText,
 });
-export type IwoInput = z.infer<typeof iwoInput>;
+/** `z.input`, not `z.infer` — what callers SEND, before
+ *  `createInternalWorkOrder` parses it. Every `uuidN` field carries
+ *  `.default(null)`, so it is optional going in; `z.infer` made all of them
+ *  required and broke the new-IWO form, which no longer sends
+ *  `owner_of_trial_id` (its Employee-master picker was withdrawn 2026-08-01,
+ *  though the column and its existing values survive). */
+export type IwoInput = z.input<typeof iwoInput>;
 
 export const iwoLineInput = z.object({
   description: z.string().min(1, "Description required"),
