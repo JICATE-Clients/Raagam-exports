@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Process } from "./process-types";
 
 export async function listProcesses(): Promise<Process[]> {
@@ -8,8 +9,8 @@ export async function listProcesses(): Promise<Process[]> {
     .from("processes")
     .select("*, sub_categories:process_sub_categories(*)")
     .order("name", { nullsFirst: false });
-  return ((data ?? []) as Process[]).map((p) => ({
+  return withCreators(((data ?? []) as Process[]).map((p) => ({
     ...p,
     sub_categories: [...(p.sub_categories ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

@@ -48,6 +48,9 @@ const blankLine = (key: string): LineRow => ({
  * Entry No · Effective From · Rule · Inactive) + a Details grid of tiers
  * (Range · From · To · Rejection Allowance).
  */
+// dup-check: exempt -- auto Entry No plus an Effective From date. A rule re-issued
+// at a later date is a revision, and refusing it would leave no way to change an
+// allowance without destroying the history the old tiers belong to.
 export function GarmentRejectionRuleMasterScreen({
   rows,
   perms,

@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Bin } from "./bin-types";
 
 export async function listBins(): Promise<Bin[]> {
@@ -8,5 +9,5 @@ export async function listBins(): Promise<Bin[]> {
     .from("bins")
     .select("*, location:locations(id,code,name)")
     .order("bin_code", { nullsFirst: false });
-  return (data ?? []) as Bin[];
+  return withCreators((data ?? []) as Bin[]);
 }

@@ -48,6 +48,8 @@ import {
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateCheck, useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { decodeGstin, matchGstinState, normalizeGstin } from "@/lib/validation/gstin";
 import { defaultCountryId, defaultStateId } from "@/lib/masters/geo-defaults";
 import {
@@ -600,6 +602,28 @@ export function ConsigneeMasterScreen({
     rows,
     rowId: (r) => r.id,
     rowValue: (r) => r.name,
+  });
+
+  /**
+   * "Did you mean?" — nameDupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    // No curated vocabulary, and there can never be one: these are the names of
+    // real trading parties. Rows only — which is exactly the useful check here,
+    // catching "ABC TEXTILES" typed beside an existing "ABC TEXTILE".
+    seed: [],
+    // `editOrigin` means this row was PUBLISHED by another party master and its
+    // Name is read-only here (see the field). Offering a correction for a value
+    // that cannot be typed is noise pointing at the wrong screen.
+    enabled: open && !nameDupError && !editOrigin,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
   const filtered = useMemo(() => {
@@ -1283,9 +1307,16 @@ export function ConsigneeMasterScreen({
                         value={form.name}
                         onChange={(e) => set({ name: e.target.value })}
                         required
+                        // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                        onKeyDown={nameSuggest.onKeyDown}
                         {...dupFieldProps(nameDupError, "cn-name")}
                       />
                       <DuplicateError error={nameDupError} id="cn-name" />
+                      <SpellSuggestHint
+                        suggestions={nameSuggest.suggestions}
+                        activeIndex={nameSuggest.activeIndex}
+                        onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+                      />
                     </Field>
                     {/* No `required` marker, unlike the asterisk CountryPicker
                         prints for itself: `country_id` is nullable in

@@ -40,14 +40,19 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "commodities" | "seasons" | "bins" | "garment_rejection_rules" | "yarn_compositions" | "defect_groups" | "defect_details";
+  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "bins" | "garment_rejection_rules" | "defect_groups" | "defect_details";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
 export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "item-class", label: "Item Classes", singular: "Item Class", description: "Item class definitions (Name + Has Attribute)", custom: "item_class" },
   { slug: "attributes", label: "Attributes", singular: "Attribute", description: "Per item-class attribute value lists", custom: "attributes" },
-  { slug: "levies", label: "Levies", singular: "Levy", description: "Tax & duty configuration (GST rates + account heads)", custom: "levies" },
+  // Labelled "GST", not "Levy" (client 2026-08-01) — that is what the operator
+  // calls it. The table, slug and `custom` key stay `levies`: renaming those
+  // would break every saved URL, the data-io entity key and 30-odd `levy_id`
+  // FKs for a wording change. The screen still covers VAT / CST / Duty / TDS /
+  // Excise rows, and its sheet title names the one being edited.
+  { slug: "levies", label: "GST", singular: "GST", description: "GST, duty & TDS structures (rates + account heads)", custom: "levies" },
   { slug: "categories", label: "Categories", singular: "Category", description: "Material classifications", custom: "categories" },
   { slug: "material-attributes", label: "Material Attributes", singular: "Material Attribute", description: "Per class/category attribute specs", custom: "material_attributes" },
   { slug: "stock-units", label: "Stock Units", singular: "Stock Unit", description: "Units of measure (decimals + item classes)", custom: "stock_units" },
@@ -60,12 +65,9 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "gauges", label: "Gauges", singular: "Gauge", description: "Knitting machine gauges", custom: "gauges" },
   { slug: "knitting-dias", label: "Knitting Dias", singular: "Knitting Dia", description: "Knitting diameters", custom: "knitting_dias" },
   { slug: "out-document-terms", label: "Out Document Terms", singular: "Out Document Term", description: "Sub-contract issue terms", custom: "out_document_terms" },
-  { slug: "commodities", label: "Commodities", singular: "Commodity", description: "Customs commodity classes", custom: "commodities" },
-  { slug: "seasons", label: "Seasons", singular: "Season", description: "Style seasons", custom: "seasons" },
   { slug: "bins", label: "Bins", singular: "Bin", description: "Storage bin locations", custom: "bins" },
   { slug: "garment-rejection-rules", label: "Garment Rejection Rules", singular: "Garment Rejection Rule", description: "QC rejection acceptance rules", custom: "garment_rejection_rules" },
   // --- Phase 1: Simple masters (from VB.NET source of truth audit) ---
-  { slug: "yarn-compositions", label: "Yarn Compositions", singular: "Yarn Composition", description: "Fibre types (Cotton, Polyester, Viscose…)", custom: "yarn_compositions" },
   { slug: "defect-groups", label: "Defect Groups", singular: "Defect Group", description: "QC defect category groups", custom: "defect_groups" },
   { slug: "defect-details", label: "Defect Details", singular: "Defect Detail", description: "Individual defect codes (CatgID.DefectID.DetID)", custom: "defect_details" },
 ];

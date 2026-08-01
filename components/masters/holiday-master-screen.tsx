@@ -45,6 +45,9 @@ function datePhrase(r: Pick<Holiday, "is_date_range" | "holiday_date" | "end_dat
  * Holiday/LOP), and the holiday date — a single date or a from→to range when
  * "Date Range" is ticked.
  */
+// dup-check: exempt -- a holiday name recurs every year by definition; DEEPAVALI
+// 2026 and DEEPAVALI 2027 are two correct rows. The identity is the name AND the
+// date, and the record already carries an auto Entry No.
 export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: Perms }) {
   const router = useRouter();
   const { success, error } = useToast();

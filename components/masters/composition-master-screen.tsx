@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
   createComposition,
@@ -22,35 +22,59 @@ import {
   deleteComposition,
 } from "@/lib/masters/composition-actions";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { CategoryPicker } from "@/components/masters/lookup-picker";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import type { Composition, CompositionInput } from "@/lib/masters/composition-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import type { Category } from "@/lib/masters/category-types";
+import type { Levy } from "@/lib/masters/levy-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
-type LineRow = { key: string; description: string; mixing_pct: string };
+type LineRow = { key: string; category_id: string; description: string; mixing_pct: string };
 
 const BLANK = { item_class_id: "", short_name: "", name: "", inactive: false };
 
 /**
  * Master-detail CRUD for the legacy "Composition" master: a header (Item Class
- * · Short Name · Name · Inactive) plus a "Mixing" grid of free-text fibre
- * descriptions + their mixing %. Composition only ever applies to Fabric, so
- * Item Class uses the same LookupDialogPicker as every other master (search +
+ * · Short Name · Name · Inactive) plus a "Mixing" grid naming the fibres the
+ * fabric is made of + their mixing %. Composition only ever applies to Fabric,
+ * so Item Class uses the same LookupDialogPicker as every other master (search +
  * Add/Modify/Delete), just fed a Fabric-only options list from page.tsx —
  * mirrors Material Attribute's PACK/SEW restriction, category.tsx's picker.
  * Dense table on desktop, cards on mobile, shared <Sheet> editor.
+ *
+ * THE HEADER IS FABRIC AND THE LINES ARE YARN, which reads like a mistake and
+ * is not: a composition belongs to a fabric, and its lines name the yarns
+ * inside it. So the line picker is scoped to the YARN item class (0384) while
+ * the header picker stays Fabric-only.
  */
 export function CompositionMasterScreen({
   rows,
   itemClasses,
+  yarnClassId,
+  yarnCategories,
+  levies,
+  fabricStructures,
   perms,
 }: {
   rows: Composition[];
   itemClasses: ConfigLookup[];
+  /** config_lookups id of the YARN item class — scopes the line picker and the
+   *  categories its "+ Add" creates. */
+  yarnClassId: string | null;
+  /** Categories already scoped to YARN by the caller (cascading-picker rule). */
+  yarnCategories: Category[];
+  /** Lookup lists the full Category quick-create sheet needs. Without them
+   *  "+ Add" falls back to a name-only form, which would leave the new fibre's
+   *  Category Type blank — and that answer gates the Material form's Mixing grid. */
+  levies: Levy[];
+  fabricStructures: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -70,6 +94,18 @@ export function CompositionMasterScreen({
     return m;
   }, [itemClasses]);
 
+  /** Resolve a line's fibre for DISPLAY. The category wins where there is one;
+   *  `description` answers for rows entered before 0384, which have no category
+   *  to resolve — dropping it would blank the Mixing column on every legacy
+   *  composition. Also covers a category since deleted outright. */
+  const categoryName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of yarnCategories) m.set(c.id, c.name || c.short_name || "—");
+    return m;
+  }, [yarnCategories]);
+  const lineLabel = (l: { category_id: string | null; description: string }) =>
+    (l.category_id ? categoryName.get(l.category_id) : null) ?? l.description;
+
   // Real-time duplicate check on Name (mirrors the on-save guard in composition-actions).
   const dupError = useDuplicateName({
     table: "compositions",
@@ -81,9 +117,27 @@ export function CompositionMasterScreen({
     rowValue: (r) => r.name,
   });
 
+  /**
+   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    // No curated vocabulary: this master has no real-world standard to draw
+    // on, so the rows beside what is being typed are the only safe candidates.
+    seed: [],
+    enabled: open && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
+  });
+
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
-      [r.name, r.short_name, classLabel.get(r.item_class_id), ...r.lines.map((l) => l.description)]
+      [r.name, r.short_name, classLabel.get(r.item_class_id), ...r.lines.map(lineLabel)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -99,7 +153,7 @@ export function CompositionMasterScreen({
   function openAdd() {
     setEditId(null);
     setForm({ ...BLANK, item_class_id: fabricClass?.id ?? "" });
-    setLines([{ key: newKey(), description: "", mixing_pct: "" }]);
+    setLines([{ key: newKey(), category_id: "", description: "", mixing_pct: "" }]);
     setOpen(true);
   }
   function openEdit(r: Composition) {
@@ -111,13 +165,18 @@ export function CompositionMasterScreen({
       inactive: r.inactive,
     });
     setLines(
-      r.lines.map((l) => ({ key: newKey(), description: l.description, mixing_pct: String(l.mixing_pct) })),
+      r.lines.map((l) => ({
+        key: newKey(),
+        category_id: l.category_id ?? "",
+        description: l.description,
+        mixing_pct: String(l.mixing_pct),
+      })),
     );
     setOpen(true);
   }
 
   function addLine() {
-    setLines((ls) => [...ls, { key: newKey(), description: "", mixing_pct: "" }]);
+    setLines((ls) => [...ls, { key: newKey(), category_id: "", description: "", mixing_pct: "" }]);
   }
   function setLineAt(key: string, patch: Partial<LineRow>) {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -125,6 +184,41 @@ export function CompositionMasterScreen({
   function removeLine(key: string) {
     setLines((ls) => ls.filter((l) => l.key !== key));
   }
+
+  /**
+   * The fibre a mixing line names — a YARN-class category, not free text (0384).
+   *
+   * `usedIds` is PICK ONCE, and it is not tidiness: the same fibre on two lines
+   * is one fibre whose two percentages should have been added together, and it
+   * turns the "Total 100%" badge into a sum nobody can read. Same guard, same
+   * reason, as the Material master's Mixing grid.
+   *
+   * `description` is written alongside the id so the list summary, the search
+   * text and the server's normalizeLines() keep reading one always-populated
+   * column — and so a line stays readable if its category is later deleted.
+   *
+   * A plain function, not a `useMemo`/component: it is called from inside
+   * `ChildGrid`'s column and card renderers, where a hook would run conditionally.
+   */
+  const fibreCell = (l: LineRow) => (
+    <CategoryPicker
+      label=""
+      title="Yarn"
+      categories={yarnCategories}
+      value={l.category_id}
+      usedIds={lines.filter((x) => x.key !== l.key).map((x) => x.category_id).filter(Boolean)}
+      onChange={(v) =>
+        setLineAt(l.key, { category_id: v, description: (v && categoryName.get(v)) || "" })
+      }
+      itemClassId={yarnClassId ?? undefined}
+      selectedClassCode="YARN"
+      canCreate={perms.canCreate}
+      canEdit={perms.canEdit}
+      canDelete={perms.canDelete}
+      levies={levies}
+      fabricStructures={fabricStructures}
+    />
+  );
 
   const pctTotal = useMemo(
     () => lines.reduce((sum, l) => sum + (Number(l.mixing_pct) || 0), 0),
@@ -139,8 +233,15 @@ export function CompositionMasterScreen({
         name: form.name.trim() || null,
         inactive: form.inactive,
         lines: lines
-          .filter((l) => l.description.trim())
-          .map((l, i) => ({ sno: i + 1, description: l.description.trim(), mixing_pct: Number(l.mixing_pct) || 0 })),
+          // A line counts if it names a fibre EITHER way — a legacy row opened
+          // for edit still carries only its text until someone re-picks it.
+          .filter((l) => l.category_id || l.description.trim())
+          .map((l, i) => ({
+            sno: i + 1,
+            category_id: l.category_id || null,
+            description: l.description.trim(),
+            mixing_pct: Number(l.mixing_pct) || 0,
+          })),
       };
       const res = editId ? await updateComposition(editId, payload) : await createComposition(payload);
       if (res.ok) {
@@ -176,7 +277,7 @@ export function CompositionMasterScreen({
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
           {r.lines.length
-            ? r.lines.map((l) => `${l.description} ${fmtNumber(l.mixing_pct)}%`).join(", ")
+            ? r.lines.map((l) => `${lineLabel(l)} ${fmtNumber(l.mixing_pct)}%`).join(", ")
             : "—"}
         </span>
       ),
@@ -286,7 +387,7 @@ export function CompositionMasterScreen({
               </div>
               {r.lines.length > 0 && (
                 <div className="mt-2 text-[13px] text-muted-foreground">
-                  {r.lines.map((l) => `${l.description} ${fmtNumber(l.mixing_pct)}%`).join(", ")}
+                  {r.lines.map((l) => `${lineLabel(l)} ${fmtNumber(l.mixing_pct)}%`).join(", ")}
                 </div>
               )}
             </button>
@@ -354,9 +455,16 @@ export function CompositionMasterScreen({
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     required
                     className="text-base md:text-sm"
+                    // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                    onKeyDown={nameSuggest.onKeyDown}
                     {...dupFieldProps(dupError, "cmp-name")}
                   />
                   <DuplicateError error={dupError} id="cmp-name" />
+                  <SpellSuggestHint
+                    suggestions={nameSuggest.suggestions}
+                    activeIndex={nameSuggest.activeIndex}
+                    onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+                  />
                 </div>
               </DetailSection>
 
@@ -390,10 +498,8 @@ export function CompositionMasterScreen({
                 addLabel="+ Add line"
                 columns={[
                   {
-                    header: "Description",
-                    cell: (l) => (
-                      <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
-                    ),
+                    header: "Yarn",
+                    cell: (l) => fibreCell(l),
                   },
                   {
                     header: "%",
@@ -405,7 +511,11 @@ export function CompositionMasterScreen({
                 ]}
                 renderMobileRow={(l) => (
                   <>
-                    <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, { description: e.target.value })} placeholder="Description" className="text-base md:text-sm" />
+                    {/* This grid is `forceCards`, so this renderer — not the
+                        column above — is what draws every viewport. Both are
+                        kept in step so flipping to `inlineCards` later is a
+                        one-word change. */}
+                    {fibreCell(l)}
                     {/* fields pair up two-per-row inside cards */}
                     <div className="grid grid-cols-2 gap-2">
                       <Input type="number" min="0" step="0.01" value={l.mixing_pct} onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })} placeholder="%" className="text-base md:text-sm" />

@@ -13,13 +13,16 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { STOCK_UNIT_NAMES } from "@/lib/masters/name-vocabularies";
 import {
   createStockUnit,
   updateStockUnit,
@@ -106,6 +109,22 @@ export function StockUnitMasterScreen({
     rows,
     rowId: (r) => r.id,
     rowValue: (r) => r.name,
+  });
+
+  /**
+   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    seed: STOCK_UNIT_NAMES,
+    enabled: open && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
   function openAdd() {
@@ -337,9 +356,16 @@ export function StockUnitMasterScreen({
                 onChange={(e) => set({ name: e.target.value })}
                 placeholder="Kilogram"
                 className="text-base md:text-sm"
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
                 {...dupFieldProps(dupError, "su-name")}
               />
               <DuplicateError error={dupError} id="su-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </div>
             <div>
               <Label htmlFor="su-dp">Decimal Places</Label>

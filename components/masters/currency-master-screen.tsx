@@ -6,6 +6,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createCurrency, updateCurrency, deleteCurrency } from "@/lib/masters/extras-actions";
 import type { Currency } from "@/lib/masters/types";
+import { CURRENCY_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -34,9 +35,10 @@ const descriptor: SimpleMasterDescriptor<Currency> = {
   ],
   fromRow: (r) => ({ code: r.code, name: r.name, symbol: r.symbol ?? "" }),
   searchText: (r) => [r.code, r.name, r.symbol].filter(Boolean).join(" "),
-  // Offers near-matching names already in THIS master while typing;
+  // Offers near-matching names — the curated vocabulary above plus the
+  // rows already in THIS master — while typing;
   // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
-  spellSuggest: true,
+  spellSuggest: { seed: CURRENCY_NAMES },
   dupCheck: { table: "currencies", fieldKey: "name", nameColumn: "name" },
   toPayload: (v) => ({
     code: String(v.code).toUpperCase(),

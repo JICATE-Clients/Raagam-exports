@@ -2,7 +2,7 @@
 import { deletedToast } from "@/lib/masters/delete-message";
 import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 
-import { useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,19 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { PaginationBar } from "@/components/ui/pagination";
 import { useToast } from "@/components/ui/toast";
+import { focusFirstField } from "@/lib/focus";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
+import {
+  createdColumns,
+  createdMeta,
+  createdSection,
+  hasCreatedInfo,
+} from "@/components/ui/created-columns";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, ROW_ACTIONS_WIDTH } from "@/components/ui/row-actions";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
@@ -133,22 +140,30 @@ export type SimpleMasterDescriptor<Row> = {
     label?: string;
   };
   /**
-   * Live "did you mean?" chips under the `dupCheck` field, offering names that
-   * already exist on this screen. Off by default; set true to opt a master in.
+   * Live "did you mean?" chips under the `dupCheck` field. Off by default.
+   *
+   *   spellSuggest: true                       — rows on this screen only
+   *   spellSuggest: { seed: STOCK_UNIT_NAMES } — that vocabulary as well
    *
    * Requires `dupCheck` — it reuses that descriptor's field and its `value`
    * accessor, so the chip and the red error always read the SAME text. Declaring
    * it without `dupCheck` does nothing.
    *
-   * It offers ONLY names already on this screen — there is no seed word list,
-   * and that is the whole safety property. The first version of this feature
-   * carried a curated fibre vocabulary (COTTON, VISCOSE, …) that was offered
-   * everywhere, so a Packing Accessories name got "corrected" to COTTON (client
-   * 2026-07-28) and the client had the feature removed outright two days later.
-   * Suggesting only from the rows beside what is being typed makes that class of
-   * nonsense unrepresentable: a Packing screen can only ever offer Packing names.
+   * `true` offers ONLY names already on this screen, which says nothing at all
+   * on a thin or empty table — the operator sets the house spelling on the first
+   * row typed, which is exactly the moment a dictionary would have helped. A
+   * `seed` fixes that, and the ONE rule about seeds is that each list belongs to
+   * a single master (see lib/masters/name-vocabularies.ts). The first version of
+   * this feature DEFAULTED its seed to a fibre vocabulary, so a Packing
+   * Accessories name got "corrected" to COTTON (client 2026-07-28) and the
+   * client had the feature removed outright two days later. A seed named at the
+   * call site cannot reach a screen that did not ask for it; a defaulted one
+   * reaches all of them. There is deliberately no default here.
+   *
+   * Leave it `true` where no real-world standard exists (Bin, Count, Gauge,
+   * Knitting Dia). Rows-only is a correct answer; an invented vocabulary is not.
    */
-  spellSuggest?: boolean;
+  spellSuggest?: boolean | { seed: string[] };
   /** Build the exact server-action payload (trimming already applied to text values). */
   toPayload: (values: SimpleValues, status: SimpleStatus) => unknown;
   actions: {
@@ -240,6 +255,26 @@ export function SimpleMasterScreen<Row>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Same data-derived gate the Created Date facet uses, so the column and the
+  // filter appear together or not at all.
+  const showCreated = useMemo(() => hasCreatedInfo(rows), [rows]);
+
+  /**
+   * The descriptor's extras plus the Created pair. `extraColumns` is already
+   * the contract position — this engine renders Status after it — so this is a
+   * plain append, unlike `MasterListShell` which has to splice.
+   *
+   * A Created column declared by the descriptor is STRIPPED: Count's said
+   * "Created Date" but read raw `created_by`, which is a uuid on most tables.
+   * The engine's version is the one that survives.
+   */
+  const extraColumns = useMemo(() => {
+    const own = (d.extraColumns ?? []).filter(
+      (c) => !/^\s*created\s*(date|dt|user|by|on)?\s*$/i.test(c.header),
+    );
+    return showCreated ? [...own, ...createdColumns<Row>()] : own;
+  }, [d.extraColumns, showCreated]);
+
   function startAdd() {
     if (!perms.canCreate) return;
     setEditing({ id: null, values: { ...blankValues }, status: "active" });
@@ -328,7 +363,8 @@ export function SimpleMasterScreen<Row>({
   /**
    * "Did you mean?" candidates for the dup field — the names already on this
    * screen, minus the row being edited (a record must not suggest its own name
-   * back at you).
+   * back at you). The descriptor's `seed`, where it declares one, is added
+   * alongside these by the hook.
    *
    * Read through the descriptor's own `value` accessor, the same one `dupCheck`
    * uses, so the chip and the red error can never disagree about which text they
@@ -338,6 +374,34 @@ export function SimpleMasterScreen<Row>({
    * a line under it, and the exact name it collided with is not a useful thing
    * to "suggest" — the operator needs a DIFFERENT name, not that one.
    */
+  /**
+   * Put the cursor in the row that just went into edit mode.
+   *
+   * Replaces a per-cell `autoFocus` that was passed only to `editCell(f, i===0)`
+   * and then honoured by exactly ONE of its four branches — the plain text
+   * input. The other three silently dropped it (client 2026-08-01):
+   *
+   *   - `lockedOnEdit` renders a <span>, so a master whose FIRST field is locked
+   *     opened with no cursor at all. Currency is exactly that shape (`code` is
+   *     fields[0] and lockedOnEdit), so editing a currency focused nothing.
+   *   - the checkbox branch builds its own <input> and never spread it.
+   *   - the select branch builds a <Select> and never passed it.
+   *   - MobileEditCard calls `editCell(f)` with no autoFocus at all, so inline
+   *     edit on a phone opened with no cursor on every one of these screens.
+   *
+   * `focusFirstField` already knows how to answer "the first thing worth typing
+   * into", including skipping a locked first column, so one call on the row
+   * covers all four. Keyed on WHICH row is being edited, not on `editing` — that
+   * object is replaced on every keystroke, and re-focusing mid-typing would send
+   * the caret back to column one after each character.
+   */
+  const editRowRef = useRef<HTMLElement | null>(null);
+  const editKey = editing ? editing.id ?? "__new__" : null;
+  useEffect(() => {
+    if (!editKey) return;
+    focusFirstField(editRowRef.current);
+  }, [editKey]);
+
   /** Write one field of the row being edited. Hoisted because two callers need
    *  it: the input cell below, and the suggestion strip, which has to write the
    *  dup field from up here. */
@@ -355,10 +419,16 @@ export function SimpleMasterScreen<Row>({
       .filter(Boolean);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d, rows, editing?.id]);
+  // A descriptor's seed, or none. `true` means "rows only" and is the default
+  // for every master without a real-world standard to draw on.
+  const suggestSeed = useMemo(
+    () => (typeof d.spellSuggest === "object" ? d.spellSuggest.seed : []),
+    [d.spellSuggest],
+  );
   const nameSuggest = useSpellSuggest({
     name: dupValue,
     names: suggestNames,
-    seed: [],
+    seed: suggestSeed,
     enabled: !!d.spellSuggest && !!d.dupCheck && !dupError,
     // Applied through the same setter the input uses, so an accepted chip is
     // indistinguishable from having typed the name.
@@ -462,7 +532,7 @@ export function SimpleMasterScreen<Row>({
     return <span className={cn(f.mono ? "font-mono text-xs" : "text-sm")}>{v}</span>;
   }
 
-  function editCell(f: SimpleField, autoFocus = false) {
+  function editCell(f: SimpleField) {
     if (!editing) return null;
     const v = editing.values[f.key];
     if (f.lockedOnEdit && editing.id !== null) {
@@ -508,7 +578,6 @@ export function SimpleMasterScreen<Row>({
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => setV(e.target.value),
       className: cn("h-8 text-sm", f.widthClass),
       placeholder,
-      autoFocus,
       // Auto/derived fields drop out of Tab order but stay clickable/editable.
       tabIndex: f.skipTab ? -1 : undefined,
       "aria-label": f.label,
@@ -715,7 +784,7 @@ export function SimpleMasterScreen<Row>({
                   {f.required && <span className="ml-0.5 text-danger">*</span>}
                 </th>
               ))}
-              {(d.extraColumns ?? []).map((c) => (
+              {extraColumns.map((c) => (
                 <th key={c.header} className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
                   {c.header}
                 </th>
@@ -729,13 +798,13 @@ export function SimpleMasterScreen<Row>({
           <tbody>
             {/* add row — outside pagination, always on top */}
             {editing?.id === null && (
-              <tr className="border-b border-border bg-primary/5" data-focus-scope onKeyDown={onRowKeyDown}>
-                {d.fields.map((f, i) => (
+              <tr ref={editRowRef as React.Ref<HTMLTableRowElement>} className="border-b border-border bg-primary/5" data-focus-scope onKeyDown={onRowKeyDown}>
+                {d.fields.map((f) => (
                   <td key={f.key} className="px-3 py-1.5 align-middle">
-                    {editCell(f, i === 0)}
+                    {editCell(f)}
                   </td>
                 ))}
-                {(d.extraColumns ?? []).map((c) => (
+                {extraColumns.map((c) => (
                   <td key={c.header} className="px-3 py-1.5 align-middle text-sm text-muted-foreground">
                     —
                   </td>
@@ -747,7 +816,7 @@ export function SimpleMasterScreen<Row>({
             {pg.paged.length === 0 && editing?.id !== null ? (
               <tr>
                 <td
-                  colSpan={d.fields.length + (d.extraColumns?.length ?? 0) + (hasStatus ? 1 : 0) + 1}
+                  colSpan={d.fields.length + extraColumns.length + (hasStatus ? 1 : 0) + 1}
                   className="px-3 py-8 text-center text-sm text-muted-foreground"
                 >
                   {empty}
@@ -758,13 +827,13 @@ export function SimpleMasterScreen<Row>({
                 const isEditing = editing?.id === getId(r);
                 if (isEditing) {
                   return (
-                    <tr key={getId(r)} className="border-b border-border bg-primary/5 last:border-0" data-focus-scope onKeyDown={onRowKeyDown}>
-                      {d.fields.map((f, i) => (
+                    <tr key={getId(r)} ref={editRowRef as React.Ref<HTMLTableRowElement>} className="border-b border-border bg-primary/5 last:border-0" data-focus-scope onKeyDown={onRowKeyDown}>
+                      {d.fields.map((f) => (
                         <td key={f.key} className="px-3 py-1.5 align-middle">
-                          {editCell(f, i === 0)}
+                          {editCell(f)}
                         </td>
                       ))}
-                      {(d.extraColumns ?? []).map((c) => (
+                      {extraColumns.map((c) => (
                         <td key={c.header} className="px-3 py-1.5 align-middle text-sm text-muted-foreground">
                           {c.cell(r)}
                         </td>
@@ -782,7 +851,7 @@ export function SimpleMasterScreen<Row>({
                         {readCell(f, values)}
                       </td>
                     ))}
-                    {(d.extraColumns ?? []).map((c) => (
+                    {extraColumns.map((c) => (
                       <td key={c.header} className="px-3 py-2 align-middle text-sm text-muted-foreground">
                         {c.cell(r)}
                       </td>
@@ -814,6 +883,7 @@ export function SimpleMasterScreen<Row>({
       <div className={cn("space-y-2.5 transition-opacity md:hidden", isStale && "opacity-60")}>
         {editing?.id === null && (
           <MobileEditCard
+                  cardRef={editRowRef as React.Ref<HTMLDivElement>}
             fields={d.fields}
             editCell={editCell}
             statusCell={hasStatus ? statusEditCell() : null}
@@ -830,6 +900,7 @@ export function SimpleMasterScreen<Row>({
             if (editing?.id === getId(r)) {
               return (
                 <MobileEditCard
+                  cardRef={editRowRef as React.Ref<HTMLDivElement>}
                   key={getId(r)}
                   fields={d.fields}
                   editCell={editCell}
@@ -853,6 +924,11 @@ export function SimpleMasterScreen<Row>({
                       <Truncated className="text-[15px] font-semibold text-foreground">{title || "—"}</Truncated>
                       {d.mobileMeta && (
                         <div className="mt-0.5 text-xs text-muted-foreground">{d.mobileMeta(r)}</div>
+                      )}
+                      {/* Appended, not substituted — the card has room for both,
+                          and the desktop table shows them both too. */}
+                      {showCreated && (
+                        <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                       )}
                     </div>
                     {hasStatus && statusPill(r)}
@@ -903,7 +979,10 @@ export function SimpleMasterScreen<Row>({
           onClose={() => setViewRow(null)}
           title={rowTitle(viewRow) || d.entityLabel}
           status={hasStatus ? statusPill(viewRow) : undefined}
-          sections={d.view ? d.view(viewRow) : [{ label: "Details", pairs: pairsFromRow(viewRow) }]}
+          sections={[
+            ...(d.view ? d.view(viewRow) : [{ label: "Details", pairs: pairsFromRow(viewRow) }]),
+            ...createdSection(viewRow),
+          ]}
         />
       )}
     </div>
@@ -918,12 +997,17 @@ function MobileEditCard({
   statusCell,
   buttons,
   onKeyDown,
+  cardRef,
 }: {
   fields: SimpleField[];
-  editCell: (f: SimpleField, autoFocus?: boolean) => ReactNode;
+  editCell: (f: SimpleField) => ReactNode;
   statusCell: ReactNode;
   buttons: ReactNode;
   onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
+  /** Same ref the desktop <tr> takes, so the engine's one focus effect puts the
+   *  cursor in the first field here too. Mobile inline edit previously opened
+   *  with no cursor at all on every descriptor master. */
+  cardRef?: React.Ref<HTMLDivElement>;
 }) {
   /*
    * `data-focus-scope` is set HERE, not passed in. Both call sites used to pass
@@ -934,6 +1018,7 @@ function MobileEditCard({
    */
   return (
     <div
+      ref={cardRef}
       data-focus-scope
       className="space-y-3 rounded-xl border border-primary/40 bg-surface p-4"
       onKeyDown={onKeyDown}

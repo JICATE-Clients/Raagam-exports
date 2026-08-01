@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 
 // ============================================================================
 // GST Assign to Customers (Associates). A bulk-edit grid over the existing
@@ -30,5 +31,5 @@ export async function listCustomerGst(): Promise<CustomerGstRow[]> {
     .from("customers")
     .select("id, code, name, inactive, is_draft, city_id, gst_no, created_at")
     .order("name");
-  return (data ?? []) as CustomerGstRow[];
+  return withCreators((data ?? []) as CustomerGstRow[]);
 }

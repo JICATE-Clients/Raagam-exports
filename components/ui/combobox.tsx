@@ -273,7 +273,12 @@ export function Combobox({
         type="text"
         role="combobox"
         aria-expanded={open}
+        // Same pairing as data-picker.tsx: `off` for Chrome's own list, the
+        // `data-*` trio for the password managers that ignore it.
         autoComplete="off"
+        data-1p-ignore=""
+        data-lpignore="true"
+        data-form-type="other"
         disabled={disabled}
         value={shownValue}
         placeholder={selected ? selected.label : placeholder}

@@ -192,6 +192,20 @@ export async function saveAttributeValues(
     }))
     .filter((v) => v.value.length > 0);
 
+  // A repeated value is rejected, not silently deduped. The screen already marks
+  // it as the operator types, but `lib/data-io` reaches this action directly, and
+  // the insert below is a wholesale replace with no unique constraint behind it —
+  // so two GSM rows would both land and the Material screen would then offer the
+  // same attribute twice with no way to tell which one an item answered.
+  // Rejecting says which value clashed; deduping would quietly drop a row the
+  // operator can still see on screen.
+  const seen = new Set<string>();
+  for (const v of clean) {
+    const key = v.value.toUpperCase();
+    if (seen.has(key)) return fail(`"${v.value}" is listed twice. Use a different value.`);
+    seen.add(key);
+  }
+
   // Replace wholesale — attribute_value_options cascade-delete with their parent value.
   const { error: delErr } = await s.from("attribute_values").delete().eq("item_class_id", itemClassId);
   if (delErr) return fail(delErr.message);

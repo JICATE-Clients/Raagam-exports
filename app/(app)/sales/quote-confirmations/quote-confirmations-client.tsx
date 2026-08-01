@@ -15,7 +15,7 @@ import { useToast } from "@/components/ui/toast";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { fmtDate, fmtNumber } from "@/lib/format";
 

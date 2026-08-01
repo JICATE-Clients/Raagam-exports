@@ -25,6 +25,8 @@ import type { AccountGroup } from "@/lib/masters/account-group-types";
 import type { CostHead } from "@/lib/finance/cost-heads/types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -72,6 +74,24 @@ export function AccountHeadMasterScreen({
     rows,
     rowId: (r) => r.id,
     rowValue: (r) => r.name,
+  });
+
+  /**
+   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    // No curated vocabulary: this master has no real-world standard to draw
+    // on, so the rows beside what is being typed are the only safe candidates.
+    seed: [],
+    enabled: open && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
   const groupName = useMemo(() => {
@@ -228,9 +248,16 @@ export function AccountHeadMasterScreen({
                 uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
                 {...dupFieldProps(dupError, "ah-name")}
               />
               <DuplicateError error={dupError} id="ah-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </Field>
             <Field size="lg">
               <CostHeadPicker

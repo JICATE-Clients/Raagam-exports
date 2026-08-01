@@ -29,10 +29,6 @@ import { GaugeMasterScreen } from "@/components/masters/gauge-master-screen";
 import { KnittingDiaMasterScreen } from "@/components/masters/knitting-dia-master-screen";
 import { OutDocumentTermMasterScreen } from "@/components/masters/out-document-term-master-screen";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
-import { CommodityMasterScreen } from "@/components/masters/commodity-master-screen";
-import { listCommodities } from "@/lib/masters/commodity-service";
-import { SeasonMasterScreen } from "@/components/masters/season-master-screen";
-import { listSeasons } from "@/lib/masters/season-service";
 import { BinMasterScreen } from "@/components/masters/bin-master-screen";
 import { listBins } from "@/lib/masters/bin-service";
 // Size Groups lost its own master screen with the 2026-08-01 withdrawal, but
@@ -52,11 +48,7 @@ import { MaterialMasterScreen } from "@/components/masters/material-master-scree
 import { listHsnDetails } from "@/lib/masters/hsn-detail-service";
 import { hsnDetailsAsLookups } from "@/lib/masters/lookup-compat";
 // --- Phase 1: Simple masters ---
-import {
-  listYarnCompositions,
-  listDefectGroupsSimple,
-} from "@/lib/masters/simple-master-service";
-import { YarnCompositionMasterScreen } from "@/components/masters/yarn-composition-master-screen";
+import { listDefectGroupsSimple } from "@/lib/masters/simple-master-service";
 import { DefectGroupMasterScreen } from "@/components/masters/defect-group-master-screen";
 // --- Phase 1: Dedicated masters ---
 import { listDefectDetails, listDefectGroups } from "@/lib/masters/defect-detail-service";
@@ -97,11 +89,10 @@ export default async function MaterialEntityPage({
         />
       );
     } else if (child.custom === "categories") {
-      const [categories, lookups, levies, commodities, sizeGroups] = await Promise.all([
+      const [categories, lookups, levies, sizeGroups] = await Promise.all([
         listCategories(),
         listConfigLookups(),
         listLevies(),
-        listCommodities(),
         listSizeGroups(),
       ]);
       screen = (
@@ -109,7 +100,6 @@ export default async function MaterialEntityPage({
           rows={categories}
           itemClasses={lookups.filter((l) => l.kind === "item_class")}
           levies={levies}
-          commodities={commodities}
           fabricStructures={lookups.filter((l) => l.kind === "fabric_structure")}
           sizeGroups={sizeGroups}
           perms={perms}
@@ -118,13 +108,12 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "material_attributes") {
       // No listUoms() here any more: the Unit on a stepped attribute line is a
       // typed label, not a UOM reference (client 2026-07-28).
-      const [maRows, categories, attributes, all, levies, commodities] = await Promise.all([
+      const [maRows, categories, attributes, all, levies] = await Promise.all([
         listMaterialAttributes(),
         listCategories(),
         listAttributes(),
         listConfigLookups(),
         listLevies(),
-        listCommodities(),
       ]);
       screen = (
         <MaterialAttributeMasterScreen
@@ -135,11 +124,9 @@ export default async function MaterialEntityPage({
           // Same predicate the material form uses to decide whether to ASK the
           // questions, so the two can never drift apart.
           attributes={attributes.filter((a) => isAccessoryClass(a.code))}
-          // Lookups for the Category quick-create mini-child (Levy/Commodity
-          // pickers + item-class-scoped create).
+          // Lookups for the Category quick-create mini-child (Levy picker +
+          // item-class-scoped create).
           levies={levies}
-          commodities={commodities}
-          itemClasses={all.filter((l) => l.kind === "item_class")}
           fabricStructures={all.filter((l) => l.kind === "fabric_structure")}
           perms={perms}
         />
@@ -164,18 +151,33 @@ export default async function MaterialEntityPage({
         <YarnPurityMasterScreen rows={all.filter((l) => l.kind === "yarn_purity")} perms={perms} />
       );
     } else if (child.custom === "compositions") {
-      const [compositions, all] = await Promise.all([listCompositions(), listConfigLookups()]);
+      const [compositions, all, categories, levies] = await Promise.all([
+        listCompositions(),
+        listConfigLookups(),
+        listCategories(),
+        listLevies(),
+      ]);
+      // The HEADER is Fabric and the LINES are Yarn (0384) — a composition
+      // belongs to a fabric, and its mixing lines name the yarns inside it.
+      const yarnClass = all.find((l) => l.kind === "item_class" && l.code?.toUpperCase() === "YARN");
       screen = (
         <CompositionMasterScreen
           rows={compositions}
           // Composition (fibre mixing %) only ever applies to Fabric — never
           // the full item-class list (Yarn, Pack, Sew, Garments, …).
           itemClasses={all.filter((l) => l.kind === "item_class" && l.code === "FABRIC")}
+          yarnClassId={yarnClass?.id ?? null}
+          // Scoped here, not in the screen: the cascading-picker rule puts the
+          // narrowing at the caller that knows the parent class.
+          yarnCategories={categories.filter((c) => c.item_class_id === yarnClass?.id)}
+          // Lookups for the Category quick-create mini-child behind "+ Add".
+          levies={levies}
+          fabricStructures={all.filter((l) => l.kind === "fabric_structure")}
           perms={perms}
         />
       );
     } else if (child.custom === "materials") {
-      const [materials, all, categories, units, hsnRows, materialAttributes, attributeList, levies, commodities] =
+      const [materials, all, categories, units, hsnRows, materialAttributes, attributeList, levies] =
         await Promise.all([
           listMaterials(),
           listConfigLookups(),
@@ -185,7 +187,6 @@ export default async function MaterialEntityPage({
           listMaterialAttributes(),
           listAttributes(),
           listLevies(),
-          listCommodities(),
         ]);
       screen = (
         <MaterialMasterScreen
@@ -202,24 +203,12 @@ export default async function MaterialEntityPage({
           materialAttributes={materialAttributes}
           attributes={attributeList}
           levies={levies}
-          commodities={commodities}
           perms={perms}
         />
       );
     } else if (child.custom === "processes") {
-      const [processes, commodities, all] = await Promise.all([
-        listProcesses(),
-        listCommodities(),
-        listConfigLookups(),
-      ]);
-      screen = (
-        <ProcessMasterScreen
-          rows={processes}
-          commodities={commodities}
-          itemClasses={all.filter((l) => l.kind === "item_class")}
-          perms={perms}
-        />
-      );
+      const processes = await listProcesses();
+      screen = <ProcessMasterScreen rows={processes} perms={perms} />;
     } else if (child.custom === "components") {
       const components = await listComponents();
       screen = <ComponentMasterScreen rows={components} perms={perms} />;
@@ -245,18 +234,6 @@ export default async function MaterialEntityPage({
           perms={perms}
         />
       );
-    } else if (child.custom === "commodities") {
-      const [commodities, all] = await Promise.all([listCommodities(), listConfigLookups()]);
-      screen = (
-        <CommodityMasterScreen
-          rows={commodities}
-          itemClasses={all.filter((l) => l.kind === "item_class")}
-          perms={perms}
-        />
-      );
-    } else if (child.custom === "seasons") {
-      const rows = await listSeasons();
-      screen = <SeasonMasterScreen rows={rows} perms={perms} />;
     } else if (child.custom === "bins") {
       const [rows, locations] = await Promise.all([listBins(), listEmployeeLocations()]);
       screen = <BinMasterScreen rows={rows} locations={locations} perms={perms} />;
@@ -264,9 +241,6 @@ export default async function MaterialEntityPage({
       const rows = await listGarmentRejectionRules();
       screen = <GarmentRejectionRuleMasterScreen rows={rows} perms={perms} />;
     // --- Phase 1: Simple masters (rows + perms only) ---
-    } else if (child.custom === "yarn_compositions") {
-      const rows = await listYarnCompositions();
-      screen = <YarnCompositionMasterScreen rows={rows} perms={perms} />;
     } else if (child.custom === "defect_groups") {
       const rows = await listDefectGroupsSimple();
       screen = <DefectGroupMasterScreen rows={rows} perms={perms} />;

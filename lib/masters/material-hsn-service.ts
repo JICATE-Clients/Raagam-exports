@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 
 // ============================================================================
 // HSN Assign to Materials (Materials). A bulk-edit grid over the existing
@@ -30,5 +31,5 @@ export async function listMaterialHsn(): Promise<MaterialHsnRow[]> {
     .from("items")
     .select("id, code, name, is_active, item_class_id, category_id, hsn_id, created_at")
     .order("name");
-  return (data ?? []) as MaterialHsnRow[];
+  return withCreators((data ?? []) as MaterialHsnRow[]);
 }

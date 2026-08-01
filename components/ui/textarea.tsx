@@ -7,6 +7,15 @@ export const Textarea = forwardRef<
 >(({ className, ...props }, ref) => (
   <textarea
     ref={ref}
+    // Same rule as input.tsx: the browser's memory of past typing is not a
+    // master list, and a shared machine must not offer the last operator's
+    // remarks to the next one. A textarea is never a credential, so unlike
+    // Input there is no opted-in case to preserve — but the caller can still
+    // override, since the spread below wins.
+    autoComplete="off"
+    data-1p-ignore=""
+    data-lpignore="true"
+    data-form-type="other"
     className={cn(
       // Same rhythm as Input/Select: text-base on mobile stops iOS zooming the
       // viewport on focus, text-sm on desktop keeps the dense ERP density. This

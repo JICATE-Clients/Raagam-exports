@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { MaterialAttribute } from "./material-attribute-types";
 
 export async function listMaterialAttributes(): Promise<MaterialAttribute[]> {
@@ -8,10 +9,10 @@ export async function listMaterialAttributes(): Promise<MaterialAttribute[]> {
     .from("material_attributes")
     .select("*, lines:material_attribute_lines(*, options:material_attribute_line_options(*))")
     .order("created_at");
-  return ((data ?? []) as MaterialAttribute[]).map((m) => ({
+  return withCreators(((data ?? []) as MaterialAttribute[]).map((m) => ({
     ...m,
     lines: [...(m.lines ?? [])]
       .sort((a, b) => a.sno - b.sno)
       .map((l) => ({ ...l, options: [...(l.options ?? [])].sort((a, b) => a.sno - b.sno) })),
-  }));
+  })));
 }

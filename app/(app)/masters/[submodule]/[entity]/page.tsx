@@ -48,7 +48,6 @@ import { MaterialHsnAssignScreen } from "@/components/masters/material-hsn-assig
 import { listCategories } from "@/lib/masters/category-service";
 import { listLevies } from "@/lib/masters/levy-service";
 import { listProcesses } from "@/lib/masters/process-service";
-import { listCommodities } from "@/lib/masters/commodity-service";
 import { CurrencyMasterScreen } from "@/components/masters/currency-master-screen";
 import { listExchangeRateEntries } from "@/lib/masters/exchange-rate-service";
 import { ExchangeRateMasterScreen } from "@/components/masters/exchange-rate-master-screen";
@@ -486,18 +485,11 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "hsn_assign_process") {
-      const [rows, commodities, hsnRows] = await Promise.all([
-        listProcessHsn(),
-        listCommodities(),
-        listHsnDetails(),
-      ]);
+      const [rows, hsnRows] = await Promise.all([listProcessHsn(), listHsnDetails()]);
       screen = (
         <ProcessHsnAssignScreen
           rows={rows}
           hsnOptions={hsnDetailsAsLookups(hsnRows)}
-          // Commodity is a dedicated table now, not a config_lookups kind —
-          // adapt to the same {id, code, name} display shape HSN options use.
-          commodities={commodities.map((c) => ({ id: c.id, code: c.short_name, name: c.name }))}
           perms={perms}
         />
       );

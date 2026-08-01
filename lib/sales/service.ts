@@ -322,6 +322,20 @@ export async function getUoms(): Promise<Uom[]> {
 
 // ---------------------------------------------------------------------------
 // Brands & Seasons (for Market Enquiry pickers)
+//
+// NEITHER TABLE HAS A MASTER SCREEN ANY MORE — Brands went with the 30
+// withdrawn Materials children (0382), Seasons on 2026-08-01. Both are read
+// here and nowhere else, so the tables survive their screens exactly like
+// `brands` did: an empty inbound FK column proves no DATA depends on a table
+// and says nothing about whether CODE still selects it. Dropping either 500s
+// the pages below.
+//
+// Consequence, a product decision rather than a bug: both lists are read-only
+// in the app — an opportunity can still be given a brand or a season, but
+// nothing can create one. The Season (master) dropdown on the new-opportunity
+// form hides itself when the list comes back empty, and the free-text Season
+// field beside it is unaffected. If that needs fixing, the answer is a new home
+// for the screen, not putting the withdrawn child back.
 // ---------------------------------------------------------------------------
 
 export type BrandOption = { id: string; brand_name: string; brand_short_name: string | null };

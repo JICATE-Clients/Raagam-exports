@@ -9,6 +9,7 @@ import {
   updateDefectGroup,
   deleteDefectGroup,
 } from "@/lib/masters/simple-master-actions";
+import { DEFECT_GROUP_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Row = { id: string; code: string; name: string; is_active: boolean };
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
@@ -23,9 +24,10 @@ const descriptor: SimpleMasterDescriptor<Row> = {
   fromRow: (r) => ({ name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),
-  // Offers near-matching names already in THIS master while typing;
+  // Offers near-matching names — the curated vocabulary above plus the
+  // rows already in THIS master — while typing;
   // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
-  spellSuggest: true,
+  spellSuggest: { seed: DEFECT_GROUP_NAMES },
   dupCheck: { table: "defect_groups", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     code: "", // blank → create auto-generates; update keeps the stored code

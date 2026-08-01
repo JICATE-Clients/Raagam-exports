@@ -76,6 +76,10 @@ const blankMenu = (key: string, segKey: string): MenuRow => ({
  * the nested grids have room; every list field is a config_lookups picker
  * (Add/Modify). Save / Save-As-Drafts.
  */
+// dup-check: exempt -- the record's identity is an auto-generated Entry No, and
+// `generateUniqueCode` suffixes on collision, so there is nothing typed for a
+// duplicate check to watch. What must be unique is a MENU's format, which is a
+// nested grid row rather than a field on this form.
 export function DocumentNoFormatMasterScreen({
   rows,
   trackOptions,

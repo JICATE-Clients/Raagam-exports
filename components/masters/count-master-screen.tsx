@@ -6,7 +6,6 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createLookup, updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
-import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -28,15 +27,11 @@ const descriptor: SimpleMasterDescriptor<ConfigLookup> = {
       placeholder: "e.g. 10'S, 2/10'S, 40 DINER",
     },
   ],
-  extraColumns: [
-    {
-      header: "Created Date",
-      cell: (r) => fmtDate(r.created_at),
-    },
-    { header: "Created User", cell: (r) => r.created_by || "—" },
-  ],
-  mobileMeta: (r) =>
-    `${fmtDate(r.created_at)}${r.created_by ? ` · ${r.created_by}` : ""}`,
+  // Created Date / Created User are appended by the engine — see
+  // components/ui/created-columns.tsx. This screen used to declare its own,
+  // reading raw `created_by`; that is safe here (config_lookups stores a
+  // legacy username as text) but was the template three uuid-backed screens
+  // copied, where it printed a raw id.
   fromRow: (r) => ({ name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),

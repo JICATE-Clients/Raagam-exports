@@ -1,6 +1,5 @@
 "use client";
 
-import { fmtDate } from "@/lib/format";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -11,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Field, type FieldSize } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -18,12 +18,14 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/material-actions";
 import { createSubCategory } from "@/lib/masters/category-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
@@ -55,7 +57,6 @@ import {
   type CategorySubCategory,
 } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
-import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Uom } from "@/lib/masters/types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
@@ -118,7 +119,6 @@ export function MaterialMasterScreen({
   materialAttributes,
   attributes,
   levies,
-  commodities,
   perms,
 }: {
   rows: Material[];
@@ -134,7 +134,6 @@ export function MaterialMasterScreen({
   materialAttributes: MaterialAttribute[];
   attributes: Attribute[];
   levies: Levy[];
-  commodities: Commodity[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -237,6 +236,23 @@ export function MaterialMasterScreen({
   const fabricBaseUomId = fabricRule ? resolveUomId(units, fabricRule.base) : null;
   const fabricAltUomId =
     fabricRule?.secondary && fabricBaseUomId ? resolveUomId(units, fabricRule.secondary) : null;
+  /** Yarn and Fabric each already have their one unit decided for them — Yarn is
+   *  always KG (0279 #15), a Fabric's comes from its structure — so the whole
+   *  Alternative UOM apparatus is not offered on either (client 2026-08-01):
+   *  no checkbox, no conversion grid, no four downstream slots. Base stays, and
+   *  is the only thing in the section for those two classes.
+   *
+   *  Keyed on `formKey`, NOT on `fabricBaseUomId`: a Fabric whose structure is
+   *  not picked yet has no derived unit, and gating on that would put the
+   *  checkbox back on screen for exactly the fabrics that are still being filled
+   *  in — the moment it is least wanted.
+   *
+   *  UI only. `has_alternate_uom` and the conversions keep being derived (the
+   *  fabric effect below) and keep round-tripping through save, so a fabric's
+   *  KGS half and any conversion an older record already carries survive
+   *  untouched — the minimal-forms rule, same as Budget/Cost Rate and the Using
+   *  (Items) grid further down this file. */
+  const singleUomClass = formKey === "YARN" || formKey === "FABRIC";
   /** A unit's code for display in the read-only boxes the fabric rule renders
    *  ("KGS", "NOS", "MTR") — same text `uomSelect` puts in its options. */
   const unitCode = (id: string) => units.find((u) => u.id === id)?.code ?? "—";
@@ -859,7 +875,14 @@ export function MaterialMasterScreen({
   // Only narrow once the rows actually name something. An empty set would leave
   // every slot with nothing but "— None —" the instant the box is ticked, which
   // reads as a broken form rather than as "fill the conversion first".
-  const uomLimit = form.has_alternate_uom && convUnitIds.size > 0 ? convUnitIds : undefined;
+  //
+  // And never on a `singleUomClass`, where Base is the only UOM field left on
+  // screen: a legacy Yarn carrying a CONE↔KG conversion would otherwise find its
+  // Base dropdown silently cut to those two units, while the line that explains
+  // the narrowing ("Fill a conversion row above…") sits inside a block that no
+  // longer renders. A cage is only fair when its bars are visible.
+  const uomLimit =
+    form.has_alternate_uom && !singleUomClass && convUnitIds.size > 0 ? convUnitIds : undefined;
 
   /**
    * How wide each Classification field should be, on the 12-column track.
@@ -925,8 +948,6 @@ export function MaterialMasterScreen({
             canEdit={perms.canEdit}
             canDelete={perms.canDelete}
             levies={levies}
-            commodities={commodities}
-            itemClasses={itemClasses}
             fabricStructures={fabricStructures}
           />
         );
@@ -1194,6 +1215,38 @@ export function MaterialMasterScreen({
   });
   const nameDuplicate = !!dupMessage;
 
+  /**
+   * "Did you mean?" on Name — but ONLY for the classes that let a human type it.
+   *
+   * `nameIsComposed` covers Yarn, Fabric, General and every attribute-driven
+   * accessory: those names are written by the effect above from the fields the
+   * operator answered, so a chip there would offer to "correct" the system's own
+   * output, and accepting it would put the field out of step with the attributes
+   * that produced it until the next keystroke silently overwrote it again. The
+   * duplicate ERROR still applies to a composed name (a repeated combination is
+   * exactly what doc/itemclass.md §3 says must be blocked) — it is the
+   * suggestion, not the check, that has nothing to say here.
+   *
+   * No curated vocabulary: a material name is site-specific, and a seed offered
+   * across item classes is the precise 2026-07-28 failure (a Packing name
+   * "corrected" to COTTON). Rows only, and only rows in the same item class, so
+   * a Packing material can only ever be offered other Packing materials.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    names: rows
+      .filter(
+        (r) =>
+          r.id !== editId &&
+          (r.item_class_id ?? "") === (form.item_class_id ?? ""),
+      )
+      .map((r) => r.name ?? "")
+      .filter(Boolean),
+    seed: [],
+    enabled: !!form.item_class_id && !nameIsComposed && !dupMessage,
+    onApply: (v) => set({ name: v }),
+  });
+
   /** Shared blend/mixing grid — Fabric ("Using" Single/Multiple yarn, Decision 4)
    *  and Yarn (only when Category nature = Mixed, Decision 7). Each row links to
    *  a real Yarn `items` record where possible; % must sum to 100 to save.
@@ -1330,8 +1383,6 @@ export function MaterialMasterScreen({
                 canEdit={perms.canEdit}
                 canDelete={perms.canDelete}
                 levies={levies}
-                commodities={commodities}
-                itemClasses={itemClasses}
                 fabricStructures={fabricStructures}
               />
             </Field>
@@ -1518,8 +1569,6 @@ export function MaterialMasterScreen({
                 canEdit={perms.canEdit}
                 canDelete={perms.canDelete}
                 levies={levies}
-                commodities={commodities}
-                itemClasses={itemClasses}
                 fabricStructures={fabricStructures}
               />
             </Field>
@@ -1570,8 +1619,6 @@ export function MaterialMasterScreen({
       cell: (r) => <span className="text-sm text-muted-foreground">{r.category_id ? catLabel.get(r.category_id) ?? "—" : "—"}</span>,
     },
     { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
-    { header: "Created User", cell: (r) => <span className="text-xs text-muted-foreground">{r.created_by ?? "—"}</span> },
-    { header: "Created Dt", cell: (r) => <span className="text-xs text-muted-foreground">{fmtDate(r.created_at)}</span> },
     {
       header: "Status",
       cell: (r) => <StatusPill tone={r.is_active ? "success" : "danger"}>{r.is_active ? "Active" : "Inactive"}</StatusPill>,
@@ -1699,7 +1746,7 @@ export function MaterialMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No materials yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No materials yet." />
       </div>
 
       {/* mobile cards — the shared list, so the eye (view) and delete
@@ -1828,8 +1875,17 @@ export function MaterialMasterScreen({
                 // take away the red border and the announcement, which a
                 // composed duplicate name still needs.
                 {...dupFieldProps(dupMessage, "mt-name")}
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                // The hook stands itself down on the composed classes, so this
+                // is inert exactly where the field is read-only.
+                onKeyDown={nameSuggest.onKeyDown}
               />
               <DuplicateError error={dupMessage} id="mt-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => set({ name: v })}
+              />
             </div>
             <LookupDialogPicker
               kind="hsn_code"
@@ -1988,44 +2044,45 @@ export function MaterialMasterScreen({
                     2 + 4 = 6 of 12, so neither cell is cramped — and Base at `xs`
                     sits in track 1, directly above Stock at `xs` in track 1 of
                     the slot row below, so the two rows align by construction
-                    rather than by luck. */}
-                {/* Fabric answers both of these from its structure and neither
-                    is offered for editing (client 2026-08-01) — same read-only
-                    treatment, and the same `bg-surface-muted` box, as the Type
-                    field the structure itself is shown in. */}
+                    rather than by luck.
+
+                    On a `singleUomClass` Base is the ONLY thing in this section,
+                    so it takes the standard `sm` width instead: `xs` exists to
+                    line up with a slot row those classes no longer have, and a
+                    lone 2-of-12 box is just a stranded tiny field. */}
+                {/* Fabric answers Base from its structure and does not offer it
+                    for editing (client 2026-08-01) — same read-only treatment,
+                    and the same `bg-surface-muted` box, as the Type field the
+                    structure itself is shown in. The Alternative box that used to
+                    sit beside it is gone with the rest of the alternate UOM UI;
+                    its tooltip moved here, because a field that refuses to be
+                    edited still has to say who decided it. */}
                 {fabricBaseUomId ? (
-                  <>
-                    {/* No `truncate` on these two, unlike the Type box they copy:
-                        the value is a unit code ("KGS", "NOS", "MTR"), so an
-                        ellipsis could never fire and would only be a promise of
-                        hidden text there is none of. */}
-                    <Field label="Base" size="xs">
-                      <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-                        {unitCode(fabricBaseUomId)}
-                      </div>
-                    </Field>
-                    <Field
-                      label={
-                        <span className="flex items-center gap-1">
-                          Alternative
-                          <span
-                            title="Set by the fabric structure and not editable — Circular Knit is KGS only, Flat Knit is NOS with KGS, Woven is MTR with KGS."
-                            className="cursor-help text-muted-foreground"
-                          >
-                            <Info className="h-3.5 w-3.5" />
-                          </span>
+                  <Field
+                    label={
+                      <span className="flex items-center gap-1">
+                        Base
+                        <span
+                          title="Set by the fabric structure and not editable — Circular Knit is KGS, Flat Knit is NOS, Woven is MTR."
+                          className="cursor-help text-muted-foreground"
+                        >
+                          <Info className="h-3.5 w-3.5" />
                         </span>
-                      }
-                      size="xs"
-                    >
-                      <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-                        {fabricAltUomId ? unitCode(fabricAltUomId) : "Not required"}
-                      </div>
-                    </Field>
-                  </>
+                      </span>
+                    }
+                    size="sm"
+                  >
+                    {/* No `truncate` here, unlike the Type box this copies: the
+                        value is a unit code ("KGS", "NOS", "MTR"), so an ellipsis
+                        could never fire and would only be a promise of hidden
+                        text there is none of. */}
+                    <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
+                      {unitCode(fabricBaseUomId)}
+                    </div>
+                  </Field>
                 ) : (
                   <>
-                    <Field label="Base" size="xs">
+                    <Field label="Base" size={singleUomClass ? "sm" : "xs"}>
                       {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), uomLimit)}
                     </Field>
                     {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
@@ -2033,18 +2090,22 @@ export function MaterialMasterScreen({
                         starts a label's height higher than the labelled Base beside
                         it. `h-9 @2xl/editor:h-8` tracks the Combobox's own height —
                         hard-coding h-9 left the checkbox 4px taller than the select
-                        on the wide editor surface. */}
-                    <Field label={<>&nbsp;</>} size="md">
-                      <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={form.has_alternate_uom}
-                          onChange={(e) => toggleAltUom(e.target.checked)}
-                        />
-                        <span className="text-sm text-foreground">Alternative UOM</span>
-                      </label>
-                    </Field>
+                        on the wide editor surface.
+                        Not offered on Yarn, nor on a Fabric still missing its
+                        structure — `singleUomClass` covers both. */}
+                    {!singleUomClass && (
+                      <Field label={<>&nbsp;</>} size="md">
+                        <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer accent-primary"
+                            checked={form.has_alternate_uom}
+                            onChange={(e) => toggleAltUom(e.target.checked)}
+                          />
+                          <span className="text-sm text-foreground">Alternative UOM</span>
+                        </label>
+                      </Field>
+                    )}
                   </>
                 )}
                 {/* An existing Flat Knit fabric was stocked in KGS before this
@@ -2065,30 +2126,22 @@ export function MaterialMasterScreen({
                     2-col card wrapped four controls onto two lines. Quantities
                     are numeric so they get a fixed narrow track; the UOM pickers
                     share the remaining space. Spans the whole 12-col track: it
-                    is a table, not a field. */}
-                {form.has_alternate_uom && (
+                    is a table, not a field.
+
+                    Never on a `singleUomClass`. Fabric used to reach this grid
+                    with its units fixed and only the quantities editable (a
+                    per-piece weight, "1 pc = 0.42 KGS"); that whole branch went
+                    with the alternate UOM UI on 2026-08-01, so what is left here
+                    is the plain add/remove grid the other classes always had.
+                    The row itself is still DERIVED and still saved — see the
+                    fabric effect above — it just cannot be edited from here. */}
+                {form.has_alternate_uom && !singleUomClass && (
                   <Field size="full">
                     <ChildGrid<ConvRow>
                       label="Alternate ↔ Base Conversions"
                       rows={conversions}
                       onAdd={addConv}
-                      // A fabric has exactly ONE conversion — "1 piece = 0.42
-                      // KGS" is a single fact about the material — and its two
-                      // units are the rule's, so there is nothing to add. Only
-                      // the quantities are asked for.
-                      hideAdd={!!fabricBaseUomId}
-                      // …which is also why remove CLEARS rather than deletes
-                      // here. The row is structure, not data: the units on it
-                      // are fixed facts about the fabric, and only the two
-                      // quantities were ever the operator's to give or withhold.
-                      // Deleting it with "+ Add" hidden would be a dead end —
-                      // nothing on the screen could bring the row back, and the
-                      // server would keep re-deriving the same pair anyway.
-                      onRemove={
-                        fabricBaseUomId
-                          ? (c) => setConv(c.key, { alt_qty: "", base_qty: "" })
-                          : (c) => delConv(c.key)
-                      }
+                      onRemove={(c) => delConv(c.key)}
                       addLabel="+ Add conversion"
                       inlineCards
                       frameless
@@ -2107,11 +2160,7 @@ export function MaterialMasterScreen({
                         {
                           header: "Alt UOM",
                           cell: (c) =>
-                            fabricBaseUomId ? (
-                              <span className="text-sm text-muted-foreground">{unitCode(c.alt_uom_id)}</span>
-                            ) : (
-                              uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }), undefined, conversions.map((x) => x.alt_uom_id).filter(Boolean))
-                            ),
+                            uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }), undefined, conversions.map((x) => x.alt_uom_id).filter(Boolean)),
                         },
                         {
                           header: "Base qty",
@@ -2121,21 +2170,10 @@ export function MaterialMasterScreen({
                         },
                         {
                           header: "Base UOM",
-                          cell: (c) =>
-                            fabricBaseUomId ? (
-                              <span className="text-sm text-muted-foreground">{unitCode(c.base_uom_id)}</span>
-                            ) : (
-                              uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v }))
-                            ),
+                          cell: (c) => uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v })),
                         },
                       ]}
                     />
-                    {fabricBaseUomId && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Optional — fill it in to record how much this fabric weighs per {unitCode(fabricBaseUomId)}.
-                        The units are fixed by the structure; only the quantities are yours.
-                      </p>
-                    )}
                   </Field>
                 )}
                 {/* The four downstream slots, one row of `xs` (2 of 12 each = 8).
@@ -2147,11 +2185,12 @@ export function MaterialMasterScreen({
                     track while "Planning" does not. Base is NOT here; it sits up
                     on row 1 beside the toggle, in this same track 1.
 
-                    Never for fabric: its four slots are the base unit, decided
-                    by the structure and written that way by `applyFabricUomRule`
-                    on the server. Showing four dropdowns that the next save
-                    overwrites would be a lie about what the operator controls. */}
-                {form.has_alternate_uom && !fabricBaseUomId && (
+                    Never on a `singleUomClass`: all four are the base unit, and
+                    for fabric the server writes them that way regardless
+                    (`applyFabricUomRule`). Showing four dropdowns that the next
+                    save overwrites would be a lie about what the operator
+                    controls. */}
+                {form.has_alternate_uom && !singleUomClass && (
                   <>
                     <Field label="Stock" size="xs">
                       {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }), uomLimit)}

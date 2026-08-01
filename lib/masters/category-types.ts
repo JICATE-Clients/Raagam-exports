@@ -4,7 +4,12 @@ import { capsName, capsTextNullable } from "@/lib/validation/formats";
 // ============================================================================
 // Categories — rich material-classification master (0223). Legacy EDP2
 // "Category" form: a required Item Class (→ config_lookups kind item_class) with
-// descriptive fields, a Made origin, and optional Levy / Commodity references.
+// descriptive fields, a Made origin, and an optional Levy reference.
+//
+// Commodity was withdrawn from this master (client 2026-08-01) along with the
+// Commodities child itself. `categories.commodity_id` still EXISTS in the
+// database and keeps whatever it was last given — it is simply absent from this
+// schema, which is what stops every save from writing null over it.
 // ============================================================================
 export const MADE_TYPES = ["Natural", "Manmade", "Mixed"] as const;
 export type MadeType = (typeof MADE_TYPES)[number];
@@ -27,7 +32,6 @@ export interface Category {
   short_spec: string | null;
   made: MadeType | null;
   levy_id: string | null;
-  commodity_id: string | null;
   /** Fabric structure (Circular/Flat/Woven, kind `fabric_structure`) — set once
    *  per category and inherited by every Material in it, never re-picked per item. */
   fabric_structure_id: string | null;
@@ -76,7 +80,6 @@ export const categoryInput = z.object({
   short_spec: z.string().optional().nullable(),
   made: z.enum(MADE_TYPES).nullable().default(null),
   levy_id: z.string().uuid().nullable().default(null),
-  commodity_id: z.string().uuid().nullable().default(null),
   fabric_structure_id: z.string().uuid().nullable().default(null),
   wastage_per: z.coerce.number().default(0),
   profit_per: z.coerce.number().default(0),

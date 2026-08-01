@@ -5,7 +5,7 @@ import { nullableFormat, HSN_RE } from "@/lib/validation/formats";
 // HSN detail — GST master (0263). Legacy EDP2 "HSN detail" form: Item Class
 // (→ config_lookups 'item_class') · For (Materials/Process) · Description ·
 // HSN Code · Inactive + is_draft. Distinct from the `hsn_code` config_lookups
-// kind (0231) used by the Material/Process/Commodity HSN pickers.
+// kind (0231) used by the Material / Process HSN pickers.
 // ============================================================================
 
 export const HSN_DETAIL_FOR = [

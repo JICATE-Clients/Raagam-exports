@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { GstRegStatus, VendorStatus, VendorType } from "./vendor-types";
 
 // ============================================================================
@@ -35,5 +36,5 @@ export async function listVendorGst(): Promise<VendorGstRow[]> {
       "id, code, name, vendor_type, status, gst_reg_status, gst_no, is_bought_items_vendor, is_processor, is_service_provider, is_sub_contractor, created_at",
     )
     .order("name");
-  return (data ?? []) as VendorGstRow[];
+  return withCreators((data ?? []) as VendorGstRow[]);
 }

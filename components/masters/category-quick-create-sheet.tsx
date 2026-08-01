@@ -4,8 +4,8 @@
 // not just a name like the picker's inline Add. Mirrors the full Category master
 // (category-master-screen.tsx): the fields shown depend on the parent Item
 // Class — Category Type (Natural/Manmade/Mixed) for Yarn, Fabric Structure for
-// Fabric — plus Levy and Commodity. Richer costing fields (wastage/profit/…)
-// stay editable from the full Category master afterwards, defaulted to 0 here.
+// Fabric. Richer costing fields (wastage/profit/…) stay editable from the full
+// Category master afterwards, defaulted to 0 here.
 // ("User Defined" used to be one of the class-dependent fields; the client
 // dropped the question on 2026-07-30 — see doc/masters-open-questions.md #6.)
 //
@@ -21,9 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { LevyPicker } from "@/components/masters/lookup-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
-import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { createCategory } from "@/lib/masters/category-actions";
 import { useDuplicateCheck, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
@@ -35,7 +33,6 @@ import {
 } from "@/lib/masters/category-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
-import type { Commodity } from "@/lib/masters/commodity-types";
 
 export function CategoryQuickCreateSheet({
   open,
@@ -43,9 +40,6 @@ export function CategoryQuickCreateSheet({
   onCreated,
   itemClassId,
   selectedClassCode,
-  levies,
-  commodities,
-  itemClasses,
   fabricStructures,
   perms,
 }: {
@@ -57,9 +51,11 @@ export function CategoryQuickCreateSheet({
   itemClassId: string;
   /** Parent item class CODE (YARN/FABRIC/GEN/…) — drives which fields render. */
   selectedClassCode: string | null;
+  /** Still accepted, deliberately unused: Levy Description was hidden from both
+   *  Category forms (client 2026-08-01, see category-master-screen.tsx). Kept in
+   *  the signature so re-showing the picker — here or on a child — is one line
+   *  and no call site has to be re-plumbed. */
   levies: Levy[];
-  commodities: Commodity[];
-  itemClasses: ConfigLookup[];
   fabricStructures: ConfigLookup[];
   perms: { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 }) {
@@ -68,8 +64,6 @@ export function CategoryQuickCreateSheet({
   const [name, setName] = useState("");
   const [made, setMade] = useState<"" | MadeType>("");
   const [fabricStructureId, setFabricStructureId] = useState("");
-  const [levyId, setLevyId] = useState("");
-  const [commodityId, setCommodityId] = useState("");
 
   // Fresh form every time the sheet opens.
   useEffect(() => {
@@ -80,8 +74,8 @@ export function CategoryQuickCreateSheet({
       // No `setUserDefined` — the User Defined question was dropped from this
       // sheet (client 2026-07-30) and `user_defined` is hardcoded false in the
       // payload below. The setter outlived its state and broke the typecheck.
-      setLevyId("");
-      setCommodityId("");
+      // Same story now for `setLevyId` — the Levy field is hidden, so the state
+      // went with it rather than sitting here holding a permanent "".
     }
   }, [open]);
 
@@ -117,8 +111,9 @@ export function CategoryQuickCreateSheet({
         name: trimmed || null,
         short_spec: null,
         made: madeValue,
-        levy_id: levyId || null,
-        commodity_id: commodityId || null,
+        // Field hidden (client 2026-08-01) — a quick-create never sets it. The
+        // key stays so CategoryInput is satisfied and the column round-trips.
+        levy_id: null,
         fabric_structure_id: showFabricStructure ? fabricStructureId || null : null,
         wastage_per: 0,
         profit_per: 0,
@@ -149,8 +144,9 @@ export function CategoryQuickCreateSheet({
         name: trimmed || null,
         short_spec: null,
         made: madeValue,
-        levy_id: levyId || null,
-        commodity_id: commodityId || null,
+        // Field hidden (client 2026-08-01) — a quick-create never sets it. The
+        // key stays so CategoryInput is satisfied and the column round-trips.
+        levy_id: null,
         fabric_structure_id: showFabricStructure ? fabricStructureId || null : null,
         wastage_per: 0,
         profit_per: 0,
@@ -253,17 +249,9 @@ export function CategoryQuickCreateSheet({
           </div>
         )}
 
-        <LevyPicker label="Levy Description" levies={levies} value={levyId} onChange={setLevyId} />
-
-        <CommodityPicker
-          commodities={commodities}
-          itemClasses={itemClasses}
-          value={commodityId}
-          onChange={setCommodityId}
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          canDelete={perms.canDelete}
-        />
+        {/* Levy Description hidden here too — the full Category master dropped
+            it on the same call, and a quick-create must never ask more than the
+            master it is a shortcut for. */}
       </div>
     </Sheet>
   );

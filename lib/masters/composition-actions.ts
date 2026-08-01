@@ -20,12 +20,24 @@ function rev(): void {
   revalidatePath("/masters/materials/compositions");
 }
 
-/** Drop blank-description mixing rows and renumber sno 1..n. */
-function normalizeLines(data: CompositionInput): { sno: number; description: string; mixing_pct: number }[] {
+/** Drop empty mixing rows and renumber sno 1..n.
+ *
+ *  "Empty" means neither a category NOR a name (0384). Testing `description`
+ *  alone — which is what this did while the fibre was free text — would have
+ *  silently deleted every line the picker filled, since a category-only line
+ *  reaches here with a blank name until the screen mirrors it. */
+function normalizeLines(
+  data: CompositionInput,
+): { sno: number; category_id: string | null; description: string; mixing_pct: number }[] {
   return data.lines
     .map((l) => ({ ...l, description: l.description.trim() }))
-    .filter((l) => l.description.length > 0)
-    .map((l, i) => ({ sno: i + 1, description: l.description, mixing_pct: l.mixing_pct }));
+    .filter((l) => !!l.category_id || l.description.length > 0)
+    .map((l, i) => ({
+      sno: i + 1,
+      category_id: l.category_id,
+      description: l.description,
+      mixing_pct: l.mixing_pct,
+    }));
 }
 
 export async function createComposition(data: CompositionInput): Promise<Result> {

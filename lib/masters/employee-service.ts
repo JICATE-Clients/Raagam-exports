@@ -1,11 +1,12 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Employee, EmployeeLocation } from "./employee-types";
 
 export async function listEmployees(): Promise<Employee[]> {
   const s = await createClient();
   const { data } = await s.from("employees").select("*").order("name");
-  return (data ?? []) as Employee[];
+  return withCreators((data ?? []) as Employee[]);
 }
 
 /** Locations master (GST entities) for the Employee Location picker. */

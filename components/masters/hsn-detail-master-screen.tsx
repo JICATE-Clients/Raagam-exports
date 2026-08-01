@@ -28,6 +28,8 @@ import {
   type HsnDetailInput,
 } from "@/lib/masters/hsn-detail-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -62,6 +64,37 @@ export function HsnDetailMasterScreen({
   const [form, setForm] = useState(BLANK);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
+
+  /**
+   * Told as they type, mirroring the on-save guard in hsn-detail-actions.ts.
+   *
+   * On HSN CODE, scoped to (Item Class, For) — and both halves of that matter.
+   * The code is the record's identity: a class mapped to two different HSN codes
+   * makes every invoice line drawn from it a coin toss. But the same code under
+   * a DIFFERENT class is the normal shape of this master, so an unscoped check
+   * would refuse correct rows. `label` says "HSN code" because the message
+   * otherwise reads "use a different name" beside a field that is not a name.
+   *
+   * spell-suggest: exempt -- the guarded field is an HSN code, which is digits.
+   * "Did you mean 6109?" offered beside 6110 is not a spelling correction, it is
+   * a different tariff line, and accepting it would mis-rate every invoice drawn
+   * from the class. The Description beside it is prose about the code, not a
+   * second name the record could be found by.
+   */
+  const dupError = useDuplicateName({
+    table: "hsn_details",
+    name: form.hsn_code,
+    nameColumn: "hsn_code",
+    label: "HSN code",
+    scope: { item_class_id: form.item_class_id || null, for_type: form.for_type },
+    excludeId: editId ?? undefined,
+    enabled: open && !!form.hsn_code.trim() && !!form.item_class_id,
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.hsn_code,
+    rowInScope: (r) =>
+      (r.item_class_id ?? "") === (form.item_class_id ?? "") && r.for_type === form.for_type,
+  });
 
   const itemClassLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -236,12 +269,12 @@ export function HsnDetailMasterScreen({
             <Button
               variant="outline"
               size="md"
-              disabled={isPending || !form.item_class_id}
+              disabled={isPending || !!dupError || !form.item_class_id}
               onClick={() => submit(true)}
             >
               Save as Draft
             </Button>
-            <Button size="md" disabled={isPending || !form.item_class_id} onClick={() => submit(false)}>
+            <Button size="md" disabled={isPending || !!dupError || !form.item_class_id} onClick={() => submit(false)}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -299,7 +332,9 @@ export function HsnDetailMasterScreen({
                 value={form.hsn_code}
                 onChange={(e) => set({ hsn_code: e.target.value })}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "hsn-code")}
               />
+              <DuplicateError error={dupError} id="hsn-code" />
             </div>
           </DetailSection>
           {editId && (

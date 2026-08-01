@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { OurBank } from "./our-bank-types";
 
 export async function listOurBanks(): Promise<OurBank[]> {
@@ -8,5 +9,5 @@ export async function listOurBanks(): Promise<OurBank[]> {
     .from("our_banks")
     .select("*")
     .order("account_name", { nullsFirst: false });
-  return (data ?? []) as OurBank[];
+  return withCreators((data ?? []) as OurBank[]);
 }

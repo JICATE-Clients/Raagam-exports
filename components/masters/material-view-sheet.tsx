@@ -115,9 +115,16 @@ export function MaterialViewSheet({
     ["Description", r.specifications],
   ];
 
+  // Yarn and Fabric have their one unit decided for them, so the editor stopped
+  // offering Alternative UOM on those two classes (client 2026-08-01,
+  // `singleUomClass` in material-master-screen.tsx). View follows it: a record
+  // still CARRIES the flag and any conversion it was saved with — nothing was
+  // dropped from the DB — but showing here what the editor refuses to show would
+  // send the reader looking for a field that isn't there.
+  const singleUom = formKey === "YARN" || formKey === "FABRIC";
   const uom: [string, string | null][] = [
     ["Base UOM", r.base_uom_id ? uomCode(r.base_uom_id) : null],
-    ["Alternative UOM", r.has_alternate_uom ? "Yes" : "No"],
+    ["Alternative UOM", singleUom ? null : r.has_alternate_uom ? "Yes" : "No"],
   ];
 
   const status: [string, string | null][] = [
@@ -192,7 +199,7 @@ export function MaterialViewSheet({
               {/* Conversions read as the pack they describe ("1 Cone = 2,500
                   MTR") rather than four raw columns — describeConversion is the
                   same renderer the planner's pack picker uses. */}
-              {r.conversions.length > 0 && (
+              {!singleUom && r.conversions.length > 0 && (
                 <ul className="mt-2 space-y-1 border-t border-border pt-2 text-sm text-foreground">
                   {r.conversions.map((c) => (
                     <li key={c.id}>{describeConversion(c, uomCode)}</li>

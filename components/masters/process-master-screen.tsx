@@ -1,31 +1,31 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createProcess, updateProcess, deleteProcess } from "@/lib/masters/process-actions";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { PROCESS_NAMES } from "@/lib/masters/name-vocabularies";
 import { BILLING_ON, type BillingOn, type Process, type ProcessInput } from "@/lib/masters/process-types";
-import type { Commodity } from "@/lib/masters/commodity-types";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
-import { CommodityPicker } from "@/components/masters/commodity-picker";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type SubRow = { key: string; sub_category: string; short_description: string; hsn_code: string };
@@ -33,7 +33,6 @@ type SubRow = { key: string; sub_category: string; short_description: string; hs
 const BLANK = {
   name: "",
   short_description: "",
-  commodity_id: "",
   billing_on: "" as "" | BillingOn,
   hsn_code: "",
   for_yarn: false,
@@ -58,21 +57,19 @@ const FOR_FLAGS: { key: keyof typeof BLANK; label: string }[] = [
 ];
 
 /**
- * Master-detail CRUD for the legacy "Process" master: a header (name, commodity,
- * billing basis, HSN code, Sl No, "For" applicability + planning flags) plus an
- * optional "Sub Categories" line grid. Commodity is sourced from the real
- * `commodities` table (not the stale config_lookups snapshot). Table on
- * desktop, cards on mobile, Sheet editor.
+ * Master-detail CRUD for the legacy "Process" master: a header (name, billing
+ * basis, HSN code, Sl No, "For" applicability + planning flags) plus an optional
+ * "Sub Categories" line grid. Table on desktop, cards on mobile, Sheet editor.
+ *
+ * Commodity was a header field and a list column until the client withdrew the
+ * whole Commodities master (2026-08-01); `processes.commodity_id` stays in the
+ * database, unread and unwritten.
  */
 export function ProcessMasterScreen({
   rows,
-  commodities,
-  itemClasses,
   perms,
 }: {
   rows: Process[];
-  commodities: Commodity[];
-  itemClasses: ConfigLookup[];
   perms: Perms;
 }) {
   const router = useRouter();
@@ -85,17 +82,11 @@ export function ProcessMasterScreen({
   const keySeq = useRef(0);
   const newKey = () => `s${keySeq.current++}`;
 
-  const commodityLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of commodities) m.set(c.id, c.short_name ?? c.name ?? "—");
-    return m;
-  }, [commodities]);
-
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter<
     Process,
-    { status: string; for: string; billingOn: string; commodity: string }
+    { status: string; for: string; billingOn: string }
   >(rows, {
     searchKey: (r) => [r.name, r.short_description, r.billing_on, r.hsn_code].filter(Boolean).join(" "),
     filters: {
@@ -106,9 +97,8 @@ export function ProcessMasterScreen({
         return flag ? !!r[flag.key as keyof Process] : true;
       },
       billingOn: (r, v) => r.billing_on === v,
-      commodity: (r, v) => r.commodity_id === v,
     },
-    initialFilters: { status: "", for: "", billingOn: "", commodity: "" },
+    initialFilters: { status: "", for: "", billingOn: "" },
   });
 
   const pg = usePagination(filtered, 10);
@@ -124,6 +114,22 @@ export function ProcessMasterScreen({
     rowValue: (r) => r.name,
   });
 
+  /**
+   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    seed: PROCESS_NAMES,
+    enabled: open && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
+  });
+
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
@@ -135,7 +141,6 @@ export function ProcessMasterScreen({
     setForm({
       name: r.name,
       short_description: r.short_description ?? "",
-      commodity_id: r.commodity_id ?? "",
       billing_on: r.billing_on ?? "",
       hsn_code: r.hsn_code ?? "",
       for_yarn: r.for_yarn,
@@ -181,7 +186,6 @@ export function ProcessMasterScreen({
       const payload: ProcessInput = {
         name: form.name.trim(),
         short_description: form.short_description.trim() || null,
-        commodity_id: form.commodity_id || null,
         billing_on: form.billing_on ? form.billing_on : null,
         hsn_code: form.hsn_code.trim() || null,
         for_yarn: form.for_yarn,
@@ -237,14 +241,6 @@ export function ProcessMasterScreen({
   const columns: Column<Process>[] = [
     { header: "Process", cell: (r) => <span className="text-sm">{r.name}</span> },
     {
-      header: "Commodity",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.commodity_id ? commodityLabel.get(r.commodity_id) ?? "—" : "—"}
-        </span>
-      ),
-    },
-    {
       header: "HSN Code",
       cell: (r) => <span className="text-sm text-muted-foreground">{r.hsn_code ?? "—"}</span>,
     },
@@ -271,8 +267,6 @@ export function ProcessMasterScreen({
       align: "right",
       cell: (r) => <span className="tabular-nums text-sm text-muted-foreground">{r.sl_no}</span>,
     },
-    { header: "Created Dt", cell: (r) => <span className="text-sm">{fmtDate(r.created_at)}</span> },
-    { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by || "—"}</span> },
     {
       header: "Status",
       cell: (r) => (
@@ -359,22 +353,6 @@ export function ProcessMasterScreen({
               </option>
             ))}
           </Select>
-          <Select
-            value={filterValues.commodity ?? ""}
-            onChange={(e) => {
-              setFilter("commodity", e.target.value);
-              pg.setPage(1);
-            }}
-            aria-label="Filter commodity"
-            className="h-9 text-base md:text-sm"
-          >
-            <option value="">All commodities</option>
-            {commodities.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.short_name ?? c.name ?? "—"}
-              </option>
-            ))}
-          </Select>
         </FilterBar>
         <div className="flex flex-1 items-center justify-end gap-2">
           <DataIoToolbar entityKey="processes" rows={filtered} canExport={perms.canExport} />
@@ -388,7 +366,7 @@ export function ProcessMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No process records yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No process records yet." />
       </div>
 
       {/* mobile cards */}
@@ -461,9 +439,16 @@ export function ProcessMasterScreen({
                 onChange={(e) => set({ name: e.target.value })}
                 required
                 className="text-base md:text-sm"
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
                 {...dupFieldProps(dupError, "pr-name")}
               />
               <DuplicateError error={dupError} id="pr-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </div>
             <div>
               <Label htmlFor="pr-desc">Short Description</Label>
@@ -475,15 +460,6 @@ export function ProcessMasterScreen({
                 className="text-base md:text-sm"
               />
             </div>
-            <CommodityPicker
-              commodities={commodities}
-              itemClasses={itemClasses}
-              value={form.commodity_id}
-              onChange={(v) => set({ commodity_id: v })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-            />
             <div className="grid grid-cols-3 gap-3 sm:col-span-2">
               <div>
                 <Label htmlFor="pr-billing">Billing On</Label>

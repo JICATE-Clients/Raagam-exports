@@ -8,7 +8,6 @@ import {
   contractorInput,
   WORKER_TYPES,
 } from "@/lib/hr/types";
-import { commodityInput } from "@/lib/masters/commodity-types";
 import { categoryInput } from "@/lib/masters/category-types";
 import { compositionInput } from "@/lib/masters/composition-types";
 import { processInput } from "@/lib/masters/process-types";
@@ -207,18 +206,6 @@ export const IO_ENTITIES: IoEntity[] = [
 
   // ---- Master Data ▸ Materials ---------------------------------------
   {
-    key: "commodities",
-    label: "Commodities",
-    table: "commodities",
-    module: "masters",
-    revalidate: ["/masters/materials/commodities"],
-    schema: commodityInput,
-    fields: [
-      { key: "short_name", header: "Short Name", kind: "string" },
-      { key: "name", header: "Name", kind: "string" },
-    ],
-  },
-  {
     key: "categories",
     label: "Categories",
     table: "categories",
@@ -363,7 +350,10 @@ export const IO_ENTITIES: IoEntity[] = [
   },
   {
     key: "levies",
-    label: "Levies",
+    // Import/export sheet name follows the child's label (client 2026-08-01).
+    // `key` and `table` stay `levies` — the key is what existing saved templates
+    // and the revalidate path below are keyed on.
+    label: "GST",
     table: "levies",
     module: "masters",
     revalidate: ["/masters/materials/levies"],

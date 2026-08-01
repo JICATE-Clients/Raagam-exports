@@ -10,6 +10,7 @@ import {
   deleteDesignation,
 } from "@/lib/masters/designation-actions";
 import { DESIGNATION_FOR, type Designation } from "@/lib/masters/designation-types";
+import { DESIGNATION_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -35,9 +36,10 @@ const descriptor: SimpleMasterDescriptor<Designation> = {
   fromRow: (r) => ({ name: r.name, for_type: r.for_type }),
   searchText: (r) => [r.name, r.for_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active"),
-  // Offers near-matching names already in THIS master while typing;
+  // Offers near-matching names — the curated vocabulary above plus the
+  // rows already in THIS master — while typing;
   // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
-  spellSuggest: true,
+  spellSuggest: { seed: DESIGNATION_NAMES },
   dupCheck: { table: "designations", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     name: String(v.name),

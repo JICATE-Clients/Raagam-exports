@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Zone } from "./zone-types";
 
 export async function listZones(): Promise<Zone[]> {
@@ -8,5 +9,5 @@ export async function listZones(): Promise<Zone[]> {
     .from("zones")
     .select("*, areas:zone_areas(id, area_name)")
     .order("zone_name", { nullsFirst: false });
-  return (data ?? []) as Zone[];
+  return withCreators((data ?? []) as Zone[]);
 }

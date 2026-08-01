@@ -20,81 +20,6 @@ function rev(): void {
 }
 
 // ============================================================================
-// yarn_compositions
-// ============================================================================
-export async function createYarnComposition(data: {
-  code: string;
-  name: string;
-  is_active: boolean;
-}): Promise<CreateResult> {
-  if (!(await can("masters", "create"))) return fail("Forbidden");
-  let code = data.code.trim();
-  const name = data.name.trim().toUpperCase();
-  if (!name) return fail("Name is required.");
-  const s = await createClient();
-  const dupName = await checkDuplicateName(s, "yarn_compositions", name, { nameColumn: "name" });
-  if (!dupName.ok) return fail(dupName.error);
-  if (!code) {
-    code = await generateUniqueCode(s, "yarn_compositions", name);
-  } else {
-    const dupCode = await checkDuplicateName(s, "yarn_compositions", code, {
-      nameColumn: "code",
-      label: "code",
-    });
-    if (!dupCode.ok) return fail(dupCode.error);
-  }
-  const { data: row, error } = await s
-    .from("yarn_compositions")
-    .insert({ code, name, is_active: data.is_active })
-    .select("id")
-    .single();
-  if (error) return fail(error.message);
-  rev();
-  return { ok: true, id: row.id };
-}
-
-export async function updateYarnComposition(
-  id: string,
-  data: { code: string; name: string; is_active: boolean },
-): Promise<Result> {
-  if (!(await can("masters", "edit"))) return fail("Forbidden");
-  const code = data.code.trim();
-  const name = data.name.trim().toUpperCase();
-  if (!name) return fail("Name is required.");
-  const s = await createClient();
-  const dupName = await checkDuplicateName(s, "yarn_compositions", name, {
-    nameColumn: "name",
-    excludeId: id,
-  });
-  if (!dupName.ok) return fail(dupName.error);
-  // Blank code on update = keep the stored one (the form doesn't edit codes).
-  if (code) {
-    const dupCode = await checkDuplicateName(s, "yarn_compositions", code, {
-      nameColumn: "code",
-      label: "code",
-      excludeId: id,
-    });
-    if (!dupCode.ok) return fail(dupCode.error);
-  }
-  const { error } = await s
-    .from("yarn_compositions")
-    .update(code ? { code, name, is_active: data.is_active } : { name, is_active: data.is_active })
-    .eq("id", id);
-  if (error) return fail(error.message);
-  rev();
-  return { ok: true };
-}
-
-export async function deleteYarnComposition(id: string): Promise<DeleteResult> {
-  if (!(await can("masters", "delete"))) return fail("Forbidden");
-  const s = await createClient();
-  const res = await deleteOrDeactivate(s, "yarn_compositions", id, "is_active");
-  if (!res.ok) return fail(res.error);
-  rev();
-  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
-}
-
-// ============================================================================
 // defect_groups
 // ============================================================================
 export async function createDefectGroup(data: {
@@ -179,3 +104,8 @@ export async function deleteDefectGroup(id: string): Promise<DeleteResult> {
 // their tables are dropped in 0382 — LabTestStandard being the one exception,
 // where the TABLE survives because Purchase ▸ Lab owns its own CRUD for it
 // (see 0382 §3); only this duplicate goes.
+//
+// YarnComposition's CRUD stood above `defect_groups` and went the same way
+// (client 2026-08-01). Nothing else in the app read `yarn_compositions`, so
+// unlike LabTestStandard there is no surviving reader — the table is simply
+// unreachable now, and is left in place rather than dropped.

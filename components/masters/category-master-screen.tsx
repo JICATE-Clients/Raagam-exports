@@ -7,16 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
-import { LevyPicker } from "@/components/masters/lookup-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
-import { CommodityPicker } from "@/components/masters/commodity-picker";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
@@ -36,9 +35,7 @@ import {
 } from "@/lib/masters/category-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
-import type { Commodity } from "@/lib/masters/commodity-types";
 import type { SizeGroup } from "@/lib/masters/size-group-types";
-import { fmtDate } from "@/lib/format";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -49,7 +46,6 @@ const BLANK = {
   short_spec: "",
   made: "" as "" | MadeType,
   levy_id: "",
-  commodity_id: "",
   fabric_structure_id: "",
   wastage_per: 0,
   profit_per: 0,
@@ -69,15 +65,19 @@ const BLANK = {
 type SubRow = { key: string; id: string | null; name: string };
 
 /**
- * Rich CRUD for the legacy "Category" master. Item Class/Levy/Commodity are
- * dialog pickers over their stored master data; Fabric Structure and the Sub
- * Categories grid only render for the item classes the legacy form shows them on.
+ * Rich CRUD for the legacy "Category" master. Item Class is a dialog picker
+ * over its stored master data; Fabric Structure and the Sub Categories grid
+ * only render for the item classes the legacy form shows them on. (Levy
+ * Description was one of these pickers until the client hid it on 2026-08-01 —
+ * the column is still carried, see the note at its old position below.)
+ *
+ * Commodity was asked here until the client withdrew the whole Commodities
+ * master (2026-08-01) — the column stays in the database, unread and unwritten.
  */
 export function CategoryMasterScreen({
   rows,
   itemClasses,
   levies,
-  commodities,
   fabricStructures,
   sizeGroups,
   perms,
@@ -85,7 +85,6 @@ export function CategoryMasterScreen({
   rows: Category[];
   itemClasses: ConfigLookup[];
   levies: Levy[];
-  commodities: Commodity[];
   fabricStructures: ConfigLookup[];
   sizeGroups: SizeGroup[];
   perms: Perms;
@@ -111,11 +110,6 @@ export function CategoryMasterScreen({
     for (const l of levies) m.set(l.id, l.description || `Entry #${l.entry_no}`);
     return m;
   }, [levies]);
-  const commodityLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of commodities) m.set(c.id, c.name ?? c.short_name ?? "—");
-    return m;
-  }, [commodities]);
   const fabricStructureLabel = useMemo(() => {
     const m = new Map<string, string>();
     for (const f of fabricStructures) m.set(f.id, f.name);
@@ -153,8 +147,9 @@ export function CategoryMasterScreen({
     setSubs((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
   /**
-   * What still has to be filled before this category can be saved (client
-   * 2026-08-01: everything except Levy Description and Commodity).
+   * What still has to be filled before this category can be saved — every field
+   * the form still asks for (client 2026-08-01; the two it used to exclude,
+   * Levy Description and Commodity, are no longer on the form at all).
    *
    * ONE list, read by three things — the `*` on each label, the Save gate, and
    * the message under Save. Three separate conditions would be three places to
@@ -278,7 +273,6 @@ export function CategoryMasterScreen({
           r.made,
           classLabel.get(r.item_class_id),
           r.levy_id ? levyLabel.get(r.levy_id) : "",
-          r.commodity_id ? commodityLabel.get(r.commodity_id) : "",
         ]
           .filter(Boolean)
           .join(" ")
@@ -310,7 +304,6 @@ export function CategoryMasterScreen({
       short_spec: r.short_spec ?? "",
       made: r.made ?? "",
       levy_id: r.levy_id ?? "",
-      commodity_id: r.commodity_id ?? "",
       fabric_structure_id: r.fabric_structure_id ?? "",
       wastage_per: r.wastage_per ?? 0,
       profit_per: r.profit_per ?? 0,
@@ -336,7 +329,6 @@ export function CategoryMasterScreen({
         short_spec: form.short_spec.trim() || null,
         made: form.made ? form.made : null,
         levy_id: form.levy_id || null,
-        commodity_id: form.commodity_id || null,
         fabric_structure_id: form.fabric_structure_id || null,
         wastage_per: form.wastage_per,
         profit_per: form.profit_per,
@@ -389,8 +381,6 @@ export function CategoryMasterScreen({
         </span>
       ),
     },
-    { header: "Created Dt", cell: (r) => <span className="text-sm">{fmtDate(r.created_at)}</span> },
-    { header: "Created User", cell: (r) => <span className="text-sm">{r.created_by_name || "—"}</span> },
     {
       header: "Inactive",
       cell: (r) => (
@@ -502,7 +492,7 @@ export function CategoryMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No category records yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={pg.paged} getKey={(r) => r.id} empty="No category records yet." />
       </div>
 
       {/* mobile cards */}
@@ -756,21 +746,16 @@ export function CategoryMasterScreen({
                 "use Description only"). The short_spec column is still round-tripped
                 (form state + save) so historical data isn't lost; it's just no longer
                 edited here — descriptive data comes from structured attributes now. */}
-            <LevyPicker
-              label="Levy Description"
-              levies={levies}
-              value={form.levy_id}
-              onChange={(v) => setForm({ ...form, levy_id: v })}
-            />
-            <CommodityPicker
-              commodities={commodities}
-              itemClasses={itemClasses}
-              value={form.commodity_id}
-              onChange={(v) => setForm({ ...form, commodity_id: v })}
-              canCreate={perms.canCreate}
-              canEdit={perms.canEdit}
-              canDelete={perms.canDelete}
-            />
+            {/* Levy Description dropped from the UI (client 2026-08-01 — the GST
+                structure is not chosen per category). Same treatment as
+                short_spec above: `levy_id` is still in form state, still read on
+                open and still written on save, so existing rows keep whatever
+                they were given and nothing is blanked by editing a category.
+                It is deliberately NOT removed from the type or the table — the
+                brief was "hide it, we may call it from a child" — so re-showing
+                it, here or on a child grid, is putting this picker back and
+                nothing else. Levies are still pickable where they're actually
+                decided: VAT / Duty / TDS on the Vendor master. */}
           </DetailSection>
 
           {editId && (

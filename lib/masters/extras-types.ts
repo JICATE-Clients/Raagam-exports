@@ -20,7 +20,6 @@ export const LOOKUP_KINDS = [
   "gauge",
   "knitting_dia",
   "out_doc_term",
-  "commodity",
   "item_class",
   "hsn_code",
   "city",
@@ -100,7 +99,10 @@ export const LOOKUP_KINDS = [
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   attribute: "Attributes",
-  levy: "Levies",
+  // "GST", not "Levy" (client 2026-08-01) — same rename as the rich Levies
+  // child in registry.ts. The `levy` kind key is stored in config_lookups.kind,
+  // so only the label moves.
+  levy: "GST",
   material_category: "Categories",
   material_attribute: "Material Attributes",
   yarn_count: "Counts",
@@ -111,7 +113,6 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   gauge: "Gauges",
   knitting_dia: "Knitting Dias",
   out_doc_term: "Out Document Terms",
-  commodity: "Commodities",
   item_class: "Item Classes",
   hsn_code: "HSN Codes",
   city: "Cities",

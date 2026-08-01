@@ -13,7 +13,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -24,6 +24,10 @@ import {
   deleteDefectDetail,
 } from "@/lib/masters/defect-detail-actions";
 import type { DefectDetail, DefectGroup, DefectDetailInput } from "@/lib/masters/defect-detail-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -73,6 +77,41 @@ export function DefectDetailMasterScreen({
 
   const displayCode = autoCode(form.defect_catg_id, form.defect_id, form.defect_det_id);
 
+  /**
+   * Told as they type, not on Save. Unscoped, matching the on-save guard already
+   * in defect-detail-actions.ts (`checkDuplicateName(s, "defect_details", name)`
+   * in both create and update) — until now that guard could only answer with a
+   * toast after a round trip.
+   *
+   * On NAME, not on the composite code. The code is auto-composed from three
+   * typed parts and its own uniqueness is already checked server-side; the name
+   * is what a second operator would independently re-enter for a defect that is
+   * already on the list.
+   */
+  const dupError = useDuplicateName({
+    table: "defect_details",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: open && !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
+
+  /**
+   * "Did you mean?" — the check above only fires on an EXACT collision, and a
+   * defect name is a phrase ("BROKEN STITCH") that is easy to re-enter one word
+   * differently. No curated vocabulary: the DETAIL under a group is site-specific
+   * (the GROUP list is the standardised half, and that master carries the seed).
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name,
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    seed: [],
+    enabled: open && !dupError,
+    onApply: (v) => set({ name: v }),
+  });
+
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [
@@ -116,6 +155,7 @@ export function DefectDetailMasterScreen({
   }
 
   const canSave =
+    !dupError &&
     form.defect_catg_id.trim().length >= 2 &&
     form.defect_id.trim().length >= 2 &&
     form.defect_det_id.trim().length >= 2 &&
@@ -393,7 +433,16 @@ export function DefectDetailMasterScreen({
                 uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "dd-name")}
+              />
+              <DuplicateError error={dupError} id="dd-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => set({ name: v })}
               />
             </div>
             <div>

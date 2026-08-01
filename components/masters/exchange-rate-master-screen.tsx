@@ -47,6 +47,9 @@ function periodLabel(r: ExchangeRateEntry): string {
  * serves all three registers (Quotes/Orders · Customs · Imports) — `register`
  * picks the label, the "For" options, and the rate-column header.
  */
+// dup-check: exempt -- a DATED register: the same currency at a new month/year or
+// effective-from is the next rate, which is the entire purpose of the master. The
+// header carries an auto Entry No, so nothing typed here identifies the record.
 export function ExchangeRateMasterScreen({
   rows,
   register,

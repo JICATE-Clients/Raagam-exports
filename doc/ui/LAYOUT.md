@@ -242,7 +242,7 @@ installed PWA.
 | The entity is | Add | Where |
 |---|---|---|
 | a **config list** (City, State, Department, Ship Type …) | inline name-only form in the panel | `lookup-dialog-picker.tsx` |
-| a **rich master** (Country, Currency, Bank, Commodity, Category, Yarn) | `onAddOverride` → a quick-create sheet (§5) | that entity's picker |
+| a **rich master** (Country, Currency, Bank, Category, Yarn) | `onAddOverride` → a quick-create sheet (§5) | that entity's picker |
 | a **transaction-scale master** (Customer, Vendor, Applicant, Employee, Location) | nothing — select-only | `record-picker.tsx` and friends |
 
 The middle row is the one that gets skipped. A Country created name-only has no ISD code, which
@@ -275,7 +275,7 @@ and the audit go by.
 
 Which adapter, by where the rows live: a `config_lookups` **kind** → `LookupDialogPicker`
 (inline name-only Add/Modify/Delete). Its **own table** → the thin `DataPicker` adapter for that
-entity (`CountryPicker`, `CurrencyPicker`, `BankPicker`, `CommodityPicker`, `LevyPicker` …), with
+entity (`CountryPicker`, `CurrencyPicker`, `BankPicker`, `LevyPicker` …), with
 `onAddOverride` to a quick-create sheet if the record's other fields do something.
 **Transaction-scale** (Customer, Vendor, Applicant, Employee, Location) → select-only.
 Never a new picker shell — see `.claude/skills/raagam-masters-picker-wiring` for the full map.
@@ -290,9 +290,8 @@ adapter:
 - **The field decides which questions the form asks.** Every one of these is Item Class or a
   class-like parent, and that is the pattern rather than a coincidence: Materials' Item Class picks
   the whole form from the class code, Category's drives `showFabricStructure` and `showSubCategories`,
-  Material Attribute's supplies the attribute values the panel lines up, the Commodity quick-create's
-  classifies the row *into* a class other screens branch on. A class created from inside one of those
-  forms selects itself and opens a form that does not exist. Materials' Fabric Type is the same shape
+  Material Attribute's supplies the attribute values the panel lines up. A class created from inside
+  one of those forms selects itself and opens a form that does not exist. Materials' Fabric Type is the same shape
   one level down — Shade and the Mixing grid gate on `"melange"` / `"yarn dyed"`, so a value added
   does nothing and a value *renamed* breaks both silently. **A field that selects the form's shape
   cannot also be a field the operator extends from inside that form.**
@@ -362,9 +361,9 @@ pencil and bin with or without `itemClassId`. Omitting all three there always lo
 Checked by `python scripts/audit_layout.py . --check picker-perms`, over **masters, orders and
 sales** — every managed-picker call site in the repo. It covers a wider tree than `stored-select`
 on purpose: this one sits at zero, so a new tree is free insurance, while `stored-select` has live
-hits and would only gain an untriaged backlog. Seven pickers are watched — `LookupDialogPicker`,
-`CategoryPicker`, `ItemPicker`, `CountryPicker`, `BankPicker`, `CurrencyPicker`, `CommodityPicker`.
-The last four were added while already clean; that is the point, since a picker is cheapest to
+hits and would only gain an untriaged backlog. Six pickers are watched — `LookupDialogPicker`,
+`CategoryPicker`, `ItemPicker`, `CountryPicker`, `BankPicker`, `CurrencyPicker`.
+The last three were added while already clean; that is the point, since a picker is cheapest to
 cover before it has a violation.
 
 ---
@@ -827,7 +826,7 @@ Almost nothing — but the flag has to survive the trip:
   Attribute row; the parent is what gets switched off), and the documents that ride the same
   shape (`sales_orders`, `shipment_plans`, `color_card_colors`).
 - **Filters, not fields.** A picker that narrows a list — the order chooser on Prepare
-  Advised Items, the Commodity facet on HSN Assign — legitimately offers everything;
+  Advised Items — legitimately offers everything;
   searching for a since-retired buyer's old orders is a thing people do. The rule governs
   fields that *write* a value.
 - **Master list screens** show active and inactive both, defaulting to All
@@ -924,3 +923,78 @@ line or in the comment block directly above it. The judgement is "is this a valu
 the file can answer that.
 
 Checked by `python scripts/audit_layout.py . --check truncate-reveal`.
+
+## 15. Near misses
+
+**A duplicate check only ever fires on an EXACT match**, so the collision it cannot see is
+the one a human actually makes. Type `TUTICORN` beside an existing `TUTICORIN` and the
+field stays clean; a second port master is created for the same berth, and from then on
+every Customer pointing at it is split across two records that mean one thing. §13's rule
+about a disabled row never being offered is worth nothing if the operator can simply create
+a second, spelled differently.
+
+So a master with a duplicate check also **offers the close names it knows**.
+
+### The two lines under an input are one slot
+
+| | Duplicate error | Suggestion chip |
+|---|---|---|
+| fires on | exact match | near miss / partial |
+| component | `<DuplicateError>` | `<SpellSuggestHint>` |
+| wired by | `dupFieldProps(error, id)` | `onKeyDown={nameSuggest.onKeyDown}` |
+| blocks Save | **yes** | no |
+| holds the cursor | **yes** (`data-dup-error`) | no |
+| changes the text | no | only if a chip is accepted |
+
+They never show together — `enabled: open && !dupError` on the hook. The chip is the
+*softer* of the two and the error is the more urgent, so the error wins the line, and the
+name that was collided with is the one name it would be useless to suggest.
+
+**The chip must never become a hold.** SEWING ACCESSORY and SEWING ACCESSORIES can both be
+correct rows. Wiring an advisory through `dupFieldProps` would pin the cursor on a value
+that is right, which is the same failure §8's keyboard rules describe for `aria-invalid`.
+
+### Keyboard
+
+The strip is a list, so it answers the key §8 gives to lists: **↓ opens and moves into it**,
+↑ moves back out to the field, Enter applies the highlighted chip and stays put, Esc
+dismisses the strip only (one layer). The chips carry `tabIndex={-1}` — they appear and
+vanish as the operator types, so leaving them in the tab order would make Tab out of Name
+land somewhere different depending on whether a suggestion happened to be showing.
+
+### Seeds
+
+Candidates come from two places: the rows already on the screen, and an optional curated
+`seed`. Seeds live in `lib/masters/name-vocabularies.ts` (places in `geo-names.ts`), one
+named export per master, imported at exactly **one** call site.
+
+They are hints, not data — never written to the database, never a validation whitelist. A
+name absent from a list saves exactly as it always did. Their only job is the first row
+typed into a thin table, which is when a house spelling gets set wrongly and forever.
+
+**There is no default seed, and that is the whole rule.** The first version of this feature
+defaulted to a fibre word list reachable from every screen; a Packing Accessories name was
+"corrected" to COTTON (client 2026-07-28) and the client had the feature removed outright
+two days later. A list named in an import cannot reach a screen that did not name it.
+
+Where no real-world standard exists — Bin, Count, Gauge, Knitting Dia, and every party
+master, whose names are real trading parties — pass `seed: []` and offer rows only. That is
+a correct answer, not a gap.
+
+### Exempt
+
+- **A field holding an ID or a code**, not a name — employee ID, bank account number, HSN
+  code, leave-type code. A digit string has no spelling, so every chip it could produce is
+  a different real record offered beside the one being typed.
+- **A `<Textarea>`** — the strip claims ↓ and Enter, which inside a textarea already mean
+  "move down a line" and "start a new line".
+- **A name the system composes** — Yarn, Fabric, General and the attribute-driven accessory
+  classes write their own Name from the answered fields. `material-master-screen.tsx` gates
+  the hook on `nameIsComposed`: correcting the app's own output is not a typo fix, and the
+  next keystroke would overwrite it anyway. The duplicate *error* still applies there.
+
+Anything else opts out with a `spell-suggest: exempt -- <reason>` comment in the file.
+
+Checked by `python scripts/audit_layout.py . --check spell-suggest`, which flags only
+screens that already run a duplicate check — without one there is no field to attach to,
+and `--check dup-check` is the finding that matters.

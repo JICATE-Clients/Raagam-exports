@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { ConfigLookup, Transporter, GstRate, Attribute } from "./extras-types";
 
 export async function listConfigLookups(): Promise<ConfigLookup[]> {
@@ -9,13 +10,13 @@ export async function listConfigLookups(): Promise<ConfigLookup[]> {
     .select("*")
     .order("kind")
     .order("name");
-  return (data ?? []) as ConfigLookup[];
+  return withCreators((data ?? []) as ConfigLookup[]);
 }
 
 export async function listTransporters(): Promise<Transporter[]> {
   const s = await createClient();
   const { data } = await s.from("transporters").select("*").order("name");
-  return (data ?? []) as Transporter[];
+  return withCreators((data ?? []) as Transporter[]);
 }
 
 export async function listGstRates(): Promise<GstRate[]> {
@@ -31,7 +32,7 @@ export async function listItemClasses(): Promise<ConfigLookup[]> {
     .select("*")
     .eq("kind", "item_class")
     .order("code");
-  return (data ?? []) as ConfigLookup[];
+  return withCreators((data ?? []) as ConfigLookup[]);
 }
 
 export async function listAttributes(): Promise<Attribute[]> {
@@ -41,10 +42,10 @@ export async function listAttributes(): Promise<Attribute[]> {
     .select("*, values:attribute_values(*, options:attribute_value_options(*))")
     .eq("kind", "item_class")
     .order("code");
-  return ((data ?? []) as Attribute[]).map((a) => ({
+  return withCreators(((data ?? []) as Attribute[]).map((a) => ({
     ...a,
     values: [...(a.values ?? [])]
       .sort((x, y) => x.sno - y.sno)
       .map((v) => ({ ...v, options: [...(v.options ?? [])].sort((x, y) => x.sno - y.sno) })),
-  }));
+  })));
 }

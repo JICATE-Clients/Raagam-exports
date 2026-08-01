@@ -15,7 +15,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/masters/filter-bar";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -76,6 +76,11 @@ export function OurBankMasterScreen({
 
   // Real-time duplicate check on Account No — mirrors the on-save guard in
   // our-bank-actions (our_banks / account_no).
+  //
+  // spell-suggest: exempt -- the guarded field is an account number. A digit
+  // string has no spelling, so every "did you mean?" it could produce would be a
+  // different real account, offered next to the one the operator is typing. That
+  // is the one place a wrong chip could move money.
   const dupError = useDuplicateName({
     table: "our_banks",
     name: form.account_no,

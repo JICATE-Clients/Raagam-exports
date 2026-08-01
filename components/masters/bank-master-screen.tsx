@@ -27,6 +27,9 @@ import type { Country } from "@/lib/masters/country-types";
 import { isInactive } from "@/lib/masters/inactive";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { BANK_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 // isd_code comes along for the ride so a branch's WhatsApp chip can build a
@@ -140,6 +143,22 @@ export function BankMasterScreen({
     rows,
     rowId: (r) => r.id,
     rowValue: (r) => r.name,
+  });
+
+  /**
+   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    seed: BANK_NAMES,
+    enabled: open && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
   const codeLabel = codeLabelFor(form.bank_type);
 
@@ -458,9 +477,16 @@ export function BankMasterScreen({
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 required
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
                 {...dupFieldProps(dupError, "bk-name")}
               />
               <DuplicateError error={dupError} id="bk-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </Field>
             {/* A radio set is one field with several controls; the inline gap
                 is intra-control spacing, not page layout. `h-8` matches the

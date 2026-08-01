@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { ApprovalQueueRow } from "./types";
 
 /**
@@ -18,11 +19,15 @@ export async function getAmendmentApprovals(): Promise<ApprovalQueueRow[]> {
        buyer:buyers(id, code, name),
        ship_type:config_lookups!ship_type_id(code, name),
        approver:profiles!approved_by(id, full_name),
-       creator:profiles!created_by(full_name)`,
+       created_by, created_at`,
     )
     .eq("is_draft", false)
     .order("amend_date", { ascending: false })
     .order("created_at", { ascending: false });
 
-  return (data ?? []) as unknown as ApprovalQueueRow[];
+  // `creator:profiles!created_by(full_name)` stood here and always resolved to
+  // null for a non-admin — `profiles_read_own` (0001_foundation.sql:150) hides
+  // other users' profile rows. Resolved through the SECURITY DEFINER
+  // `creator_names()` RPC instead (0383).
+  return withCreators((data ?? []) as unknown as ApprovalQueueRow[]);
 }

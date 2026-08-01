@@ -54,5 +54,8 @@ export interface ApprovalQueueRow {
    *  ("FREE ON BOARD (FOB)"), the same as in the picker that set it. */
   ship_type: { code: string | null; name: string | null } | null;
   approver: { id: string; full_name: string | null } | null;
-  creator: { full_name: string | null } | null;
+  created_at: string | null;
+  created_by: string | null;
+  /** Resolved by `withCreators()` — see lib/created-by.ts. */
+  created_by_name?: string | null;
 }

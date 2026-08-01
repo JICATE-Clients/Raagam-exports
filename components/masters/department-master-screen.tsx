@@ -28,6 +28,9 @@ import {
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { DEPARTMENT_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type DivisionOption = { id: string; division_id: string; division_name: string };
@@ -92,6 +95,22 @@ export function DepartmentMasterScreen({
     rows,
     rowId: (r) => r.id,
     rowValue: (r) => r.name,
+  });
+
+  /**
+   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
+   * one-character miss sails past it and becomes a second row meaning the same
+   * thing as the first. Advisory only: the typed text saves as typed unless the
+   * operator accepts a chip. Suppressed while the red error shows — one line
+   * under the input, and the name it collided with is the one that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    // The row being edited must not suggest its own name back at you.
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
+    seed: DEPARTMENT_NAMES,
+    enabled: open && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
   const locationLabel = useMemo(() => {
@@ -300,9 +319,16 @@ export function DepartmentMasterScreen({
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"
+              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
               {...dupFieldProps(dupError, "dep-name")}
             />
             <DuplicateError error={dupError} id="dep-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggest.suggestions}
+              activeIndex={nameSuggest.activeIndex}
+              onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

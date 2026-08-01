@@ -6,6 +6,7 @@ import {
 } from "@/components/masters/simple-master-screen";
 import { createState, updateState, deleteState } from "@/lib/masters/state-actions";
 import type { State } from "@/lib/masters/state-types";
+import { STATE_NAMES } from "@/lib/masters/name-vocabularies";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -32,9 +33,10 @@ const descriptor: SimpleMasterDescriptor<State> = {
   }),
   // Unscoped, matching the on-save guard in state-actions.ts: an inactive state
   // keeps its name reserved, and nothing in the app writes `states.country_id`.
-  // Offers near-matching names already in THIS master while typing;
+  // Offers near-matching names — the curated vocabulary above plus the
+  // rows already in THIS master — while typing;
   // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
-  spellSuggest: true,
+  spellSuggest: { seed: STATE_NAMES },
   dupCheck: { table: "states", fieldKey: "name" },
   actions: { create: createState, update: updateState, remove: deleteState },
 };

@@ -9,7 +9,6 @@ import { YarnQuickCreateSheet } from "@/components/masters/yarn-quick-create-she
 import { CategoryQuickCreateSheet } from "@/components/masters/category-quick-create-sheet";
 import type { ConfigLookup, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
-import type { Commodity } from "@/lib/masters/commodity-types";
 import type { Category } from "@/lib/masters/category-types";
 import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 
@@ -249,10 +248,11 @@ export function ItemPicker({
  * shows categories from other item classes (cascading-picker rule). When
  * `itemClassId` + a manage permission are given, it also gets inline
  * **Add / Modify / Delete** (quick-create only sets Short Name + Name; richer
- * fields like Made/Levy/Commodity stay editable from the full Category master).
+ * fields like Made/Levy stay editable from the full Category master).
  */
 export function CategoryPicker({
   label,
+  title,
   categories,
   value,
   onChange,
@@ -265,11 +265,13 @@ export function CategoryPicker({
   canEdit = false,
   canDelete = false,
   levies,
-  commodities,
-  itemClasses,
   fabricStructures,
 }: {
   label: string;
+  /** Overrides `label` for the panel title and toasts — for a grid cell, whose
+   *  column header already names the field and so passes `label=""`. Same prop
+   *  and same reason as `ItemPicker` above. */
+  title?: string;
   categories: Category[];
   value: string;
   onChange: (v: string) => void;
@@ -298,8 +300,6 @@ export function CategoryPicker({
    *  `itemClassId` + create permission), "+ Add" opens the complete Category
    *  mini-child instead of the inline name-only form. */
   levies?: Levy[];
-  commodities?: Commodity[];
-  itemClasses?: ConfigLookup[];
   fabricStructures?: ConfigLookup[];
 }) {
   const router = useRouter();
@@ -345,7 +345,6 @@ export function CategoryPicker({
               short_spec: null,
               made: null,
               levy_id: null,
-              commodity_id: null,
               fabric_structure_id: null,
               wastage_per: 0,
               profit_per: 0,
@@ -368,7 +367,6 @@ export function CategoryPicker({
               short_spec: existing?.short_spec ?? null,
               made: existing?.made ?? null,
               levy_id: existing?.levy_id ?? null,
-              commodity_id: existing?.commodity_id ?? null,
               fabric_structure_id: existing?.fabric_structure_id ?? null,
               wastage_per: existing?.wastage_per ?? 0,
               profit_per: existing?.profit_per ?? 0,
@@ -403,7 +401,6 @@ export function CategoryPicker({
                 short_spec: null,
                 made: null,
                 levy_id: null,
-                commodity_id: null,
                 fabric_structure_id: null,
                 wastage_per: null,
                 profit_per: null,
@@ -452,12 +449,13 @@ export function CategoryPicker({
 
   // "+ Add" opens the full mini-child sheet when the caller wired the lookup
   // lists through; otherwise it falls back to the inline name-only add form.
-  const useFullQc = canAdd && !!(levies && commodities && itemClasses && fabricStructures);
+  const useFullQc = canAdd && !!(levies && fabricStructures);
 
   return (
     <>
       <DataPicker
         label={label}
+        title={title}
         rows={rows}
         value={value}
         onChange={(v) => onChange(v ?? "")}
@@ -489,8 +487,6 @@ export function CategoryPicker({
           itemClassId={itemClassId!}
           selectedClassCode={selectedClassCode ?? null}
           levies={levies!}
-          commodities={commodities!}
-          itemClasses={itemClasses!}
           fabricStructures={fabricStructures!}
           perms={{ canCreate, canEdit, canDelete }}
         />

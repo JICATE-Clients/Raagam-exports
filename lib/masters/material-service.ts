@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Material } from "./material-types";
 
 export async function listMaterials(): Promise<Material[]> {
@@ -10,13 +11,13 @@ export async function listMaterials(): Promise<Material[]> {
       "*, mixings:material_mixings!material_mixings_item_id_fkey(*), conversions:material_uom_conversions(*), using_items:material_using_items!material_using_items_item_id_fkey(*), item_attribute_values(*)",
     )
     .order("name");
-  return ((data ?? []) as Material[]).map((m) => ({
+  return withCreators(((data ?? []) as Material[]).map((m) => ({
     ...m,
     mixings: [...(m.mixings ?? [])].sort((a, b) => a.sno - b.sno),
     conversions: [...(m.conversions ?? [])].sort((a, b) => a.sno - b.sno),
     using_items: [...(m.using_items ?? [])].sort((a, b) => a.sno - b.sno),
     item_attribute_values: [...(m.item_attribute_values ?? [])].sort((a, b) => a.sno - b.sno),
-  }));
+  })));
 }
 
 /** Yarn duplicate-detection (0279): a yarn is identified by count+category+purity —

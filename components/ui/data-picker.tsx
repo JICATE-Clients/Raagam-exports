@@ -920,7 +920,15 @@ export function DataPicker({
           aria-expanded={open}
           aria-controls={listId}
           aria-invalid={invalid || undefined}
+          // `off` keeps Chrome's remembered-values list from stacking on top of
+          // ours (and from eating ↓, which is how this list opens). The `data-*`
+          // trio says the same to the password managers, which ignore
+          // `autocomplete` — their injected icon lands on top of the chevron.
+          // See components/ui/input.tsx for the full reasoning.
           autoComplete="off"
+          data-1p-ignore=""
+          data-lpignore="true"
+          data-form-type="other"
           disabled={disabled}
           readOnly={!fine}
           value={triggerText}

@@ -173,6 +173,46 @@ later effective date is how a revision is entered. Checked by
 the input, and the check is fast enough to be read at keydown — by
 `python .claude/skills/raagam-keyboard-contract/scripts/audit_keyboard.py . --check dup-hold`.
 
+## Near misses (STANDING)
+
+**The duplicate check fires on an EXACT match, so the near miss is the one that gets
+through.** Type `TUTICORN` beside an existing `TUTICORIN` and nothing objects — and now
+every Customer pointing at that berth is split across two masters that mean the same
+thing. So a master that runs a duplicate check also **offers the close names it knows**:
+`useSpellSuggest` + `<SpellSuggestHint>`, or `spellSuggest` on a `SimpleMasterScreen`
+descriptor. The chip sits in the same slot as the red error and is suppressed while that
+error shows — one line under the input, and the name it collided with is the one name
+that is no use.
+
+**Advisory, never a hold.** The chip is not wired through `dupFieldProps`, so it never
+sets `data-dup-error`: SEWING ACCESSORY and SEWING ACCESSORIES may both be correct rows,
+and holding the cursor on "close to something" cages the operator on a right answer. It
+also never edits the text on its own — the typed name saves as typed unless a chip is
+accepted. Keyboard is ↓ into the strip, ↑ back out, Enter applies, Esc dismisses; the
+chips are `tabIndex={-1}` so an appearing strip never changes where Tab lands.
+
+**A seed belongs to ONE master and is never defaulted.** Vocabularies live in
+`lib/masters/name-vocabularies.ts` (and `geo-names.ts` for places) with a named export per
+master, imported at exactly one call site. They are not data and not a whitelist: a name
+absent from a list saves exactly as before, and nothing there is ever written to the DB.
+This is the whole history of the feature — the first version *defaulted* its seed to a
+fibre word list, a Packing Accessories name was "corrected" to COTTON (client 2026-07-28),
+and the client had it removed outright two days later. A seed named at the call site
+cannot reach a screen that did not ask for it.
+
+**Rows-only is a correct answer.** Where no real-world standard exists (Bin, Count, Gauge,
+Knitting Dia, and every party master — those are the names of real trading parties), pass
+`seed: []` / `spellSuggest: true` and offer only the rows beside what is being typed.
+Inventing a vocabulary is how the first version died.
+
+Genuinely exempt, with a `// spell-suggest: exempt -- <reason>` comment: a field holding an
+ID or code rather than a name (employee ID, account number, HSN code, leave-type code); a
+`<Textarea>`, where the strip would claim the ↓ and Enter that mean "next line" and "new
+line"; and a name the SYSTEM composes — `material-master-screen.tsx` gates the hook on
+`nameIsComposed`, because correcting the app's own output is not a typo fix. Checked by
+`python scripts/audit_layout.py . --check spell-suggest`, which flags only screens that
+already have a duplicate check (without one there is no field to hang the chip on).
+
 ## Truncated values (STANDING)
 
 **An ellipsis is a promise that the rest is reachable.** A value cut off by `truncate` and
@@ -197,3 +237,37 @@ responsive-only truncation that wraps at smaller sizes, and `DataTable` cells (t
 scrolls). Anything else opts out per line with a `truncate-reveal: exempt -- <reason>`
 comment. Full rules in `doc/ui/LAYOUT.md` §14; checked by
 `python scripts/audit_layout.py . --check truncate-reveal`.
+
+## Browser autofill (STANDING)
+
+**The browser's memory is not a master list.** Chrome remembers every value ever typed
+into a field and re-offers it as a plain white dropdown. On this app that is wrong three
+ways (client 2026-08-01):
+
+- It **looks authoritative and isn't.** Next to a field whose real options come from a
+  master table, a browser-remembered `RAAGAM TEXTILS` reads exactly like a stored row —
+  and picking it writes a value no master has.
+- It **leaks between operators.** A shared shop-floor machine offers the previous user's
+  customer names, party addresses and salary figures to the next one.
+- It **steals ↓.** A field's list opens on ↓ (`raagam-keyboard-contract`); while Chrome's
+  popup is up, Chrome eats ↓ to walk *its* suggestions. The contract breaks on exactly the
+  fields where it matters most.
+
+Off by default in the primitives, so a screen cannot forget: `Input`, `Textarea`, the
+native branch of `Select`, `DataPicker` and `Combobox` all set `autoComplete="off"` plus
+the `data-1p-ignore` / `data-lpignore` / `data-form-type` trio — the password managers
+ignore `autocomplete` and read only their own opt-outs.
+
+Two things worth knowing:
+
+- **`<Select>` needs it for a different reason.** A dropdown has no typing to remember, so
+  there is no popup — but Chrome will fill one from the saved address profile, silently
+  rewriting a State or Country nobody touched.
+- **The one legitimate opt-in is a value that belongs to the person, not the business** —
+  the login screen's `email` / `current-password`, so password managers still work. Just
+  pass `autoComplete`; the caller's spread wins, and the `data-*` trio drops itself so the
+  opt-in isn't cancelled out by the manager opt-outs.
+
+A **raw `<input>` is where this rule leaks**, since it inherits none of the above. There is
+exactly one in the app (the mobile search field in `components/shell/mobile-nav.tsx`) and
+it sets the attributes by hand; anything hand-rolled must do the same or use `Input`.

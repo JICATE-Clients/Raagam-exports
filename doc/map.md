@@ -325,7 +325,7 @@ Reorganizes the legacy EDP2 deep-capture (11 modules / 31 sub-modules / 433 form
 - **Buyers** (customer master) — Buyers tab ✅
 - **Items** (material master — code/name/category/uom) — Items tab ✅ *(◐ vs legacy: no composition/count/purity/supplier/std-cost on the item)*
 - **Units of Measure** (= legacy Stock Units) — UOMs tab ✅
-- **Materials Config** (generic `config_lookups`, kind-selector) — Materials Config tab ✅ *(migration 0218)* — covers Material Categories · Compositions · Yarn Counts · Yarn Purities · Processes · Components · Gauges · Knitting Dias · Commodities
+- **Materials Config** (generic `config_lookups`, kind-selector) — Materials Config tab ✅ *(migration 0218)* — covers Material Categories · Compositions · Yarn Counts · Yarn Purities · Processes · Components · Gauges · Knitting Dias
 - **Transporters** (Associates) — Transporters tab ✅ *(migration 0218)*
 - **GST Rates** — GST Rates tab ✅ *(migration 0218)*
 - **Currencies** (management CRUD; previously seed-only) — Currencies tab ✅ *(migration 0218)*

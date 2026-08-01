@@ -59,7 +59,6 @@ const MATERIAL_CHILDREN: MaterialChild[] = [
   { type: "lookup", kind: "gauge" },
   { type: "lookup", kind: "knitting_dia" },
   { type: "lookup", kind: "out_doc_term" },
-  { type: "lookup", kind: "commodity" },
 ];
 
 export function MaterialsConfigSection({ lookups }: { lookups: ConfigLookup[] }) {
