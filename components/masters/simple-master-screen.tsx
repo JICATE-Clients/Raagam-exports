@@ -26,6 +26,8 @@ import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button"
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { pairsFromRow } from "@/lib/record-pairs";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { validateFormat, type FormatKind } from "@/lib/validation/formats";
 import { cn } from "@/lib/utils";
@@ -130,6 +132,23 @@ export type SimpleMasterDescriptor<Row> = {
      */
     label?: string;
   };
+  /**
+   * Live "did you mean?" chips under the `dupCheck` field, offering names that
+   * already exist on this screen. Off by default; set true to opt a master in.
+   *
+   * Requires `dupCheck` — it reuses that descriptor's field and its `value`
+   * accessor, so the chip and the red error always read the SAME text. Declaring
+   * it without `dupCheck` does nothing.
+   *
+   * It offers ONLY names already on this screen — there is no seed word list,
+   * and that is the whole safety property. The first version of this feature
+   * carried a curated fibre vocabulary (COTTON, VISCOSE, …) that was offered
+   * everywhere, so a Packing Accessories name got "corrected" to COTTON (client
+   * 2026-07-28) and the client had the feature removed outright two days later.
+   * Suggesting only from the rows beside what is being typed makes that class of
+   * nonsense unrepresentable: a Packing screen can only ever offer Packing names.
+   */
+  spellSuggest?: boolean;
   /** Build the exact server-action payload (trimming already applied to text values). */
   toPayload: (values: SimpleValues, status: SimpleStatus) => unknown;
   actions: {
@@ -306,6 +325,46 @@ export function SimpleMasterScreen<Row>({
     },
   });
 
+  /**
+   * "Did you mean?" candidates for the dup field — the names already on this
+   * screen, minus the row being edited (a record must not suggest its own name
+   * back at you).
+   *
+   * Read through the descriptor's own `value` accessor, the same one `dupCheck`
+   * uses, so the chip and the red error can never disagree about which text they
+   * are talking about.
+   *
+   * `enabled` is off while a duplicate error is showing: that field already has
+   * a line under it, and the exact name it collided with is not a useful thing
+   * to "suggest" — the operator needs a DIFFERENT name, not that one.
+   */
+  /** Write one field of the row being edited. Hoisted because two callers need
+   *  it: the input cell below, and the suggestion strip, which has to write the
+   *  dup field from up here. */
+  const setFieldValue = (key: string, nv: string | boolean) =>
+    setEditing((e) => (e ? { ...e, values: { ...e.values, [key]: nv } } : e));
+
+  const suggestNames = useMemo(() => {
+    if (!d.spellSuggest || !d.dupCheck) return [];
+    return rows
+      .filter((r) => getId(r) !== editing?.id)
+      .map((r) => {
+        const v = d.fromRow(r);
+        return d.dupCheck!.value?.(v) ?? String(v[d.dupCheck!.fieldKey] ?? "");
+      })
+      .filter(Boolean);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d, rows, editing?.id]);
+  const nameSuggest = useSpellSuggest({
+    name: dupValue,
+    names: suggestNames,
+    seed: [],
+    enabled: !!d.spellSuggest && !!d.dupCheck && !dupError,
+    // Applied through the same setter the input uses, so an accepted chip is
+    // indistinguishable from having typed the name.
+    onApply: (v) => d.dupCheck && setFieldValue(d.dupCheck.fieldKey, v),
+  });
+
   const canSave =
     !!editing &&
     !dupError &&
@@ -410,8 +469,7 @@ export function SimpleMasterScreen<Row>({
       // Immutable on existing rows (e.g. a code that is the PK).
       return <span className={cn(f.mono ? "font-mono text-xs" : "text-sm")}>{String(v ?? "")}</span>;
     }
-    const setV = (nv: string | boolean) =>
-      setEditing((e) => (e ? { ...e, values: { ...e.values, [f.key]: nv } } : e));
+    const setV = (nv: string | boolean) => setFieldValue(f.key, nv);
 
     if (f.kind === "checkbox") {
       return (
@@ -459,6 +517,11 @@ export function SimpleMasterScreen<Row>({
       // emits no keys at all when there is no duplicate, which is what keeps
       // required-field invalidity intact (see dupFieldProps).
       ...(isDupField ? dupFieldProps(dupError) : null),
+      // The suggestion strip's keys live on the input that owns it: ↓ into the
+      // chips, Enter to apply, Esc to dismiss. Only attached on the dup field,
+      // and the handler no-ops whenever there is nothing showing — so Enter
+      // keeps its contract meaning (advance / save) the rest of the time.
+      ...(isDupField && d.spellSuggest ? { onKeyDown: nameSuggest.onKeyDown } : null),
     };
     // Plain text fields type in CAPS (client 2026-07-23) — no-op for digits;
     // format-driven fields keep their own ValidatedInput transforms.
@@ -467,7 +530,14 @@ export function SimpleMasterScreen<Row>({
       return (
         <div>
           {input}
+          {/* At most one line under the input: the hook is disabled while a
+              duplicate error shows, so these never stack. */}
           <DuplicateError error={dupError} />
+          <SpellSuggestHint
+            suggestions={nameSuggest.suggestions}
+            activeIndex={nameSuggest.activeIndex}
+            onApply={(v) => setV(v)}
+          />
         </div>
       );
     }

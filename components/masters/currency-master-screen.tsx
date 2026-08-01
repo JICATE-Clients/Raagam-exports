@@ -34,6 +34,9 @@ const descriptor: SimpleMasterDescriptor<Currency> = {
   ],
   fromRow: (r) => ({ code: r.code, name: r.name, symbol: r.symbol ?? "" }),
   searchText: (r) => [r.code, r.name, r.symbol].filter(Boolean).join(" "),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "currencies", fieldKey: "name", nameColumn: "name" },
   toPayload: (v) => ({
     code: String(v.code).toUpperCase(),

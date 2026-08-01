@@ -35,6 +35,9 @@ const descriptor: SimpleMasterDescriptor<Designation> = {
   fromRow: (r) => ({ name: r.name, for_type: r.for_type }),
   searchText: (r) => [r.name, r.for_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active"),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "designations", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     name: String(v.name),

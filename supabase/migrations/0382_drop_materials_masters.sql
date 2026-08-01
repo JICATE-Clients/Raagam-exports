@@ -181,12 +181,25 @@ grant  execute on function public.resolve_item_rate(uuid, date) to authenticated
 --                Dropping it breaks the Sales list and every opportunity page.
 --                `opportunities.brand_id` therefore also stays.
 --
---   size_groups  lib/masters/size-group-service.ts listSizeGroups(), consumed
---                by the CATEGORIES master — which is one of the 22 children
---                being KEPT (materials/[entity]/page.tsx → CategoryMasterScreen
---                `sizeGroups`). `categories.size_group_id` and
---                `style_catalogues.size_group_id` therefore also stay, as does
---                the child table size_group_sizes.
+--   size_groups  TWO separate live readers, and neither is a visible field:
+--                (a) materials/[entity]/page.tsx:164 still calls
+--                    listSizeGroups() -> .from("size_groups") when opening the
+--                    CATEGORIES master, one of the 22 children being kept.
+--                    Drop the table and that page throws on load.
+--                (b) `categories.size_group_id` is still in categoryInput's Zod
+--                    schema and in the save payload (category-master-screen
+--                    round-trips it), so dropping the COLUMN fails every
+--                    category save.
+--                `style_catalogues.size_group_id` is likewise still in the sales
+--                catalogue schema. So the table, the child size_group_sizes and
+--                all three columns stay.
+--
+--                Note what is NOT true: CategoryMasterScreen takes a
+--                `sizeGroups` prop and never renders it — there is no size-group
+--                picker on that screen any more. The value is carried, not
+--                edited. Tidying that up (drop the prop, stop querying, stop
+--                round-tripping the column) is the prerequisite for ever
+--                dropping this table, and it is a separate piece of work.
 --
 -- Consequence to be aware of, and it is a product decision rather than a bug:
 -- both lists are now READ-ONLY in the app. Sales can still pick a brand and

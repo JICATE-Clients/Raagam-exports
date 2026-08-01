@@ -84,7 +84,7 @@ export function DestinationMasterScreen({
   // half of the dictionary costs nothing to maintain. Deliberately NOT scoped
   // to the selected country: the operator usually types the Name before picking
   // one, and a hint that misses is free to ignore — nothing is auto-applied.
-  const nameSuggestions = useSpellSuggest({
+  const nameSuggest = useSpellSuggest({
     name: form.name,
     names: [
       ...rows.filter((r) => r.id !== editId).map((r) => r.name ?? ""),
@@ -92,6 +92,8 @@ export function DestinationMasterScreen({
     ],
     seed: COUNTRY_NAMES,
     enabled: open && !dupError,
+    // Enter applies the highlighted chip; see the hook.
+    onApply: (v) => set({ name: v }),
   });
 
   const filtered = useMemo(() => {
@@ -263,11 +265,14 @@ export function DestinationMasterScreen({
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
+              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
               {...dupFieldProps(dupError, "de-name")}
             />
             <DuplicateError error={dupError} id="de-name" />
             <SpellSuggestHint
-              suggestions={nameSuggestions}
+              suggestions={nameSuggest.suggestions}
+              activeIndex={nameSuggest.activeIndex}
               onApply={(v) => set({ name: v })}
             />
           </Field>

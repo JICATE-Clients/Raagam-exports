@@ -87,11 +87,13 @@ export function PortMasterScreen({
   // Exact matches are skipped by design — this hint is for NEAR misses. The
   // exact case is `dupError` above, which now covers it (it did not when this
   // comment was first written, and a duplicated port name saved silently).
-  const nameSuggestions = useSpellSuggest({
+  const nameSuggest = useSpellSuggest({
     name: form.name,
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? ""),
     seed: PORT_NAMES,
     enabled: open,
+    // Enter applies the highlighted chip; see the hook.
+    onApply: (v) => set({ name: v }),
   });
 
   const countryLabel = useMemo(() => {
@@ -267,12 +269,15 @@ export function PortMasterScreen({
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
+              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
               required
               {...dupFieldProps(dupError, "pt-name")}
             />
             <DuplicateError error={dupError} id="pt-name" />
             <SpellSuggestHint
-              suggestions={nameSuggestions}
+              suggestions={nameSuggest.suggestions}
+              activeIndex={nameSuggest.activeIndex}
               onApply={(v) => set({ name: v })}
             />
           </Field>

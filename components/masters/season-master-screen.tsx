@@ -31,6 +31,9 @@ const descriptor: SimpleMasterDescriptor<Season> = {
     season_name: String(v.season_name) || null,
     inactive: !s.active,
   }),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "seasons", fieldKey: "season_name", nameColumn: "season_name" },
   actions: { create: createSeason, update: updateSeason, remove: deleteSeason },
 };

@@ -126,12 +126,14 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
   // collision, so GERMNY sails past it and becomes a second country nobody
   // meant to create. Suppressed while dupError is showing: one line under the
   // input, and the red error is the more urgent of the two.
-  const nameSuggestions = useSpellSuggest({
+  const nameSuggest = useSpellSuggest({
     name: form.name,
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name),
     seed: COUNTRY_NAMES,
     enabled: open && !dupError,
+    // Enter applies the highlighted chip; see the hook.
+    onApply: (v) => set({ name: v }),
   });
 
   function openAdd() {
@@ -274,12 +276,15 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
+              // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+              onKeyDown={nameSuggest.onKeyDown}
               required
               {...dupFieldProps(dupError, "co-name")}
             />
             <DuplicateError error={dupError} id="co-name" />
             <SpellSuggestHint
-              suggestions={nameSuggestions}
+              suggestions={nameSuggest.suggestions}
+              activeIndex={nameSuggest.activeIndex}
               onApply={(v) => set({ name: v })}
             />
           </Field>

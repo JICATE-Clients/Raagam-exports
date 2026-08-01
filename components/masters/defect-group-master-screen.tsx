@@ -23,6 +23,9 @@ const descriptor: SimpleMasterDescriptor<Row> = {
   fromRow: (r) => ({ name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),
+  // Offers near-matching names already in THIS master while typing;
+  // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+  spellSuggest: true,
   dupCheck: { table: "defect_groups", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     code: "", // blank → create auto-generates; update keeps the stored code

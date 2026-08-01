@@ -62,6 +62,9 @@ export function BinMasterScreen({
         description: String(v.description) || null,
         inactive: !s.active,
       }),
+      // Offers near-matching names already in THIS master while typing;
+      // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
+      spellSuggest: true,
       dupCheck: { table: "bins", fieldKey: "bin_code", nameColumn: "bin_code" },
       actions: { create: createBin, update: updateBin, remove: deleteBin },
     };

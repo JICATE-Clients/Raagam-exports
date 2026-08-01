@@ -24,6 +24,8 @@ import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import {
   MADE_TYPES,
   showsSubCategories,
@@ -163,8 +165,35 @@ export function CategoryMasterScreen({
     rowInScope: (r) => r.item_class_id === form.item_class_id,
   });
 
-  // No "did you mean?" suggestions on Name (client 2026-07-30) — the red
-  // duplicate error above is the only feedback this field gives.
+  /**
+   * "Did you mean?" on Name — restored 2026-08-01 at the client's request,
+   * having been removed on 2026-07-30. Worth knowing WHY it was removed, so it
+   * does not get removed a third time.
+   *
+   * The original (2026-07-25) matched word by word against a hardcoded fibre
+   * vocabulary — COTTON, VISCOSE, POLYESTER … — offered on every category
+   * regardless of class. A Packing Accessories name duly got "corrected" to
+   * COTTON (client 2026-07-28), and two days later the whole feature was pulled.
+   *
+   * The seed was the bug, not the suggestion. So there is NO seed here:
+   * candidates are the categories that already exist UNDER THE SELECTED ITEM
+   * CLASS, which is the same scope `dupError` above checks. A Packing category
+   * can therefore only ever be offered other Packing categories, and the 07-28
+   * failure is not representable rather than merely fixed.
+   *
+   * Disabled while the red duplicate error shows: that field already has a line
+   * under it, and the name it collided with is the one name that is no use.
+   */
+  const nameSuggest = useSpellSuggest({
+    name: form.name ?? "",
+    names: rows
+      .filter((r) => r.id !== editId && r.item_class_id === form.item_class_id)
+      .map((r) => r.name ?? "")
+      .filter(Boolean),
+    seed: [],
+    enabled: !!form.item_class_id && !dupError,
+    onApply: (v) => setForm((f) => ({ ...f, name: v })),
+  });
 
   const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
@@ -593,8 +622,17 @@ export function CategoryMasterScreen({
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="text-base md:text-sm"
                 {...dupFieldProps(dupError, "cat-name")}
+                // ↓ into the suggestion chips, Enter applies, Esc dismisses —
+                // the strip is a list on this field, so it answers the same keys
+                // any other list does. No-ops while nothing is showing.
+                onKeyDown={nameSuggest.onKeyDown}
               />
               <DuplicateError error={dupError} id="cat-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                activeIndex={nameSuggest.activeIndex}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
+              />
             </div>
             {/* Short Spec/Short Description dropped from the UI (client 2026-07-24 —
                 "use Description only"). The short_spec column is still round-tripped
