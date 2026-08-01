@@ -18,7 +18,11 @@ export async function checkDuplicate(
     scope?: Record<string, string | null>;
     label?: string;
   } = {},
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  // `kind` is carried through deliberately: only a real `"duplicate"` may hold
+  // the cursor on the field. dup-guard.ts is `server-only`, so the type is
+  // restated here rather than imported — a client component reading the result
+  // cannot pull it from there.
+): Promise<{ ok: true } | { ok: false; kind: "duplicate" | "failed"; error: string }> {
   // Gate on read permission; if forbidden, stay silent (the on-save guard is authoritative).
   if (!(await can("masters", "view"))) return { ok: true };
   const s = await createClient();

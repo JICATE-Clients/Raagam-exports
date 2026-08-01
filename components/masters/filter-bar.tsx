@@ -4,12 +4,20 @@ import { useState, type ReactNode, type RefObject } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DateRangeFilter } from "@/components/ui/date-range-filter";
 
 /**
  * Compact filter toolbar for Master Data list/assign screens. The search box
  * stays visible; the filter <Select>s (passed as children) collapse behind a
  * "Filters" button with an active-count badge, and lay out in a tidy responsive
  * grid when expanded — instead of each dropdown spanning the full page width.
+ *
+ * `dateFilter` adds the shared Created Date facet as the LAST cells of that
+ * grid. It is rendered here rather than passed in as a child so every list in
+ * the app words it, orders it and lays it out identically — the same reason the
+ * Status facet lives inside `MasterListShell` — and so a screen with no other
+ * facet still gets the "Filters" button. Wire it from `useMasterFilter`'s
+ * `dateFilter` bundle; it hides itself when the rows carry no `created_at`.
  */
 export function FilterBar({
   search,
@@ -20,12 +28,25 @@ export function FilterBar({
   onReset,
   right,
   searchRef,
+  dateFilter,
 }: {
   search: string;
   onSearch: (v: string) => void;
   searchPlaceholder?: string;
   /** The filter <Select> controls, laid out in a responsive grid when open. */
   children?: ReactNode;
+  /**
+   * The Created Date facet — `useMasterFilter`'s `dateFilter` bundle, optionally
+   * with a different `label`/`id`. Omit only where the rows have no creation
+   * date at all; `enabled: false` (which the bundle sets itself) hides it.
+   */
+  dateFilter?: {
+    value: string;
+    onChange: (v: string) => void;
+    enabled?: boolean;
+    label?: string;
+    id?: string;
+  };
   /** Number of filters currently applied — shown as a badge on the button. */
   activeCount?: number;
   onReset?: () => void;
@@ -35,7 +56,8 @@ export function FilterBar({
   searchRef?: RefObject<HTMLInputElement | null>;
 }) {
   const [open, setOpen] = useState(false);
-  const hasFilters = !!children;
+  const showDate = !!dateFilter && dateFilter.enabled !== false;
+  const hasFilters = !!children || showDate;
 
   return (
     <div className="space-y-2">
@@ -86,6 +108,15 @@ export function FilterBar({
       {hasFilters && open && (
         <div className="grid grid-cols-1 gap-2 rounded-md border border-border bg-surface-muted/40 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {children}
+          {/* Last, so adding it never reshuffles the facets a screen already had. */}
+          {showDate && (
+            <DateRangeFilter
+              id={dateFilter!.id}
+              label={dateFilter!.label}
+              value={dateFilter!.value}
+              onChange={dateFilter!.onChange}
+            />
+          )}
         </div>
       )}
     </div>

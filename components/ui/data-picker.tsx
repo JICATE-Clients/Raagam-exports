@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Truncated, useOverflow } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useModalGuard } from "@/lib/reload-guard";
 import { deletedToast } from "@/lib/masters/delete-message";
@@ -26,7 +28,8 @@ import { deletedToast } from "@/lib/masters/delete-message";
 // cycle. The alternative was a second copy of the Escape/Tab block, which is
 // the exact mistake picker-keys.ts was created to undo.
 import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker-keys";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { cn } from "@/lib/utils";
 
 /** One selectable record. `sublabel` renders muted beside the label. */
@@ -34,7 +37,16 @@ export type PickerRow = {
   id: string;
   label: string;
   sublabel?: string | null;
-  disabled?: boolean;
+  /**
+   * Switched off at its master — read it with `isInactive()` (lib/masters/inactive.ts),
+   * never by hand, because the schema spells the flag three ways.
+   *
+   * The panel HIDES it rather than greying it, so it cannot be reached by typing
+   * its name either. The one exception is the value this record ALREADY holds:
+   * that row stays, tagged `(inactive)` and unpickable, so reopening an old
+   * document still reads correctly. See `selectable` below.
+   */
+  inactive?: boolean;
 };
 
 /** What the inline Add/Modify form collects. `typeCode` is item-class only. */
@@ -153,13 +165,26 @@ const ROW_ICON =
  * the operator typed, and AGENTS.md requires any hand-rolled overlay to say so.
  * Escape unwinds exactly one layer: form → list → closed.
  *
+ * ## Disabled rows (AGENTS.md, STANDING)
+ *
+ * A row whose master says it is switched off is **not offered** — hidden from
+ * the list and from search, not merely greyed. The single exception is the value
+ * the record already holds, which stays visible, tagged `(inactive)` and
+ * unpickable, so an old document still reads correctly. Adapters pass
+ * `inactive` (from `isInactive()`); this component does the rest, and
+ * `scripts/audit_layout.py --check picker-inactive` catches the adapter that
+ * forgets.
+ *
  * ## Keyboard (.claude/skills/raagam-keyboard-contract)
  *
  *   ↓        open; then move the highlight (clamped, never wraps)
  *   ↑        move up when open; when CLOSED it bubbles, so the provider moves to
  *            the field above — ↑ must never be a second way to open a list
  *   Enter    pick the highlight, close, and STAY on the field; when closed it
- *            bubbles and saves the record
+ *            bubbles, so the NEXT Enter moves to the next field. Staying put is
+ *            deliberate — picking a value and moving on are two decisions, and
+ *            one keypress doing both means a mis-pick is already three fields
+ *            ago by the time it is noticed.
  *   Tab      close WITHOUT committing and let focus move on — never
  *            preventDefault in list mode, or focus would stick
  *   Esc      close the list only; preventDefault or the page-level Escape
@@ -179,6 +204,7 @@ export function DataPicker({
   rows,
   value,
   onChange,
+  usedIds,
   placeholder,
   clearable = true,
   required = false,
@@ -201,6 +227,22 @@ export function DataPicker({
   rows: PickerRow[];
   value: string | null;
   onChange: (id: string | null) => void;
+  /**
+   * PICK ONCE. Ids already taken by the SIBLING ROWS of the same child grid —
+   * pass the whole grid's set, this row's own value included.
+   *
+   * A repeating grid over master data (Customer ▸ Supplied Items, Vendor ▸ Item
+   * Category) asks one question per row, so the same value twice is duplication,
+   * not data. Those rows stay in the list, greyed and tagged "(already added)",
+   * because they are perfectly good master data that simply belongs to the row
+   * above — see `blockedReason` for why they are shown rather than hidden.
+   *
+   * Only for grids where a repeat is genuinely wrong. Customer ▸ Contacts
+   * (Department), Vendor ▸ Addresses (City) and Bank ▸ Branches (Country) are
+   * master data too, and five contacts in Marketing is normal — those must never
+   * pass this.
+   */
+  usedIds?: Iterable<string> | null;
   placeholder?: string;
   clearable?: boolean;
   required?: boolean;
@@ -270,26 +312,94 @@ export function DataPicker({
   // Told as you type, not on Save. `excludeId` on edit or renaming a row would
   // report it colliding with itself; `enabled` keeps the round trip off every
   // keystroke in list mode, where there is no draft to check.
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: manage?.dupCheck?.table ?? "",
     name: draftName,
     nameColumn: manage?.dupCheck?.nameColumn,
     excludeId: mode === "edit" ? (highlight ?? undefined) : undefined,
     scope: manage?.dupCheck?.scope,
     enabled: !!manage?.dupCheck && (mode === "add" || mode === "edit"),
+    /**
+     * The synchronous half, for all 19 adapters at once. The rows in the list
+     * ARE the table being checked — this panel is the master, in miniature — so
+     * a collision with something already on screen is answered in the same
+     * render as the keystroke, instead of 300ms after Tab has moved on.
+     *
+     * `label` is the right column to compare even where `nameColumn` names a
+     * different one (`payment_terms.description`): the adapter maps that column
+     * INTO the label, so the label is what the operator is retyping.
+     *
+     * The full list, not `selectable`: a switched-off row keeps its name
+     * reserved, and re-adding it under a new id is exactly the mistake this
+     * check exists to stop.
+     */
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.label,
   });
 
+  // Resolved against the FULL list, not `selectable` — the trigger must still
+  // show the stored name when that value has since been switched off.
   const selected = useMemo(() => rows.find((r) => r.id === value) ?? null, [rows, value]);
+
+  /**
+   * What this field is allowed to offer (AGENTS.md, "Disabled rows").
+   *
+   * Enforced here rather than in the ~18 adapters because this is the only place
+   * that knows the right `value`. A grid repeats one picker down many rows —
+   * Customer ▸ Supplied Items has a Vendor cell per line — and a parent-level
+   * `.filter()` has to pick a single `value` to make the exception for, so it
+   * either hides a row's own stored vendor or leaks a retired one into every
+   * other row. Each instance here sees its own.
+   */
+  const selectable = useMemo(
+    () => rows.filter((r) => !r.inactive || r.id === value),
+    [rows, value],
+  );
+
+  const used = useMemo(() => new Set(usedIds ?? []), [usedIds]);
+
+  /**
+   * WHY A ROW CANNOT BE CHOSEN — or null when it can. One predicate, so the
+   * list rendering, the mouse and the keyboard cannot drift apart about it.
+   *
+   * A row's OWN value is never blocked. `usedIds` is the whole grid's set, so
+   * without this exemption every row would refuse the value it is already
+   * showing. Making each caller subtract itself was the alternative, and that is
+   * the version that gets forgotten at the tenth call site.
+   *
+   * The two reasons look identical on screen and behave differently in the list,
+   * which is deliberate:
+   *
+   *   `inactive` — the master row is switched off. HIDDEN (AGENTS.md "Disabled
+   *     rows": gone from the list and from search). The only one that ever
+   *     reaches here is the stored value itself, kept by `selectable` above so a
+   *     filled field does not render empty.
+   *   `used` — taken by a sibling row of the same grid. STAYS VISIBLE. It is
+   *     valid, active master data; removing it silently would read as "that
+   *     category is missing", and the operator would go looking for it in the
+   *     Category master. Greyed with the reason in words is the honest version.
+   */
+  const blockedReason = useCallback(
+    (r: PickerRow): "inactive" | "used" | null => {
+      if (r.id === value) return null;
+      if (r.inactive) return "inactive";
+      return used.has(r.id) ? "used" : null;
+    },
+    [value, used],
+  );
 
   // Shared with the trigger's onChange below, which has to know what the list
   // WILL be: `filtered` is still the previous render's when the keystroke fires.
   const matching = useCallback(
     (q: string) => {
       const needle = q.trim().toLowerCase();
-      if (!needle) return rows;
-      return rows.filter((r) => `${r.label} ${r.sublabel ?? ""}`.toLowerCase().includes(needle));
+      if (!needle) return selectable;
+      return selectable.filter((r) =>
+        `${r.label} ${r.sublabel ?? ""}`.toLowerCase().includes(needle),
+      );
     },
-    [rows],
+    [selectable],
   );
 
   const filtered = useMemo(() => matching(query), [matching, query]);
@@ -440,25 +550,38 @@ export function DataPicker({
       // Without this a picker in a grid cell would move the highlight AND jump
       // the grid a row.
       e.stopPropagation();
-      if (!filtered.length) return;
-      const idx = filtered.findIndex((r) => r.id === highlight);
+      // A ROW YOU CANNOT PICK IS A ROW YOU CANNOT LAND ON — the same thing a
+      // native <select> does with a disabled <option>. Enter declines on a
+      // blocked row (below), so being able to highlight one would just make ↓
+      // walk onto a dead key. Rare while the only blocked row was the stored
+      // inactive value; routine now that "(already added)" rows stay in the list.
+      const walkable = filtered.filter((r) => !blockedReason(r));
+      if (!walkable.length) return;
+      const idx = walkable.findIndex((r) => r.id === highlight);
       // Clamped, not wrapping: holding ↓ should stop at the end of the list
       // rather than silently cycle back to the top.
       const next =
         e.key === "ArrowDown"
-          ? filtered[Math.min(idx + 1, filtered.length - 1)]
-          : filtered[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
+          ? walkable[Math.min(idx + 1, walkable.length - 1)]
+          : walkable[Math.max(idx <= 0 ? 0 : idx - 1, 0)];
       setHighlight(next.id);
       return;
     }
 
     if (e.key === "Enter") {
-      // Closed, Enter belongs to the record: let it bubble to `enterSaves`.
+      // Closed, Enter belongs to the form: let it bubble to `enterAdvances`,
+      // which moves to the next field (and saves off the last one).
       if (!open) return;
       e.preventDefault();
       e.stopPropagation();
-      const pick =
-        highlight && filtered.some((r) => r.id === highlight) ? highlight : filtered[0]?.id;
+      // The mouse refuses a blocked row; so must Enter. And it must refuse it
+      // by doing NOTHING — falling through to the first pickable row would
+      // commit something other than what the operator can see highlighted, which
+      // is worse than not moving. Arrow movement no longer lands on a blocked
+      // row at all, so this is now the backstop for a mouse-set highlight.
+      const hl = filtered.find((r) => r.id === highlight);
+      if (hl && blockedReason(hl)) return;
+      const pick = hl ? hl.id : filtered.find((r) => !blockedReason(r))?.id;
       if (pick) commit(pick);
       return;
     }
@@ -466,7 +589,10 @@ export function DataPicker({
     if (e.key === "Tab") {
       // Close without committing and DO NOT preventDefault — the move itself
       // belongs to native tab order or to Sheet's trap. "Tab never changes a
-      // value, and never fails to move."
+      // value" still holds without exception. "Tab never fails to move" now has
+      // exactly one: a field showing a live duplicate-name error holds the
+      // cursor (components/shell/keyboard-nav-provider.tsx). That guard stops
+      // the key at window-capture, so this branch never runs for a held field.
       if (open) {
         setOpen(false);
         setQuery("");
@@ -541,29 +667,65 @@ export function DataPicker({
             No {noun.toLowerCase()} found.
           </li>
         )}
-        {filtered.map((r) => (
+        {filtered.map((r) => {
+          const blocked = blockedReason(r);
+          return (
           <li
             key={r.id}
             role="option"
             aria-selected={r.id === value}
+            // Says out loud what the greying means, for anyone who cannot see it.
+            aria-disabled={blocked ? true : undefined}
             ref={r.id === highlight ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
             // Focus stays in the trigger, so mousedown beats the blur.
             onMouseDown={(e) => {
               e.preventDefault();
-              if (r.disabled) return;
+              if (blocked) return;
               commit(r.id);
             }}
-            onMouseEnter={() => setHighlight(r.id)}
+            // Hover does not move the highlight onto a row that cannot be
+            // picked, for the same reason ↓ skips it: the highlight is a promise
+            // about what Enter will commit, and parking it on a refused row
+            // turns Enter into a dead key by mouse instead of by arrow.
+            onMouseEnter={() => { if (!blocked) setHighlight(r.id); }}
             className={cn(
               "group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm",
-              r.disabled && "cursor-not-allowed opacity-40",
+              blocked && "cursor-not-allowed opacity-40",
               r.id === highlight ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-muted",
             )}
           >
-            <span className="min-w-0 flex-1 truncate">
-              {r.label}
-              {r.sublabel && <span className="ml-2 text-xs text-muted-foreground">{r.sublabel}</span>}
-            </span>
+            {/* On touch the list is a Sheet, which has the vertical room to
+                just show the whole label — better than any reveal gesture, and
+                it sidesteps the fact that these rows commit on `mousedown`, so
+                a press-and-hold would pick the row it was only meant to read. */}
+            {fine ? (
+              <Truncated text={r.label} touch={false} className="min-w-0 flex-1">
+                {r.label}
+                {r.sublabel && <span className="ml-2 text-xs text-muted-foreground">{r.sublabel}</span>}
+                {/* Always in WORDS. 40% opacity on its own reads as a rendering
+                    glitch, not as a reason — and the two reasons are not
+                    interchangeable to the operator: "(inactive)" means someone
+                    retired this value, "(already added)" means it is fine and
+                    the row above has it. Without the second one, a greyed row
+                    sends them to the Category master looking for a fault that
+                    isn't there. `inactive` here is only ever the stored value. */}
+                {blocked && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {blocked === "used" ? "(already added)" : "(inactive)"}
+                  </span>
+                )}
+              </Truncated>
+            ) : (
+              <span className="min-w-0 flex-1 break-words">
+                {r.label}
+                {r.sublabel && <span className="ml-2 text-xs text-muted-foreground">{r.sublabel}</span>}
+                {blocked && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {blocked === "used" ? "(already added)" : "(inactive)"}
+                  </span>
+                )}
+              </span>
+            )}
             {manage?.canEdit && (
               <button
                 type="button"
@@ -597,7 +759,8 @@ export function DataPicker({
               </button>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
       {manage?.canCreate && (
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
@@ -647,16 +810,11 @@ export function DataPicker({
               id="dp-name"
               autoFocus
               uppercase
-              aria-invalid={dupError ? true : undefined}
-              aria-describedby={dupError ? "dp-name-dup" : undefined}
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
+              {...dupFieldProps(dupError, "dp-name")}
             />
-            {dupError && (
-              <p id="dp-name-dup" className="mt-1 text-xs text-danger">
-                {dupError}
-              </p>
-            )}
+            <DuplicateError error={dupError} id="dp-name" />
           </div>
           {manage?.showTypeField && (
             <div className="w-40">
@@ -675,7 +833,17 @@ export function DataPicker({
   );
 
   const formFooter = (
-    <div className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
+    <div
+      className="flex items-center justify-end gap-2 border-t border-border px-3 py-2"
+      // THIS MARKER IS LOAD-BEARING. Without it Enter in the Add/Modify form
+      // saved the OUTER record — the vendor, not the city. `submitSurface`
+      // resolves the scope's own footer FIRST and only then falls back to the
+      // registered "save", and this panel is `role="dialog"`, so it IS the scope;
+      // an unmarked footer meant step 1 found nothing and step 2 reached the
+      // editor behind the scrim (client 2026-07-31). Note the primary must stay
+      // LAST by position — Back, then Save/Delete.
+      data-focus-region="footer"
+    >
       <Button type="button" variant="outline" size="md" onClick={() => setMode("list")}>
         Back
       </Button>
@@ -699,6 +867,11 @@ export function DataPicker({
   const body: ReactNode = mode === "list" ? list : <>{form}{formFooter}</>;
 
   const triggerText = open && fine ? query : selected?.label ?? "";
+
+  // Measured on the input itself, not on a copy of the text: the field's width
+  // is a container query away from changing (`@2xl/editor`), so "is this value
+  // too long" is a question only the rendered box can answer.
+  const { ref: valueRef, overflowing: valueClipped } = useOverflow<HTMLElement>(triggerText);
 
   return (
     <div ref={rootRef} className={cn("relative", className)}>
@@ -725,11 +898,22 @@ export function DataPicker({
           {addLabel ?? `+ Add ${noun.toLowerCase()}`}
         </button>
       ) : (
-      <div className="relative">
+      // A selected value longer than the field used to vanish with no ellipsis
+      // and no way back — an `<input>` has no `text-overflow` of its own, so it
+      // clipped mid-word and looked like the whole value. `text-ellipsis` below
+      // makes the loss visible; this makes it recoverable. Suppressed while the
+      // list is open, where the bubble would sit on top of the options.
+      <Tooltip
+        label={selected?.label ?? ""}
+        touch
+        disabled={!selected || open || !valueClipped}
+        className="relative block w-full"
+      >
         <input
           id={id}
           ref={(el) => {
             triggerRef.current = el;
+            valueRef.current = el;
           }}
           type="text"
           role="combobox"
@@ -764,8 +948,12 @@ export function DataPicker({
             setQuery(q);
             // The TOP MATCH of the new query, not of the stale `filtered` — so
             // Enter straight after typing picks what the operator can see is
-            // highlighted, rather than a row that no longer matches.
-            setHighlight(matching(q)[0]?.id ?? null);
+            // highlighted, rather than a row that no longer matches. Skips a
+            // BLOCKED top match — an inactive stored value, or one already taken
+            // by another row of the grid: landing there would make Enter
+            // decline, which reads as a dead keystroke. Typing "cotton" when
+            // COTTON TAPE is already added highlights the next real match.
+            setHighlight(matching(q).find((r) => !blockedReason(r))?.id ?? null);
             if (!open) setOpen(true);
           }}
           onKeyDown={onTriggerKeyDown}
@@ -775,6 +963,12 @@ export function DataPicker({
             // CONTAINER query, so a picker inside a ~440px nested panel or on a
             // phone keeps the full 36px touch target.
             "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-3 pr-8 text-base md:text-sm",
+            // An unfocused input honours `text-overflow`, so a clipped value
+            // now ends in an ellipsis instead of stopping mid-word as if that
+            // were all of it.
+            // truncate-reveal: exempt -- this is the ellipsis half of the rule;
+            // the reveal half is the <Tooltip> wrapping this input.
+            "text-ellipsis",
             "placeholder:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "disabled:cursor-not-allowed disabled:opacity-50",
@@ -797,7 +991,7 @@ export function DataPicker({
             <ChevronDown className="h-4 w-4 shrink-0" />
           </span>
         )}
-      </div>
+      </Tooltip>
       )}
 
       {/* Touch: a centred sheet. A ~280px panel with 16px row icons is not
