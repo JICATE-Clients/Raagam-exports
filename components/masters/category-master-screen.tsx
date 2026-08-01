@@ -129,6 +129,11 @@ export function CategoryMasterScreen({
   );
   const showFabricStructure = selectedClassCode === "FABRIC";
   const showSubCategories = showsSubCategories(selectedClassCode);
+  /** The Sub Categories question is about a category that exists — "does
+   *  ELECTRICAL have types?" — so it waits for a Name (client 2026-08-01).
+   *  Trimmed, so spaces alone do not count as an answer. Opening an existing
+   *  category satisfies this immediately, which is what edit should do. */
+  const nameEntered = !!form.name.trim();
 
   // Sub Categories child grid (General only, 0349).
   const [subs, setSubs] = useState<SubRow[]>([]);
@@ -566,48 +571,13 @@ export function CategoryMasterScreen({
                 />
               </div>
             )}
-            {/* General stores buy by category-then-type — ELECTRICAL ▸ LIGHTS /
-                FANS / SWITCHES — so annual spend can be read both per type and
-                as a category total (0349). Off by default: a category with no
-                second level hides the Material form's Sub Category field
-                entirely, so nothing is forced on categories that don't need it. */}
-            {showSubCategories && (
-              <label className="flex h-9 cursor-pointer items-center gap-2 sm:col-span-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.has_sub_categories}
-                  onChange={(e) => toggleSubCategories(e.target.checked)}
-                />
-                <span className="text-sm text-foreground">Has Sub Categories</span>
-              </label>
-            )}
-            {showSubCategories && form.has_sub_categories && (
-              <div className="sm:col-span-2">
-                <ChildGrid<SubRow>
-                  label="Sub Categories"
-                  rows={subs}
-                  onAdd={addSub}
-                  onRemove={(r) => removeSub(r.key)}
-                  addLabel="+ Add sub category"
-                  inlineCards
-                  frameless
-                  columns={[
-                    {
-                      header: "Name",
-                      cell: (r) => (
-                        <Input
-                          value={r.name}
-                          uppercase
-                          placeholder="e.g. LIGHTS"
-                          onChange={(e) => setSubAt(r.key, { name: e.target.value })}
-                        />
-                      ),
-                    },
-                  ]}
-                />
-              </div>
-            )}
+            {/* "Has Sub Categories" and its Sub Categories grid used to sit HERE.
+                That was the bug (client 2026-08-01): they appeared the moment
+                General was picked — above a Name field the operator had not
+                reached yet, in an earlier section. They now live under the Name
+                in Details. Left as a signpost rather than silence, because the
+                option reads like Classification and the obvious instinct is to
+                move it back. */}
           </DetailSection>
 
           <DetailSection label="Details" cols={2}>
@@ -634,6 +604,60 @@ export function CategoryMasterScreen({
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </div>
+            {/* General stores buy by category-then-type — ELECTRICAL ▸ LIGHTS /
+                FANS / SWITCHES — so annual spend can be read both per type and
+                as a category total (0349). Off by default: a category with no
+                second level hides the Material form's Sub Category field
+                entirely, so nothing is forced on categories that don't need it.
+
+                Asked AFTER the Name, and only once one has been typed (client
+                2026-08-01). The question is "does ELECTRICAL have types?", which
+                cannot be answered before there is an ELECTRICAL — so offering it
+                the instant General was picked put the cart before the horse, and
+                did it in a section above the Name field at that.
+
+                Hiding on a blank name is presentation only: `has_sub_categories`
+                and the typed rows stay in state, so clearing the Name and
+                retyping it brings them back untouched. Discarding them here
+                would make a stray Ctrl+A in the Name field destroy work, and a
+                nameless category cannot be saved anyway (Save is gated on it). */}
+            {showSubCategories && nameEntered && (
+              <label className="flex h-9 cursor-pointer items-center gap-2 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.has_sub_categories}
+                  onChange={(e) => toggleSubCategories(e.target.checked)}
+                />
+                <span className="text-sm text-foreground">Has Sub Categories</span>
+              </label>
+            )}
+            {showSubCategories && nameEntered && form.has_sub_categories && (
+              <div className="sm:col-span-2">
+                <ChildGrid<SubRow>
+                  label="Sub Categories"
+                  rows={subs}
+                  onAdd={addSub}
+                  onRemove={(r) => removeSub(r.key)}
+                  addLabel="+ Add sub category"
+                  inlineCards
+                  frameless
+                  columns={[
+                    {
+                      header: "Name",
+                      cell: (r) => (
+                        <Input
+                          value={r.name}
+                          uppercase
+                          placeholder="e.g. LIGHTS"
+                          onChange={(e) => setSubAt(r.key, { name: e.target.value })}
+                        />
+                      ),
+                    },
+                  ]}
+                />
+              </div>
+            )}
             {/* Short Spec/Short Description dropped from the UI (client 2026-07-24 —
                 "use Description only"). The short_spec column is still round-tripped
                 (form state + save) so historical data isn't lost; it's just no longer
