@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { lookupLabel } from "@/lib/masters/extras-types";
@@ -67,9 +68,11 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [rows]);
 
+  const dt = useCreatedDateFilter(rows);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    return rows.filter(dt.matches).filter((r) => {
       if (statusFilter !== "all" && r.approval_status !== statusFilter) return false;
       if (customerFilter !== "all" && r.buyer?.id !== customerFilter) return false;
       if (q) {
@@ -86,9 +89,9 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
       }
       return true;
     });
-  }, [rows, search, statusFilter, customerFilter]);
+  }, [rows, dt.matches, search, statusFilter, customerFilter]);
 
-  const activeCount = (statusFilter !== "all" ? 1 : 0) + (customerFilter !== "all" ? 1 : 0);
+  const activeCount = (statusFilter !== "all" ? 1 : 0) + (customerFilter !== "all" ? 1 : 0) + dt.active;
 
   function toggle(key: string) {
     setSelected((prev) => {
@@ -207,7 +210,9 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
         onSearch={setSearch}
         searchPlaceholder="Search SC No, customer, order no, amendment no…"
         activeCount={activeCount}
+        dateFilter={dt.bind}
         onReset={() => {
+          dt.reset();
           setStatusFilter("all");
           setCustomerFilter("all");
         }}

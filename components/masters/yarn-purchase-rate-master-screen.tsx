@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
@@ -87,6 +87,16 @@ export function YarnPurchaseRateMasterScreen({
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
   function removeLine(key: string) { setLines((ls) => ls.filter((l) => l.key !== key)); }
+
+  /**
+   * PICK ONCE — one purchase rate per yarn on a card. Two lines for the same
+   * yarn are two prices with nothing to choose between them, and this card has
+   * no DB constraint to fall back on (unlike the debit-rate one).
+   */
+  const usedItemIds = useMemo(
+    () => lines.map((l) => l.item_id).filter((id): id is string => !!id),
+    [lines],
+  );
 
   const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
@@ -231,6 +241,7 @@ export function YarnPurchaseRateMasterScreen({
                       label="Yarn"
                       items={items}
                       value={l.item_id ?? ""}
+                      usedIds={usedItemIds}
                       onChange={(v) => setLineAt(l.key, { item_id: v || null })}
                     />
                     <LookupDialogPicker

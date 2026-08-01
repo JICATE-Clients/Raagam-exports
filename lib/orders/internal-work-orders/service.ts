@@ -42,30 +42,25 @@ export async function getInternalWorkOrders(): Promise<IwoWithOrder[]> {
 /** Picker option lists for the legacy IWO form. */
 export type IwoFormData = {
   customers: Customer[];
-  employees: PickerRow[];
   styles: PickerRow[];
   itemClasses: ConfigLookup[];
 };
 
 export async function getIwoFormData(): Promise<IwoFormData> {
   const supabase = await createClient();
-  const [customers, lookups, empRes, styleRes] = await Promise.all([
+  // No `employees` query any more: the Employee master was removed
+  // (2026-08-01, client) and the "Owner Of the Trial" picker it fed went with
+  // it. The table is still there; nothing here reads it.
+  const [customers, lookups, styleRes] = await Promise.all([
     listCustomers(),
     listConfigLookups(),
-    supabase.from("employees").select("id, code, name").order("name"),
     supabase.from("garment_styles").select("id, code, style_name").order("created_at", { ascending: false }),
   ]);
-  const employees = ((empRes.data ?? []) as PickerRow[]).map((e) => ({
-    id: e.id,
-    code: e.code,
-    name: e.name,
-  }));
   const styles = (
     (styleRes.data ?? []) as { id: string; code: string | null; style_name: string | null }[]
   ).map((s) => ({ id: s.id, code: s.code, name: s.style_name ?? "(unnamed style)" }));
   return {
     customers,
-    employees,
     styles,
     itemClasses: lookups.filter((l) => l.kind === "item_class"),
   };

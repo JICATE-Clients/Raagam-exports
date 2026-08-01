@@ -25,7 +25,8 @@ import {
   deactivatePackingMethod,
 } from "@/lib/masters/packing-method-actions";
 import type { PackingMethod, PackingMethodInput } from "@/lib/masters/packing-method-types";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; sort_order: string; category_name: string };
@@ -56,7 +57,7 @@ export function PackingMethodMasterScreen({
   const keyRef = useRef(0);
   const nextKey = () => `pm-${++keyRef.current}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.packing_type, r.reference, r.description].filter(Boolean).join(" "),
@@ -70,12 +71,15 @@ export function PackingMethodMasterScreen({
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check on the packing type (mirrors the on-save guard).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "packing_methods",
     name: form.packing_type,
     nameColumn: "packing_type",
     excludeId: editId ?? undefined,
     enabled: !!form.packing_type.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.packing_type,
   });
 
   function openAdd() {
@@ -219,6 +223,13 @@ export function PackingMethodMasterScreen({
           }}
           searchPlaceholder="Search packing method..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -344,8 +355,9 @@ export function PackingMethodMasterScreen({
                 onChange={(e) => setForm({ ...form, packing_type: e.target.value })}
                 required
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "pm-type")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="pm-type" />
             </div>
             <div>
               <Label htmlFor="pm-ref">Reference</Label>

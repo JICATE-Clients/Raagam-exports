@@ -32,6 +32,8 @@ export async function createYarnComposition(data: {
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "yarn_compositions", name, { nameColumn: "name" });
+  if (!dupName.ok) return fail(dupName.error);
   if (!code) {
     code = await generateUniqueCode(s, "yarn_compositions", name);
   } else {
@@ -60,6 +62,11 @@ export async function updateYarnComposition(
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "yarn_compositions", name, {
+    nameColumn: "name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   if (code) {
     const dupCode = await checkDuplicateName(s, "yarn_compositions", code, {
@@ -100,6 +107,8 @@ export async function createDefectGroup(data: {
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "defect_groups", name, { nameColumn: "name" });
+  if (!dupName.ok) return fail(dupName.error);
   if (!code) {
     code = await generateUniqueCode(s, "defect_groups", name);
   } else {
@@ -128,6 +137,11 @@ export async function updateDefectGroup(
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "defect_groups", name, {
+    nameColumn: "name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   if (code) {
     const dupCode = await checkDuplicateName(s, "defect_groups", code, {
@@ -226,6 +240,11 @@ export async function createSpecialInstruction(data: {
   const description = data.description.trim();
   if (!description) return fail("Description is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "special_instructions", description, {
+    nameColumn: "description",
+    label: "description",
+  });
+  if (!dupName.ok) return fail(dupName.error);
   if (!code) {
     code = await generateUniqueCode(s, "special_instructions", description);
   } else {
@@ -254,6 +273,12 @@ export async function updateSpecialInstruction(
   const description = data.description.trim();
   if (!description) return fail("Description is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "special_instructions", description, {
+    nameColumn: "description",
+    label: "description",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   if (code) {
     const dupCode = await checkDuplicateName(s, "special_instructions", code, {
@@ -298,6 +323,8 @@ export async function createBeamType(data: {
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "beam_types", name, { nameColumn: "name" });
+  if (!dupName.ok) return fail(dupName.error);
   if (!code) {
     code = await generateUniqueCode(s, "beam_types", name);
   } else {
@@ -326,6 +353,11 @@ export async function updateBeamType(
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "beam_types", name, {
+    nameColumn: "name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   if (code) {
     const dupCode = await checkDuplicateName(s, "beam_types", code, {
@@ -484,6 +516,8 @@ export async function createLabTestStandard(data: {
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "lab_test_standards", name, { nameColumn: "name" });
+  if (!dupName.ok) return fail(dupName.error);
   if (!code) {
     code = await generateUniqueCode(s, "lab_test_standards", name);
   } else {
@@ -512,6 +546,11 @@ export async function updateLabTestStandard(
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "lab_test_standards", name, {
+    nameColumn: "name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   if (code) {
     const dupCode = await checkDuplicateName(s, "lab_test_standards", code, {
@@ -553,6 +592,8 @@ export async function createProductType(data: {
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "product_types", name, { nameColumn: "name" });
+  if (!dupName.ok) return fail(dupName.error);
   if (!code) {
     code = await generateUniqueCode(s, "product_types", name);
   } else {
@@ -581,6 +622,11 @@ export async function updateProductType(
   const name = data.name.trim().toUpperCase();
   if (!name) return fail("Name is required.");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "product_types", name, {
+    nameColumn: "name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   if (code) {
     const dupCode = await checkDuplicateName(s, "product_types", code, {

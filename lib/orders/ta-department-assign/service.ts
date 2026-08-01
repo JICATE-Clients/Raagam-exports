@@ -33,13 +33,15 @@ export async function getTaDeptAssignFormData(): Promise<TaDeptAssignFormData> {
   const s = await createClient();
   const [locations, deptRes, actRes] = await Promise.all([
     listEmployeeLocations(),
-    s.from("config_lookups").select("*").eq("kind", "department").eq("is_active", true).order("name"),
-    s.from("ta_activities").select("id, short_name, name").eq("is_active", true).order("name"),
+    // Neither list filters on its flag in SQL — both back an editor of existing
+    // assignments, and the picker hides what it must (AGENTS.md, "Disabled rows").
+    s.from("config_lookups").select("*").eq("kind", "department").order("name"),
+    s.from("ta_activities").select("id, short_name, name, is_active").order("name"),
   ]);
 
   const activities: PickerItem[] = (
-    (actRes.data ?? []) as { id: string; short_name: string; name: string }[]
-  ).map((a) => ({ id: a.id, code: a.short_name, name: a.name }));
+    (actRes.data ?? []) as { id: string; short_name: string; name: string; is_active: boolean }[]
+  ).map((a) => ({ id: a.id, code: a.short_name, name: a.name, is_active: a.is_active }));
 
   return {
     locations,

@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
@@ -77,6 +77,18 @@ export function YarnDebitRateMasterScreen({
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
   function removeLine(key: string) { setLines((ls) => ls.filter((l) => l.key !== key)); }
+
+  /**
+   * PICK ONCE — one rate per yarn on a card. The DB has said so since 0334
+   * (`ydr_items_no_dup_yarn unique (rate_id, item_id)`), but nothing in the UI
+   * did: picking a yarn twice got as far as Save and came back as the raw
+   * Postgres text "duplicate key value violates unique constraint …". Greying
+   * the yarn in the list is the same rule, said before the operator commits.
+   */
+  const usedItemIds = useMemo(
+    () => lines.map((l) => l.item_id).filter((id): id is string => !!id),
+    [lines],
+  );
 
   const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
@@ -196,6 +208,7 @@ export function YarnDebitRateMasterScreen({
                         title="Yarn"
                         items={items}
                         value={l.item_id ?? ""}
+                        usedIds={usedItemIds}
                         onChange={(v) => setLineAt(l.key, { item_id: v || null })}
                         placeholder="— Yarn —"
                       />

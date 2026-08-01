@@ -13,6 +13,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber, fmtDate } from "@/lib/format";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -113,9 +114,11 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
     margin_pct: n(form.margin_pct),
   });
 
+  const dt = useCreatedDateFilter(rows);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    return rows.filter(dt.matches).filter((r) => {
       if (statusF !== "all" && r.status !== statusF) return false;
       if (customerF !== "all" && r.customer_id !== customerF) return false;
       if (currencyF !== "all" && r.currency_code !== currencyF) return false;
@@ -128,10 +131,10 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
       }
       return true;
     });
-  }, [rows, search, statusF, customerF, currencyF]);
+  }, [rows, dt.matches, search, statusF, customerF, currencyF]);
 
   const activeCount =
-    (statusF !== "all" ? 1 : 0) + (customerF !== "all" ? 1 : 0) + (currencyF !== "all" ? 1 : 0);
+    (statusF !== "all" ? 1 : 0) + (customerF !== "all" ? 1 : 0) + (currencyF !== "all" ? 1 : 0) + dt.active;
 
   /** Picking an Enquiry prefills the currency (like the Cost Sheet screen). */
   function onPickEnquiry(id: string | null) {
@@ -393,7 +396,9 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
         onSearch={setSearch}
         searchPlaceholder="Search costing no, customer, style, enquiry…"
         activeCount={activeCount}
+        dateFilter={dt.bind}
         onReset={() => {
+          dt.reset();
           setStatusF("all");
           setCustomerF("all");
           setCurrencyF("all");

@@ -25,6 +25,8 @@ import {
   deleteProcessSequence,
 } from "@/lib/masters/grid-master-actions";
 import type { ProcessSequence, ProcessSequenceInput } from "@/lib/masters/grid-master-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -79,11 +81,21 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ code: "", name: "", item_class_type: "", inactive: false });
+
+  const dupError = useDuplicateName({
+    table: "process_sequences",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.code, r.name].join(" "),
@@ -201,6 +213,13 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
           onSearch={(v) => { setQuery(v); pg.setPage(1); }}
           searchPlaceholder="Search process sequence..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => { reset(); pg.setPage(1); }}
         >
           <div>
@@ -247,7 +266,7 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.name.trim() || lines.length === 0} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim() || lines.length === 0} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
@@ -258,7 +277,8 @@ export function ProcessSequenceMasterScreen({ rows, perms }: { rows: ProcessSequ
           <div className="space-y-4">
             <div>
               <Label htmlFor="ps-name">Name <span className="text-danger">*</span></Label>
-              <Input id="ps-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+              <Input id="ps-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" {...dupFieldProps(dupError, "ps-name")} />
+              <DuplicateError error={dupError} id="ps-name" />
             </div>
             <div>
               <Label htmlFor="ps-ict">Item Class Type <span className="text-danger">*</span></Label>

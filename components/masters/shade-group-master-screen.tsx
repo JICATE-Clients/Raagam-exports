@@ -14,7 +14,8 @@ import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -54,14 +55,17 @@ export function ShadeGroupMasterScreen({
   const nextKey = () => `shg-${++keyRef.current}`;
 
   // Real-time duplicate check on Name (mirrors the on-save guard in shade-group-actions).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "shade_groups",
     name: form.name ?? "",
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.short_name, r.name].filter(Boolean).join(" "),
@@ -208,6 +212,13 @@ export function ShadeGroupMasterScreen({
           }}
           searchPlaceholder="Search shade group..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -334,8 +345,9 @@ export function ShadeGroupMasterScreen({
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     required
                     className="text-base md:text-sm"
+                    {...dupFieldProps(dupError, "shg-name")}
                   />
-                  {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+                  <DuplicateError error={dupError} id="shg-name" />
                 </div>
                 <div>
                   <Label htmlFor="shg-hours">Hours Reqd</Label>

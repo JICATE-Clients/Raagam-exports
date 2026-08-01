@@ -12,9 +12,14 @@ import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { PORT_NAMES } from "@/lib/masters/geo-names";
 import { createPort, updatePort, deletePort } from "@/lib/masters/port-actions";
 import { PORT_TYPES, type Port, type PortInput, type PortType } from "@/lib/masters/port-types";
 import type { Country } from "@/lib/masters/country-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -47,6 +52,47 @@ export function PortMasterScreen({
   const [form, setForm] = useState(BLANK);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
+
+  /**
+   * Scoped by country, because a port name is only unique WITHIN one — there is
+   * a Victoria in Canada, Hong Kong and the Seychelles, and refusing the second
+   * would be wrong. `rowInScope` mirrors the server `scope` against the rows
+   * already on screen so the synchronous half narrows the same way.
+   *
+   * Gated on a country being picked: unscoped, the check would be asking a
+   * different question than the one the save guard answers. Save already
+   * requires the country, so nothing is lost by waiting for it.
+   *
+   * Checks `name`, the box the operator types; `short_name` is derived from it
+   * on create (see submit) and preserved on edit.
+   */
+  const dupError = useDuplicateName({
+    table: "ports",
+    name: form.name,
+    scope: { country_id: form.country_id || null },
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim() && !!form.country_id,
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+    rowInScope: (r) => (r.country_id ?? "") === (form.country_id ?? ""),
+  });
+
+  // "Did you mean TUTICORIN?" — a misspelled port is the expensive typo here:
+  // it splits every Customer's port of loading across two rows that mean the
+  // same berth. Vocabulary is the ports already saved plus the curated export
+  // list, and it is NOT scoped to the selected country (the Name is usually
+  // typed before the country is picked, and nothing is auto-applied).
+  //
+  // Exact matches are skipped by design — this hint is for NEAR misses. The
+  // exact case is `dupError` above, which now covers it (it did not when this
+  // comment was first written, and a duplicated port name saved silently).
+  const nameSuggestions = useSpellSuggest({
+    name: form.name,
+    names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? ""),
+    seed: PORT_NAMES,
+    enabled: open,
+  });
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -199,7 +245,7 @@ export function PortMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.country_id || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.country_id || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -222,6 +268,12 @@ export function PortMasterScreen({
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
+              {...dupFieldProps(dupError, "pt-name")}
+            />
+            <DuplicateError error={dupError} id="pt-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggestions}
+              onApply={(v) => set({ name: v })}
             />
           </Field>
           {/* No `label` on the Field: CountryPicker renders its own, and two

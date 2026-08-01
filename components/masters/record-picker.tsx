@@ -2,8 +2,20 @@
 
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 
-export type PickerItem = { id: string; code: string | null; name: string };
+/**
+ * `Deactivatable` rather than a single `inactive?: boolean` on purpose: option
+ * lists reach this component straight off a service, and the schema spells the
+ * disable flag three ways (`inactive` · `blocked` · `is_active`). Accepting all
+ * three means a service only has to SELECT its own column — no per-call-site
+ * `.map()` to normalize, and no way to normalize it wrongly.
+ *
+ * A row carrying none of them is active, which is correct for the flag-less
+ * masters (`ports`, `currencies`, and the order / UOM-conversion documents that
+ * also ride this shape).
+ */
+export type PickerItem = { id: string; code: string | null; name: string } & Deactivatable;
 
 /**
  * Select-only picker over any existing master normalized to {id, code, name} —
@@ -18,12 +30,18 @@ export type PickerItem = { id: string; code: string | null; name: string };
  * Now a thin adapter over `DataPicker` (was a 195-line modal dialog), so it
  * drops down and searches like every other field carrying stored data. Same
  * name, props and import path as before, which is why no call site changed.
+ *
+ * It also has an inactive state now, which it did not when `listVendorsForPicker`
+ * was written — so callers pass every row and let the panel hide the disabled
+ * ones, rather than pre-filtering in SQL and leaving an already-chosen row
+ * unresolvable.
  */
 export function RecordPicker({
   label,
   items,
   value,
   onChange,
+  usedIds,
   compact = false,
   required = false,
   disabled = false,
@@ -33,6 +51,12 @@ export function RecordPicker({
   items: PickerItem[];
   value: string | null;
   onChange: (id: string | null) => void;
+  /**
+   * Pick-once inside a repeating grid: ids already taken by the sibling rows.
+   * Straight through to `DataPicker` — see the prop there for when it applies
+   * and, just as importantly, when it must not.
+   */
+  usedIds?: Iterable<string> | null;
   compact?: boolean;
   required?: boolean;
   /** Read-only for a viewer — the field still shows what is stored. */
@@ -49,7 +73,7 @@ export function RecordPicker({
     () =>
       [...items]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((i) => ({ id: i.id, label: i.name })),
+        .map((i) => ({ id: i.id, label: i.name, inactive: isInactive(i) })),
     [items],
   );
 
@@ -59,6 +83,7 @@ export function RecordPicker({
       rows={rows}
       value={value}
       onChange={onChange}
+      usedIds={usedIds}
       compact={compact}
       required={required}
       disabled={disabled}

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { GlAccountForPicker } from "@/lib/finance/gl-service";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Select-only picker over the `gl_accounts` chart of accounts — the legacy
@@ -34,7 +35,12 @@ export function AcHeadPicker({
     () =>
       [...accounts]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((a) => ({ id: a.id, label: a.name, sublabel: a.account_type })),
+        .map((a) => ({
+          id: a.id,
+          label: a.name,
+          sublabel: a.account_type,
+          inactive: isInactive(a),
+        })),
     [accounts],
   );
 

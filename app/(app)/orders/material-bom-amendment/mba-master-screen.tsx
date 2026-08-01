@@ -17,7 +17,9 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { CustomerPicker } from "@/components/masters/customer-picker";
-import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
+import { RecordPicker } from "@/components/masters/record-picker";
+import { NominatedVendorPicker } from "@/components/masters/nominated-vendor-picker";
+import { nominatedVendorOptions } from "@/lib/masters/vendor-nominations";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
   createMaterialBomAmendment,
@@ -128,57 +130,27 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
     [data.lookups],
   );
 
-  /**
-   * The header customer's nominated vendors, as a Set of `master_vendors.id`.
-   *
-   * A nomination is the customer telling us WHICH vendor may supply them, and
-   * until now it constrained nothing: this grid offered every vendor in the
-   * system, so a line could be marked "Nominated" against a vendor the customer
-   * had never approved. `vendorOptionsFor` below narrows the picker instead.
-   *
-   * MBA's Supply Type list has no "Recommended", so only `list_kind =
-   * 'nominated'` is read here. The recommended list stays available for a screen
-   * that offers that choice — it is filtered on, not assumed absent.
-   */
-  const nominatedVendorIds = useMemo(() => {
-    const set = new Set<string>();
-    if (!form.customer_id) return set;
-    for (const n of data.nominations) {
-      if (n.customer_id === form.customer_id && n.list_kind === "nominated") {
-        set.add(n.vendor_id);
-      }
-    }
-    return set;
-  }, [data.nominations, form.customer_id]);
-
   const customerName = useMemo(
     () => data.customers.find((c) => c.id === form.customer_id)?.name ?? null,
     [data.customers, form.customer_id],
   );
 
   /**
-   * The Vendor options for ONE item row, plus the line to show when there are
-   * none.
+   * Everything `NominatedVendorPicker` needs except the row's own supply type
+   * and current value, which differ per line.
    *
-   * Empty-and-explain rather than falling back to every vendor: a fallback would
-   * make the nomination list advisory, and an operator would never learn that
-   * the customer's list is what needs filling in. Any supply type other than
-   * Nominated is unconstrained — a Local or Import purchase is our own choice of
-   * supplier, not the customer's.
+   * The rule itself lives in `lib/masters/vendor-nominations.ts` — shared with
+   * Order Trims and Accessory BOM, because a nomination has to mean the same
+   * thing on all three. MBA's Supply Type list happens to have no "Recommended",
+   * which costs nothing: the shared rule filters on `list_kind`, it does not
+   * assume the recommended list is absent.
    */
-  function vendorOptionsFor(supplyType: string): { items: PickerItem[]; hint: string | null } {
-    if (supplyType !== "Nominated") return { items: data.vendors, hint: null };
-    if (!form.customer_id) {
-      return { items: [], hint: "Pick the customer first — nominations are per customer." };
-    }
-    const items = data.vendors.filter((v) => nominatedVendorIds.has(v.id));
-    return {
-      items,
-      hint: items.length
-        ? null
-        : `${customerName ?? "This customer"} has nominated no vendors — add them on the customer's Nominated Vendors tab.`,
-    };
-  }
+  const vendorRule = {
+    customerId: form.customer_id,
+    customerName,
+    vendors: data.vendors,
+    nominations: data.nominations,
+  };
 
   const orderItems = useMemo(
     () =>
@@ -598,16 +570,22 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                       <td className="px-2 py-1 min-w-[120px]">
                         <Select
                           value={r.supply_type}
-                          // Switching TO Nominated drops a vendor the customer
-                          // has not nominated. Leaving it would show a value the
+                          // Changing the type drops a vendor the new type no
+                          // longer allows. Leaving it would show a value the
                           // reopened picker no longer offers — the row would
                           // look valid and save a vendor the rule forbids.
+                          //
+                          // Asked of the SAME function that builds the picker's
+                          // options, so the two can never disagree about what
+                          // "allowed" means.
                           onChange={(e) => {
                             const supply_type = e.target.value;
+                            const { items } = nominatedVendorOptions({
+                              ...vendorRule,
+                              supplyType: supply_type,
+                            });
                             const keepVendor =
-                              supply_type !== "Nominated" ||
-                              !r.vendor_id ||
-                              nominatedVendorIds.has(r.vendor_id);
+                              !r.vendor_id || items.some((v) => v.id === r.vendor_id);
                             updItem(r.key, keepVendor ? { supply_type } : { supply_type, vendor_id: null });
                           }}
                           className="h-8"
@@ -619,25 +597,15 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                         </Select>
                       </td>
                       <td className="px-2 py-1 min-w-[150px]">
-                        {(() => {
-                          // Narrowed per ROW, not per grid: two lines of the same
-                          // amendment can carry different supply types.
-                          const { items: vendorItems, hint } = vendorOptionsFor(r.supply_type);
-                          return (
-                            <>
-                              <RecordPicker
-                                label="Vendor"
-                                items={vendorItems}
-                                value={r.vendor_id}
-                                onChange={(id) => updItem(r.key, { vendor_id: id })}
-                                compact
-                              />
-                              {hint && (
-                                <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-                              )}
-                            </>
-                          );
-                        })()}
+                        {/* Narrowed per ROW, not per grid: two lines of the same
+                            amendment can carry different supply types. */}
+                        <NominatedVendorPicker
+                          {...vendorRule}
+                          supplyType={r.supply_type}
+                          value={r.vendor_id}
+                          onChange={(id) => updItem(r.key, { vendor_id: id })}
+                          compact
+                        />
                       </td>
                       <td className="px-2 py-1 min-w-[130px]">
                         <RecordPicker

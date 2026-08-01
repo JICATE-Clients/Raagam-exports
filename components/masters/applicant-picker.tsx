@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { Applicant } from "@/lib/masters/applicant-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Select-only picker over the `applicants` master — the Customer form's five
@@ -39,7 +40,7 @@ export function ApplicantPicker({
     () =>
       [...applicants]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((a) => ({ id: a.id, label: a.name })),
+        .map((a) => ({ id: a.id, label: a.name, inactive: isInactive(a) })),
     [applicants],
   );
 

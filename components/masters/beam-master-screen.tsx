@@ -18,7 +18,8 @@ import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { createBeam, updateBeam, deleteBeam } from "@/lib/masters/beam-actions";
 import type { Beam, BeamVendorOption, BeamInput } from "@/lib/masters/beam-types";
 
@@ -65,11 +66,11 @@ export function BeamMasterScreen({
 
   // `BeamVendorOption` is {id, name}; RecordPicker speaks {id, code, name}.
   const vendorItems: PickerItem[] = useMemo(
-    () => vendors.map((v) => ({ id: v.id, code: null, name: v.name })),
+    () => vendors.map((v) => ({ id: v.id, code: null, name: v.name, inactive: v.inactive })),
     [vendors],
   );
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [
         r.beam_no,
@@ -90,12 +91,17 @@ export function BeamMasterScreen({
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check on Beam No (mirrors the on-save guard in the action).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "beams",
     name: form.beam_no,
     nameColumn: "beam_no",
     excludeId: editId ?? undefined,
     enabled: !!form.beam_no.trim(),
+    // The synchronous half. Without it the answer lands ~300ms after the
+    // keystroke — by which time Tab has already moved the cursor off the field.
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.beam_no,
   });
 
   function openAdd() {
@@ -232,6 +238,13 @@ export function BeamMasterScreen({
           }}
           searchPlaceholder="Search beam…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -354,8 +367,9 @@ export function BeamMasterScreen({
                 value={form.beam_no}
                 onChange={(e) => set({ beam_no: e.target.value })}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "bm-no")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="bm-no" />
             </div>
             <div>
               <Label htmlFor="bm-tare">Tare Weight</Label>

@@ -43,7 +43,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
   const keySeq = useRef(0);
   const newKey = () => `v${keySeq.current++}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.code, r.name, ...r.values.map((v) => v.value)].filter(Boolean).join(" "),
@@ -137,6 +137,13 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
           }}
           searchPlaceholder="Search item class / attribute…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);

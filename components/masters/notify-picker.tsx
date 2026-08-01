@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { Notify } from "@/lib/masters/notify-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Select-only picker over the `notifies` master (the Consignee "Notify" grid).
@@ -30,7 +31,7 @@ export function NotifyPicker({
     () =>
       [...notifies]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((n) => ({ id: n.id, label: n.name })),
+        .map((n) => ({ id: n.id, label: n.name, inactive: isInactive(n) })),
     [notifies],
   );
 

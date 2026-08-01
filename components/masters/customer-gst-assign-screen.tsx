@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -102,9 +103,11 @@ export function CustomerGstAssignScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, edits]);
 
+  const dt = useCreatedDateFilter(rows);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
+    return rows.filter(dt.matches).filter((r) => {
       if (q && !`${r.code ?? ""} ${r.name}`.toLowerCase().includes(q)) return false;
       if (fStatus && statusOf(r) !== fStatus) return false;
       if (fCity === "__none" && r.city_id) return false;
@@ -116,7 +119,7 @@ export function CustomerGstAssignScreen({
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, query, fStatus, fCity, fNo, problems]);
+  }, [rows, dt.matches, query, fStatus, fCity, fNo, problems]);
 
   const missing = useMemo(() => rows.filter((r) => !cur(r)).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -167,6 +170,7 @@ export function CustomerGstAssignScreen({
 
   function resetFilters() {
     setQuery("");
+    dt.reset();
     setFStatus("");
     setFCity("");
     setFNo("");
@@ -217,8 +221,9 @@ export function CustomerGstAssignScreen({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search customer code or name…"
-        activeCount={[fStatus, fCity, fNo].filter(Boolean).length}
+        activeCount={[fStatus, fCity, fNo].filter(Boolean).length + dt.active}
         onReset={resetFilters}
+        dateFilter={dt.bind}
         right={
           <>
             {filtered.length} of {rows.length} · {missing} missing GSTIN

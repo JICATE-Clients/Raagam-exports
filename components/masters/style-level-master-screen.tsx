@@ -28,6 +28,10 @@ const descriptor: SimpleMasterDescriptor<StyleLevel> = {
   searchText: (r) => [r.level_short_name, r.level_name].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
   // legacy quirk preserved: level_name doubles as level_short_name
+  // Watches the Level Name box but names `level_short_name`: the payload below
+  // writes this one field into BOTH columns, and it is level_short_name that
+  // carries the unique index (uq_style_levels_level_short_name).
+  dupCheck: { table: "style_levels", fieldKey: "level_name", nameColumn: "level_short_name" },
   toPayload: (v, s) => ({
     level_short_name: String(v.level_name),
     level_name: String(v.level_name) || null,

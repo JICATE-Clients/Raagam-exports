@@ -4,7 +4,13 @@ import type { GlAccount, JournalEntry, JournalLine } from "./types";
 
 // ---------- derived types ----------
 
-export type GlAccountForPicker = { id: string; code: string; name: string; account_type: string };
+export type GlAccountForPicker = {
+  id: string;
+  code: string;
+  name: string;
+  account_type: string;
+  is_active: boolean;
+};
 export type LocationForPicker = { id: string; code: string; name: string };
 
 export type JournalWithLines = JournalEntry & {
@@ -22,12 +28,20 @@ export async function listAccounts(): Promise<GlAccount[]> {
   return (data ?? []) as GlAccount[];
 }
 
+/**
+ * Every account, flag included — NOT `.eq("is_active", true)`.
+ *
+ * This list also backs the editor of an EXISTING journal, and pre-filtering in
+ * SQL is what makes a line whose account was since deactivated render blank: the
+ * id is stored, but nothing in the list resolves it. The picker hides disabled
+ * accounts from the choices and keeps the one already posted (AGENTS.md,
+ * "Disabled rows").
+ */
 export async function getAccountsForPicker(): Promise<GlAccountForPicker[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("gl_accounts")
-    .select("id, code, name, account_type")
-    .eq("is_active", true)
+    .select("id, code, name, account_type, is_active")
     .order("code");
   return (data ?? []) as GlAccountForPicker[];
 }

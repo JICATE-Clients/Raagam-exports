@@ -27,6 +27,8 @@ export async function createPrintType(data: PrintTypeInput): Promise<CreateResul
   const p = printTypeInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "print_types", p.data.name, { nameColumn: "name" });
+  if (!dupName.ok) return fail(dupName.error);
   if (!p.data.code.trim()) {
     p.data.code = await generateUniqueCode(s, "print_types", p.data.name);
   } else {
@@ -44,6 +46,11 @@ export async function updatePrintType(id: string, data: PrintTypeInput): Promise
   const p = printTypeInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "print_types", p.data.name, {
+    nameColumn: "name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   const row: Partial<PrintTypeInput> = { ...p.data };
   if (!p.data.code.trim()) delete row.code;

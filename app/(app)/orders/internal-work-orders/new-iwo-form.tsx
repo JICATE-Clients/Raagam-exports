@@ -21,14 +21,13 @@ import type { PickerRow } from "@/lib/orders/internal-work-orders/service";
 
 interface Props {
   customers: Customer[];
-  employees: PickerRow[];
   styles: PickerRow[];
   itemClasses: ConfigLookup[];
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export function NewIwoForm({ customers, employees, styles, itemClasses }: Props) {
+export function NewIwoForm({ customers, styles, itemClasses }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -43,7 +42,6 @@ export function NewIwoForm({ customers, employees, styles, itemClasses }: Props)
   const [iwoFor, setIwoFor] = useState("");
   const [iwoDate, setIwoDate] = useState(() => today());
   const [itemClassId, setItemClassId] = useState<string | null>(null);
-  const [ownerId, setOwnerId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [reference, setReference] = useState("");
   const [styleId, setStyleId] = useState<string | null>(null);
@@ -55,7 +53,6 @@ export function NewIwoForm({ customers, employees, styles, itemClasses }: Props)
     setIwoFor("");
     setIwoDate(today());
     setItemClassId(null);
-    setOwnerId(null);
     setCustomerId(null);
     setReference("");
     setStyleId(null);
@@ -80,7 +77,6 @@ export function NewIwoForm({ customers, employees, styles, itemClasses }: Props)
         iwo_for: iwoFor || null,
         iwo_date: iwoDate,
         item_class_id: itemClassId,
-        owner_of_trial_id: ownerId,
         customer_id: customerId,
         reference: reference || null,
         style_id: styleId,
@@ -155,14 +151,11 @@ export function NewIwoForm({ customers, employees, styles, itemClasses }: Props)
                   ))}
                 </Select>
               </div>
-              <RecordPicker
-                label="Owner Of the Trial"
-                items={employees}
-                value={ownerId}
-                onChange={setOwnerId}
-              />
-              <div />
-
+              {/* "Owner Of the Trial" stood here, a RecordPicker over the
+                  Employee master. That master was removed (2026-08-01, client),
+                  so nothing could ever fill the list again. The
+                  `internal_work_orders.owner_of_trial_id` column survives and
+                  keeps whatever earlier work orders recorded. */}
               <CustomerPicker
                 customers={customers}
                 value={customerId}

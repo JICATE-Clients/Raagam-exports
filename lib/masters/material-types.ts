@@ -215,20 +215,62 @@ export function usesNumbersUom(code: string | null | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Fabric structure → default UOM (client 2026-07-24): a single default unit per
-// structure — Circular Knit = KGS, Flat Knit = KGS, Woven = MTR — applied like
-// the Yarn kg default: prefilled on the material and freely overridable. (Earlier
-// Flat = Numbers+Weight / Woven = Meters+KG dual units were dropped per the
-// client's single-unit spec.) Structure lives on Category (0279), Material just
-// reads it. Codes match config_lookups kind `fabric_structure`, seeded from the
-// same values as the existing `styles.fabric_type` CHECK. The optional
-// `secondary` stays in the shape for any future dual-unit structure.
+// Fabric structure → UOM. NOT a default any more (client 2026-08-01): these are
+// FIXED. A fabric's Base UOM and its Alternative UOM are decided by the
+// structure and nothing else — the screen shows them read-only and the server
+// re-derives them on every save, so a crafted payload cannot set them either.
+//
+//   Circular Knit  base KGS   alternative — none
+//   Flat Knit      base NOS   alternative KGS
+//   Woven          base MTR   alternative KGS
+//
+// This REVERSES the 2026-07-24 single-unit spec (Circular/Flat = KGS, Woven =
+// MTR, prefilled and freely overridable), and note it moves Flat Knit's base
+// from KGS to NOS. Existing Flat Knit fabrics were stocked in KGS; the screen
+// says so when it re-derives one, because the number on those records did not
+// change meaning just because the unit label did.
+//
+// `secondary` is the alternative unit — the second half of the conversion row
+// (the QUANTITIES on that row stay the operator's: how many kilos a knitted
+// panel weighs is per-material and cannot be derived from anything here).
+//
+// Structure lives on Category (0279), Material just reads it. Keys match
+// config_lookups kind `fabric_structure` (0279), seeded from the same values as
+// the existing `styles.fabric_type` CHECK.
 // ---------------------------------------------------------------------------
 export const FABRIC_STRUCTURE_UOM: Record<string, { base: string; secondary?: string }> = {
   circular: { base: "kg" },
-  flat_knit: { base: "kg" },
-  woven: { base: "mtr" },
+  flat_knit: { base: "nos", secondary: "kg" },
+  woven: { base: "mtr", secondary: "kg" },
 };
+
+/** Look the rule up by structure code, case-insensitively — `config_lookups`
+ *  seeds these lowercase but nothing stops a row being edited to "Woven". */
+export function fabricStructureUom(code: string | null | undefined) {
+  return code ? FABRIC_STRUCTURE_UOM[code.toLowerCase()] ?? null : null;
+}
+
+/** The Stock Unit master is seeded lowercase (`kg`, `nos`, `mtr` — 0004) but
+ *  live rows spell the same units `KGS`, `NOS`, `MTR`, and a shop that renamed
+ *  one is not wrong. So a rule written in terms of a unit CODE resolves through
+ *  this list, never by `===`. Active wins: a deactivated `kg` must never be the
+ *  unit a fabric is forced onto. */
+export const UOM_CODE_SYNONYMS: Record<string, string[]> = {
+  kg: ["kg", "kgs", "kilo", "kilos", "kilogram", "kilograms"],
+  nos: ["nos", "no", "num", "number", "numbers", "pc", "pcs", "piece", "pieces"],
+  mtr: ["mtr", "mtrs", "m", "mts", "meter", "meters", "metre", "metres"],
+};
+
+export type UomLike = { id: string; code: string; is_active: boolean };
+
+/** Resolve a unit CODE from the rules above to a `uoms.id`. Returns null when
+ *  the shop's unit master has no such unit — callers must then leave the field
+ *  alone rather than blank it, since writing null would clear a saved UOM. */
+export function resolveUomId(units: readonly UomLike[], want: string): string | null {
+  const names = UOM_CODE_SYNONYMS[want.toLowerCase()] ?? [want.toLowerCase()];
+  const match = (u: UomLike) => names.includes(u.code.toLowerCase());
+  return units.find((u) => u.is_active && match(u))?.id ?? units.find(match)?.id ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Zod input

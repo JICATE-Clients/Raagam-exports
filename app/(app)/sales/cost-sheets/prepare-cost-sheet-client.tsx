@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { computeFob, COST_CATEGORIES, COST_SHEET_STATUSES } from "@/lib/sales/types";
@@ -105,9 +106,11 @@ export function PrepareCostSheetClient({
     [costSheets],
   );
 
+  const dt = useCreatedDateFilter(costSheets);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return costSheets.filter((c) => {
+    return costSheets.filter(dt.matches).filter((c) => {
       if (status !== "all" && c.status !== status) return false;
       if (season !== "all" && c.season !== season) return false;
       if (q) {
@@ -119,9 +122,9 @@ export function PrepareCostSheetClient({
       }
       return true;
     });
-  }, [costSheets, search, status, season]);
+  }, [costSheets, dt.matches, search, status, season]);
 
-  const activeCount = (status !== "all" ? 1 : 0) + (season !== "all" ? 1 : 0);
+  const activeCount = (status !== "all" ? 1 : 0) + (season !== "all" ? 1 : 0) + dt.active;
 
   function onPickEnquiry(id: string) {
     setOpportunityId(id);
@@ -426,7 +429,9 @@ export function PrepareCostSheetClient({
         onSearch={setSearch}
         searchPlaceholder="Search enquiry, customer, style…"
         activeCount={activeCount}
+        dateFilter={dt.bind}
         onReset={() => {
+          dt.reset();
           setStatus("all");
           setSeason("all");
         }}

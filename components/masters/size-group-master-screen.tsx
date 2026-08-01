@@ -25,6 +25,8 @@ import {
   deactivateSizeGroup,
 } from "@/lib/masters/size-group-actions";
 import type { SizeGroup, SizeGroupInput } from "@/lib/masters/size-group-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; size_name: string; sort_order: number | null };
@@ -48,11 +50,22 @@ export function SizeGroupMasterScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
+
+  const dupError = useDuplicateName({
+    table: "size_groups",
+    name: form.size_group_name,
+    nameColumn: "size_group_name",
+    excludeId: editId ?? undefined,
+    enabled: !!form.size_group_name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.size_group_name,
+  });
   const [childRows, setChildRows] = useState<ChildRow[]>([]);
   const keyRef = useRef(0);
   const nextKey = () => `sg-${++keyRef.current}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.size_group_no, r.size_group_name].filter(Boolean).join(" "),
@@ -139,7 +152,7 @@ export function SizeGroupMasterScreen({
     });
   }
 
-  const canSave = !!form.size_group_name.trim();
+  const canSave = !!form.size_group_name.trim() && !dupError;
 
   const columns: Column<SizeGroup>[] = [
     { header: "No", cell: (r) => <span className="font-mono text-xs">{r.size_group_no ?? "---"}</span> },
@@ -189,6 +202,13 @@ export function SizeGroupMasterScreen({
           }}
           searchPlaceholder="Search size group..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -312,7 +332,9 @@ export function SizeGroupMasterScreen({
                 onChange={(e) => setForm({ ...form, size_group_name: e.target.value })}
                 placeholder="Size group name"
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "sg-name")}
               />
+              <DuplicateError error={dupError} id="sg-name" />
             </div>
           </DetailSection>
 

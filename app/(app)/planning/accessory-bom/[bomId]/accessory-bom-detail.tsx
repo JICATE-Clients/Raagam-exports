@@ -45,6 +45,12 @@ import { Tabs } from "@/components/ui/tabs";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { NominatedVendorPicker } from "@/components/masters/nominated-vendor-picker";
+import {
+  nominatedVendorOptions,
+  type VendorNomination,
+  type VendorOption,
+} from "@/lib/masters/vendor-nominations";
 
 // ---------- helpers ----------
 
@@ -76,6 +82,8 @@ const PROCESS_STAGE_OPTIONS = ["grey", "dyed", "print", "wash"] as const;
 
 function ItemsTab({
   bom,
+  vendors,
+  nominations,
   canMutate,
   isPending,
   onAdd,
@@ -83,6 +91,8 @@ function ItemsTab({
   onDelete,
 }: {
   bom: BomDetail;
+  vendors: VendorOption[];
+  nominations: VendorNomination[];
   canMutate: boolean;
   isPending: boolean;
   onAdd: (data: Record<string, unknown>) => void;
@@ -90,18 +100,31 @@ function ItemsTab({
   onDelete: (id: string) => void;
 }) {
   const [formMode, setFormMode] = useState<"add" | string | null>(null);
-  const [form, setForm] = useState({
+  const BLANK = {
     bom_for: "",
     supply_type: "",
+    vendor_id: null as string | null,
     moq: "0",
     is_approval_required: false,
     specifications: "",
-  });
+  };
+  const [form, setForm] = useState(BLANK);
+
+  /** Shared with the Supply Type select below, so the guard that clears a
+   *  now-disallowed vendor and the picker's own option list are the same rule. */
+  const vendorRule = {
+    customerId: bom.customer_id,
+    customerName: bom.customer_name,
+    vendors,
+    nominations,
+  };
+
+  const vendorName = (id: string | null) => vendors.find((v) => v.id === id)?.name ?? null;
 
   useUnsavedGuard(formMode !== null);
 
   function openAdd() {
-    setForm({ bom_for: "", supply_type: "", moq: "0", is_approval_required: false, specifications: "" });
+    setForm(BLANK);
     setFormMode("add");
   }
 
@@ -109,6 +132,7 @@ function ItemsTab({
     setForm({
       bom_for: item.bom_for ?? "",
       supply_type: item.supply_type ?? "",
+      vendor_id: item.vendor_id,
       moq: String(item.moq ?? 0),
       is_approval_required: item.is_approval_required,
       specifications: item.specifications ?? "",
@@ -151,7 +175,9 @@ function ItemsTab({
     },
     {
       header: "Vendor",
-      cell: (r) => <span className="text-sm">{r.vendor_id ? r.vendor_id.slice(0, 8) : "--"}</span>,
+      // Was `vendor_id.slice(0, 8)` — a truncated UUID, which told the operator
+      // nothing and hid that no vendor could be chosen here at all.
+      cell: (r) => <span className="text-sm">{vendorName(r.vendor_id) ?? "--"}</span>,
     },
     {
       header: "UOM",
@@ -239,7 +265,19 @@ function ItemsTab({
                 <Label>Supply Type</Label>
                 <Select
                   value={form.supply_type}
-                  onChange={(e) => setForm((f) => ({ ...f, supply_type: e.target.value }))}
+                  // Changing the type drops a vendor the new type no longer
+                  // allows, asked of the same function that builds the picker's
+                  // options so the two cannot disagree.
+                  onChange={(e) => {
+                    const supply_type = e.target.value;
+                    const { items } = nominatedVendorOptions({ ...vendorRule, supplyType: supply_type });
+                    setForm((f) => ({
+                      ...f,
+                      supply_type,
+                      vendor_id:
+                        !f.vendor_id || items.some((v) => v.id === f.vendor_id) ? f.vendor_id : null,
+                    }));
+                  }}
                 >
                   <option value="">-- Select --</option>
                   {SUPPLY_TYPES.map((v) => (
@@ -248,6 +286,16 @@ function ItemsTab({
                     </option>
                   ))}
                 </Select>
+              </div>
+              <div>
+                <Label>Vendor</Label>
+                <NominatedVendorPicker
+                  {...vendorRule}
+                  supplyType={form.supply_type}
+                  value={form.vendor_id}
+                  onChange={(id) => setForm((f) => ({ ...f, vendor_id: id }))}
+                  compact
+                />
               </div>
               <div>
                 <Label>MOQ</Label>
@@ -289,6 +337,7 @@ function ItemsTab({
                   const payload = {
                     bom_for: form.bom_for || null,
                     supply_type: form.supply_type || null,
+                    vendor_id: form.vendor_id,
                     moq: parseFloat(form.moq) || null,
                     is_approval_required: form.is_approval_required,
                     specifications: form.specifications.trim() || null,
@@ -1028,11 +1077,15 @@ function ProcessesTab({
 
 export function AccessoryBomDetail({
   bom,
+  vendors,
+  nominations,
   canEdit,
   canDelete,
   canApprove,
 }: {
   bom: BomDetail;
+  vendors: VendorOption[];
+  nominations: VendorNomination[];
   canEdit: boolean;
   canDelete: boolean;
   canApprove: boolean;
@@ -1245,6 +1298,8 @@ export function AccessoryBomDetail({
             content: (
               <ItemsTab
                 bom={bom}
+                vendors={vendors}
+                nominations={nominations}
                 canMutate={canMutate}
                 isPending={isPending}
                 onAdd={handleAddItem}

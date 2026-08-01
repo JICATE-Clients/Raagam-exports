@@ -20,7 +20,11 @@ import { deletedToast } from "@/lib/masters/delete-message";
 import type { Destination, DestinationInput } from "@/lib/masters/destination-types";
 import type { Country } from "@/lib/masters/country-types";
 import { CountryPicker } from "@/components/masters/country-picker";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
+import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
+import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { COUNTRY_NAMES } from "@/lib/masters/geo-names";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -59,13 +63,35 @@ export function DestinationMasterScreen({
   // index on (country_id, lower(trim(short_name))) (0335); creates derive
   // short_name from Name, so a clash would otherwise surface as a raw
   // constraint error on save.
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "destinations",
     name: form.name,
     nameColumn: "short_name",
     scope: { country_id: form.country_id || null },
     excludeId: editId ?? undefined,
     enabled: !!(form.name.trim() && form.country_id),
+    // The synchronous half. `rowValue` follows `nameColumn`, not the label —
+    // this master's identity is the short name, within one country.
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.short_name,
+    rowInScope: (r) => r.country_id === form.country_id,
+  });
+
+  // "Did you mean…?" on Name. The vocabulary is the destinations already saved
+  // PLUS country names — a final destination in this trade is overwhelmingly a
+  // country, and `countries` is already on this screen for the picker, so that
+  // half of the dictionary costs nothing to maintain. Deliberately NOT scoped
+  // to the selected country: the operator usually types the Name before picking
+  // one, and a hint that misses is free to ignore — nothing is auto-applied.
+  const nameSuggestions = useSpellSuggest({
+    name: form.name,
+    names: [
+      ...rows.filter((r) => r.id !== editId).map((r) => r.name ?? ""),
+      ...countries.map((c) => c.name),
+    ],
+    seed: COUNTRY_NAMES,
+    enabled: open && !dupError,
   });
 
   const filtered = useMemo(() => {
@@ -237,8 +263,13 @@ export function DestinationMasterScreen({
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
+              {...dupFieldProps(dupError, "de-name")}
             />
-            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+            <DuplicateError error={dupError} id="de-name" />
+            <SpellSuggestHint
+              suggestions={nameSuggestions}
+              onApply={(v) => set({ name: v })}
+            />
           </Field>
           {/* CountryPicker renders its own label — see the note on port. */}
           <Field size="sm">

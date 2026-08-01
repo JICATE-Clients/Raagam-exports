@@ -30,7 +30,11 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl / ⌘ + F", label: "Focus the list search box" },
   { keys: "Ctrl / ⌘ + /", label: "Show this shortcuts help" },
   { keys: "Tab", label: "Move to the next field" },
-  { keys: "Enter", label: "Save the open form" },
+  // The one case a movement key refuses. Listed for the operator who is sitting
+  // on a field wondering why nothing happens — see the hold in
+  // components/shell/keyboard-nav-provider.tsx.
+  { keys: "Tab / Enter / arrows", label: "Held while a name already exists — edit it, or Esc" },
+  { keys: "Enter", label: "Next field; saves off the last one" },
   { keys: "Enter / Space", label: "Tick the focused checkbox" },
   { keys: "↓", label: "Open a field's list of values" },
   { keys: "↑ / ↓ then Enter", label: "Pick a value in a lookup" },
@@ -64,6 +68,9 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
     return false;
   }, []);
 
+  // The non-firing twin of `fire`. See the note on ShortcutsApi.has.
+  const has = useCallback((id: ShortcutId): boolean => stacks.current[id].length > 0, []);
+
   const openHelp = useCallback(() => setHelpOpen(true), []);
 
   useEffect(() => {
@@ -93,7 +100,7 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
   }, [fire]);
 
   return (
-    <ShortcutsContext.Provider value={{ register, fire, openHelp }}>
+    <ShortcutsContext.Provider value={{ register, fire, has, openHelp }}>
       {children}
       <Sheet open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts" size="sm">
         <ul className="divide-y divide-border">

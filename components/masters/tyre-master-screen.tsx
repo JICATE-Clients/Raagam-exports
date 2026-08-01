@@ -18,7 +18,8 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { createTyre, updateTyre, deleteTyre } from "@/lib/masters/tyre-actions";
 import type { Tyre, TyreInput } from "@/lib/masters/tyre-types";
 
@@ -54,7 +55,7 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
   const allowedRetreads = Number(form.allowed_retreads) || 0;
   const needsKm = allowedRetreads > 0;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     searchKey: (r) => [r.code, r.name, r.brand, r.tyre_type, r.size].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
@@ -65,11 +66,14 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check (mirrors the on-save guard: name is unique).
-  const dupNameError = useDuplicateCheck({
+  const dupNameError = useDuplicateName({
     table: "tyres",
     name: form.name,
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   function openAdd() {
@@ -181,6 +185,13 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
           }}
           searchPlaceholder="Search tyre…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -287,8 +298,9 @@ export function TyreMasterScreen({ rows, perms }: { rows: Tyre[]; perms: Perms }
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupNameError, "tyr-name")}
               />
-              {dupNameError && <p className="mt-1 text-xs text-danger">{dupNameError}</p>}
+              <DuplicateError error={dupNameError} id="tyr-name" />
             </div>
           </DetailSection>
 

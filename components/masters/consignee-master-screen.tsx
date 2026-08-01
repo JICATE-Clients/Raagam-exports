@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
+import { Bell, DownloadCloud, MapPin, SlidersHorizontal, TriangleAlert, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -31,12 +31,23 @@ import { createConsignee, updateConsignee, deleteConsignee } from "@/lib/masters
 import {
   partyOrigin,
   OriginBadge,
+  PublishesBadge,
   originNameHint,
   originDeleteBlock,
   type PartyOrigin,
 } from "@/components/masters/party-origin";
+import { PARTY_ROLE } from "@/lib/masters/party-origin-text";
+import {
+  customerToConsigneeFields,
+  diffFetch,
+  describeFields,
+  type ConsigneeFetchContact,
+  type ConsigneeFetchFields,
+  type FetchPlan,
+} from "@/lib/masters/party-fetch";
 import { deletedToast } from "@/lib/masters/delete-message";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateCheck, useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { decodeGstin, matchGstinState, normalizeGstin } from "@/lib/validation/gstin";
 import { defaultCountryId, defaultStateId } from "@/lib/masters/geo-defaults";
 import {
@@ -148,6 +159,35 @@ const BLANK: HeaderForm = {
 type MarkingRow = { key: string; marking: string };
 type NotifyRefRow = { key: string; notify_id: string };
 
+/**
+ * The form, seen through the narrow window "Fetch from Customer" works on.
+ *
+ * Spelled out field by field rather than spread, so that adding a column to
+ * `HeaderForm` cannot silently enrol it in the fetch: what a Customer is
+ * allowed to answer is a decision, taken once in lib/masters/party-fetch.ts,
+ * and this is the only place the two shapes meet.
+ */
+const fetchableFields = (f: HeaderForm): ConsigneeFetchFields => ({
+  country_id: f.country_id,
+  street: f.street,
+  city_id: f.city_id,
+  state_id: f.state_id,
+  pin: f.pin,
+  address_country_id: f.address_country_id,
+  land_line: f.land_line,
+  mobile: f.mobile,
+  whatsapp: f.whatsapp,
+  email: f.email,
+  web_site: f.web_site,
+  currency_1: f.currency_1,
+  currency_2: f.currency_2,
+  currency_3: f.currency_3,
+  ship_mode: f.ship_mode,
+  ship_type_id: f.ship_type_id,
+  pay_mode: f.pay_mode,
+  gst_no: f.gst_no,
+});
+
 type ContactRow = {
   key: string;
   department_id: string;
@@ -169,6 +209,18 @@ const blankContact = (key: string): ContactRow => ({
   internal_department_id: "",
 });
 
+/** Contact rows without their render keys, for comparing against a Customer's. */
+const fetchableContacts = (rows: readonly ContactRow[]): ConsigneeFetchContact[] =>
+  rows.map((r) => ({
+    department_id: r.department_id,
+    contact_name: r.contact_name,
+    designation_id: r.designation_id,
+    land_line: r.land_line,
+    mobile: r.mobile,
+    email_id: r.email_id,
+    internal_department_id: r.internal_department_id,
+  }));
+
 /**
  * The whole editor as one string, for the unsaved-work compare. Whole-object,
  * the same shape company-profile-screen uses: every `set`/`setXAt` spreads, so
@@ -189,42 +241,37 @@ const snapshot = (
 
 /**
  * How wide each field of this form is, on the 12-column track (LAYOUT.md §3).
- * Sized to the DATA it holds, not to the cell it landed in: this form used to
- * hand-roll `sm:grid-cols-2` / `-3`, so three 3-letter currency codes ate a
- * whole row while a 6-digit PIN got the same box as a website URL
- * (client 2026-07-24 #3). Adjust here, not at the call sites.
  *
- * THE SPANS OF ONE ROW MUST SUM TO 12. A row that totals 13+ does not shrink —
- * the last field wraps onto a line of its own with the rest of that line empty
- * beneath it. Widen one of these and something else on the same row has to give.
- *
- *   identity  name 4 + country 3 + customer 3 + also_notify 2                = 12
- *   address   street 12
- *             city 3 + state 3 + pin 2 + address_country 4                   = 12
- *             land_line 3 + mobile 3 + whatsapp 3                            =  9
- *             email 6 + web_site 6                                           = 12
- *   general   currency ×3 (2 each) + ship_mode 3 + ship_type 3               = 12
- *             pay_mode 3 + payment_term 3 + bank 3 + ac_no 3                 = 12
- *   registr.  tin_no 3 + tin_no_2 3 + pan_no 3 + gst_no 3                    = 12
- *
- * Two rows are deliberately short of 12 rather than padded:
- *  - `name` would prefer `lg` (a consignee is a company name), but 6+3+3+2 = 14
- *    wraps Also Notify onto its own line. At `md` it is ~384px — long enough for
- *    the names actually keyed, and the box scrolls past that.
- *  - the phone row stops at 9 because there are only three phone fields; pulling
- *    E-Mail up to fill it would push Web site onto an otherwise empty row.
- *
- * `currency_1/2/3` are `xs` on purpose even though the picker shows
- * "USD — US DOLLAR": the trigger truncates, the CODE is what identifies the
- * currency, and three of them are not worth a row of a form this long.
- */
-/**
  * ONE SIZE, EVERY FIELD: `sm` = 3 of 12 = four per row (client 2026-07-29). The
  * client picked the City / State / Pin / Country row out as the correct shape
  * and asked for the rest of the masters to match it, so nothing is sized to its
  * own data any more — Name, E-Mail and Web site lost the width they had, and
  * Street lost the full row its Textarea stood on. See applicant-master-screen
  * for the full statement of the rule and what it trades away.
+ *
+ * The map stays, rather than collapsing to a bare `size="sm"` at each call site,
+ * so the rows can still be read as arithmetic in one place:
+ *
+ *   identity  name 3 + country 3 + customer 3 + also_notify 3               = 12
+ *             inactive 3 (edit only) + fetch 3                              = 6
+ *             …and 3 + 6 = 9 while the fetch cell is confirming
+ *   address   street 3 + city 3 + state 3 + pin 3                          = 12
+ *             land_line 3 + mobile 3 + whatsapp 3 + email 3                = 12
+ *             web_site 3
+ *   general   currency_1 3 + currency_2 3 + currency_3 3 + ship_mode 3     = 12
+ *             ship_type 3 + pay_mode 3 + payment_term 3 + bank 3           = 12
+ *             ac_no 3
+ *   registr.  tin_no 3 + tin_no_2 3 + pan_no 3 + gst_no 3                  = 12
+ *
+ * THE SPANS OF ONE ROW MUST STILL SUM TO 12 OR LESS. A row that totals 13+ does
+ * not shrink — the last field wraps onto a line of its own with the rest of that
+ * line empty beneath it. Nothing in the build catches that, which is the reason
+ * the sums above are spelt out.
+ *
+ * Mobile / WhatsApp are deliberately absent from the map below.
+ * `MobileWhatsAppFields` is a fragment of TWO grid children with no wrapper, so
+ * it takes its span as a literal `cellClassName` string instead (see
+ * CONTACT_CELL). They still count as 3 + 3 in the address row above.
  */
 const FIELD_SIZE = {
   // Identity section
@@ -232,6 +279,15 @@ const FIELD_SIZE = {
   country_id: "sm",
   customer_id: "sm",
   also_notify: "sm",
+  inactive: "sm", // edit only — first cell of a short second row
+  /**
+   * "Fetch from Customer", second cell of that same short row. Row 2 totals
+   * 3 + 3 = 6 idle and 3 + 6 = 9 while confirming, so neither state wraps and
+   * the full-width row 1 above it never moves.
+   */
+  fetch: "sm",
+  /** The confirm strip — it carries a sentence and two buttons, not a control. */
+  fetch_confirm: "lg",
   // Address section
   street: "sm", // a single-line Input now — a Textarea sets the row's height
   city_id: "sm",
@@ -342,6 +398,14 @@ export function ConsigneeMasterScreen({
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [markings, setMarkings] = useState<MarkingRow[]>([]);
   const [notifyRefs, setNotifyRefs] = useState<NotifyRefRow[]>([]);
+  /**
+   * A "Fetch from Customer" that would REPLACE values already on the form, held
+   * while the operator answers for it. The button swaps itself for a confirm
+   * strip — the same two-step `RowActions` uses for delete, and deliberately not
+   * an overlay: a hand-rolled `fixed inset-0` div is invisible to the reload
+   * guard's DOM scan (AGENTS.md), and this needs no such wiring.
+   */
+  const [pendingFetch, setPendingFetch] = useState<FetchPlan | null>(null);
   const keySeq = useRef(0);
   const newKey = () => `c${keySeq.current++}`;
 
@@ -506,12 +570,36 @@ export function ConsigneeMasterScreen({
   // legacy pair that already collides must stay editable. Deliberately NOT
   // extended to PAN: one PAN legitimately carries one GSTIN *per state*, so a
   // multi-state party would false-positive on every branch after the first.
+  //
+  // dup-check: server-only -- advisory, so it is deliberately NOT wired through
+  // dupFieldProps and never holds the cursor. The synchronous half exists to win
+  // a race against Tab; there is no race here, because nothing is refused.
   const gstDup = useDuplicateCheck({
     table: "consignees",
     name: form.gst_no,
     nameColumn: "gst_no",
     excludeId: editId ?? undefined,
     enabled: !!form.gst_no.trim(),
+  });
+
+  /**
+   * The NAME, unlike the GSTIN above, DOES block. Two consignees at one GSTIN
+   * are legitimate (branches of one party), which is why that check stays an
+   * advisory amber note; two consignees with the identical name are the same
+   * record keyed twice, and every other party master already refuses it on
+   * save. Backstopped by the matching guard in `consignee-actions.ts`.
+   *
+   * Stood down while `editOrigin` holds the name read-only — an error on a
+   * field the operator cannot edit is a dead end.
+   */
+  const nameDupError = useDuplicateName({
+    table: "consignees",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !editOrigin && !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   const filtered = useMemo(() => {
@@ -538,6 +626,7 @@ export function ConsigneeMasterScreen({
     // BLANK would read the two defaults as unsaved edits and, via
     // useUnsavedGuard, block the PWA's silent auto-update on this route forever.
     setPristine(snapshot(blankForm, blankContacts, [], []));
+    setPendingFetch(null);
     setOpen(true);
   }
   function openEdit(r: Consignee) {
@@ -584,16 +673,30 @@ export function ConsigneeMasterScreen({
     };
     // Baseline for the PAN auto-fill: opening a record must never write to it.
     loadedGstin.current = normalizeGstin(r.gst_no);
-    const nextContacts: ContactRow[] = r.contacts.map((c) => ({
-      key: newKey(),
-      department_id: c.department_id ?? "",
-      contact_name: c.contact_name ?? "",
-      designation_id: c.designation_id ?? "",
-      land_line: c.land_line ?? "",
-      mobile: c.mobile ?? "",
-      email_id: c.email_id ?? "",
-      internal_department_id: c.internal_department_id ?? "",
-    }));
+    // A contactless record opens on ONE empty contact card, exactly as `openAdd`
+    // does — otherwise New and Edit of the same consignee are different forms.
+    // They almost always ARE the same consignee: `normalizeContacts`
+    // (consignee-actions.ts) drops all-blank rows on save, so anything created
+    // without touching Contacts comes back with none, and Edit showed a one-line
+    // "No contacts yet." where New had shown a full card.
+    //
+    // Safe on both counts that matter. The row cannot dirty the form —
+    // `setPristine` below snapshots AFTER this seed, the same reasoning `openAdd`
+    // spells out, and an ungated `dirty` feeds useUnsavedGuard and would block
+    // the PWA's silent auto-update on this route forever. And it cannot write a
+    // phantom child row, because the same normalize drops it again on save.
+    const nextContacts: ContactRow[] = r.contacts.length
+      ? r.contacts.map((c) => ({
+          key: newKey(),
+          department_id: c.department_id ?? "",
+          contact_name: c.contact_name ?? "",
+          designation_id: c.designation_id ?? "",
+          land_line: c.land_line ?? "",
+          mobile: c.mobile ?? "",
+          email_id: c.email_id ?? "",
+          internal_department_id: c.internal_department_id ?? "",
+        }))
+      : [blankContact(newKey())];
     const nextMarkings: MarkingRow[] = r.markings.map((m) => ({
       key: newKey(),
       marking: m.marking ?? "",
@@ -607,6 +710,7 @@ export function ConsigneeMasterScreen({
     setMarkings(nextMarkings);
     setNotifyRefs(nextNotifyRefs);
     setPristine(snapshot(nextForm, nextContacts, nextMarkings, nextNotifyRefs));
+    setPendingFetch(null);
     setOpen(true);
   }
 
@@ -638,6 +742,86 @@ export function ConsigneeMasterScreen({
   }
   function removeNotifyRef(key: string) {
     setNotifyRefs((ns) => ns.filter((n) => n.key !== key));
+  }
+
+  // ------------------------------------------------ Fetch from Customer ----
+  // Ticking Customer ▸ Also Consignee publishes this row (0371), but the seed
+  // is twelve address scalars copied once at birth — the Customer's General tab
+  // and its Contact and Marking grids never crossed, and neither does anything
+  // typed on the Customer afterwards. This is the way to go and get them.
+  //
+  // Straight out of the `customers` prop, which the masters page already loads
+  // in full — contacts and markings embedded (lib/masters/customer-service.ts).
+  // No server action, no round trip, the same way every other pick-then-fill in
+  // this app works (orders/process-amendments, orders/ta-plan).
+
+  /**
+   * The customer to fetch FROM: the ordinary `customer_id` picker, which a
+   * published consignee already has filled in for it (customer-actions seeds it
+   * at publish time) and an ordinary one gets the moment the operator picks.
+   * One control therefore serves both, with no branch on `source_customer_id`.
+   */
+  const fetchSource = useMemo(
+    () => customers.find((c) => c.id === form.customer_id) ?? null,
+    [customers, form.customer_id],
+  );
+
+  /** "Street, Pin and 2 more, plus 3 contact rows" — what Confirm would undo. */
+  function replaceSummary(plan: FetchPlan): string {
+    const bits: string[] = [];
+    if (plan.replaces.length) bits.push(describeFields(plan.replaces));
+    if (plan.replacedContacts) bits.push(`${plan.replacedContacts} contact row(s)`);
+    if (plan.replacedMarkings) bits.push(`${plan.replacedMarkings} marking row(s)`);
+    return bits.join(", ");
+  }
+
+  /**
+   * Write the plan into the OPEN FORM — never to the database. The operator
+   * reviews it and presses Save, or walks away and loses nothing. Every write
+   * goes through the ordinary setters, so the `snapshot` compare marks the form
+   * dirty by itself and `useUnsavedGuard` covers the auto-reload with no extra
+   * wiring.
+   */
+  function applyFetch(plan: FetchPlan, from: string) {
+    set(plan.patch);
+    // Fresh keys: these are new rows as far as React is concerned, and a key is
+    // minted once per row and never reused.
+    if (plan.contacts) {
+      setContacts(plan.contacts.map((c) => ({ ...c, key: newKey() })));
+    }
+    if (plan.markings) {
+      setMarkings(plan.markings.map((marking) => ({ key: newKey(), marking })));
+    }
+    setPendingFetch(null);
+    const parts: string[] = [];
+    // Counted in LABELS, not patch keys: Country writes two columns from one
+    // picker, and reporting that as two changes would just read as a bug.
+    const fields = plan.fills.length + plan.replaces.length;
+    if (fields) parts.push(`${fields} field(s)`);
+    if (plan.contacts) parts.push(`${plan.contacts.length} contact(s)`);
+    if (plan.markings) parts.push(`${plan.markings.length} marking(s)`);
+    success(`Fetched ${parts.join(", ")} from ${from} — review, then save.`);
+  }
+
+  function fetchFromCustomer() {
+    if (!fetchSource) return;
+    const plan = diffFetch(
+      fetchableFields(form),
+      fetchableContacts(contacts),
+      markings.map((m) => m.marking),
+      customerToConsigneeFields(fetchSource),
+    );
+    // Say so out loud. A button that silently does nothing reads as broken.
+    if (plan.empty) {
+      success(`Nothing to fetch — this already matches ${fetchSource.name}.`);
+      return;
+    }
+    // Filling empty boxes needs no permission; overwriting an answer does.
+    if (plan.replaces.length || plan.replacedContacts || plan.replacedMarkings) {
+      setPendingFetch(plan);
+      return;
+    }
+    applyFetch(plan, fetchSource.name);
   }
 
   function submit(asDraft: boolean) {
@@ -727,6 +911,7 @@ export function ConsigneeMasterScreen({
         <span className="flex flex-wrap items-center gap-1.5 text-sm">
           {r.name}
           <OriginBadge origin={consigneeOrigin(r)} />
+          <PublishesBadge roles={r.also_notify ? [PARTY_ROLE.notify] : []} />
         </span>
       ),
     },
@@ -1049,7 +1234,7 @@ export function ConsigneeMasterScreen({
           onCancel: () => setOpen(false),
           onSave: () => submit(false),
           saveLabel: "Save consignee",
-          canSave: !!form.name.trim(),
+          canSave: !!form.name.trim() && !nameDupError,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           draftLabel: "Save as Draft",
           isPending,
@@ -1065,32 +1250,42 @@ export function ConsigneeMasterScreen({
                 title="Identity"
                 hint="Who this consignee is, and the customer they ship for."
               >
-                <div className="space-y-4">
-                  {/* Four controls, one flush row. Every label is `Field`'s, so
-                      the pickers are all `compact`: CountryPicker and
-                      CustomerPicker render their OWN <Label> otherwise, and this
-                      screen used to mix the two idioms — Country self-labelled
-                      while Customer was wrapped, so the two labels sat at
-                      different offsets. */}
-                  <FieldGrid>
+                {/* Four controls, one flush row. Every label is `Field`'s, so
+                    the pickers are all `compact`: CountryPicker and
+                    CustomerPicker render their OWN <Label> otherwise, and this
+                    screen used to mix the two idioms — Country self-labelled
+                    while Customer was wrapped, so the two labels sat at
+                    different offsets. */}
+                <FieldGrid>
                     <Field
                       label="Name"
                       required
                       size={FIELD_SIZE.name}
                       htmlFor="cn-name"
-                      hint={editOrigin ? originNameHint(editOrigin) : undefined}
                     >
                       {/* `readOnly`, not `disabled`: the value still submits and
                           still copies, and Input's own readOnly sets
-                          tabIndex={-1}, so it leaves the Tab order for free. */}
+                          tabIndex={-1}, so it leaves the Tab order for free.
+
+                          Why the origin note is a `title` and not `Field`'s
+                          `hint`: `hint` renders a <p> INSIDE this cell, and a
+                          grid row is as tall as its tallest item — so a
+                          published consignee's Identity row stood ~18px taller
+                          than an ordinary one's, and taller than the same row
+                          on the New form. The fact is already on screen as the
+                          "from Applicant" chip in the header (OriginBadge), so
+                          the note only has to be reachable, not permanent. */}
                       <Input
                         id="cn-name"
                         uppercase
                         readOnly={!!editOrigin}
+                        title={editOrigin ? originNameHint(editOrigin) : undefined}
                         value={form.name}
                         onChange={(e) => set({ name: e.target.value })}
                         required
+                        {...dupFieldProps(nameDupError, "cn-name")}
                       />
+                      <DuplicateError error={nameDupError} id="cn-name" />
                     </Field>
                     {/* No `required` marker, unlike the asterisk CountryPicker
                         prints for itself: `country_id` is nullable in
@@ -1117,7 +1312,13 @@ export function ConsigneeMasterScreen({
                       <CustomerPicker
                         customers={customers}
                         value={form.customer_id || null}
-                        onChange={(id) => set({ customer_id: id ?? "" })}
+                        // Drops any pending fetch confirm: it was computed
+                        // against the customer being replaced, and confirming
+                        // it afterwards would copy the wrong record's details.
+                        onChange={(id) => {
+                          set({ customer_id: id ?? "" });
+                          setPendingFetch(null);
+                        }}
                         compact
                       />
                     </Field>
@@ -1131,22 +1332,97 @@ export function ConsigneeMasterScreen({
                         <option value="yes">Yes</option>
                       </Select>
                     </Field>
-                  </FieldGrid>
-                  {/* Outside the track on purpose: a bare checkbox has no label
-                      above it, so as a grid cell it would line up with its
-                      neighbours' LABELS rather than their controls. */}
-                  {editId && (
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={form.inactive}
-                        onChange={(e) => set({ inactive: e.target.checked })}
-                      />
-                      <span className="text-sm text-foreground">Inactive</span>
-                    </label>
-                  )}
-                </div>
+                    {/* Edit only, so it takes a short SECOND row rather than a
+                        share of the first — row 1 then looks identical in New
+                        and in Edit. It used to sit outside the track entirely,
+                        which cost Edit a `space-y-4` gap plus a loose row that
+                        started at the grid's left edge and left 9 of 12 columns
+                        empty: the "extra space in the edit form" the client
+                        reported (2026-07-31).
+
+                        `min-h-9` is what makes a grid cell work here. The
+                        objection to putting it in the track was real — a bare
+                        checkbox has no <Label> above it, so it would align to
+                        its neighbours' LABELS rather than their controls —
+                        and matching an input's height is the answer, the same
+                        one applicant-master-screen already shipped. */}
+                    {editId && (
+                      <Field size={FIELD_SIZE.inactive}>
+                        <label className="flex min-h-9 cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer accent-primary"
+                            checked={form.inactive}
+                            onChange={(e) => set({ inactive: e.target.checked })}
+                          />
+                          <span className="text-sm text-foreground">Inactive</span>
+                        </label>
+                      </Field>
+                    )}
+                    {/* Second cell of that same short row. Unlabelled: the
+                        button says what it does, and a label above it would
+                        only repeat the words underneath. */}
+                    <Field size={pendingFetch ? FIELD_SIZE.fetch_confirm : FIELD_SIZE.fetch}>
+                      {pendingFetch ? (
+                        <div className="flex min-h-9 flex-wrap items-center gap-1">
+                          <span className="text-xs text-muted-foreground">
+                            Replace {replaceSummary(pendingFetch)}?
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPendingFetch(null)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => applyFetch(pendingFetch, fetchSource?.name ?? "Customer")}
+                          >
+                            Confirm
+                          </Button>
+                        </div>
+                      ) : (
+                        // The `title` sits on a WRAPPER, and that span is the
+                        // whole reason it exists: button.tsx pins
+                        // `disabled:pointer-events-none`, so a tooltip on the
+                        // disabled control — exactly when the operator needs to
+                        // be told to pick a Customer first — would never open.
+                        // Same trick as OriginBadge.
+                        <span
+                          // `block` so the w-full button inside resolves against
+                          // this wrapper rather than jumping the inline box.
+                          className="block"
+                          title={
+                            fetchSource
+                              ? `Copy the address, the General fields, the Contacts and the Markings from ${fetchSource.name}. Nothing is saved until you press Save, and an empty field on the Customer never clears a filled one here.`
+                              : "Pick a Customer first — that is the record the details come from."
+                          }
+                        >
+                          {/* `type="button"`, explicitly: a default-type button
+                              inside a form is a SUBMIT, so Enter reaching the
+                              form would fire this instead of the save.
+
+                              No `min-h-9`: the default `md` size already tracks
+                              the inputs beside it, including the drop to 32px
+                              inside the editor's compact-density container. A
+                              hand-set height would put it 4px proud of them. */}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full"
+                            disabled={!fetchSource}
+                            onClick={fetchFromCustomer}
+                          >
+                            <DownloadCloud />
+                            Fetch from Customer
+                          </Button>
+                        </span>
+                      )}
+                    </Field>
+                </FieldGrid>
               </SectionBody>
             ),
           },
@@ -1215,8 +1491,9 @@ export function ConsigneeMasterScreen({
                         is now written from the single Identity Country picker
                         above, not from a visible field here. Do not add this
                         field back without re-reading that picker's comment
-                        first. City + State + Pin end this row 3 short of 12 —
-                        deliberate, same as any other tail row on this form. */}
+                        first. Street + City + State + Pin now fill this row
+                        exactly (3+3+3+3), so the tail row of this section is
+                        Web site on its own — deliberate, same as applicant. */}
                     <Field label="Land Line" size={FIELD_SIZE.land_line} htmlFor="cn-landline">
                       <Input
                         id="cn-landline"
@@ -1384,9 +1661,10 @@ export function ConsigneeMasterScreen({
                       track's `gap-y`, so stacked grids lined up horizontally and
                       drifted vertically. Same reasoning as the attribute screen's
                       `specCell`.
-                      Two rows of 12: the three currency codes now take 2 each and
-                      share their row with Ship Mode and Ship Type, instead of three
-                      `sm:grid-cols-3` cells eating a full row on their own. */}
+                      Two full rows of 12 and a tail: the three currency codes
+                      take 3 each and close their row with Ship Mode, instead of
+                      three `sm:grid-cols-3` cells eating a full row on their
+                      own. Ship Type opens row 2, and A/c No. is the tail. */}
                   <FieldGrid>
                     <Field label="Currency 1" size={FIELD_SIZE.currency}>
                       <CurrencyPicker
@@ -1606,6 +1884,14 @@ export function ConsigneeMasterScreen({
                           </Field>
                         )}
 
+                        {/* A WARNING, AND IT MUST STAY ONE. Deliberately not
+                            `dupFieldProps` / `<DuplicateError>`: a second
+                            consignee at one GSTIN is legitimate (branches, a
+                            re-keyed party), which is why `canSave` is not gated
+                            on `gstDup` either. Converting this would promote a
+                            hint into a keyboard hold and cage the operator on a
+                            field they have every right to leave. The hold is
+                            only ever for an error that actually blocks Save. */}
                         {gstDup && (
                           <Field size="full" className="-mt-1">
                             <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">

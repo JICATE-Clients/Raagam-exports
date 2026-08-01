@@ -23,6 +23,8 @@ import { deletedToast } from "@/lib/masters/delete-message";
 import type { AccountHead, AccountHeadInput } from "@/lib/masters/account-head-types";
 import type { AccountGroup } from "@/lib/masters/account-group-types";
 import type { CostHead } from "@/lib/finance/cost-heads/types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -61,6 +63,16 @@ export function AccountHeadMasterScreen({
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "account_heads",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
 
   const groupName = useMemo(() => {
     const m = new Map<string, string>();
@@ -191,7 +203,7 @@ export function AccountHeadMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -216,7 +228,9 @@ export function AccountHeadMasterScreen({
                 uppercase
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
+                {...dupFieldProps(dupError, "ah-name")}
               />
+              <DuplicateError error={dupError} id="ah-name" />
             </Field>
             <Field size="lg">
               <CostHeadPicker

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Tag, ArrowUpRight } from "lucide-react";
+import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 
 /**
@@ -40,7 +41,7 @@ export function HubCard({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-foreground">{title}</span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{subtitle}</span>
+        <Truncated text={subtitle} className="mt-0.5 text-xs text-muted-foreground" />
       </span>
       {external ? (
         <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />

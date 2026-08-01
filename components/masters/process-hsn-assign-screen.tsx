@@ -5,15 +5,21 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { saveProcessHsn, type ProcessHsnChange } from "@/lib/masters/process-hsn-actions";
 import type { ProcessHsnRow } from "@/lib/masters/process-hsn-service";
+import { isInactive } from "@/lib/masters/inactive";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type Opt = { id: string; code: string | null; name: string | null };
+/** HSN options carry the flag; the commodity list does not need it — it drives a
+ *  FILTER, and filtering by a since-retired commodity is a legitimate thing to
+ *  want. The rule is about fields that SET a value. */
+type HsnOpt = Opt & { is_active: boolean };
 
 const hsnLabel = (o: Opt) => (o.code ? `${o.code}${o.name ? ` — ${o.name}` : ""}` : (o.name ?? "—"));
 
@@ -34,7 +40,7 @@ export function ProcessHsnAssignScreen({
   perms,
 }: {
   rows: ProcessHsnRow[];
-  hsnOptions: Opt[];
+  hsnOptions: HsnOpt[];
   commodities: Opt[];
   perms: Perms;
 }) {
@@ -81,9 +87,11 @@ export function ProcessHsnAssignScreen({
     });
   }
 
+  const dt = useCreatedDateFilter(rows);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
+    return rows.filter(dt.matches).filter((r) => {
       if (q && !r.name.toLowerCase().includes(q)) return false;
       if (fStatus === "Active" && r.inactive) return false;
       if (fStatus === "Inactive" && !r.inactive) return false;
@@ -91,7 +99,7 @@ export function ProcessHsnAssignScreen({
       if (fCommodity && fCommodity !== "__none" && r.commodity_id !== fCommodity) return false;
       return true;
     });
-  }, [rows, query, fStatus, fCommodity]);
+  }, [rows, dt.matches, query, fStatus, fCommodity]);
 
   const missing = useMemo(() => rows.filter((r) => !cur(r)).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -128,6 +136,7 @@ export function ProcessHsnAssignScreen({
 
   function resetFilters() {
     setQuery("");
+    dt.reset();
     setFStatus("");
     setFCommodity("");
   }
@@ -173,11 +182,17 @@ export function ProcessHsnAssignScreen({
       >
         <option value="">— Not set —</option>
         {offList && <option value={val}>{val} (legacy)</option>}
-        {hsnOptions.map((o) => (
-          <option key={o.id} value={o.code ?? ""}>
-            {hsnLabel(o)}
-          </option>
-        ))}
+        {/* A retired HSN is not offered, but the one THIS process already carries
+            stays — otherwise it would fall through to the "(legacy)" branch above
+            and be labelled as free-text leftover, which it is not. `knownCodes`
+            is deliberately computed over ALL options for the same reason. */}
+        {hsnOptions
+          .filter((o) => !isInactive(o) || o.code === val)
+          .map((o) => (
+            <option key={o.id} value={o.code ?? ""}>
+              {hsnLabel(o)}
+            </option>
+          ))}
       </Select>
     );
   };
@@ -189,8 +204,9 @@ export function ProcessHsnAssignScreen({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search process name…"
-        activeCount={[fStatus, fCommodity].filter(Boolean).length}
+        activeCount={[fStatus, fCommodity].filter(Boolean).length + dt.active}
         onReset={resetFilters}
+        dateFilter={dt.bind}
         right={
           <>
             {filtered.length} of {rows.length} · {missing} missing HSN

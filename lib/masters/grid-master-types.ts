@@ -216,55 +216,6 @@ export const sizingRateInput = z.object({
 export type SizingRateInput = z.infer<typeof sizingRateInput>;
 export type SizingRateYarnInput = z.infer<typeof sizingRateYarnInput>;
 
-// --- Warp Length Allowances -------------------------------------------------
-export interface WarpLengthAllowanceDetail {
-  id: string;
-  allowance_id: string;
-  sno: number;
-  range_type: "U" | "B" | "A";
-  from_warp_length: number;
-  to_warp_length: number;
-  warp_length: number;
-  fabric_length: number;
-  weft_waste_pct: number;
-  shuttle_loom: boolean;
-  shuttleless_loom: boolean;
-  hand_loom: boolean;
-}
-
-export interface WarpLengthAllowance {
-  id: string;
-  code: string;
-  entry_date: string;
-  effective_from: string;
-  created_at: string;
-  updated_at: string;
-  details: WarpLengthAllowanceDetail[];
-}
-
-export const warpLengthAllowanceDetailInput = z.object({
-  sno: z.number().int().positive(),
-  range_type: z.enum(["U", "B", "A"]).default("B"),
-  from_warp_length: z.coerce.number().min(0).default(0),
-  to_warp_length: z.coerce.number().min(0).default(0),
-  warp_length: z.coerce.number().int().min(0).default(0),
-  fabric_length: z.coerce.number().int().min(0).default(0),
-  weft_waste_pct: z.coerce.number().min(0).max(100).default(0),
-  shuttle_loom: z.boolean().default(false),
-  shuttleless_loom: z.boolean().default(false),
-  hand_loom: z.boolean().default(false),
-});
-
-export const warpLengthAllowanceInput = z.object({
-  effective_from: z.string().min(1, "Effective from is required"),
-  details: z
-    .array(warpLengthAllowanceDetailInput)
-    .min(1, "At least one allowance row is required"),
-});
-
-export type WarpLengthAllowanceInput = z.infer<typeof warpLengthAllowanceInput>;
-export type WarpLengthAllowanceDetailInput = z.infer<typeof warpLengthAllowanceDetailInput>;
-
 // --- Process Sequences ------------------------------------------------------
 export interface ProcessSequenceStep {
   id: string;

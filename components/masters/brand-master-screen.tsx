@@ -15,7 +15,8 @@ import { useToast } from "@/components/ui/toast";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
@@ -72,15 +73,18 @@ export function BrandMasterScreen({
   }, [countries]);
 
   // Real-time duplicate check on Name (mirrors the on-save guard in brand-actions).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "brands",
     name: form.brand_name ?? "",
     nameColumn: "brand_name",
     excludeId: editId ?? undefined,
     enabled: !!form.brand_name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.brand_name,
   });
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [r.brand_short_name, r.brand_name, r.country?.name ?? (r.country_id ? countryLabel.get(r.country_id) : null)]
         .filter(Boolean)
@@ -192,6 +196,13 @@ export function BrandMasterScreen({
           }}
           searchPlaceholder="Search brand…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -317,8 +328,9 @@ export function BrandMasterScreen({
                 value={form.brand_name}
                 onChange={(e) => set({ brand_name: e.target.value })}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "brd-name")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="brd-name" />
             </div>
             <CountryPicker
               countries={countries}

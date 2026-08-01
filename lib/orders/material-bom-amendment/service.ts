@@ -2,10 +2,12 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { listCustomers } from "@/lib/masters/customer-service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
-import { listVendorsForPicker } from "@/lib/masters/vendor-service";
+import { listVendorNominations, listVendorsForPicker } from "@/lib/masters/vendor-service";
+import type { VendorNomination } from "@/lib/masters/vendor-nominations";
 import type { Customer } from "@/lib/masters/customer-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { MaterialBomAmendment } from "./types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /** Accepted order for the BOM amendment picker. */
 export type AcceptedOrderRow = {
@@ -45,8 +47,10 @@ async function getAcceptedOrdersForBom(): Promise<AcceptedOrderRow[]> {
   }));
 }
 
-/** A row normalized to {id, code, name} for a RecordPicker. */
-export type PickerRow = { id: string; code: string | null; name: string };
+/** Shaped for `RecordPicker` — `inactive` included so a retired material, UOM or
+ *  vendor stops being offered while the BOM lines that already name it still
+ *  read (AGENTS.md, "Disabled rows"). */
+export type PickerRow = { id: string; code: string | null; name: string; inactive: boolean };
 
 /** A material's pack size, e.g. "1 Cone = 2,500 MTR" (0348). Fetched flat for
  *  every material and filtered client-side by item_id, so changing the item on
@@ -90,8 +94,15 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
 
 async function pickerRows(table: string): Promise<PickerRow[]> {
   const s = await createClient();
-  const { data } = await s.from(table).select("id, code, name").order("name");
-  return (data ?? []) as PickerRow[];
+  // `items` spells the flag `is_active`; normalized here so the shape handed to
+  // the screen is the same one every other option list uses.
+  const { data } = await s.from(table).select("id, code, name, is_active").order("name");
+  return ((data ?? []) as (Omit<PickerRow, "inactive"> & { is_active: boolean })[]).map((r) => ({
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    inactive: isInactive(r),
+  }));
 }
 
 /** UOM plus its decimal precision, needed to render a purchase quantity.
@@ -106,34 +117,20 @@ async function getUomRows(): Promise<UomRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("uoms")
-    .select("id, code, name, decimal_places_allowed")
+    .select("id, code, name, decimal_places_allowed, is_active")
     .order("name");
-  return (data ?? []) as UomRow[];
+  return ((data ?? []) as (Omit<UomRow, "inactive"> & { is_active: boolean })[]).map((r) => ({
+    ...r,
+    inactive: isInactive(r),
+  }));
 }
 
 /**
- * One customer's nomination of one vendor — `list_kind` separates the two lists
- * the Customer master maintains side by side (Nominated · Recommended).
- *
- * Loaded whole rather than per-customer: the table is master-sized (one row per
- * customer per nominated vendor), the header's customer can change mid-edit
- * without a round trip, and a client-side filter keeps the Vendor cell instant
- * as the operator tabs down the grid.
+ * Nominations moved to `lib/masters/vendor-nominations.ts` — MBA was the only
+ * screen reading them, and the narrowing rule now has to be identical on Order
+ * Trims and Accessory BOM too. Re-exported so this module's shape is unchanged.
  */
-export type VendorNomination = {
-  customer_id: string;
-  vendor_id: string;
-  list_kind: "nominated" | "recommended";
-};
-
-async function getNominationRows(): Promise<VendorNomination[]> {
-  const s = await createClient();
-  const { data } = await s
-    .from("customer_nominated_vendors")
-    .select("customer_id, vendor_id, list_kind")
-    .not("vendor_id", "is", null);
-  return (data ?? []) as VendorNomination[];
-}
+export type { VendorNomination } from "@/lib/masters/vendor-nominations";
 
 /**
  * The Vendor MASTER (`master_vendors`), NOT the purchase-side `public.vendors`.
@@ -171,7 +168,7 @@ export async function getMbaFormData(): Promise<MbaFormData> {
       listCustomers(),
       pickerRows("items"),
       getVendorRows(),
-      getNominationRows(),
+      listVendorNominations(),
       getUomRows(),
       getConversionRows(),
       listConfigLookups(),

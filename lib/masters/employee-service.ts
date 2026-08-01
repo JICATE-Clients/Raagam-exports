@@ -13,8 +13,10 @@ export async function listEmployeeLocations(): Promise<EmployeeLocation[]> {
   const s = await createClient();
   const { data } = await s
     .from("locations")
-    .select("id, code, name")
-    .eq("is_active", true)
+    // Flag selected, not filtered on: this list also backs the editor of an
+    // existing employee, and an employee posted to a since-closed location must
+    // still show it. LocationPicker hides it from the choices.
+    .select("id, code, name, is_active")
     .order("name");
   return (data ?? []) as EmployeeLocation[];
 }

@@ -30,6 +30,10 @@ export interface OrderTrim {
   category: string | null;
   trims_specifications: string | null;
   supply_type: string | null;
+  /** FK to `master_vendors` (0380). Narrowed to the customer's nominations when
+   *  `supply_type` is 'nominated' / 'recommended'. */
+  vendor_id: string | null;
+  /** Legacy / imported free text — shown only when `vendor_id` is null. */
   vendor_name: string | null;
 }
 
@@ -100,6 +104,7 @@ export const orderTrimInput = z.object({
   category: z.string().optional().nullable(),
   trims_specifications: z.string().optional().nullable(),
   supply_type: z.enum(SUPPLY_TYPES).optional().nullable(),
+  vendor_id: z.string().uuid().optional().nullable(),
   vendor_name: z.string().optional().nullable(),
 });
 

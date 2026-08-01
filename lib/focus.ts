@@ -145,51 +145,154 @@ export function orderedFocusables(root: HTMLElement): HTMLElement[] {
 }
 
 /**
+ * The focusables `el` may move among: its own region, nothing else. Shared by
+ * `arrowNavigate` and `enterAdvances` so the two forward keys cannot disagree
+ * about where the fields end — which is exactly where Enter decides to save.
+ *
+ * Confinement is what stops movement walking out of the fields into Cancel/Save.
+ */
+function regionItems(root: HTMLElement, el: HTMLElement): HTMLElement[] {
+  const region = regionOf(el);
+  return orderedFocusables(root).filter((x) => regionOf(x) === region);
+}
+
+/**
+ * A SURFACE THAT HOLDS MORE THAN ONE PANE OF FIELDS, and what to do when
+ * movement runs off the end of the one on screen.
+ *
+ * `MasterFullScreen` mounts one section at a time, so "the field after the last
+ * field of Identity" lives in a pane that does not exist yet. Tab already solves
+ * this locally, via `cycleTab`'s `onContentEdge`. Enter cannot: it is handled by
+ * the global listener, which has no way to see a callback a component passed to
+ * another function. Without this registry, Enter off the last field of section
+ * ONE would save a record the operator has not finished — the same premature
+ * save this whole contract change exists to remove, just moved to a new place.
+ *
+ * Keyed by the pane element and looked up by walking UP from the scope, which
+ * gives containment for free: a portaled `Sheet` or `DataPicker` panel is not a
+ * DOM descendant of the editor pane, so it can never trigger the editor's
+ * hand-off. Module-level mutable state is already the pattern here — see
+ * `focusHistory` above.
+ */
+const paneEdges = new WeakMap<HTMLElement, (dir: 1 | -1) => boolean>();
+
+export function registerContentEdge(
+  el: HTMLElement | null,
+  fn: (dir: 1 | -1) => boolean,
+): () => void {
+  if (!el) return () => {};
+  paneEdges.set(el, fn);
+  return () => {
+    // Only if still ours: a re-register from a newer mount must not be undone by
+    // the previous effect's cleanup.
+    if (paneEdges.get(el) === fn) paneEdges.delete(el);
+  };
+}
+
+function contentEdgeFor(root: HTMLElement): ((dir: 1 | -1) => boolean) | undefined {
+  for (let el: HTMLElement | null = root; el; el = el.parentElement) {
+    const fn = paneEdges.get(el);
+    if (fn) return fn;
+    // AN OVERLAY OWNS ITS OWN LAST FIELD. `Sheet` and the picker panels
+    // createPortal to <body>, so they are already out of reach of an editor
+    // pane's registration — but a dialog rendered in place would otherwise
+    // switch the section of the editor BEHIND its own scrim when the operator
+    // pressed Enter off its last field. Stop at the overlay instead, and the
+    // save ladder takes over as it does on any standalone surface.
+    if (el.matches('[role="dialog"], [aria-modal="true"]')) return undefined;
+  }
+  return undefined;
+}
+
+/**
  * `[data-field-trigger]` — a dialog-picker trigger. It is a <button> for
  * accessibility, but to the operator it IS a field, sitting in a row of inputs
  * and styled identically. Without this, Enter fell through to the button's
  * native activation and OPENED the picker, so Enter meant one thing on a text
  * box and "open a dialog" on the picker beside it — roughly every other field on
- * a masters form (client 2026-07-25). Enter now saves everywhere; ↓, Space and
- * click open the picker.
+ * a masters form (client 2026-07-25). Enter now moves to the next field
+ * everywhere; ↓, Space and click open the picker.
  */
 const FIELD_TRIGGER = "[data-field-trigger]";
 
-/** Fires a global shortcut handler; see lib/shortcuts.ts. Returns false if none. */
-export type FireShortcut = (id: "save") => boolean;
+/**
+ * `[data-focus-optional]` — AN OPT-IN CONTROL, OFF THE DEFAULT TYPING PATH.
+ *
+ * Tab and Enter step straight over it; ↑ ↓ ← → still land on it, and so does the
+ * mouse. It is for the escape-hatch toggle that most records leave alone — the
+ * one an operator should reach for deliberately, never trip over.
+ *
+ * The first was Material ▸ Fabric ▸ **Direct Purchase**, and it earned the marker
+ * by being actively destructive from the default path: a tick box is the one
+ * field where Enter TOGGLES rather than advancing (see `enterAdvances`), and
+ * ticking that box hides the Using field and clears the mixing rows. An operator
+ * Entering down the form ticked it by reflex and lost the composition they had
+ * just typed. Sitting between Fabric Type and Using, it was on the busiest path
+ * in the form.
+ *
+ * NOT `tabindex="-1"`, which is the obvious reach and the wrong one:
+ * `FOCUSABLE_SELECTOR` excludes it from `focusablesIn`, which feeds the arrow
+ * contract as well as the Tab cycle, so the control would go mouse-only. These
+ * operators are keyboard-only. Same reasoning, same conclusion as the header ✕
+ * (see `orderedFocusables`): move it out of the typing path, keep it reachable.
+ *
+ * Apply it sparingly and only where BOTH hold: the control is genuinely optional
+ * on most records, and there is a spatial neighbour an arrow key arrives from. A
+ * field nobody can find is worse than a field in the way. And prefer to drop the
+ * marker once the operator has opted IN — Fabric's checkbox is marked optional
+ * only while unticked, so the control that undoes the mode is on the Tab path
+ * exactly when undoing it is the thing you would want to do.
+ */
+const OFF_TAB_PATH = "[data-focus-optional]";
+
+/** True for a control that Tab and Enter must step over. See `OFF_TAB_PATH`. */
+function isOffTabPath(el: HTMLElement): boolean {
+  return el.matches(OFF_TAB_PATH);
+}
 
 /**
- * Save the surface the operator is standing in. Returns true when it found
- * something to do — the caller only swallows the key on true, so Enter in a list
- * page's filter box still falls through to the browser instead of dying quietly.
+ * The two things the save layer needs from lib/shortcuts.ts. `has` is the
+ * non-firing probe: Enter-advance must know whether a surface CAN save before
+ * deciding whether to claim the key, and asking by calling `fire` would save.
+ */
+export type SaveHooks = { has(): boolean; fire(): boolean };
+
+/** Where a save would land, resolved but not performed. Null = nowhere. */
+type SubmitTarget =
+  | { kind: "footer"; primary: HTMLButtonElement }
+  | { kind: "shortcut" }
+  | { kind: "form"; form: HTMLFormElement; submitter: HTMLButtonElement }
+  | null;
+
+/**
+ * Resolve WHERE a save would go, without doing it. Split out of `submitSurface`
+ * so the resolution order — and the last-button-by-position rule below — exists
+ * exactly once, and so `canSubmitSurface` can ask the question without firing
+ * anything.
  *
  * The footer rule is lifted from the Ctrl+S handler in components/ui/sheet.tsx:
  * the primary action is the LAST footer button by POSITION (Cancel → Save), not
  * the last *enabled* one. When Save is disabled by a validation error, "last
  * enabled" resolves to Cancel, and Ctrl+S silently discarded the form (client
- * 2026-07-25). A disabled primary means the record is not saveable yet, so the
- * key is consumed and nothing happens — which is the line to flip if Enter should
- * instead fall through while Save is disabled.
+ * 2026-07-25). A disabled primary still counts as a target: the record is not
+ * saveable yet, so the key is consumed and nothing happens.
  */
-export function submitSurface(root: HTMLElement | null, fire?: FireShortcut): boolean {
-  if (!root) return false;
+function submitTargetOf(root: HTMLElement | null, hooks?: SaveHooks): SubmitTarget {
+  if (!root) return null;
 
   // 1. The surface's own footer, when the scope contains it.
   const footer = root.querySelector<HTMLElement>('[data-focus-region="footer"]');
   if (footer) {
     const btns = footer.querySelectorAll<HTMLButtonElement>("button");
     const primary = btns[btns.length - 1];
-    if (primary) {
-      if (!primary.disabled) primary.click();
-      return true;
-    }
+    if (primary) return { kind: "footer", primary };
   }
 
   // 2. The registered "save" handler. This is the path for `Sheet` (whose footer
   //    lives OUTSIDE the <form> that usually becomes the scope) and for
-  //    `MasterFullScreen` (whose scope is its content pane). Only those two ever
+  //    `MasterFullScreen` (whose scope is its content pane). Only editors ever
   //    register "save", so a list page cannot save by accident.
-  if (fire?.("save")) return true;
+  if (hooks?.has()) return { kind: "shortcut" };
 
   // 3. A plain form with a real submit button. Deliberately requires the button:
   //    `requestSubmit()` on a form that has no submit handler would navigate.
@@ -197,50 +300,150 @@ export function submitSurface(root: HTMLElement | null, fire?: FireShortcut): bo
   const submitter = form?.querySelector<HTMLButtonElement>(
     'button[type="submit"], input[type="submit"]',
   );
-  if (form && submitter) {
-    if (!submitter.disabled) form.requestSubmit(submitter);
-    return true;
-  }
+  if (form && submitter) return { kind: "form", form, submitter };
 
-  return false;
+  return null;
 }
 
 /**
- * ENTER SAVES THE RECORD (client 2026-07-28). Enter used to advance to the next
- * field, the legacy RP-Software behaviour; the operators asked for the commit key
- * instead, and moving forward is now Tab / ↓ / →.
+ * IS THIS A SURFACE ENTER CAN COMMIT? The gate that keeps Enter inert in every
+ * list-page filter box and search field — the most-used inputs in the app.
  *
- * Textareas and real buttons keep their native Enter (a newline, an activation),
- * and anything that already consumed the key — an open picker list choosing its
- * highlighted row, a child grid stepping to the next row, an inline row editor —
- * has called preventDefault and is left alone.
+ * Before Enter advanced, "don't swallow a key that cannot save" was enforced at
+ * the END, by only calling preventDefault when `submitSurface` returned true.
+ * Advancing happens BEFORE any save, so the test has to move to the front:
+ * without it, Enter in a search box would start walking the page furniture.
  */
-export function enterSaves(e: NavKeyEvent, root: HTMLElement | null, fire?: FireShortcut) {
+export function canSubmitSurface(root: HTMLElement | null, hooks?: SaveHooks): boolean {
+  return submitTargetOf(root, hooks) !== null;
+}
+
+/**
+ * Save the surface the operator is standing in. Returns true when it found
+ * something to do — the caller only swallows the key on true, so Enter on a
+ * surface with nowhere to commit still falls through to the browser.
+ */
+export function submitSurface(root: HTMLElement | null, hooks?: SaveHooks): boolean {
+  const target = submitTargetOf(root, hooks);
+  if (!target) return false;
+  if (target.kind === "footer") {
+    if (!target.primary.disabled) target.primary.click();
+    return true;
+  }
+  if (target.kind === "shortcut") return hooks?.fire() ?? false;
+  if (!target.submitter.disabled) target.form.requestSubmit(target.submitter);
+  return true;
+}
+
+/**
+ * Can Enter-advance LAND here? Buttons and links are deliberately not fields.
+ *
+ * This is one of the two defences against the oldest trap in this file: an
+ * unconfined Enter-advance once walked off the last data field onto the footer's
+ * FIRST button — Cancel — and the next Enter discarded the form. Region
+ * confinement (`regionItems`) covers surfaces that mark their regions; targeting
+ * fields only covers the ones that do not mark anything, which is most page
+ * forms. Enter ON a real button is untouched anyway — native activation is right.
+ */
+function isFieldLike(el: HTMLElement): boolean {
+  if (el.matches(FIELD_TRIGGER)) return true;
+  if (el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) return true;
+  return el instanceof HTMLInputElement && !/^(button|submit|reset|hidden|image)$/.test(el.type);
+}
+
+/**
+ * ENTER MOVES TO THE NEXT FIELD, and saves only when there is no next field
+ * (client 2026-07-31).
+ *
+ * It committed the record from anywhere between 2026-07-28 and this change. That
+ * turned out to be a footgun in exactly the place it was most used: filling in an
+ * address, the operator picks City from the dropdown with Enter, presses Enter
+ * again out of habit, and the half-filled record saves. Advance is also what
+ * legacy RP-Software did, so it is what the operators' hands already do.
+ *
+ * The ladder, in order:
+ *   1. anything that already consumed the key (an open picker list picking its
+ *      highlighted row, a child grid stepping down a row) has called
+ *      preventDefault and is left alone;
+ *   2. a tick box toggles — see below;
+ *   3. a surface that cannot commit at all is not ours: the key is left
+ *      completely untouched (`canSubmitSurface`), which is what keeps Enter
+ *      inert in every list-page filter box;
+ *   4. the next FIELD in the same region, if there is one;
+ *   5. the next PANE, if this surface has one — a rail editor's next section,
+ *      the same hand-off Tab uses, so Enter off the last field of Identity does
+ *      not save a record that has not reached Address yet;
+ *   6. otherwise save — refusing while the field is invalid.
+ *
+ * Textareas and real buttons keep their native Enter (a newline, an activation).
+ */
+export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: SaveHooks) {
   if (e.key !== "Enter" || e.defaultPrevented) return;
   const t = e.target;
   const isTrigger = t instanceof HTMLElement && t.matches(FIELD_TRIGGER);
   if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement || isTrigger)) return;
   if (t instanceof HTMLInputElement && /^(button|submit|reset)$/.test(t.type)) return;
-  // A TICK BOX IS THE ONE FIELD WHERE ENTER MUST NOT SAVE. Standing on it the
-  // operator means "tick this", and Enter there committed the whole record
-  // instead — a dead key for the tick AND a footgun, since a stray Enter on a
-  // half-filled form saved it (client 2026-07-28). Space still toggles natively;
-  // this only makes the key they actually reach for do the obvious thing.
+  // A TICK BOX IS THE ONE FIELD WHERE ENTER DOES NOT MOVE: it ticks. Enter has no
+  // native meaning on a checkbox, so "advance" would make it a dead key again —
+  // which is what it was before 2026-07-28, when it instead fell through and
+  // saved a half-filled form. One key, one job: it toggles, it does not
+  // toggle-and-advance. Space still toggles natively, and Tab / ↓ / → still move.
   // Radios get the same treatment — Enter selects, ↑/↓ still walk the group.
   if (t instanceof HTMLInputElement && /^(checkbox|radio)$/.test(t.type)) {
     e.preventDefault();
     t.click(); // same path Space and a mouse take, so onChange fires normally
     return;
   }
-  // Don't save from a field that's currently invalid (client 2026-07-24): keep
-  // the user on it until the validation message clears. Fields flag this via
-  // aria-invalid — ValidatedInput sets it on error, and any field with a live
-  // error (e.g. a duplicate-name check) can set it too.
+
+  // NOT OUR KEY unless this surface could actually commit. A list page's filter
+  // box has no footer, no registered "save" and no submit button — Enter there
+  // must reach the browser untouched, exactly as it did before. This used to be
+  // enforced at the end (preventDefault only when the save found a target);
+  // advancing happens first, so the test has to happen first too.
+  if (!root || !canSubmitSurface(root, hooks)) return;
+
+  // 1. The next field along, confined to this element's region.
+  const items = regionItems(root, t);
+  const idx = items.indexOf(t);
+  // …skipping opt-in controls, same as Tab: a tick box that changes what the rest
+  // of the section means must be reached deliberately, never landed on by the
+  // operator's typing rhythm. Enter ON one still ticks it (the branch above), so
+  // arrowing across and pressing Enter works exactly as it reads.
+  const next =
+    idx === -1
+      ? undefined
+      : items.slice(idx + 1).find((el) => isFieldLike(el) && !isOffTabPath(el));
+  if (next) {
+    e.preventDefault();
+    // focusField, NOT .focus() — a bare focus leaves the caret at 0 and → then
+    // refuses to leave the field until the whole value has been walked. See the
+    // note on focusField.
+    focusField(next);
+    return;
+  }
+
+  // 2. Off the end of this pane: hand over to the next one if the surface has
+  //    more (a rail editor's next section). Returns false on the last pane.
+  //    Gated on the CONTENT region, the same condition `cycleTab` applies — a
+  //    field that happens to live in a footer is at the end of the footer, not
+  //    at the end of the section's data.
+  if (regionOf(t) === "content" && contentEdgeFor(root)?.(1)) {
+    e.preventDefault();
+    return;
+  }
+
+  // 3. Nowhere left to go: commit. Don't commit from a field that is currently
+  //    invalid (client 2026-07-24) — keep the operator on it until the message
+  //    clears. Note this gate sits HERE and not at the top: ValidatedInput sets
+  //    aria-invalid live for every required-but-empty field, so refusing to MOVE
+  //    on it would cage the operator in the first blank box of every form. Tab
+  //    has always drawn the same line — it moves regardless, and Enter/Ctrl+S are
+  //    what validate.
   if (t.getAttribute("aria-invalid") === "true") {
     e.preventDefault();
     return;
   }
-  if (submitSurface(root, fire)) e.preventDefault();
+  if (submitSurface(root, hooks)) e.preventDefault();
 }
 
 /**
@@ -488,8 +691,7 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
   const forward = e.key === "ArrowDown" || e.key === "ArrowRight";
   if (horizontal && !atCaretEdge(t, forward ? "next" : "prev")) return false;
 
-  const region = regionOf(t);
-  const items = orderedFocusables(root).filter((el) => regionOf(el) === region);
+  const items = regionItems(root, t);
   const idx = items.indexOf(t);
   if (idx === -1) return false;
   const dir =
@@ -524,7 +726,7 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
  */
 export function focusFirstField(root: HTMLElement | null): boolean {
   if (!root) return false;
-  const items = focusablesIn(root);
+  const items = focusablesIn(root).filter((el) => !isOffTabPath(el));
   const field =
     items.find(
       (el) =>
@@ -532,7 +734,7 @@ export function focusFirstField(root: HTMLElement | null): boolean {
           !/^(button|submit|reset|checkbox|radio|hidden)$/.test(el.type)) ||
         el instanceof HTMLSelectElement ||
         el instanceof HTMLTextAreaElement,
-    ) ?? orderedFocusables(root)[0];
+    ) ?? orderedFocusables(root).find((el) => !isOffTabPath(el));
   if (field) {
     focusField(field); // caret at the end — see the note there on ←/→
     return true;
@@ -616,11 +818,28 @@ export function cycleTab(
   }
 
   const dir: 1 | -1 = e.shiftKey ? -1 : 1;
+  // The next stop, stepping over anything marked off the typing path. Walking
+  // the FULL list rather than pre-filtering it is what makes Tab work when the
+  // operator arrowed ONTO an optional control: it still knows where that control
+  // sits, so Tab carries on from there instead of restarting at field one.
+  const step = (start: number): number | undefined => {
+    for (let n = 1; n <= items.length; n++) {
+      const at = (start + dir * n + items.length * n) % items.length;
+      if (!isOffTabPath(items[at])) return at;
+    }
+    return undefined; // every focusable is optional — leave focus alone
+  };
+  const nextIdx = step(idx);
+  if (nextIdx === undefined) return true;
+
   if (opts?.onContentEdge && regionOf(items[idx]) === "content") {
-    const neighbour = items[idx + dir];
-    const leaving = !neighbour || regionOf(neighbour) !== "content";
+    // "Leaving content" is decided by the stop Tab will ACTUALLY make, not by the
+    // raw DOM neighbour — an optional control sitting last in the section would
+    // otherwise look like a reason to stay and swallow the hand-off to the next
+    // pane.
+    const leaving = regionOf(items[nextIdx]) !== "content" || nextIdx === idx;
     if (leaving && opts.onContentEdge(dir)) return true;
   }
-  focusField(items[(idx + dir + items.length) % items.length]);
+  focusField(items[nextIdx]);
   return true;
 }

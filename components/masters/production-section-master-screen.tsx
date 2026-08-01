@@ -44,6 +44,7 @@ const descriptor: SimpleMasterDescriptor<ProductionSection> = {
       .filter(Boolean)
       .join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),
+  dupCheck: { table: "production_sections", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     code: "", // blank → create auto-generates; update keeps the stored code
     name: String(v.name),

@@ -25,6 +25,7 @@ export interface Beam {
 export interface BeamVendorOption {
   id: string;
   name: string;
+  inactive: boolean;
 }
 
 export const beamInput = z.object({

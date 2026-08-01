@@ -24,7 +24,8 @@ import {
   deletePackingInstruction,
 } from "@/lib/masters/packing-instruction-actions";
 import type { PackingInstruction, PackingInstructionInput } from "@/lib/masters/packing-instruction-types";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -52,7 +53,7 @@ export function PackingInstructionMasterScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     searchKey: (r) => [r.packing_type, r.packing_no, r.reference].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
@@ -63,12 +64,15 @@ export function PackingInstructionMasterScreen({
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check on the packing type (mirrors the on-save guard).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "packing_instructions",
     name: form.packing_type,
     nameColumn: "packing_type",
     excludeId: editId ?? undefined,
     enabled: !!form.packing_type.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.packing_type,
   });
 
   function openAdd() {
@@ -178,6 +182,13 @@ export function PackingInstructionMasterScreen({
           }}
           searchPlaceholder="Search packing instruction..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -287,8 +298,9 @@ export function PackingInstructionMasterScreen({
                 onChange={(e) => setForm({ ...form, packing_type: e.target.value })}
                 required
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "pi-type")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="pi-type" />
             </div>
             <div>
               <Label htmlFor="pi-newold">New / Old</Label>

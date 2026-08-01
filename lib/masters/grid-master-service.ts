@@ -6,7 +6,6 @@ import type {
   YarnPurchaseRate,
   YarnDebitRate,
   SizingRate,
-  WarpLengthAllowance,
   ProcessSequence,
   ProcessSequenceGroup,
 } from "./grid-master-types";
@@ -54,15 +53,6 @@ export async function listSizingRates(): Promise<SizingRate[]> {
     .select("*, details:sizing_rate_yarns(*)")
     .order("effective_from", { ascending: false });
   return (data ?? []) as SizingRate[];
-}
-
-export async function listWarpLengthAllowances(): Promise<WarpLengthAllowance[]> {
-  const s = await createClient();
-  const { data } = await s
-    .from("warp_length_allowances")
-    .select("*, details:warp_length_allowance_details(*)")
-    .order("effective_from", { ascending: false });
-  return (data ?? []) as WarpLengthAllowance[];
 }
 
 export async function listProcessSequences(): Promise<ProcessSequence[]> {

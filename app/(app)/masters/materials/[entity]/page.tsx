@@ -110,7 +110,6 @@ import {
   listYarnPurchaseRates,
   listYarnDebitRates,
   listSizingRates,
-  listWarpLengthAllowances,
   listProcessSequences,
   listProcessSequenceGroups,
 } from "@/lib/masters/grid-master-service";
@@ -119,7 +118,6 @@ import { ConstructionMasterScreen } from "@/components/masters/construction-mast
 import { YarnPurchaseRateMasterScreen } from "@/components/masters/yarn-purchase-rate-master-screen";
 import { YarnDebitRateMasterScreen } from "@/components/masters/yarn-debit-rate-master-screen";
 import { SizingRateMasterScreen } from "@/components/masters/sizing-rate-master-screen";
-import { WarpLengthAllowanceMasterScreen } from "@/components/masters/warp-length-allowance-master-screen";
 import { ProcessSequenceMasterScreen } from "@/components/masters/process-sequence-master-screen";
 import { ProcessSequenceGroupMasterScreen } from "@/components/masters/process-sequence-group-master-screen";
 import { isAccessoryClass } from "@/lib/masters/material-types";
@@ -435,9 +433,6 @@ export default async function MaterialEntityPage({
       // Whole category rows — see the yarn_purchase_rates note above.
       const items = materials.map((m) => ({ id: m.id, code: m.code ?? "", name: m.name ?? "" }));
       screen = <SizingRateMasterScreen rows={rows} categories={categories} items={items} perms={perms} />;
-    } else if (child.custom === "warp_length_allowances") {
-      const rows = await listWarpLengthAllowances();
-      screen = <WarpLengthAllowanceMasterScreen rows={rows} perms={perms} />;
     } else if (child.custom === "process_sequences") {
       const rows = await listProcessSequences();
       screen = <ProcessSequenceMasterScreen rows={rows} perms={perms} />;

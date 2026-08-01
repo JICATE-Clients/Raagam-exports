@@ -13,6 +13,6 @@ export async function listBeams(): Promise<Beam[]> {
 
 export async function listBeamVendors(): Promise<BeamVendorOption[]> {
   const s = await createClient();
-  const { data } = await s.from("master_vendors").select("id, name").order("name");
+  const { data } = await s.from("master_vendors").select("id, name, inactive").order("name");
   return (data ?? []) as BeamVendorOption[];
 }

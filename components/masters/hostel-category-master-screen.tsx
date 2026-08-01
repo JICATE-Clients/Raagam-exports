@@ -26,6 +26,7 @@ const descriptor: SimpleMasterDescriptor<HostelCategory> = {
   fromRow: (r) => ({ code: r.code ?? "", name: r.name }),
   searchText: (r) => [r.code, r.name].filter(Boolean).join(" "),
   statusOf: (r) => (r.inactive ? "inactive" : "active"),
+  dupCheck: { table: "hostel_categories", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     code: String(v.code) || null,
     name: String(v.name),

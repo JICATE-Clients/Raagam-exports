@@ -14,13 +14,14 @@ export interface CustomerTcsRow {
   doc_id: string | null; // "Customer ID"
   country_id: string | null;
   tcs_applicable: boolean;
+  created_at: string;
 }
 
 export async function listCustomerTcs(): Promise<CustomerTcsRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("customers")
-    .select("id, code, name, doc_id, country_id, tcs_applicable")
+    .select("id, code, name, doc_id, country_id, tcs_applicable, created_at")
     .order("name");
   return (data ?? []) as CustomerTcsRow[];
 }

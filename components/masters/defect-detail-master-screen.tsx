@@ -73,7 +73,7 @@ export function DefectDetailMasterScreen({
 
   const displayCode = autoCode(form.defect_catg_id, form.defect_id, form.defect_det_id);
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [
         r.defect_catg_id,
@@ -208,6 +208,13 @@ export function DefectDetailMasterScreen({
           }}
           searchPlaceholder="Search defect detail…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);

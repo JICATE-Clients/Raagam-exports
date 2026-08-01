@@ -23,6 +23,12 @@ const descriptor: SimpleMasterDescriptor<Row> = {
   fromRow: (r) => ({ description: r.description }),
   searchText: (r) => [r.code, r.description].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_active ? "active" : "inactive"),
+  dupCheck: {
+    table: "special_instructions",
+    fieldKey: "description",
+    nameColumn: "description",
+    label: "description",
+  },
   toPayload: (v, s) => ({
     code: "", // blank → create auto-generates; update keeps the stored code
     description: String(v.description),

@@ -27,6 +27,8 @@ import {
 } from "@/lib/masters/grid-master-actions";
 import type { CountGroup, CountGroupInput } from "@/lib/masters/grid-master-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -44,11 +46,21 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ code: "", name: "", inactive: false });
+
+  const dupError = useDuplicateName({
+    table: "count_groups",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.code, r.name].join(" "),
@@ -142,6 +154,13 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
           onSearch={(v) => { setQuery(v); pg.setPage(1); }}
           searchPlaceholder="Search count group..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => { reset(); pg.setPage(1); }}
         >
           <div>
@@ -188,7 +207,7 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.name.trim() || lines.length === 0} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim() || lines.length === 0} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
@@ -199,7 +218,8 @@ export function CountGroupMasterScreen({ rows, counts, perms }: { rows: CountGro
           <div className="space-y-4">
             <div>
               <Label htmlFor="cg-name">Name <span className="text-danger">*</span></Label>
-              <Input id="cg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+              <Input id="cg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" {...dupFieldProps(dupError, "cg-name")} />
+              <DuplicateError error={dupError} id="cg-name" />
             </div>
             {editId && (
               <label className="flex cursor-pointer items-center gap-2">

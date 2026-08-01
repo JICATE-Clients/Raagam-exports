@@ -5,9 +5,13 @@ import { listConfigLookups } from "@/lib/masters/extras-service";
 import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { PackingAdvice } from "./types";
+import type { Deactivatable } from "@/lib/masters/inactive";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
-export type PickerRow = { id: string; code: string | null; name: string };
+/** The disable flag rides along in whichever of the three spellings the source
+ *  table uses — this screen EDITS existing advices, so a buyer / consignee / UOM
+ *  retired since must still resolve on the advice that names it. */
+export type PickerRow = { id: string; code: string | null; name: string } & Deactivatable;
 
 /** A sales order for the per-line SC No picker. */
 export type OrderPickerRow = { id: string; order_number: string | null; buyer_name: string | null };
@@ -48,8 +52,7 @@ async function getBuyerRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("buyers")
-    .select("id, code, name")
-    .eq("is_active", true)
+    .select("id, code, name, is_active")
     .order("name");
   return (data ?? []) as PickerRow[];
 }
@@ -59,7 +62,7 @@ async function getConsigneeRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("consignees")
-    .select("id, code, name")
+    .select("id, code, name, inactive")
     .order("name");
   return (data ?? []) as PickerRow[];
 }
@@ -69,8 +72,7 @@ async function getUomRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("uoms")
-    .select("id, code, name")
-    .eq("is_active", true)
+    .select("id, code, name, is_active")
     .order("name");
   return (data ?? []) as PickerRow[];
 }

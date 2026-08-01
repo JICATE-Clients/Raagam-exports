@@ -27,6 +27,10 @@ export async function createProductionSection(data: ProductionSectionInput): Pro
   const p = productionSectionInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "production_sections", p.data.name, {
+    nameColumn: "name",
+  });
+  if (!dupName.ok) return fail(dupName.error);
   if (!p.data.code.trim()) {
     p.data.code = await generateUniqueCode(s, "production_sections", p.data.name);
   } else {
@@ -47,6 +51,11 @@ export async function updateProductionSection(id: string, data: ProductionSectio
   const p = productionSectionInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "production_sections", p.data.name, {
+    nameColumn: "name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank code on update = keep the stored one (the form doesn't edit codes).
   const row: Partial<ProductionSectionInput> = { ...p.data };
   if (!p.data.code.trim()) delete row.code;

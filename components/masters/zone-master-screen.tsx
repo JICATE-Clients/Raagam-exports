@@ -26,7 +26,8 @@ import {
   deactivateZone,
 } from "@/lib/masters/zone-actions";
 import type { Zone, ZoneInput } from "@/lib/masters/zone-types";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; area_name: string };
@@ -54,7 +55,7 @@ export function ZoneMasterScreen({
   const keyRef = useRef(0);
   const nextKey = () => `zn-${++keyRef.current}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.zone_short_name, r.zone_name].filter(Boolean).join(" "),
@@ -68,12 +69,15 @@ export function ZoneMasterScreen({
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check on the zone name (mirrors the on-save guard).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "zones",
     name: form.zone_name,
     nameColumn: "zone_name",
     excludeId: editId ?? undefined,
     enabled: !!form.zone_name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.zone_name,
   });
 
   function openAdd() {
@@ -194,6 +198,13 @@ export function ZoneMasterScreen({
           }}
           searchPlaceholder="Search zone..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -318,8 +329,9 @@ export function ZoneMasterScreen({
                   value={form.zone_name}
                   onChange={(e) => setForm({ ...form, zone_name: e.target.value })}
                   required
+                  {...dupFieldProps(dupError, "zn-name")}
                 />
-                {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+                <DuplicateError error={dupError} id="zn-name" />
               </Field>
               {editId && (
                 <Field size="sm">

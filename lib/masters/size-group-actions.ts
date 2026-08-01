@@ -28,6 +28,10 @@ export async function createSizeGroup(
   const p = sizeGroupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "size_groups", p.data.size_group_name ?? "", {
+    nameColumn: "size_group_name",
+  });
+  if (!dupName.ok) return fail(dupName.error);
   if (!p.data.size_group_no?.trim()) {
     p.data.size_group_no = await generateUniqueCode(s, "size_groups", p.data.size_group_name ?? "", {
       codeColumn: "size_group_no",
@@ -63,6 +67,11 @@ export async function updateSizeGroup(
   const p = sizeGroupInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  const dupName = await checkDuplicateName(s, "size_groups", p.data.size_group_name ?? "", {
+    nameColumn: "size_group_name",
+    excludeId: id,
+  });
+  if (!dupName.ok) return fail(dupName.error);
   // Blank no. on update = keep the stored one (the form doesn't edit codes).
   const row: Partial<SizeGroupInput> = { ...p.data };
   if (!p.data.size_group_no?.trim()) {

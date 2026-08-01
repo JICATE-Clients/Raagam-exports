@@ -27,6 +27,9 @@ import {
 } from "@/lib/masters/grid-master-actions";
 import type { ProcessSequenceGroup, ProcessSequenceGroupInput } from "@/lib/masters/grid-master-types";
 import type { ProcessSequence } from "@/lib/masters/grid-master-types";
+import { isInactive } from "@/lib/masters/inactive";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -48,11 +51,21 @@ export function ProcessSequenceGroupMasterScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ code: "", name: "", inactive: false });
+
+  const dupError = useDuplicateName({
+    table: "process_sequence_groups",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
   const [lines, setLines] = useState<LineRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.code, r.name].join(" "),
@@ -89,7 +102,7 @@ export function ProcessSequenceGroupMasterScreen({
   // Select-only: a Process Sequence is a header plus its own step grid, so it is
   // built on the Process Sequence master, never quick-created from a group line.
   const sequenceItems: PickerItem[] = useMemo(
-    () => sequences.map((s) => ({ id: s.id, code: s.code, name: s.name })),
+    () => sequences.map((s) => ({ id: s.id, code: s.code, name: s.name, inactive: isInactive(s) })),
     [sequences],
   );
 
@@ -156,6 +169,13 @@ export function ProcessSequenceGroupMasterScreen({
           onSearch={(v) => { setQuery(v); pg.setPage(1); }}
           searchPlaceholder="Search process sequence group..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => { reset(); pg.setPage(1); }}
         >
           <div>
@@ -202,7 +222,7 @@ export function ProcessSequenceGroupMasterScreen({
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.name.trim() || lines.length === 0} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim() || lines.length === 0} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
@@ -213,7 +233,8 @@ export function ProcessSequenceGroupMasterScreen({
           <div className="space-y-4">
             <div>
               <Label htmlFor="psg-name">Name <span className="text-danger">*</span></Label>
-              <Input id="psg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+              <Input id="psg-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" {...dupFieldProps(dupError, "psg-name")} />
+              <DuplicateError error={dupError} id="psg-name" />
             </div>
             {editId && (
               <label className="flex cursor-pointer items-center gap-2">

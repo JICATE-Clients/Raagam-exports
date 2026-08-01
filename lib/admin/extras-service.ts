@@ -8,7 +8,7 @@ export type LocationOption = { id: string; code: string; name: string };
  *  `category` column when the material is picked. Shaped by the assets page
  *  from the material/category masters; deliberately tiny. */
 export type AssetItemOption = { id: string; name: string; category: string | null };
-export type CourierOption = { id: string; code: string | null; name: string };
+export type CourierOption = { id: string; code: string | null; name: string; is_active: boolean };
 
 function joined(row: Record<string, unknown>, rel: string, field: string): string | null {
   const r = row[rel] as Record<string, unknown> | null;
@@ -72,7 +72,9 @@ export async function listCouriers(): Promise<Courier[]> {
 }
 export async function getCourierOptions(): Promise<CourierOption[]> {
   const s = await createClient();
-  const { data } = await s.from("couriers").select("id, code, name").eq("is_active", true).order("name");
+  // Flag selected, not filtered on — the Customer editor's Preferred Courier must
+  // still resolve a courier that was retired after that customer was set up.
+  const { data } = await s.from("couriers").select("id, code, name, is_active").order("name");
   return (data ?? []) as CourierOption[];
 }
 export interface CourierDespatchWithRefs extends CourierDespatch {

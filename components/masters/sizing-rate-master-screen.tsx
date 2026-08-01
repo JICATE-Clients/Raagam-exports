@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
@@ -81,6 +81,16 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
   function removeLine(key: string) { setLines((ls) => ls.filter((l) => l.key !== key)); }
+
+  /**
+   * PICK ONCE — one ends-upto / ends-more pair per yarn on a card. Deduped on
+   * the YARN, not on (category, yarn): a yarn belongs to exactly one category,
+   * so the category beside it is a grouping, not part of the key.
+   */
+  const usedItemIds = useMemo(
+    () => lines.map((l) => l.item_id).filter((id): id is string => !!id),
+    [lines],
+  );
 
   const numOrZero = (v: string) => (v.trim() === "" ? 0 : Number(v));
 
@@ -249,6 +259,7 @@ export function SizingRateMasterScreen({ rows, categories, items, perms }: { row
                         label="Yarn"
                         items={items}
                         value={l.item_id ?? ""}
+                        usedIds={usedItemIds}
                         onChange={(v) => setLineAt(l.key, { item_id: v || null })}
                       />
                     </div>

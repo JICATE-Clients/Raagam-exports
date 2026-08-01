@@ -18,7 +18,8 @@ import { MobileField, WhatsAppField, useIsdLookup } from "@/components/masters/c
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { ValidatedInput } from "@/components/ui/validated-input";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { Select } from "@/components/ui/select";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
@@ -32,7 +33,6 @@ import { CountryPicker } from "@/components/masters/country-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { StatePicker } from "@/components/masters/state-picker";
 import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
-import { AccountGroupPicker } from "@/components/masters/account-group-picker";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { decodeGstin, matchGstinState, normalizeGstin } from "@/lib/validation/gstin";
@@ -56,7 +56,6 @@ import {
 import { CategoryPicker, LevyPicker } from "@/components/masters/lookup-picker";
 import { ProcessPicker } from "@/components/masters/process-picker";
 import type { Country } from "@/lib/masters/country-types";
-import type { AccountGroup } from "@/lib/masters/account-group-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { StateLookup } from "@/lib/masters/lookup-compat";
 import type { Category } from "@/lib/masters/category-types";
@@ -158,11 +157,9 @@ const FIELD_SIZE = {
   ac_no: "sm", // 3 — a fixed-width identifier
   ifsc_code: "sm", // 3 — exactly 11 characters
   ac_type: "sm", // 3 — SB / CA / CC
-  // ---- Other Details · GST + ledger groups ----
+  // ---- Other Details · GST ----
   gst_reg_status: "sm", // 3 — Registered · Unregistered · Composite
   gst_no: "sm", // 3 — exactly 15 characters
-  debit_group_id: "sm", // 3 — a picked account group
-  credit_group_id: "sm", // 3 — a picked account group
   gstin_strip: "full", // 12 — a fact strip stands alone (LAYOUT.md §3)
   // ---- Other Details · Additional ----
   enterprise_status: "sm", // 3 — MSME / Small / Medium
@@ -230,8 +227,6 @@ type HeaderForm = {
   ac_type: string;
   gst_reg_status: "" | GstRegStatus;
   gst_no: string;
-  debit_group_id: string;
-  credit_group_id: string;
   enterprise_status: string;
   memorandum_no: string;
   inhouse_unit_id: string;
@@ -268,8 +263,6 @@ const BLANK: HeaderForm = {
   ac_type: "",
   gst_reg_status: "",
   gst_no: "",
-  debit_group_id: "",
-  credit_group_id: "",
   enterprise_status: "",
   memorandum_no: "",
   inhouse_unit_id: "",
@@ -444,7 +437,6 @@ export function VendorMasterScreen({
   cities,
   states,
   groups,
-  accountGroups,
   companyGstin,
   itemClasses,
   categories,
@@ -463,7 +455,6 @@ export function VendorMasterScreen({
    *  address State field scopes its list by `country_id`. */
   states: StateLookup[];
   groups: ConfigLookup[];
-  accountGroups: AccountGroup[];
   /** Our own GSTIN, for within-state vs other-state classification. */
   companyGstin: string | null;
   // ---- Item Category tab ----
@@ -543,6 +534,49 @@ export function VendorMasterScreen({
     return m;
   }, [serviceTypes]);
 
+  /* ------------------------------------------------------ pick-once sets
+   *
+   * A value already used by a sibling row is offered greyed and tagged
+   * "(already added)" rather than picked twice — one row answers one question,
+   * so a repeat is two competing answers with no tie-break. See the `usedIds`
+   * prop on components/ui/data-picker.tsx.
+   *
+   * NOT applied to the Address grid below: two addresses in the same city is
+   * ordinary, and so is the same state twice.
+   */
+
+  /**
+   * Item Category is unique on the PAIR (Item Class + Category), not on Category
+   * alone — COTTON under YARN and COTTON under FABRIC are different statements
+   * about this vendor. Keyed by class so a row only refuses what its OWN class
+   * has already taken; the picker's option list is class-scoped the same way.
+   */
+  const usedCategoriesByClass = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const r of itemCats) {
+      if (!r.item_class_id || !r.category_id) continue;
+      const list = m.get(r.item_class_id);
+      if (list) list.push(r.category_id);
+      else m.set(r.item_class_id, [r.category_id]);
+    }
+    return m;
+  }, [itemCats]);
+
+  // One set of terms per process. Process and SubContractor are deliberately
+  // SEPARATE sets: a process this vendor both runs and sublets is two facts.
+  const usedProcessIds = useMemo(
+    () => procRows.map((r) => r.process_id).filter(Boolean),
+    [procRows],
+  );
+  const usedSubProcessIds = useMemo(
+    () => subRows.map((r) => r.process_id).filter(Boolean),
+    [subRows],
+  );
+  const usedServiceTypeIds = useMemo(
+    () => svcRows.map((r) => r.service_type_id).filter(Boolean),
+    [svcRows],
+  );
+
   // What a NEW vendor starts on: India, and our own state. See geo-defaults.
   const indCountryId = useMemo(() => defaultCountryId(countries), [countries]);
   const homeStateId = useMemo(() => defaultStateId(states, companyGstin), [states, companyGstin]);
@@ -583,12 +617,6 @@ export function VendorMasterScreen({
     for (const g of groups) m.set(g.id, g.name);
     return m;
   }, [groups]);
-  const acctGroupLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const g of accountGroups) m.set(g.id, g.name);
-    return m;
-  }, [accountGroups]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
@@ -635,8 +663,6 @@ export function VendorMasterScreen({
       ac_type: r.ac_type ?? "",
       gst_reg_status: r.gst_reg_status ?? "",
       gst_no: r.gst_no ?? "",
-      debit_group_id: r.debit_group_id ?? "",
-      credit_group_id: r.credit_group_id ?? "",
       enterprise_status: r.enterprise_status ?? "",
       memorandum_no: r.memorandum_no ?? "",
       inhouse_unit_id: r.inhouse_unit_id ?? "",
@@ -844,13 +870,38 @@ export function VendorMasterScreen({
   // and accepted here. Backstopped server-side by `checkGstinUnique` in
   // vendor-actions.ts. NOT done for PAN anywhere: one PAN legitimately carries
   // one GSTIN per state, so a PAN check would flag real multi-state groups.
-  const gstDupError = useDuplicateCheck({
+  const gstDupError = useDuplicateName({
     table: "master_vendors",
     name: form.gst_no,
     nameColumn: "gst_no",
     excludeId: editId ?? undefined,
     label: "GST number",
     enabled: !!form.gst_no.trim(),
+    // Same synchronous half the name check has. A GSTIN is pasted and tabbed
+    // away from in one motion, well inside the 300ms debounce — this field was
+    // the reported case (client 2026-08-01).
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.gst_no,
+  });
+
+  /**
+   * The NAME check was already enforced on save (`vendor-actions.ts`) — it just
+   * never said so while typing, so the operator learned about it from a toast
+   * after filling the whole record. This surfaces the guard that was always
+   * there; it does not add a new rule.
+   *
+   * `rows` gives the synchronous half, so Enter inside the 300ms debounce is
+   * refused too rather than round-tripping to the same rejection.
+   */
+  const nameDupError = useDuplicateName({
+    table: "master_vendors",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   /**
@@ -966,8 +1017,6 @@ export function VendorMasterScreen({
         ac_type: form.ac_type.trim() || null,
         gst_reg_status: form.gst_reg_status ? form.gst_reg_status : null,
         gst_no: form.gst_no.trim() || null,
-        debit_group_id: form.debit_group_id || null,
-        credit_group_id: form.credit_group_id || null,
         enterprise_status: form.enterprise_status.trim() || null,
         memorandum_no: form.memorandum_no.trim() || null,
         inhouse_unit_id: form.inhouse_unit_id.trim() || null,
@@ -1060,8 +1109,6 @@ export function VendorMasterScreen({
     form.ac_type ||
     form.gst_reg_status ||
     form.gst_no ||
-    form.debit_group_id ||
-    form.credit_group_id ||
     form.enterprise_status ||
     form.memorandum_no ||
     form.inhouse_unit_id ||
@@ -1178,12 +1225,10 @@ export function VendorMasterScreen({
         ],
       },
       {
-        label: "GST & Ledger Groups",
+        label: "GST",
         pairs: [
           ["GST Status", r.gst_reg_status],
           ["GST Number", r.gst_no],
-          ["Debit Group", r.debit_group_id ? acctGroupLabel.get(r.debit_group_id) : null],
-          ["Credit Group", r.credit_group_id ? acctGroupLabel.get(r.credit_group_id) : null],
         ],
       },
       {
@@ -1308,7 +1353,9 @@ export function VendorMasterScreen({
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
+              {...dupFieldProps(nameDupError, "ve-name")}
             />
+            <DuplicateError error={nameDupError} id="ve-name" />
           </Field>
           <Field label="Type" size={FIELD_SIZE.vendor_type} htmlFor="ve-type">
             <Select
@@ -1639,6 +1686,9 @@ export function VendorMasterScreen({
                   label="Item Category"
                   categories={categories.filter((c) => c.item_class_id === r.item_class_id)}
                   value={r.category_id}
+                  // Scoped to THIS row's class, matching the option list above:
+                  // a category taken under Yarn must stay free under Fabric.
+                  usedIds={usedCategoriesByClass.get(r.item_class_id) ?? []}
                   onChange={(id) => setItemCatAt(r.key, { category_id: id })}
                   itemClassId={r.item_class_id || undefined}
                   canCreate={perms.canCreate}
@@ -1738,6 +1788,7 @@ export function VendorMasterScreen({
                   label="Process Name"
                   processes={processes}
                   value={r.process_id}
+                  usedIds={usedProcessIds}
                   onChange={(id) => patchRow(setProcRows, r.key, { process_id: id })}
                 />
               </Field>
@@ -1805,6 +1856,7 @@ export function VendorMasterScreen({
                   label="Service Type"
                   options={serviceTypes}
                   value={r.service_type_id || null}
+                  usedIds={usedServiceTypeIds}
                   onChange={(id) => patchRow(setSvcRows, r.key, { service_type_id: id ?? "" })}
                   canCreate={perms.canCreate}
                   canEdit={perms.canEdit}
@@ -1850,6 +1902,7 @@ export function VendorMasterScreen({
                   label="Process Name"
                   processes={processes}
                   value={r.process_id}
+                  usedIds={usedSubProcessIds}
                   onChange={(id) => patchRow(setSubRows, r.key, { process_id: id })}
                 />
               </Field>
@@ -1924,13 +1977,13 @@ export function VendorMasterScreen({
             </Field>
           </DetailSection>
 
-          {/* row 1  gst_reg_status 3 + gst_no 3 + debit_group 3 + credit_group 3 = 12
+          {/* row 1  gst_reg_status 3 + gst_no 3 = 6 (the Debit / Credit Group
+                     pickers that filled the other 6 went with the Account Group
+                     master, 2026-08-01)
               row 2  the GSTIN strip, 12
               The strip is a fact strip, so it is `full` (LAYOUT.md §3) and
-              lands on the line directly under the GST number it decodes —
-              the two ledger pickers sit beside that number rather than
-              between it and its own explanation. */}
-          <DetailSection label="GST & Ledger Groups" cols={12} span={2}>
+              lands on the line directly under the GST number it decodes. */}
+          <DetailSection label="GST" cols={12} span={2}>
             <Field label="GST No" size={FIELD_SIZE.gst_reg_status} htmlFor="ve-gststatus">
               <Select
                 id="ve-gststatus"
@@ -1956,31 +2009,9 @@ export function VendorMasterScreen({
                 format="gstin"
                 value={form.gst_no}
                 onChange={(e) => set({ gst_no: e.target.value })}
-                aria-invalid={gstDupError ? true : undefined}
-                aria-describedby={gstDupError ? "ve-gstno-dup" : undefined}
+                {...dupFieldProps(gstDupError, "ve-gstno")}
               />
-              {gstDupError && (
-                <p id="ve-gstno-dup" className="mt-1 text-xs text-danger">
-                  {gstDupError}
-                </p>
-              )}
-            </Field>
-            {/* Both pickers label themselves — unlabelled cells, span only. */}
-            <Field size={FIELD_SIZE.debit_group_id}>
-              <AccountGroupPicker
-                groups={accountGroups}
-                value={form.debit_group_id || null}
-                onChange={(id) => set({ debit_group_id: id ?? "" })}
-                label="Debit Group"
-              />
-            </Field>
-            <Field size={FIELD_SIZE.credit_group_id}>
-              <AccountGroupPicker
-                groups={accountGroups}
-                value={form.credit_group_id || null}
-                onChange={(id) => set({ credit_group_id: id ?? "" })}
-                label="Credit Group"
-              />
+              <DuplicateError error={gstDupError} id="ve-gstno" />
             </Field>
             {gstin && (
               <Field size={FIELD_SIZE.gstin_strip}>
@@ -2174,7 +2205,7 @@ export function VendorMasterScreen({
           // A duplicate GSTIN blocks Save AND Save-as-Draft — a draft is still a
           // row in `master_vendors`, so letting it through the draft path would
           // leave exactly the duplicate the guard exists to prevent.
-          canSave: !!form.name.trim() && !gstDupError,
+          canSave: !!form.name.trim() && !gstDupError && !nameDupError,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           draftLabel: "Save as Draft",
           isPending,

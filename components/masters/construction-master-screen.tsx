@@ -2,7 +2,7 @@
 import { X } from "lucide-react";
 import { deletedToast } from "@/lib/masters/delete-message";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,8 @@ import {
 } from "@/lib/masters/grid-master-actions";
 import type { Construction, ConstructionInput } from "@/lib/masters/grid-master-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -57,11 +59,21 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
+
+  const dupError = useDuplicateName({
+    table: "constructions",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
   const [lines, setLines] = useState<CountLine[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.code, r.name].join(" "),
@@ -109,6 +121,26 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
   function removeLine(key: string) { setLines((ls) => ls.filter((l) => l.key !== key)); }
+
+  /**
+   * PICK ONCE, PER DIRECTION. The same yarn as both warp (P) and weft (T) is
+   * ordinary cloth — 30s cotton in both directions is a plain fabric — so the
+   * key is the PAIR (count_type, item), never the yarn alone. Deduping on the
+   * yarn would make the most common construction in the mill unenterable.
+   *
+   * Twice in the SAME direction is still duplication: that is one warp yarn
+   * counted twice, not two yarns.
+   */
+  const usedItemsByCountType = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const l of lines) {
+      if (!l.item_id) continue;
+      const list = m.get(l.count_type);
+      if (list) list.push(l.item_id);
+      else m.set(l.count_type, [l.item_id]);
+    }
+    return m;
+  }, [lines]);
 
   const numOrZero = (v: string) => (v.trim() === "" ? 0 : Number(v));
 
@@ -193,6 +225,13 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
           onSearch={(v) => { setQuery(v); pg.setPage(1); }}
           searchPlaceholder="Search construction..."
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => { reset(); pg.setPage(1); }}
         >
           <div>
@@ -239,7 +278,7 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
         footer={
           <>
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving..." : "Save"}
             </Button>
           </>
@@ -251,7 +290,8 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
           <DetailSection label="Details" cols={2}>
             <div className="sm:col-span-2">
               <Label htmlFor="con-name">Name <span className="text-danger">*</span></Label>
-              <Input id="con-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" />
+              <Input id="con-name" uppercase value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-base md:text-sm" {...dupFieldProps(dupError, "con-name")} />
+              <DuplicateError error={dupError} id="con-name" />
             </div>
             <div>
               <Label htmlFor="con-reed">Reed</Label>
@@ -342,6 +382,8 @@ export function ConstructionMasterScreen({ rows, counts, items, perms }: { rows:
                         compact
                         items={items}
                         value={l.item_id ?? ""}
+                        // Scoped to this line's warp/weft — see usedItemsByCountType.
+                        usedIds={usedItemsByCountType.get(l.count_type) ?? []}
                         onChange={(v) => setLineAt(l.key, { item_id: v || null })}
                       />
                     </div>

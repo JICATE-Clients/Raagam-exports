@@ -17,7 +17,8 @@ import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { DetailSection } from "@/components/masters/detail-section";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { createProductSize, updateProductSize, deleteProductSize } from "@/lib/masters/product-size-actions";
 import { SIZE_FOR, type ProductSize, type ProductSizeInput } from "@/lib/masters/product-size-types";
 
@@ -71,7 +72,7 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
     [form.width, form.length, form.height, form.size_for],
   );
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     searchKey: (r) => [r.prod_size_id, r.prod_cut_size, r.desc1, r.desc2, r.desc3].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
@@ -83,12 +84,15 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
   const pg = usePagination(filtered, 10);
 
   // Real-time duplicate check on Size ID (mirrors the on-save guard in the action).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "product_sizes",
     name: form.prod_size_id,
     nameColumn: "prod_size_id",
     excludeId: editId ?? undefined,
     enabled: !!form.prod_size_id.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.prod_size_id,
   });
 
   function openAdd() {
@@ -215,6 +219,13 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
           }}
           searchPlaceholder="Search product size…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -345,8 +356,9 @@ export function ProductSizeMasterScreen({ rows, perms }: { rows: ProductSize[]; 
                 value={form.prod_size_id}
                 onChange={(e) => set({ prod_size_id: e.target.value })}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "ps-id")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="ps-id" />
             </div>
             <div>
               <Label htmlFor="ps-for">Size For</Label>

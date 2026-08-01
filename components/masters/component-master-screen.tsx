@@ -21,7 +21,8 @@ import {
   deleteComponent,
 } from "@/lib/masters/component-actions";
 import type { Component, ComponentInput } from "@/lib/masters/component-types";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
@@ -55,15 +56,18 @@ export function ComponentMasterScreen({
   const newKey = () => `c${keySeq.current++}`;
 
   // Real-time duplicate check on Short Name (mirrors the on-save guard in component-actions).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "components",
     name: form.short_name ?? "",
     nameColumn: "short_name",
     excludeId: editId ?? undefined,
     enabled: !!form.short_name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.short_name,
   });
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [r.short_name, r.description, ...r.coordinates.map((c) => c.coordinate)]
         .filter(Boolean)
@@ -196,6 +200,13 @@ export function ComponentMasterScreen({
           }}
           searchPlaceholder="Search component…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -330,8 +341,9 @@ export function ComponentMasterScreen({
                     value={form.short_name}
                     onChange={(e) => setForm({ ...form, short_name: e.target.value })}
                     className="text-base md:text-sm"
+                    {...dupFieldProps(dupError, "cmp-short")}
                   />
-                  {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+                  <DuplicateError error={dupError} id="cmp-short" />
                 </div>
                 <div>
                   <Label htmlFor="cmp-desc">Description</Label>
