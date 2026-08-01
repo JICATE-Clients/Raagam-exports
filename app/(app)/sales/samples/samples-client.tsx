@@ -13,6 +13,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { createSample, updateSample, deleteSample } from "@/lib/sales/actions";
@@ -82,9 +83,11 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
     [styles, form.opportunity_id],
   );
 
+  const dt = useCreatedDateFilter(samples);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return samples.filter((s) => {
+    return samples.filter(dt.matches).filter((s) => {
       if (type !== "all" && s.type !== type) return false;
       if (status !== "all" && s.status !== status) return false;
       if (q) {
@@ -96,9 +99,9 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
       }
       return true;
     });
-  }, [samples, search, type, status]);
+  }, [samples, dt.matches, search, type, status]);
 
-  const activeCount = (type !== "all" ? 1 : 0) + (status !== "all" ? 1 : 0);
+  const activeCount = (type !== "all" ? 1 : 0) + (status !== "all" ? 1 : 0) + dt.active;
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -231,7 +234,9 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
         onSearch={setSearch}
         searchPlaceholder="Search sample no, enquiry, customer, style, ref…"
         activeCount={activeCount}
+        dateFilter={dt.bind}
         onReset={() => {
+          dt.reset();
           setType("all");
           setStatus("all");
         }}

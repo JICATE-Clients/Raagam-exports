@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { atCaretEdge, focusField } from "@/lib/focus";
@@ -80,7 +81,8 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
     // Radios keep their native arrow semantics (↑/↓ move within the group).
     if (/^(button|submit|reset|radio)$/.test(el.type)) return;
     // A checkbox navigates like any other cell (see ROW_FIELDS) — but Enter on
-    // it is not ours. It belongs to `enterSaves` (lib/focus.ts), which ticks it.
+    // it is not ours. It belongs to `enterAdvances` (lib/focus.ts), which ticks
+    // it.
     // Declined WITHOUT preventDefault, so the provider still gets the key.
     if (el.type === "checkbox" && e.key === "Enter") return;
   }
@@ -161,11 +163,11 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
 
   // Consume the key only once the destination actually took focus. A row with no
   // fields at all — this grid's collapsed accordion rows, where everything but
-  // the summary is unmounted — used to swallow the key and land nowhere, which
-  // was merely odd while Enter meant "advance" and is a dead Save key now that
-  // Enter COMMITS the record (lib/focus.ts enterSaves). Declining lets the
-  // provider have it. `focusColIn` already clamps for merely ragged rows, so
-  // this only fires when the destination is genuinely empty.
+  // the summary is unmounted — used to swallow the key and land nowhere.
+  // Declining lets the provider have it (lib/focus.ts `enterAdvances`), so the
+  // key still does something instead of dying on an empty row. `focusColIn`
+  // already clamps for merely ragged rows, so this only fires when the
+  // destination is genuinely empty.
   if (e.key === "ArrowUp") {
     if (idx > 0 && focusColIn(rows[idx - 1])) {
       e.preventDefault();
@@ -524,7 +526,7 @@ export function ChildGrid<T extends { key: string }>({
               <div className="flex items-center gap-2">
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
                 {rowSummary && (
-                  <span className="truncate text-sm font-medium text-foreground">{rowSummary(row, i)}</span>
+                  <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
                 )}
                 <Button type="button" variant="ghost" size="sm" className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
                   <X className="h-4 w-4 shrink-0" />

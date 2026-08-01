@@ -24,6 +24,8 @@ import {
   type AllowanceType,
   type CalcType,
 } from "@/lib/masters/allowance-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -64,6 +66,16 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "allowances",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
   const isOther = form.allowance_type === "Other Allowance";
 
   function openAdd() {
@@ -179,7 +191,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -212,7 +224,9 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"
+              {...dupFieldProps(dupError, "al-name")}
             />
+            <DuplicateError error={dupError} id="al-name" />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">

@@ -23,6 +23,8 @@ import type {
   MerchandisingTeamInput,
 } from "@/lib/masters/merchandising-team-types";
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -56,6 +58,16 @@ export function MerchandisingTeamMasterScreen({
   const [form, setForm] = useState(BLANK);
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "merchandising_teams",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
 
   const locationLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -215,12 +227,12 @@ export function MerchandisingTeamMasterScreen({
             <Button
               variant="outline"
               size="md"
-              disabled={isPending || !form.name.trim()}
+              disabled={isPending || !!dupError || !form.name.trim()}
               onClick={() => submit(true)}
             >
               Save as Draft
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={() => submit(false)}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={() => submit(false)}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -242,7 +254,9 @@ export function MerchandisingTeamMasterScreen({
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               required
+              {...dupFieldProps(dupError, "mt-name")}
             />
+            <DuplicateError error={dupError} id="mt-name" />
           </Field>
           {/* LocationPicker renders its own <Label> (defaulting to "Location"),
               so the screen's outer one was a duplicate — it rendered two labels

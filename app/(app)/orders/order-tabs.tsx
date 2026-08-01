@@ -14,6 +14,12 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { NominatedVendorPicker } from "@/components/masters/nominated-vendor-picker";
+import {
+  nominatedVendorOptions,
+  type VendorNomination,
+  type VendorOption,
+} from "@/lib/masters/vendor-nominations";
 import {
   addOrderLine,
   generateTaPlan,
@@ -734,6 +740,12 @@ interface Props {
   milestones: TaMilestone[];
   templates: { id: string; name: string }[];
   canApprove: boolean;
+  /** `master_vendors`, inactive included — see `lib/masters/vendor-service.ts`. */
+  vendors: VendorOption[];
+  nominations: VendorNomination[];
+  /** The customer whose nominations apply, resolved through `buyers.customer_id`
+   *  (0380). Both nulls when the buyer has not been linked to a customer. */
+  nominationCustomer: { customer_id: string | null; customer_name: string | null };
 }
 
 // ---------------------------------------------------------------------------
@@ -800,12 +812,50 @@ function DescriptionsTab({ orderId }: { orderId: string }) {
 // ---------------------------------------------------------------------------
 // Trims Tab
 // ---------------------------------------------------------------------------
-function TrimsTab({ orderId }: { orderId: string }) {
+function TrimsTab({
+  orderId,
+  vendors,
+  nominations,
+  nominationCustomer,
+}: {
+  orderId: string;
+  vendors: VendorOption[];
+  nominations: VendorNomination[];
+  nominationCustomer: { customer_id: string | null; customer_name: string | null };
+}) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ category: "", trims_specifications: "", supply_type: "", vendor_name: "" });
+  const BLANK = {
+    category: "",
+    trims_specifications: "",
+    supply_type: "",
+    vendor_id: null as string | null,
+  };
+  const [f, setF] = useState(BLANK);
+
+  /**
+   * Vendor was a free-text `<Input>` until 0380: an operator typed any string at
+   * all, including on a line marked "nominated", and it joined to nothing. It is
+   * a real `master_vendors` reference now, narrowed by the customer's nomination
+   * list like MBA and Accessory BOM.
+   *
+   * `unresolvedCustomerHint` is this screen's own wrinkle. Orders hang off
+   * `buyers`, nominations off `customers`, and the link between them
+   * (`buyers.customer_id`, 0380) is nullable and unset by default — so an
+   * unlinked buyer must offer everything and SAY so. Claiming "this customer has
+   * nominated nobody" would be a lie about a customer we never identified.
+   */
+  const vendorRule = {
+    customerId: nominationCustomer.customer_id,
+    customerName: nominationCustomer.customer_name,
+    vendors,
+    nominations,
+    unresolvedCustomerHint: nominationCustomer.customer_id
+      ? null
+      : "This buyer is not linked to a customer yet, so nominations cannot be applied — set the Customer on the buyer record.",
+  };
 
   useUnsavedGuard(adding || isPending);
 
@@ -819,9 +869,15 @@ function TrimsTab({ orderId }: { orderId: string }) {
         <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
           <div><Label>Category</Label><Input className="w-28" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /></div>
           <div className="flex-1"><Label>Specifications</Label><Input value={f.trims_specifications} onChange={(e) => setF({ ...f, trims_specifications: e.target.value })} /></div>
-          <div><Label>Supply Type</Label><Select className="w-28" value={f.supply_type} onChange={(e) => setF({ ...f, supply_type: e.target.value })}><option value="">Select…</option>{SUPPLY_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}</Select></div>
-          <div><Label>Vendor</Label><Input className="w-28" value={f.vendor_name} onChange={(e) => setF({ ...f, vendor_name: e.target.value })} /></div>
-          <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderTrim({ sales_order_id: orderId, category: f.category || null, trims_specifications: f.trims_specifications || null, supply_type: f.supply_type || null, vendor_name: f.vendor_name || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ category: "", trims_specifications: "", supply_type: "", vendor_name: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
+          <div><Label>Supply Type</Label><Select className="w-28" value={f.supply_type} onChange={(e) => {
+            // Clears a vendor the new type no longer allows, asked of the same
+            // function that builds the picker's options.
+            const supply_type = e.target.value;
+            const { items } = nominatedVendorOptions({ ...vendorRule, supplyType: supply_type });
+            setF((p) => ({ ...p, supply_type, vendor_id: !p.vendor_id || items.some((v) => v.id === p.vendor_id) ? p.vendor_id : null }));
+          }}><option value="">Select…</option>{SUPPLY_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}</Select></div>
+          <div className="w-40"><Label>Vendor</Label><NominatedVendorPicker {...vendorRule} supplyType={f.supply_type} value={f.vendor_id} onChange={(id) => setF((p) => ({ ...p, vendor_id: id }))} compact /></div>
+          <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderTrim({ sales_order_id: orderId, category: f.category || null, trims_specifications: f.trims_specifications || null, supply_type: f.supply_type || null, vendor_id: f.vendor_id }, orderId); if (res.ok) { success("Added."); setAdding(false); setF(BLANK); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
     </div>
@@ -898,6 +954,9 @@ export function OrderTabs({
   milestones,
   templates,
   canApprove,
+  vendors,
+  nominations,
+  nominationCustomer,
 }: Props) {
   const items = [
     {
@@ -947,7 +1006,14 @@ export function OrderTabs({
     {
       key: "trims",
       label: "Trims",
-      content: <TrimsTab orderId={order.id} />,
+      content: (
+        <TrimsTab
+          orderId={order.id}
+          vendors={vendors}
+          nominations={nominations}
+          nominationCustomer={nominationCustomer}
+        />
+      ),
     },
     {
       key: "fabric",

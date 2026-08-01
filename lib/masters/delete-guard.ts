@@ -7,8 +7,9 @@ export type DeleteGuardResult =
   | { ok: false; error: string };
 
 /** "material_mixings" → "Material Mixings" — friendly name for the
- *  referencing table. */
-function humanizeTable(table: string): string {
+ *  referencing table. Exported for `deleteParty`, whose verdict comes back from
+ *  the DB as a raw table name and must read the same as every other master's. */
+export function humanizeTable(table: string): string {
   return table
     .split("_")
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))

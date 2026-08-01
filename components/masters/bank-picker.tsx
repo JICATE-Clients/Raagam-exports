@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
 import { createBank, updateBank, deleteBank } from "@/lib/masters/bank-actions";
 import { BANK_TYPES, type Bank, type BankInput, type BankType } from "@/lib/masters/bank-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * The Bank field (Applicant, Consignee, Customer …).
@@ -59,7 +60,7 @@ export function BankPicker({
     () =>
       [...all]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((b) => ({ id: b.id, label: b.name, sublabel: b.bank_type })),
+        .map((b) => ({ id: b.id, label: b.name, sublabel: b.bank_type, inactive: isInactive(b) })),
     [all],
   );
 

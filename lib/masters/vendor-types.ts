@@ -153,8 +153,12 @@ export interface Vendor {
   ac_type: string | null;
   gst_reg_status: GstRegStatus | null;
   gst_no: string | null;
-  debit_group_id: string | null;
-  credit_group_id: string | null;
+  // `master_vendors.debit_group_id` / `.credit_group_id` still exist in Postgres
+  // but are deliberately absent here and from `vendorInput` below: the Account
+  // Group master was removed (2026-08-01) and nothing can set them any more.
+  // Left OUT of the input schema on purpose — `uuidN` defaults to null, so
+  // merely dropping the two fields from the form would have made every vendor
+  // save blank a column it no longer shows.
   enterprise_status: string | null;
   memorandum_no: string | null;
   inhouse_unit_id: string | null;
@@ -254,8 +258,7 @@ export const vendorInput = z
     ac_type: nullableText,
     gst_reg_status: z.enum(GST_REG_STATUSES).nullable().default(null),
     gst_no: nullableFormat(GSTIN_RE, "Invalid GSTIN (e.g. 33ABCDE1234F1Z7)"),
-    debit_group_id: uuidN,
-    credit_group_id: uuidN,
+    // debit_group_id / credit_group_id: see the note on the row type above.
     enterprise_status: nullableText,
     memorandum_no: nullableText,
     inhouse_unit_id: nullableText,

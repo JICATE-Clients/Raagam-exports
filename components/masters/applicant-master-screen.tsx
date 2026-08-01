@@ -25,6 +25,8 @@ import { PaymentTermPicker } from "@/components/masters/payment-term-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
 import { BankPicker } from "@/components/masters/bank-picker";
 import { createApplicant, updateApplicant, deleteApplicant } from "@/lib/masters/applicant-actions";
+import { PublishesBadge } from "@/components/masters/party-origin";
+import { PARTY_ROLE } from "@/lib/masters/party-origin-text";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   SHIP_MODES,
@@ -36,6 +38,8 @@ import type { Country } from "@/lib/masters/country-types";
 import { lookupLabel, type ConfigLookup } from "@/lib/masters/extras-types";
 import type { Currency } from "@/lib/masters/types";
 import type { Bank } from "@/lib/masters/bank-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -69,6 +73,13 @@ type HeaderForm = {
   bank_id: string;
   ac_no: string;
 };
+/** What this applicant has published, and so what a delete here takes with
+ *  it (0378). An Applicant is only ever a source — nothing publishes one. */
+const applicantPublishes = (r: Applicant): string[] => [
+  ...(r.also_customer ? [PARTY_ROLE.customer] : []),
+  ...(r.also_consignee ? [PARTY_ROLE.consignee] : []),
+];
+
 const BLANK: HeaderForm = {
   code: "",
   name: "",
@@ -276,6 +287,18 @@ export function ApplicantMasterScreen({
   const newKey = () => `c${keySeq.current++}`;
 
   const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
+
+  // The server has guarded this since the master was built (applicant-actions.ts);
+  // the screen simply never said so until the operator pressed Save.
+  const dupError = useDuplicateName({
+    table: "applicants",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -563,7 +586,15 @@ export function ApplicantMasterScreen({
   }
 
   const columns: Column<Applicant>[] = [
-    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    {
+      header: "Name",
+      cell: (r) => (
+        <span className="flex flex-wrap items-center gap-1.5 text-sm">
+          {r.name}
+          <PublishesBadge roles={applicantPublishes(r)} />
+        </span>
+      ),
+    },
     {
       header: "Country",
       cell: (r) => (
@@ -748,7 +779,7 @@ export function ApplicantMasterScreen({
           onCancel: () => setOpen(false),
           onSave: () => submit(false),
           saveLabel: "Save applicant",
-          canSave: !!form.name.trim(),
+          canSave: !!form.name.trim() && !dupError,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           draftLabel: "Save as Draft",
           isPending,
@@ -769,7 +800,9 @@ export function ApplicantMasterScreen({
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 required
+                  {...dupFieldProps(dupError, "ap-name")}
                 />
+                <DuplicateError error={dupError} id="ap-name" />
                 </Field>
                 {/* `compact` on every picker below: each one prints its own <Label>
                 unless told not to, so without it the field is labelled twice. */}

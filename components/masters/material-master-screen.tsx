@@ -23,7 +23,8 @@ import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { createMaterial, updateMaterial, deleteMaterial } from "@/lib/masters/material-actions";
 import { createSubCategory } from "@/lib/masters/category-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
@@ -36,7 +37,8 @@ import {
   MATERIAL_FORMS,
   MATERIAL_TYPES,
   FABRIC_USING,
-  FABRIC_STRUCTURE_UOM,
+  fabricStructureUom,
+  resolveUomId,
   itemClassForm,
   isAccessoryClass,
   usesNumbersUom,
@@ -172,23 +174,6 @@ export function MaterialMasterScreen({
   const yarnCategories = useMemo(() => categories.filter((c) => c.item_class_id === yarnClassId), [categories, yarnClassId]);
   const structureCodeById = useMemo(() => new Map(fabricStructures.map((s) => [s.id, s.code])), [fabricStructures]);
   // Lowercased keys — UOM codes are data ("kg" vs "KG" both occur); the
-  // Yarn-kg default and fabric-structure UOM hints must not miss on case.
-  // Active units win a code collision, and kg/kgs are treated as synonyms both
-  // pointing at whichever kilogram unit is ACTIVE — so a deactivated "kg" never
-  // gets auto-derived (fabric hints) once the shop switches to "KGS".
-  const unitIdByCode = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const u of units) {
-      const key = u.code.toLowerCase();
-      if (u.is_active || !m.has(key)) m.set(key, u.id);
-    }
-    const kgId = units.find((u) => u.is_active && ["kg", "kgs"].includes(u.code.toLowerCase()))?.id;
-    if (kgId) {
-      m.set("kg", kgId);
-      m.set("kgs", kgId);
-    }
-    return m;
-  }, [units]);
   // The active kilogram unit (kg and KGS are the same unit; only one should be
   // active). Yarn defaults to it; null when no kilogram unit is active (then no
   // default is applied, so a deactivated unit is never prefilled).
@@ -211,7 +196,7 @@ export function MaterialMasterScreen({
   const fabricTypeLabel = useMemo(() => new Map(fabricTypes.map((t) => [t.id, t.name])), [fabricTypes]);
   const yarnItemName = useMemo(() => new Map(yarnItems.map((y) => [y.id, y.name])), [yarnItems]);
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [r.code, r.name, classLabel.get(r.item_class_id ?? ""), r.hsn_code]
         .filter(Boolean)
@@ -234,6 +219,34 @@ export function MaterialMasterScreen({
   const formKey: MaterialFormKey = itemClassForm(selectedClassCode);
   const formDef = formKey === "A" || formKey === "GEN" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
   const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
+  /** The units this fabric MUST use, from its structure (client 2026-08-01):
+   *  Circular Knit = KGS alone, Flat Knit = NOS + KGS, Woven = MTR + KGS.
+   *
+   *  Two plain ids rather than one `{base, alt}` object, and deliberately NOT
+   *  memoized: the effect below keys off these, and a fresh object every render
+   *  would make that effect re-run forever. Ids are strings, so it doesn't.
+   *
+   *  `fabricBaseUomId` is null for every non-fabric class, for a fabric whose
+   *  structure isn't known yet, and for one whose unit the shop's UOM master
+   *  doesn't stock — in all three the fields stay as they are rather than being
+   *  blanked, and nothing below locks. */
+  const fabricRule =
+    formKey === "FABRIC" && form.fabric_structure_id
+      ? fabricStructureUom(structureCodeById.get(form.fabric_structure_id))
+      : null;
+  const fabricBaseUomId = fabricRule ? resolveUomId(units, fabricRule.base) : null;
+  const fabricAltUomId =
+    fabricRule?.secondary && fabricBaseUomId ? resolveUomId(units, fabricRule.secondary) : null;
+  /** A unit's code for display in the read-only boxes the fabric rule renders
+   *  ("KGS", "NOS", "MTR") — same text `uomSelect` puts in its options. */
+  const unitCode = (id: string) => units.find((u) => u.id === id)?.code ?? "—";
+  /** The unit an existing fabric is CURRENTLY stored in, when the rule is about
+   *  to move it somewhere else — Flat Knit is the case that exists (KGS → NOS).
+   *  Read off the row rather than snapshotted into state, so it clears by itself
+   *  once the save lands and `rows` refreshes. */
+  const storedBaseUomId = editId ? rows.find((r) => r.id === editId)?.base_uom_id ?? null : null;
+  const fabricUomChanged =
+    fabricBaseUomId && storedBaseUomId && storedBaseUomId !== fabricBaseUomId ? storedBaseUomId : null;
   // Sub-categories created from this form's own "+ Add" row, keyed by category.
   // The server action revalidates, but the refreshed `categories` prop only
   // arrives after router.refresh() resolves — until then the option the user
@@ -318,28 +331,45 @@ export function MaterialMasterScreen({
     });
   }, [selectedClassCode, numbersUnitId]);
 
-  // Fabric mirrors the Yarn default, but the unit depends on the Structure/Type
-  // (Circular/Flat = KGS, Woven = MTR, 2026-07-24). Backfill every empty UOM to
-  // that unit — covering a fresh Add AND opening a legacy fabric with blank
-  // UOMs — while any non-empty field (a manual override) survives. Switching the
-  // Type re-applies the default via handleFabricCategoryChange (which overwrites);
-  // this effect only fills blanks, so the two never fight.
+  // Fabric UOMs are DERIVED, not defaulted (client 2026-08-01). Unlike the two
+  // effects above — which backfill blanks and leave a manual override alone —
+  // this one OVERWRITES, because for fabric there is no such thing as a manual
+  // override any more: the structure decides, and the fields that would let a
+  // user disagree are rendered read-only below.
+  //
+  // It writes the alternative unit onto the conversion row too, so ticking
+  // nothing produces "? NOS = ? KGS" ready for the two quantities. Only the
+  // units; the quantities are per-material and stay the operator's.
+  //
+  // Every branch is a no-op when nothing actually changes (`f` / `xs` returned
+  // unchanged), which is what keeps an effect that depends on `conversions`
+  // from re-running itself forever.
   useEffect(() => {
-    if (formKey !== "FABRIC") return;
-    const code = form.fabric_structure_id ? structureCodeById.get(form.fabric_structure_id) ?? null : null;
-    const baseId = structureUomHint(code).baseId;
+    const baseId = fabricBaseUomId;
+    const altId = fabricAltUomId;
     if (!baseId) return;
     setForm((f) => {
       const patch: Partial<Form> = {};
-      if (!f.base_uom_id) patch.base_uom_id = baseId;
-      if (!f.stock_uom_id) patch.stock_uom_id = baseId;
-      if (!f.billing_uom_id) patch.billing_uom_id = baseId;
-      if (!f.planning_uom_id) patch.planning_uom_id = baseId;
-      if (!f.purchase_uom_id) patch.purchase_uom_id = baseId;
+      if (f.base_uom_id !== baseId) patch.base_uom_id = baseId;
+      if (f.stock_uom_id !== baseId) patch.stock_uom_id = baseId;
+      if (f.billing_uom_id !== baseId) patch.billing_uom_id = baseId;
+      if (f.planning_uom_id !== baseId) patch.planning_uom_id = baseId;
+      if (f.purchase_uom_id !== baseId) patch.purchase_uom_id = baseId;
+      if (f.has_alternate_uom !== !!altId) patch.has_alternate_uom = !!altId;
       return Object.keys(patch).length ? { ...f, ...patch } : f;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formKey, form.fabric_structure_id, structureCodeById, unitIdByCode]);
+    setConversions((xs) => {
+      // Circular Knit has no alternative — drop any row a structure change left
+      // behind, the same way un-ticking the box does.
+      if (!altId) return xs.length ? [] : xs;
+      // Exactly one row, units fixed. A fabric converted from a structure that
+      // had a different pair keeps its quantities; they are the material's
+      // weight-per-piece, which the label on the unit did not change.
+      const first = xs[0] ?? { key: newKey(), alt_qty: "", alt_uom_id: "", base_qty: "", base_uom_id: "" };
+      if (xs.length === 1 && first.alt_uom_id === altId && first.base_uom_id === baseId) return xs;
+      return [{ ...first, alt_uom_id: altId, base_uom_id: baseId }];
+    });
+  }, [fabricBaseUomId, fabricAltUomId]);
 
   // ── Attribute-driven questions (SEW/PACK, 0341) ────────────────────────────
   // Every attribute_value across all item classes, by id (a line points at one).
@@ -420,42 +450,16 @@ export function MaterialMasterScreen({
     }
     return out;
   };
-  // Fabric: default UOM from the Structure/Type (2026-07-24 — Circular=KGS,
-  // Flat=KGS, Woven=MTR). Single unit per structure; pure lookup, no ref access.
-  function structureUomHint(code: string | null): { baseId?: string; secondaryId?: string } {
-    if (!code) return {};
-    const hint = FABRIC_STRUCTURE_UOM[code];
-    if (!hint) return {};
-    return {
-      baseId: unitIdByCode.get(hint.base),
-      secondaryId: hint.secondary ? unitIdByCode.get(hint.secondary) : undefined,
-    };
-  }
   // Fabric Structure comes from the Category (0279 #17/#18) — picking a category
-  // sets category_id, derives the fabric_structure_id off that row, and applies
-  // that structure's default UOM to EVERY UOM field (Circular/Flat=KGS, Woven=MTR).
-  // We overwrite here (not fill-if-empty) so switching the Type re-applies the new
-  // default; the user can still edit any UOM afterwards, and the fabric effect
-  // above only backfills blanks (e.g. opening a legacy record). Top-level handler
-  // (same shape as addMix/delMix) so it stays in an event-only spot.
+  // sets category_id and derives the fabric_structure_id off that row. It no
+  // longer touches the UOMs: the structure is the only input to that rule now,
+  // so setting it here is the whole job and the effect above does the rest.
+  // Duplicating the UOM write here would be a second place to keep in step, and
+  // the effect covers the cases this handler cannot (opening an existing fabric,
+  // a category whose structure was changed in the Category master).
   function handleFabricCategoryChange(categoryId: string) {
     const cat = categories.find((c) => c.id === categoryId) ?? null;
-    const structureId = cat?.fabric_structure_id ?? "";
-    const code = structureId ? structureCodeById.get(structureId) ?? null : null;
-    const { baseId } = structureUomHint(code);
-    set({
-      category_id: categoryId,
-      fabric_structure_id: structureId,
-      ...(baseId
-        ? {
-            base_uom_id: baseId,
-            stock_uom_id: baseId,
-            billing_uom_id: baseId,
-            planning_uom_id: baseId,
-            purchase_uom_id: baseId,
-          }
-        : {}),
-    });
+    set({ category_id: categoryId, fabric_structure_id: cat?.fabric_structure_id ?? "" });
   }
   // Melange (yarn OR fabric type) carries a Shade (client 2026-07-23) — the
   // input only shows for Melange, so clear it when the type moves away from
@@ -653,6 +657,13 @@ export function MaterialMasterScreen({
     mixPctApplies &&
     mixings.some((m) => numOrNull(m.blend_pct) != null) &&
     Math.abs(mixPctSum - 100) >= 0.01;
+  // A Fabric IS its yarn composition, so it cannot be saved without one — the
+  // rule and its Direct Purchase carve-out live in fabricCompositionError
+  // (lib/masters/material-actions.ts); this mirrors it so Save says why it is
+  // off instead of bouncing off the server. Gated on fabricAttributesVisible,
+  // which is exactly the "Fabric and not Direct Purchase" test — a grid that
+  // isn't on screen must never be what blocks Save.
+  const fabricCompositionMissing = fabricAttributesVisible && !mixings.some((m) => m.component_item_id);
   const delMix = (key: string) => setMixings((xs) => xs.filter((r) => r.key !== key));
   const addConv = () => setConversions((xs) => [...xs, { key: newKey(), alt_qty: "", alt_uom_id: "", base_qty: "", base_uom_id: "" }]);
   const setConv = (key: string, patch: Partial<ConvRow>) => setConversions((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -805,18 +816,34 @@ export function MaterialMasterScreen({
   // restricted (a unit added inline would sit outside every conversion row and
   // reintroduce exactly the unreachable Purchase Uom the limit was added to
   // prevent), not a swap. Left as-is until UOM gets a picker of its own.
-  const uomSelect = (value: string, onChange: (v: string) => void, limitTo?: Set<string>) => (
-    <Select value={value} onChange={(e) => onChange(e.target.value)} className="text-base md:text-sm">
-      <option value="">— None —</option>
-      {units
-        .filter((u) => (limitTo ? limitTo.has(u.id) : u.is_active) || u.id === value)
-        .map((u) => (
-          <option key={u.id} value={u.id}>
-            {u.code}
-          </option>
-        ))}
-    </Select>
-  );
+  //
+  // `usedIds` is the pick-once rule for the conversion grid: a unit already on
+  // another conversion row is offered greyed and tagged, not picked twice. Same
+  // rule and same look as `usedIds` on components/ui/data-picker.tsx — this side
+  // spells it `<option disabled>`, which `parseOptions` (select.tsx) now carries
+  // through to the desktop Combobox instead of dropping.
+  const uomSelect = (
+    value: string,
+    onChange: (v: string) => void,
+    limitTo?: Set<string>,
+    usedIds?: Iterable<string>,
+  ) => {
+    const used = new Set(usedIds ?? []);
+    return (
+      <Select value={value} onChange={(e) => onChange(e.target.value)} className="text-base md:text-sm">
+        <option value="">— None —</option>
+        {units
+          .filter((u) => (limitTo ? limitTo.has(u.id) : u.is_active) || u.id === value)
+          .map((u) => (
+            // Never the row's OWN value — it would refuse what it is showing.
+            <option key={u.id} value={u.id} disabled={u.id !== value && used.has(u.id)}>
+              {u.code}
+              {u.id !== value && used.has(u.id) ? " (already added)" : ""}
+            </option>
+          ))}
+      </Select>
+    );
+  };
 
   /** Every unit named in the conversion rows — both sides, since a row reads
    *  "12 DOZ = 1 NOS" and either end is a unit this material is handled in.
@@ -1147,31 +1174,25 @@ export function MaterialMasterScreen({
   }, [categories, form.category_id, form.fabric_structure_id, formKey]);
 
   // Real-time duplicate check on Name, scoped to the selected Item Class.
-  const dupError = useDuplicateCheck({
+  // Synchronous against the loaded rows AND debounced against the server, in one
+  // hook. The local half sets `data-dup-error` in the SAME render as the typed
+  // name (client 2026-07-24), so a fast Enter or Tab is refused instead of
+  // slipping past the 300ms debounce; the server half stays the authoritative
+  // backstop, since these rows are only the ones held in memory. This used to be
+  // a hand-rolled `rows.some(...)` beside the hook — the same union, spelled out
+  // once more, with its own copy of the message to keep in step.
+  const dupMessage = useDuplicateName({
     table: "items",
     name: form.name ?? "",
     scope: { item_class_id: form.item_class_id || null },
     excludeId: editId ?? undefined,
     enabled: !!(form.name && form.item_class_id),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+    rowInScope: (r) => (r.item_class_id ?? "") === (form.item_class_id ?? ""),
   });
-  // Synchronous duplicate detection against the loaded rows, so aria-invalid is
-  // set in the SAME render as the typed name (client 2026-07-24). The async
-  // check above is debounced + server round-trips, so on its own a fast Enter
-  // slips past before dupError lands; this local flag closes that race. The
-  // server check stays the authoritative backstop (rows not held in memory).
-  const nameNorm = form.name.trim().toLowerCase();
-  const localNameDuplicate =
-    !!nameNorm &&
-    rows.some(
-      (r) =>
-        r.id !== editId &&
-        (r.item_class_id ?? "") === (form.item_class_id ?? "") &&
-        (r.name ?? "").trim().toLowerCase() === nameNorm,
-    );
-  const nameDuplicate = localNameDuplicate || !!dupError;
-  const dupMessage =
-    dupError ??
-    (localNameDuplicate ? `"${form.name.trim()}" already exists. Use a different name.` : null);
+  const nameDuplicate = !!dupMessage;
 
   /** Shared blend/mixing grid — Fabric ("Using" Single/Multiple yarn, Decision 4)
    *  and Yarn (only when Category nature = Mixed, Decision 7). Each row links to
@@ -1194,12 +1215,23 @@ export function MaterialMasterScreen({
         {mixPctSum}% of 100%
       </span>
     );
+    /**
+     * PICK ONCE. The same component yarn on two blend lines is not a blend, it
+     * is one yarn whose two percentages should have been added together — and it
+     * silently breaks the "% must sum to 100" check into a sum nobody can read.
+     *
+     * A plain array, not a `useMemo`: `mixingGrid` is a helper function, not a
+     * component, so a hook here would be called conditionally. `mixings` is a
+     * handful of rows.
+     */
+    const usedComponentIds = mixings.map((m) => m.component_item_id).filter(Boolean);
     const compCell = (m: MixRow) => (
       <ItemPicker
         label=""
         title="Component Yarn"
-        items={yarnItems.filter((y) => y.is_active || y.id === m.component_item_id)}
+        items={yarnItems}
         value={m.component_item_id}
+        usedIds={usedComponentIds}
         onChange={(v) => setMix(m.key, { component_item_id: v })}
         placeholder="— Component yarn —"
         quickCreateClassId={yarnClassId ?? undefined}
@@ -1216,10 +1248,16 @@ export function MaterialMasterScreen({
       // the grid at one row — once a row exists the "+ Add" button is hidden
       // entirely, so only the single row shows (client 2026-07-24).
       const hidePct = isYarnDyedFabric || isSingleYarnFabric;
+      // The "required" hint OUTRANKS the % badge: a row with 100% typed into it
+      // but no yarn picked would otherwise show a green "100% of 100%" next to a
+      // Save button that refuses to work.
+      const requiredHint = fabricCompositionMissing ? (
+        <span className="text-xs font-medium text-danger">Required — name at least one yarn</span>
+      ) : null;
       return (
         <ChildGrid<MixRow>
           label="Attributes (Mixing)"
-          badge={hidePct ? undefined : pctBadge}
+          badge={requiredHint ?? (hidePct ? undefined : pctBadge)}
           inlineCards
           frameless
           rows={mixings}
@@ -1304,7 +1342,7 @@ export function MaterialMasterScreen({
                   list to pick from here (user 2026-07-24). */}
               <Label htmlFor="mt-fabric-structure" className="flex items-center gap-1">
                 Type
-                <span title="Circular Knit, Flat Knit or Woven — comes from the Structure/category and sets the default UOM (Circular/Flat = KGS, Woven = MTR)." className="cursor-help text-muted-foreground">
+                <span title="Circular Knit, Flat Knit or Woven — comes from the Structure/category and fixes the units: Circular Knit = KGS, Flat Knit = NOS with KGS alternative, Woven = MTR with KGS alternative." className="cursor-help text-muted-foreground">
                   <Info className="h-3.5 w-3.5" />
                 </span>
               </Label>
@@ -1362,21 +1400,12 @@ export function MaterialMasterScreen({
             )}
         </DetailSection>
         <DetailSection label="Composition" cols={12}>
-            <Field size="sm">
-              <label className="flex h-9 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.direct_purchase}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    set({ direct_purchase: checked });
-                    if (checked) setMixings([]);
-                  }}
-                />
-                <span className="text-sm text-foreground">Direct Purchase</span>
-              </label>
-            </Field>
+            {/* Using comes FIRST, and Direct Purchase is off the Tab path while it is
+                unticked (client 2026-08-01). Ticking it wipes the mixing rows, and Enter
+                TICKS a checkbox rather than moving past it — so on the default typing
+                path the operator was one habitual Enter away from silently discarding a
+                typed composition. Reach it with ↓ / → or the mouse. Once ticked it
+                rejoins the path, because it is then the only way back. */}
             {!form.direct_purchase && (
               <Field label="Using" size="sm">
                 <Select value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
@@ -1389,6 +1418,22 @@ export function MaterialMasterScreen({
                 </Select>
               </Field>
             )}
+            <Field size="sm">
+              <label className="flex h-9 cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  data-focus-optional={form.direct_purchase ? undefined : ""}
+                  checked={form.direct_purchase}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    set({ direct_purchase: checked });
+                    if (checked) setMixings([]);
+                  }}
+                />
+                <span className="text-sm text-foreground">Direct Purchase</span>
+              </label>
+            </Field>
             {fabricAttributesVisible && (
               <div className="space-y-2 @lg/section:col-span-12">
                 <div className="h-px bg-border" />
@@ -1556,6 +1601,13 @@ export function MaterialMasterScreen({
           }}
           searchPlaceholder="Search materials…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -1698,6 +1750,7 @@ export function MaterialMasterScreen({
                 (!!form.item_class_id && !form.base_uom_id) ||
                 singleYarnOverflow ||
                 mixPctSumInvalid ||
+                fabricCompositionMissing ||
                 attrMandatoryMissing ||
                 attributeSetMissing ||
                 nameDuplicate
@@ -1763,14 +1816,20 @@ export function MaterialMasterScreen({
                 // Both are out of the Tab order either way.
                 tabIndex={nameIsComposed ? -1 : undefined}
                 readOnly={attributeDriven || formKey === "GEN"}
-                aria-invalid={nameDuplicate ? true : undefined}
                 className={cn(
                   "text-base md:text-sm",
                   nameDuplicate && "border-danger",
                   (attributeDriven || formKey === "GEN") && "bg-surface-muted",
                 )}
+                // Emitted even when the field is readOnly above. The HOLD is
+                // what has to stand down on a field the operator cannot type
+                // into — and it does, in keyboard-nav-provider.tsx, once for
+                // every screen. Suppressing the marker here instead would also
+                // take away the red border and the announcement, which a
+                // composed duplicate name still needs.
+                {...dupFieldProps(dupMessage, "mt-name")}
               />
-              {dupMessage && <p className="mt-1 text-xs text-danger">{dupMessage}</p>}
+              <DuplicateError error={dupMessage} id="mt-name" />
             </div>
             <LookupDialogPicker
               kind="hsn_code"
@@ -1930,26 +1989,77 @@ export function MaterialMasterScreen({
                     sits in track 1, directly above Stock at `xs` in track 1 of
                     the slot row below, so the two rows align by construction
                     rather than by luck. */}
-                <Field label="Base" size="xs">
-                  {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), uomLimit)}
-                </Field>
-                {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
-                    <Label> only when `label != null`, so an unlabelled cell
-                    starts a label's height higher than the labelled Base beside
-                    it. `h-9 @2xl/editor:h-8` tracks the Combobox's own height —
-                    hard-coding h-9 left the checkbox 4px taller than the select
-                    on the wide editor surface. */}
-                <Field label={<>&nbsp;</>} size="md">
-                  <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={form.has_alternate_uom}
-                      onChange={(e) => toggleAltUom(e.target.checked)}
-                    />
-                    <span className="text-sm text-foreground">Alternative UOM</span>
-                  </label>
-                </Field>
+                {/* Fabric answers both of these from its structure and neither
+                    is offered for editing (client 2026-08-01) — same read-only
+                    treatment, and the same `bg-surface-muted` box, as the Type
+                    field the structure itself is shown in. */}
+                {fabricBaseUomId ? (
+                  <>
+                    {/* No `truncate` on these two, unlike the Type box they copy:
+                        the value is a unit code ("KGS", "NOS", "MTR"), so an
+                        ellipsis could never fire and would only be a promise of
+                        hidden text there is none of. */}
+                    <Field label="Base" size="xs">
+                      <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
+                        {unitCode(fabricBaseUomId)}
+                      </div>
+                    </Field>
+                    <Field
+                      label={
+                        <span className="flex items-center gap-1">
+                          Alternative
+                          <span
+                            title="Set by the fabric structure and not editable — Circular Knit is KGS only, Flat Knit is NOS with KGS, Woven is MTR with KGS."
+                            className="cursor-help text-muted-foreground"
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                          </span>
+                        </span>
+                      }
+                      size="xs"
+                    >
+                      <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
+                        {fabricAltUomId ? unitCode(fabricAltUomId) : "Not required"}
+                      </div>
+                    </Field>
+                  </>
+                ) : (
+                  <>
+                    <Field label="Base" size="xs">
+                      {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), uomLimit)}
+                    </Field>
+                    {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
+                        <Label> only when `label != null`, so an unlabelled cell
+                        starts a label's height higher than the labelled Base beside
+                        it. `h-9 @2xl/editor:h-8` tracks the Combobox's own height —
+                        hard-coding h-9 left the checkbox 4px taller than the select
+                        on the wide editor surface. */}
+                    <Field label={<>&nbsp;</>} size="md">
+                      <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={form.has_alternate_uom}
+                          onChange={(e) => toggleAltUom(e.target.checked)}
+                        />
+                        <span className="text-sm text-foreground">Alternative UOM</span>
+                      </label>
+                    </Field>
+                  </>
+                )}
+                {/* An existing Flat Knit fabric was stocked in KGS before this
+                    rule; its base is NOS now. Say so rather than letting the unit
+                    on screen quietly disagree with every quantity already booked
+                    against the record. */}
+                {fabricBaseUomId && fabricUomChanged && (
+                  <Field size="full">
+                    <p className="text-xs text-warning">
+                      Base UOM changes from {unitCode(fabricUomChanged)} to {unitCode(fabricBaseUomId)} on save — the
+                      fabric structure now decides it. Quantities already recorded against this material were entered in{" "}
+                      {unitCode(fabricUomChanged)}.
+                    </p>
+                  </Field>
+                )}
                 {/* Conversions as one inline row per record — the legacy wide
                     table doesn't fit a half-width column, and the previous
                     2-col card wrapped four controls onto two lines. Quantities
@@ -1962,7 +2072,23 @@ export function MaterialMasterScreen({
                       label="Alternate ↔ Base Conversions"
                       rows={conversions}
                       onAdd={addConv}
-                      onRemove={(c) => delConv(c.key)}
+                      // A fabric has exactly ONE conversion — "1 piece = 0.42
+                      // KGS" is a single fact about the material — and its two
+                      // units are the rule's, so there is nothing to add. Only
+                      // the quantities are asked for.
+                      hideAdd={!!fabricBaseUomId}
+                      // …which is also why remove CLEARS rather than deletes
+                      // here. The row is structure, not data: the units on it
+                      // are fixed facts about the fabric, and only the two
+                      // quantities were ever the operator's to give or withhold.
+                      // Deleting it with "+ Add" hidden would be a dead end —
+                      // nothing on the screen could bring the row back, and the
+                      // server would keep re-deriving the same pair anyway.
+                      onRemove={
+                        fabricBaseUomId
+                          ? (c) => setConv(c.key, { alt_qty: "", base_qty: "" })
+                          : (c) => delConv(c.key)
+                      }
                       addLabel="+ Add conversion"
                       inlineCards
                       frameless
@@ -1973,16 +2099,43 @@ export function MaterialMasterScreen({
                           width: "4.5rem",
                           cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.alt_qty} onChange={(e) => setConv(c.key, { alt_qty: e.target.value })} className="text-center" />,
                         },
-                        { header: "Alt UOM", cell: (c) => uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v })) },
+                        // ONE conversion per alternate unit — a second row for
+                        // the same Alt UOM is two answers to "how many of these
+                        // make a base unit". Deliberately NOT applied to Base
+                        // UOM below: every row converts TO the base unit, so
+                        // that column repeating is the normal shape.
+                        {
+                          header: "Alt UOM",
+                          cell: (c) =>
+                            fabricBaseUomId ? (
+                              <span className="text-sm text-muted-foreground">{unitCode(c.alt_uom_id)}</span>
+                            ) : (
+                              uomSelect(c.alt_uom_id, (v) => setConv(c.key, { alt_uom_id: v }), undefined, conversions.map((x) => x.alt_uom_id).filter(Boolean))
+                            ),
+                        },
                         {
                           header: "Base qty",
                           align: "center",
                           width: "4.5rem",
                           cell: (c) => <Input type="number" step="0.0001" placeholder="Qty" value={c.base_qty} onChange={(e) => setConv(c.key, { base_qty: e.target.value })} className="text-center" />,
                         },
-                        { header: "Base UOM", cell: (c) => uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v })) },
+                        {
+                          header: "Base UOM",
+                          cell: (c) =>
+                            fabricBaseUomId ? (
+                              <span className="text-sm text-muted-foreground">{unitCode(c.base_uom_id)}</span>
+                            ) : (
+                              uomSelect(c.base_uom_id, (v) => setConv(c.key, { base_uom_id: v }))
+                            ),
+                        },
                       ]}
                     />
+                    {fabricBaseUomId && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Optional — fill it in to record how much this fabric weighs per {unitCode(fabricBaseUomId)}.
+                        The units are fixed by the structure; only the quantities are yours.
+                      </p>
+                    )}
                   </Field>
                 )}
                 {/* The four downstream slots, one row of `xs` (2 of 12 each = 8).
@@ -1992,8 +2145,13 @@ export function MaterialMasterScreen({
                     "Uom" is dropped from every label — the section is already
                     titled Units of Measure, and "Planning Uom" wraps in a ~85px
                     track while "Planning" does not. Base is NOT here; it sits up
-                    on row 1 beside the toggle, in this same track 1. */}
-                {form.has_alternate_uom && (
+                    on row 1 beside the toggle, in this same track 1.
+
+                    Never for fabric: its four slots are the base unit, decided
+                    by the structure and written that way by `applyFabricUomRule`
+                    on the server. Showing four dropdowns that the next save
+                    overwrites would be a lie about what the operator controls. */}
+                {form.has_alternate_uom && !fabricBaseUomId && (
                   <>
                     <Field label="Stock" size="xs">
                       {uomSelect(form.stock_uom_id, (v) => set({ stock_uom_id: v }), uomLimit)}
@@ -2184,8 +2342,8 @@ function CreatableSubCategoryField({
    *  `raagam-keyboard-contract`. ↓ opens / moves down, ↑ moves up but bubbles
    *  when the list is closed (so it means "the field above" and a dropdown is
    *  never a one-way door), Enter picks the highlight and otherwise bubbles to
-   *  save the record, Tab closes without choosing and lets focus move on, Esc
-   *  closes the list only. */
+   *  move to the next field, Tab closes without choosing and lets focus move on,
+   *  Esc closes the list only. */
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       if (!open) {
@@ -2202,7 +2360,7 @@ function CreatableSubCategoryField({
     } else if (e.key === "Enter") {
       if (open) {
         // Picking is what this Enter does; without preventDefault it would also
-        // reach `enterSaves` and commit the whole material.
+        // reach `enterAdvances` and move off the field it just filled in.
         e.preventDefault();
         e.stopPropagation();
         void commit(rows[highlight]);
@@ -2234,8 +2392,8 @@ function CreatableSubCategoryField({
         value={open ? query : selected?.name ?? ""}
         // No open-on-focus, matching every other dropdown on the form
         // (select.tsx passes openOnFocus={false}): focus alone leaves the list
-        // closed, so Enter there still saves the record. The list drops on
-        // click, on ↓, or as soon as the operator types.
+        // closed, so Enter there still moves to the next field. The list drops
+        // on click, on ↓, or as soon as the operator types.
         onClick={() => {
           if (!open) openList();
         }}

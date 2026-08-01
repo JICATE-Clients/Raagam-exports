@@ -47,8 +47,19 @@ export function usePickerFocusReturn(open: boolean): void {
  * Its LIST mode is a dropdown, not a modal, and owns its own ↑/↓/Enter/Tab: the
  * Tab branch below traps focus, which is exactly wrong for a list you must be
  * able to Tab straight past. `Combobox` sets the same precedent. Do not "unify"
- * the two by routing list mode through here — Tab would stop moving, which is
- * the one thing the contract says it must always do.
+ * the two by routing list mode through here — Tab would stop moving, and the
+ * only case where it may is the duplicate hold below.
+ *
+ * ## The one thing this file must NOT try to handle
+ *
+ * A field showing a live "already exists" error holds the cursor (client
+ * 2026-07-31). That is implemented once, in
+ * components/shell/keyboard-nav-provider.tsx, on `window` in the CAPTURE phase,
+ * and it stops propagation — so a held Tab never reaches React and never
+ * reaches this handler. Note the Tab branch below does not read
+ * `e.defaultPrevented`: that is precisely why the hold cannot rely on
+ * `preventDefault` alone, and why it stops the event at the top of the path
+ * instead of asking every handler in the app to start checking.
  *
  * See `.claude/skills/raagam-keyboard-contract`.
  */

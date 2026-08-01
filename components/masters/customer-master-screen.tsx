@@ -26,7 +26,8 @@ import { MobileWhatsAppFields, useIsdLookup } from "@/components/masters/contact
 import { PackingFormatColumnsDialog } from "@/components/masters/packing-format-columns-dialog";
 import { GstinInsight, type GstinSuggestion } from "@/components/masters/gstin-insight";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { decodeGstin, matchGstinState } from "@/lib/validation/gstin";
 import { defaultCountryId, defaultStateId } from "@/lib/masters/geo-defaults";
 import type { PackingFormatColumn } from "@/lib/masters/packing-format-columns-service";
@@ -34,10 +35,12 @@ import { createCustomer, updateCustomer, deleteCustomer } from "@/lib/masters/cu
 import {
   partyOrigin,
   OriginBadge,
+  PublishesBadge,
   originNameHint,
   originDeleteBlock,
   type PartyOrigin,
 } from "@/components/masters/party-origin";
+import { PARTY_ROLE } from "@/lib/masters/party-origin-text";
 import { deletedToast } from "@/lib/masters/delete-message";
 import {
   type Customer,
@@ -111,6 +114,13 @@ const customerOrigin = (r: Customer) =>
       flag: "Also Customer",
     },
   ]);
+
+/** What this customer has published — the far end of the same link, and what a
+ *  delete here would take with it (0378). */
+const customerPublishes = (r: Customer): string[] => [
+  ...(r.also_consignee ? [PARTY_ROLE.consignee] : []),
+  ...(r.also_notify ? [PARTY_ROLE.notify] : []),
+];
 
 const BLANK: HeaderForm = {
   code: "",
@@ -487,13 +497,39 @@ export function CustomerMasterScreen({
   // Two customers must not share a GSTIN — one registration belongs to exactly
   // one party. Note this is NOT done for PAN anywhere: one PAN legitimately
   // carries one GSTIN per state, so a PAN check would flag multi-state groups.
-  const gstDupError = useDuplicateCheck({
+  const gstDupError = useDuplicateName({
     table: "customers",
     name: form.gst_no,
     nameColumn: "gst_no",
     excludeId: editId ?? undefined,
     label: "GST number",
     enabled: !!form.gst_no.trim(),
+    // This one HOLDS the cursor, so it needs the synchronous half as much as
+    // the name does — a GSTIN is pasted, and a pasted value is tabbed away from
+    // immediately, well inside the 300ms debounce.
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.gst_no,
+  });
+
+  /**
+   * Two customers must not share a NAME. Customer and Consignee were the only
+   * party masters without this — Vendor, Applicant and Notify all guard it on
+   * save — so a second "SRI LAKSHMI TEXTILES" saved silently here and nowhere
+   * else. Backstopped by the matching guard in `customer-actions.ts`.
+   *
+   * Stood down while `editOrigin` holds the name read-only: the operator cannot
+   * change that field, so an error on it would be a message about a problem
+   * they have no way to fix from this screen.
+   */
+  const nameDupError = useDuplicateName({
+    table: "customers",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !editOrigin && !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   // What the GSTIN implies but that we refuse to write silently. Empty while
@@ -1000,6 +1036,7 @@ export function CustomerMasterScreen({
         <span className="flex flex-wrap items-center gap-1.5 text-sm">
           {r.name}
           <OriginBadge origin={customerOrigin(r)} />
+          <PublishesBadge roles={customerPublishes(r)} />
         </span>
       ),
     },
@@ -1161,7 +1198,9 @@ export function CustomerMasterScreen({
                         {/* `readOnly`, not `disabled`: the value still submits
                             and still copies, and Input's own readOnly sets
                             tabIndex={-1}, so it leaves the Tab order for free. */}
-                        <Input id="cu-name" uppercase readOnly={!!editOrigin} value={form.name} onChange={(e) => set({ name: e.target.value })} required />
+                        <Input id="cu-name" uppercase readOnly={!!editOrigin} value={form.name} onChange={(e) => set({ name: e.target.value })} required
+                          {...dupFieldProps(nameDupError, "cu-name")} />
+                        <DuplicateError error={nameDupError} id="cu-name" />
                       </Field>
                       <Field label="Doc Prefix" size={FIELD_SIZE.doc_prefix} htmlFor="cu-prefix">
                         <Input uppercase id="cu-prefix" value={form.doc_prefix} onChange={(e) => set({ doc_prefix: e.target.value })} />
@@ -1522,8 +1561,9 @@ export function CustomerMasterScreen({
                             format="gstin"
                             value={form.gst_no}
                             onChange={(e) => set({ gst_no: e.target.value })}
+                            {...dupFieldProps(gstDupError, "cu-gst")}
                           />
-                          {gstDupError && <p className="mt-1 text-xs text-danger">{gstDupError}</p>}
+                          <DuplicateError error={gstDupError} id="cu-gst" />
                         </>
                       </Field>
                       {/* A wide fact strip, not a field — its own `full` cell
@@ -1572,7 +1612,7 @@ export function CustomerMasterScreen({
           saveLabel: "Save customer",
           // A duplicate GSTIN blocks the draft save too — a half-finished row
           // still lands in `customers`, where the collision is just as real.
-          canSave: !!form.name.trim() && !gstDupError,
+          canSave: !!form.name.trim() && !gstDupError && !nameDupError,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
         }}
@@ -1668,6 +1708,22 @@ function CategoryGrid({
   newKey: () => string;
   setDirty: (v: boolean) => void;
 }) {
+  /**
+   * PICK ONCE. Every category this grid already holds — one row asks one
+   * question, so the same category twice is duplication, not data, and the
+   * second row is a silent contradiction nobody spots by eye.
+   *
+   * Passed WHOLE, this row's own value included: `DataPicker` exempts its own
+   * `value`, so a row never refuses what it is already showing.
+   *
+   * Per GRID, not per screen. `CategoryGrid` is rendered twice — Sewing and
+   * Packaging Accessories — each with its own `rows` and its own `categories`,
+   * so a category used in Sewing stays freely pickable in Packaging.
+   */
+  const usedCategoryIds = useMemo(
+    () => rows.map((r) => r.category_id).filter(Boolean),
+    [rows],
+  );
   return (
     <ChildGrid<CatRowT>
       label={title}
@@ -1685,7 +1741,7 @@ function CategoryGrid({
           // new category under the wrong table and the FK would reject it. New
           // categories are created in the Category master.
           cell: (r) => (
-            <LookupDialogPicker kind="material_category" label="Category" options={categories} value={r.category_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, category_id: id } : x))); setDirty(true); }} canCreate={false} canEdit={false} compact />
+            <LookupDialogPicker kind="material_category" label="Category" options={categories} value={r.category_id || null} usedIds={usedCategoryIds} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, category_id: id } : x))); setDirty(true); }} canCreate={false} canEdit={false} compact />
           ),
         },
       ]}
@@ -1710,6 +1766,18 @@ function VendorGrid({
   newKey: () => string;
   setDirty: (v: boolean) => void;
 }) {
+  /**
+   * PICK ONCE. Nominating the same vendor twice says nothing the single row did
+   * not — and it matters downstream: MBA narrows its vendor picker to this list,
+   * so a duplicate shows the same vendor twice there too.
+   *
+   * Per GRID: Nominated and Recommended are separate lists, and a vendor being
+   * on both is a legitimate (if redundant) statement, not this rule's business.
+   */
+  const usedVendorIds = useMemo(
+    () => rows.map((r) => r.vendor_id).filter(Boolean),
+    [rows],
+  );
   return (
     <ChildGrid<VendorRowT>
       label={title}
@@ -1723,7 +1791,7 @@ function VendorGrid({
         {
           header: "Vendor",
           cell: (r) => (
-            <RecordPicker label="Vendor" items={vendors} value={r.vendor_id || null} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, vendor_id: id ?? "" } : x))); setDirty(true); }} compact />
+            <RecordPicker label="Vendor" items={vendors} value={r.vendor_id || null} usedIds={usedVendorIds} onChange={(id) => { setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, vendor_id: id ?? "" } : x))); setDirty(true); }} compact />
           ),
         },
       ]}

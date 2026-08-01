@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
 import { createStateQuick, updateStateQuick, deleteState } from "@/lib/masters/state-actions";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /** `StateLookup`, but with `country_id` optional so a plain `ConfigLookup[]`
  *  (what five of the six host screens still declare) remains assignable. */
@@ -118,18 +119,16 @@ export function StatePicker({
   const rows: PickerRow[] = useMemo(
     () =>
       all
-        // An inactive state stays resolvable for a record that already points at
-        // it (and renders greyed), but drops out of new selections. Without that
-        // rule an existing record just looks empty.
-        .filter((o) => o.is_active || o.id === value)
-        // Same escape hatch for the country scope: a record already pointing at
-        // an out-of-country state still renders its name rather than going blank
-        // — the operator sees what is stored and can correct it.
+        // The country scope keeps its own `|| o.id === value` escape hatch: a
+        // record already pointing at an out-of-country state still renders its
+        // name rather than going blank. Being switched off is the OTHER reason a
+        // row drops out, and DataPicker owns that one — same exception, applied
+        // per instance, so a grid of states doesn't share one `value`.
         .filter((o) => inCountry(o, countryId, homeCountryId) || o.id === value)
         // Name only — the GST state code is backend data, not something the
         // operator picks by. Sorted by the name they actually read.
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((o) => ({ id: o.id, label: o.name, disabled: !o.is_active })),
+        .map((o) => ({ id: o.id, label: o.name, inactive: isInactive(o) })),
     [all, value, countryId, homeCountryId],
   );
 

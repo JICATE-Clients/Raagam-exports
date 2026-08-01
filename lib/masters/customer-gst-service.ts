@@ -21,13 +21,14 @@ export interface CustomerGstRow {
   is_draft: boolean;
   city_id: string | null; // legacy center "City" grid (config_lookups 'city')
   gst_no: string | null;
+  created_at: string;
 }
 
 export async function listCustomerGst(): Promise<CustomerGstRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("customers")
-    .select("id, code, name, inactive, is_draft, city_id, gst_no")
+    .select("id, code, name, inactive, is_draft, city_id, gst_no, created_at")
     .order("name");
   return (data ?? []) as CustomerGstRow[];
 }

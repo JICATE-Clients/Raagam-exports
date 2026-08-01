@@ -14,18 +14,30 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { Process } from "@/lib/masters/process-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 export function ProcessPicker({
   label,
   processes,
   value,
   onChange,
+  usedIds,
   clearable = true,
 }: {
   label: string;
   processes: Process[];
   value: string;
   onChange: (v: string) => void;
+  /**
+   * Pick-once inside a repeating grid: ids already taken by the sibling rows.
+   * Straight through to `DataPicker` — see the prop there for when it applies
+   * and, just as importantly, when it must not.
+   *
+   * Per GRID, never per screen: Vendor ▸ Process and Vendor ▸ SubContractor both
+   * pick from this master, and the same process legitimately appears once in
+   * each — they are two different statements about the vendor.
+   */
+  usedIds?: Iterable<string> | null;
   clearable?: boolean;
 }) {
   const rows: PickerRow[] = useMemo(
@@ -36,6 +48,7 @@ export function ProcessPicker({
         // The sublabel is where the old dialog's second column goes — here the
         // short description, which is what tells two similar processes apart.
         sublabel: p.short_description ?? undefined,
+        inactive: isInactive(p),
       })),
     [processes],
   );
@@ -45,6 +58,7 @@ export function ProcessPicker({
       rows={rows}
       value={value}
       onChange={(v) => onChange(v ?? "")}
+      usedIds={usedIds}
       clearable={clearable}
     />
   );

@@ -10,6 +10,8 @@ import {
   getTaMilestones,
   getTemplates,
 } from "@/lib/orders/service";
+import { getOrderNominationCustomer } from "@/lib/orders/order-detail-service";
+import { listVendorNominations, listVendorsForPicker } from "@/lib/masters/vendor-service";
 import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody } from "@/components/ui/card";
@@ -50,17 +52,34 @@ export default async function OrderDetailPage({
   await requirePermission("orders", "view");
   const { orderId } = await params;
 
-  const [order, lines, amendments, revisions, taPlan, milestones, templates, canApprove] =
-    await Promise.all([
-      getOrder(orderId),
-      getOrderLines(orderId),
-      getAmendments(orderId),
-      getRevisions(orderId),
-      getTaPlan(orderId),
-      getTaMilestones(orderId),
-      getTemplates(),
-      can("orders", "approve"),
-    ]);
+  // Vendors + nominations + the buyer's linked customer feed the Trims tab's
+  // Vendor field (`lib/masters/vendor-nominations.ts`). Fetched here rather than
+  // inside the tab so the grid narrows without a client round trip.
+  const [
+    order,
+    lines,
+    amendments,
+    revisions,
+    taPlan,
+    milestones,
+    templates,
+    canApprove,
+    vendors,
+    nominations,
+    nominationCustomer,
+  ] = await Promise.all([
+    getOrder(orderId),
+    getOrderLines(orderId),
+    getAmendments(orderId),
+    getRevisions(orderId),
+    getTaPlan(orderId),
+    getTaMilestones(orderId),
+    getTemplates(),
+    can("orders", "approve"),
+    listVendorsForPicker(),
+    listVendorNominations(),
+    getOrderNominationCustomer(orderId),
+  ]);
 
   if (!order) {
     notFound();
@@ -145,6 +164,9 @@ export default async function OrderDetailPage({
         milestones={milestones}
         templates={templates}
         canApprove={canApprove}
+        vendors={vendors}
+        nominations={nominations}
+        nominationCustomer={nominationCustomer}
       />
     </div>
   );

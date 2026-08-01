@@ -31,6 +31,8 @@ import { deletedToast } from "@/lib/masters/delete-message";
 import type { Notify, NotifyInput } from "@/lib/masters/notify-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -212,6 +214,17 @@ export function NotifyMasterScreen({
   const newKey = () => `c${keySeq.current++}`;
 
   const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
+
+  // Server guard already exists in notify-actions.ts -- this surfaces it.
+  const dupError = useDuplicateName({
+    table: "notifies",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
 
   const countryLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -604,7 +617,7 @@ export function NotifyMasterScreen({
           onCancel: () => setOpen(false),
           onSave: submit,
           saveLabel: "Save notify party",
-          canSave: !!form.name.trim(),
+          canSave: !!form.name.trim() && !dupError,
           // No `onSaveDraft`: unlike Applicant, `notify` has no is_draft column,
           // so there is nothing a draft could be saved as.
           isPending,
@@ -649,7 +662,9 @@ export function NotifyMasterScreen({
                   value={form.name}
                   onChange={(e) => set({ name: e.target.value })}
                   required
+                  {...dupFieldProps(dupError, "nt-name")}
                 />
+                <DuplicateError error={dupError} id="nt-name" />
               </Field>
               {/* Pickers render their own labels — never double-label them.
                   The ONLY Country field on this form now (client complaint

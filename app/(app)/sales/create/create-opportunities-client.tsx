@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { createOpportunitiesForBuyers } from "@/lib/sales/actions";
@@ -45,14 +46,16 @@ export function CreateOpportunitiesClient({
     [buyers],
   );
 
+  const dt = useCreatedDateFilter(buyers);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return buyers.filter((b) => {
+    return buyers.filter(dt.matches).filter((b) => {
       if (country !== "all" && b.country !== country) return false;
       if (q && !`${b.code} ${b.name}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [buyers, search, country]);
+  }, [buyers, dt.matches, search, country]);
 
   const filteredIds = useMemo(() => filtered.map((b) => b.id), [filtered]);
   const allFilteredSelected =
@@ -142,8 +145,12 @@ export function CreateOpportunitiesClient({
         search={search}
         onSearch={setSearch}
         searchPlaceholder="Search customer code or name…"
-        activeCount={country !== "all" ? 1 : 0}
-        onReset={() => setCountry("all")}
+        activeCount={country !== "all" ? 1 : 0 + dt.active}
+        dateFilter={dt.bind}
+        onReset={() => {
+            setCountry("all");
+            dt.reset();
+          }}
         right={`${filtered.length} of ${buyers.length}`}
       >
         <div>

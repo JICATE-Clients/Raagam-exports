@@ -35,6 +35,7 @@ const descriptor: SimpleMasterDescriptor<Designation> = {
   fromRow: (r) => ({ name: r.name, for_type: r.for_type }),
   searchText: (r) => [r.name, r.for_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active"),
+  dupCheck: { table: "designations", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     name: String(v.name),
     for_type: String(v.for_type),

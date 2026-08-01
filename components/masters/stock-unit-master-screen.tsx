@@ -18,7 +18,8 @@ import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import {
   createStockUnit,
   updateStockUnit,
@@ -81,7 +82,7 @@ export function StockUnitMasterScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(BLANK);
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(
     rows,
     {
       searchKey: (r) => [r.code, r.name, r.description].filter(Boolean).join(" "),
@@ -97,11 +98,14 @@ export function StockUnitMasterScreen({
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
   // Real-time duplicate check on Name (mirrors the on-save guard in the action).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "uoms",
     name: form.name,
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
   function openAdd() {
@@ -216,6 +220,13 @@ export function StockUnitMasterScreen({
           }}
           searchPlaceholder="Search stock units…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={reset}
         >
           <div>
@@ -326,8 +337,9 @@ export function StockUnitMasterScreen({
                 onChange={(e) => set({ name: e.target.value })}
                 placeholder="Kilogram"
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "su-name")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="su-name" />
             </div>
             <div>
               <Label htmlFor="su-dp">Decimal Places</Label>

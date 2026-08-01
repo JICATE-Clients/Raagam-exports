@@ -33,6 +33,8 @@ import {
   type ReceivableTerm,
   type ReceivableTermInput,
 } from "@/lib/masters/receivable-term-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -116,6 +118,18 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "receivable_terms",
+    name: form.description,
+    nameColumn: "description",
+    label: "description",
+    excludeId: editId ?? undefined,
+    enabled: !!form.description.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.description,
+  });
 
   function openAdd() {
     setEditId(null);
@@ -234,7 +248,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.entry_date} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.entry_date} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -327,7 +341,9 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 rows={3}
                 value={form.description}
                 onChange={(e) => set({ description: e.target.value })}
+                {...dupFieldProps(dupError, "rt-desc")}
               />
+              <DuplicateError error={dupError} id="rt-desc" />
             </Field>
           </DetailSection>
 

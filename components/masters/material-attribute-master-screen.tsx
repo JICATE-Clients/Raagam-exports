@@ -72,6 +72,13 @@ function previewSteps(start: number | null, end: number | null, step: number | n
  * grid (range/step/unit/mandatory/inactive), each line picking one of the
  * selected Item Class's Attribute Values (0293: Attribute was merged into
  * Item Class — the named-value child grid is what these lines pick from).
+ *
+ * dup-check: exempt -- the duplicate is prevented EARLIER and better here. The
+ * identity is the (item_class_id, category_id) pair, and a category already
+ * spoken for is removed from the Category picker, so the collision cannot be
+ * typed in the first place. `uq_material_attributes_class_category` (0347) is
+ * the backstop. A live check would also need `dup-guard`'s eq mode, since both
+ * columns are uuids and `.ilike()` has no operator for them.
  */
 export function MaterialAttributeMasterScreen({
   rows,
@@ -184,7 +191,7 @@ export function MaterialAttributeMasterScreen({
     setCategoryId("");
   }
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter<
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter<
     MaterialAttribute,
     { itemClass: string; category: string }
   >(rows, {
@@ -489,6 +496,13 @@ export function MaterialAttributeMasterScreen({
           }}
           searchPlaceholder="Search material attributes…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={reset}
         >
           <div>

@@ -17,10 +17,17 @@ export interface ShortcutsApi {
   register: (id: ShortcutId, fn: Handler) => () => void;
   /**
    * Run the topmost handler for `id`; false when nothing is registered. Exposed
-   * because Enter-to-save (lib/focus.ts `submitSurface`) has to reach exactly the
-   * same handler Ctrl+S does — an editor must not have two different saves.
+   * because Enter's last step (lib/focus.ts `submitSurface`) has to reach exactly
+   * the same handler Ctrl+S does — an editor must not have two different saves.
    */
   fire: (id: ShortcutId) => boolean;
+  /**
+   * Is anything registered for `id`? A NON-FIRING probe, and that is the whole
+   * point: Enter-advance (lib/focus.ts `enterAdvances`) has to ask "could this
+   * surface save?" BEFORE it decides whether to claim the key at all, and the
+   * only other way to find out was to fire the handler and see — i.e. to save.
+   */
+  has: (id: ShortcutId) => boolean;
   openHelp: () => void;
 }
 

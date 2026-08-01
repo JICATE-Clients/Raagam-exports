@@ -229,15 +229,28 @@ never fight); everything else — GST, TCS, payment terms, contacts, child grids
 row and is never overwritten. Deleting it from the target screen is refused and points back at the
 tick box, because deleting it while the box stayed ticked would simply republish it on the next save.
 
+**Deleting the SOURCE is the mirror of that, and takes the whole published subtree with it**
+(0378) — Applicant → Customer → Consignee → Notify, recursively. **One fate:** if the row or
+anything it published is genuinely in use, *nothing* is deleted — every record in the subtree is
+marked inactive with its publish links intact, so the tick boxes keep telling the truth. Half a
+subtree going is the one outcome that must never happen: a source left alive with its boxes ticked
+republishes fresh, empty rows on the very next save. A source row carries a "publishes Customer +
+Consignee" chip so the operator sees the reach before clicking, and the toast afterwards names what
+actually went.
+
 Open items to confirm:
-- **P1. Should `inactive` propagate?** 🟡 Built as **no** — an applicant going quiet does not close
-  the customer account, and the published row may be live on sales orders. *Confirm.*
+- **P1. Should `inactive` propagate on SAVE?** 🟡 Built as **no** — an applicant going quiet does
+  not close the customer account, and the published row may be live on sales orders. *Confirm.*
+  (Narrowed 2026-07-31: this is now only about saving. DELETE propagates — see P3.)
 - **P2. What should seed across?** 🟡 Built as name + full postal address + phones/email/website —
   the block all four masters share. Commercial fields (GST, currency, terms) deliberately do NOT
   seed: they belong to the role, not the party. *Confirm nothing else should carry over.*
-- **P3. Deleting a published row's source.** 🟡 Built so the published row **survives** as an
-  ordinary record (it may be on a sales order) and simply loses its origin badge. *Confirm — or
-  should deleting the applicant also remove the customer it created?*
+- **P3. Deleting a published row's source.** ✅ **ANSWERED 2026-07-31 — yes, it should.** Was built
+  so the published row survived as an ordinary record; that left the operator stuck, because the
+  published Customer also refuses to be deleted from its own screen ("untick Also Customer on
+  Applicant ABC"), so once ABC was gone nothing could remove it. Now deleting the source deletes
+  the whole subtree, one fate, per the paragraph above (migration 0378, `deleteParty` in
+  `lib/masters/party-publish.ts`).
 
 ## Department master (HR) — BUILT (0259)
 

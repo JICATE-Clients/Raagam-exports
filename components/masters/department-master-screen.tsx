@@ -26,6 +26,8 @@ import {
   type DepartmentItemClass,
 } from "@/lib/masters/department-types";
 import type { EmployeeLocation } from "@/lib/masters/employee-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type DivisionOption = { id: string; division_id: string; division_name: string };
@@ -78,6 +80,19 @@ export function DepartmentMasterScreen({
 
   const set = (patch: Partial<ReturnType<typeof blankHeader>>) =>
     setForm((f) => ({ ...f, ...patch }));
+
+  // Checks `name`, the box the operator actually types, even though the payload
+  // also derives `short_name` from it on create. The message quotes what they
+  // typed; pointing it at short_name would name a column the form never shows.
+  const dupError = useDuplicateName({
+    table: "departments",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
 
   const locationLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -264,7 +279,7 @@ export function DepartmentMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -285,7 +300,9 @@ export function DepartmentMasterScreen({
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"
+              {...dupFieldProps(dupError, "dep-name")}
             />
+            <DuplicateError error={dupError} id="dep-name" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

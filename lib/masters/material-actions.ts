@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { materialInput, type MaterialInput } from "./material-types";
+import { materialInput, fabricStructureUom, resolveUomId, type MaterialInput } from "./material-types";
 import { deleteOrDeactivate } from "./delete-guard";
 import { findDuplicateYarn, findDuplicateBySpec } from "./material-service";
 import { checkDuplicateName } from "./dup-guard";
@@ -121,6 +121,32 @@ function normMixings(d: MaterialInput) {
     }));
 }
 
+/** A Fabric is DEFINED by what it is made of — the mixing grid is its yarn
+ *  composition, not an optional note. Saved empty, the fabric reaches Planning
+ *  and costing with nothing to explode into yarn requirements.
+ *
+ *  Tested on `component_item_id`, not on row count: `normMixings` keeps a row
+ *  carrying only a stray shade or description, so "has rows" would pass a fabric
+ *  whose composition names no yarn at all.
+ *
+ *  Direct Purchase is exempt because the screen hides the whole grid for it
+ *  (`fabricAttributesVisible`, material-master-screen.tsx) — we buy the cloth
+ *  woven, so there is no mixing to declare, and demanding one would make those
+ *  materials unsaveable via a field the operator cannot see.
+ *
+ *  Lives here rather than in the Zod schema (contrary to the CAPITALS rule in
+ *  AGENTS.md) because the test needs the item-class CODE, and the payload only
+ *  carries `item_class_id` — resolving it is a DB round-trip a synchronous
+ *  refine cannot make. Nothing leaks past: `lib/data-io` imports bypass the
+ *  actions, but the `materials` descriptor declares only `code` and `name`
+ *  (data-io/entities.ts), and `coerceRow` reads none but the declared fields —
+ *  so an import cannot set `item_class_id` and therefore cannot create a Fabric. */
+function fabricCompositionError(classCode: string | null, d: MaterialInput): string | null {
+  if (classCode !== "FABRIC" || d.direct_purchase) return null;
+  if (d.mixings.some((m) => m.component_item_id)) return null;
+  return "Yarn Composition is required for a Fabric — add at least one yarn under Attributes (Mixing).";
+}
+
 /** Resolve an item_class_id to its config_lookups code (server-verified, not
  *  trusted from the client) — scopes the Yarn duplicate guard and the Fabric
  *  mandatory-fabric_type check to the correct class regardless of what code
@@ -129,6 +155,63 @@ async function resolveItemClassCode(s: Awaited<ReturnType<typeof createClient>>,
   if (!itemClassId) return null;
   const { data } = await s.from("config_lookups").select("code").eq("id", itemClassId).maybeSingle();
   return data?.code?.toUpperCase() ?? null;
+}
+
+/**
+ * Fabric units are not the operator's to choose (client 2026-08-01).
+ *
+ * The structure decides them — Circular Knit = KGS, Flat Knit = NOS + KGS,
+ * Woven = MTR + KGS — so this REWRITES what the client sent rather than
+ * validating it. That is deliberate and it is the guard: the screen renders the
+ * same units read-only, but a screen check is a courtesy, and this is the only
+ * thing standing between a crafted payload (or a future caller) and a fabric
+ * stocked in the wrong unit.
+ *
+ * Mutates `d` in place, and must therefore run BEFORE `toHeader`/`uomSlots`
+ * read it — call it straight after `resolveItemClassCode`.
+ *
+ * Three things it deliberately does NOT do:
+ *  - It leaves everything alone when the fabric has no structure yet (a
+ *    category was picked that never got one), rather than blanking the UOMs.
+ *  - It leaves everything alone when the shop's unit master has no matching
+ *    unit, for the same reason — `resolveUomId` returns null and we bail.
+ *  - It never invents the conversion QUANTITIES. How many kilos a knitted panel
+ *    weighs is per-material; only the two UNITS on that row are derivable, so a
+ *    row the operator left blank is dropped rather than saved half-answered.
+ */
+async function applyFabricUomRule(
+  s: Awaited<ReturnType<typeof createClient>>,
+  d: MaterialInput,
+): Promise<void> {
+  if (!d.fabric_structure_id) return;
+  const { data: st } = await s
+    .from("config_lookups")
+    .select("code")
+    .eq("id", d.fabric_structure_id)
+    .maybeSingle();
+  const rule = fabricStructureUom(st?.code);
+  if (!rule) return;
+  const { data: units } = await s.from("uoms").select("id, code, is_active");
+  const baseId = resolveUomId(units ?? [], rule.base);
+  if (!baseId) return;
+  const altId = rule.secondary ? resolveUomId(units ?? [], rule.secondary) : null;
+
+  d.base_uom_id = baseId;
+  d.stock_uom_id = baseId;
+  d.billing_uom_id = baseId;
+  d.planning_uom_id = baseId;
+  d.purchase_uom_id = baseId;
+  d.has_alternate_uom = !!altId;
+  // Exactly ONE conversion for a fabric — "1 piece = 0.42 KGS" is one fact, and
+  // a second row would be a second answer to it. Rows with no quantity at all
+  // are dropped: `normConversions` keeps any row naming a unit, and with the
+  // units forced here that would insert a meaningless (null, NOS, null, KGS).
+  d.conversions = altId
+    ? d.conversions
+        .filter((c) => c.alt_qty != null || c.base_qty != null)
+        .slice(0, 1)
+        .map((c) => ({ ...c, alt_uom_id: altId, base_uom_id: baseId }))
+    : [];
 }
 
 /** A sub-category belongs to exactly one category, and the client picks both.
@@ -220,6 +303,7 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
   const classCode = await resolveItemClassCode(s, p.data.item_class_id);
+  if (classCode === "FABRIC") await applyFabricUomRule(s, p.data);
   // Code (Short Name) is system-generated from the Name — codes are unique per
   // item class, so the generator is scoped the same way as the dup check below.
   const hadCode = !!p.data.code.trim();
@@ -255,6 +339,8 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
     return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
   }
+  const mixErr = fabricCompositionError(classCode, p.data);
+  if (mixErr) return fail(mixErr);
   if ((classCode === "SEW" || classCode === "PACK") && p.data.item_class_id && p.data.category_id) {
     const { data: maRows } = await s
       .from("material_attributes")
@@ -304,6 +390,7 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
   const classCode = await resolveItemClassCode(s, p.data.item_class_id);
+  if (classCode === "FABRIC") await applyFabricUomRule(s, p.data);
   const header: Partial<ReturnType<typeof toHeader>> & Partial<UomSlots> = {
     ...toHeader(p.data),
     ...uomSlots(p.data),
@@ -336,6 +423,8 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
     return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
   }
+  const mixErr = fabricCompositionError(classCode, p.data);
+  if (mixErr) return fail(mixErr);
   if ((classCode === "SEW" || classCode === "PACK") && p.data.item_class_id && p.data.category_id) {
     const { data: maRows } = await s
       .from("material_attributes")

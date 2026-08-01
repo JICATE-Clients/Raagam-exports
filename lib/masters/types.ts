@@ -23,6 +23,16 @@ export interface Buyer {
   contact_email: string | null;
   contact_phone: string | null;
   address: string | null;
+  /**
+   * Optional link to the `customers` master for the same party (0380).
+   *
+   * Orders hang off `buyers`; nominated / recommended vendor lists hang off
+   * `customers`. Two tables, historically unrelated, with no overlapping names
+   * in the live data — so a nomination-aware field on an order (Trims ▸ Vendor)
+   * has nothing to narrow by until an operator sets this. Null is a legitimate,
+   * default state: the field then offers every vendor and says why.
+   */
+  customer_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -48,6 +58,8 @@ export const buyerInput = z.object({
   contact_email: z.string().email().optional().or(z.literal("")).nullable(),
   contact_phone: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
+  /** See `Buyer.customer_id` — the link that lets an order reach nominations. */
+  customer_id: z.string().uuid().optional().nullable(),
   is_active: z.boolean().default(true),
 });
 export type BuyerInput = z.infer<typeof buyerInput>;

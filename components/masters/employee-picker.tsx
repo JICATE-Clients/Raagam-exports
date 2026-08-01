@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { DataPicker, type PickerRow } from "@/components/ui/data-picker";
 import type { EmployeeRef } from "@/lib/masters/employee-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 /**
  * Select-only picker over the `employees` master — the Manager self-reference.
@@ -38,7 +39,7 @@ export function EmployeePicker({
       employees
         .filter((e) => e.id !== excludeId)
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((e) => ({ id: e.id, label: e.name, sublabel: e.code })),
+        .map((e) => ({ id: e.id, label: e.name, sublabel: e.code, inactive: isInactive(e) })),
     [employees, excludeId],
   );
 

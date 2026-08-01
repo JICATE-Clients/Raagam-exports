@@ -78,7 +78,11 @@ function parseOptions(children: ReactNode): ParsedOptions {
       placeholder = label || undefined;
       continue;
     }
-    options.push({ value, label });
+    // CARRY `disabled` THROUGH. It used to be read only for the prompt case
+    // above and dropped here, so `<option disabled>` anywhere else in the list
+    // was honoured by the native <select> on touch and silently selectable on
+    // desktop, where this parses into a Combobox — one list, two answers.
+    options.push({ value, label, disabled: props.disabled || undefined });
   }
 
   return { options, placeholder, hasEmpty };

@@ -6,13 +6,15 @@ If you're improving the **user experience (UX)** of an ERP, here are practical, 
 > is `.claude/skills/raagam-keyboard-contract`; it is implemented once in
 > `lib/focus.ts` and delivered app-wide by `components/shell/keyboard-nav-provider.tsx`.
 
-* **Tab / Shift + Tab** → Move to the next / previous field. Nothing else — Tab never opens a list.
+* **Tab / Shift + Tab** → Move to the next / previous field. Nothing else — Tab never opens a list. It refuses to move in exactly one case: while the field is showing a live "already exists" duplicate error. Edit the value (the error clears the instant you type) or press Esc.
 * **↓** → Open this field's list of values; on a field with no list, move to the field below.
 * **↑** → Move to the field above.
 * **← / →** → Move to the field left / right, once the text caret has reached the edge.
 * **Enter** → Pick the highlighted row when a list is open; on a tick box or radio, toggle it;
-  otherwise **save the record**.
-* **Space** → Tick a checkbox, or open a picker (it is a button). Enter does both jobs too.
+  otherwise **move to the next field**. Off the last field it saves — on a section-rail editor
+  it opens the next section first, so it cannot commit a record you have not finished. Ctrl + S
+  saves from anywhere.
+* **Space** → Tick a checkbox, or open a picker (it is a button).
 * **Esc** → Close the list, then the form (asking if there is unsaved work), then leave the page.
 * **Ctrl + S** → Save.
 * **Ctrl + N** → Create new record.

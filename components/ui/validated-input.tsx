@@ -54,9 +54,14 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
     }
     function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
       // Pressing Enter on an invalid field must NOT save — the shared
-      // enterSaves guard blocks it via aria-invalid (which is live below), and
-      // we reveal the message here so the user sees why nothing happened, even
-      // if the field hadn't been blurred yet (client 2026-07-24).
+      // `enterAdvances` guard blocks the COMMIT via aria-invalid (live below),
+      // and we reveal the message here so the user sees why nothing happened,
+      // even if the field hadn't been blurred yet (client 2026-07-24).
+      //
+      // Enter still MOVES off an invalid field: aria-invalid is live for every
+      // required-but-empty box, so refusing to move would cage the operator in
+      // the first blank field of every form. Revealing the message on the way
+      // past is the point of this handler.
       if (e.key === "Enter" && liveError) setTouched(true);
       onKeyDown?.(e);
     }
@@ -72,8 +77,9 @@ export const ValidatedInput = forwardRef<HTMLInputElement, ValidatedInputProps>(
           onKeyDown={handleKeyDown}
           inputMode={inputMode ?? spec?.inputMode}
           maxLength={maxLength ?? spec?.maxLength}
-          // Live, so enterSaves blocks Enter the instant the value is invalid —
-          // before blur. Display (border/message) stays gated on `shownError`.
+          // Live, so `enterAdvances` refuses to COMMIT the instant the value is
+          // invalid — before blur. Display (border/message) stays gated on
+          // `shownError`.
           aria-invalid={liveError ? true : undefined}
           // The DISPLAY half of the CAPS rule, for `upper` kinds only (GSTIN,
           // PAN, TAN, CIN, IEC, IFSC, SWIFT, currency, yarn_count).

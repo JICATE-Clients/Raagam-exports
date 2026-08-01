@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { createStyle, updateStyle, deleteStyle } from "@/lib/sales/actions";
@@ -73,9 +74,11 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
     [styles],
   );
 
+  const dt = useCreatedDateFilter(styles);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return styles.filter((s) => {
+    return styles.filter(dt.matches).filter((s) => {
       if (season !== "all" && s.season !== season) return false;
       if (sampleType !== "all" && s.sample_type !== sampleType) return false;
       if (fabric !== "all" && s.fabric_type !== fabric) return false;
@@ -88,12 +91,12 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
       }
       return true;
     });
-  }, [styles, search, season, sampleType, fabric]);
+  }, [styles, dt.matches, search, season, sampleType, fabric]);
 
   const activeCount =
     (season !== "all" ? 1 : 0) +
     (sampleType !== "all" ? 1 : 0) +
-    (fabric !== "all" ? 1 : 0);
+    (fabric !== "all" ? 1 : 0) + dt.active;
 
   function openCreate() {
     setEditId(null);
@@ -215,7 +218,9 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
         onSearch={setSearch}
         searchPlaceholder="Search style, description, enquiry, customer…"
         activeCount={activeCount}
+        dateFilter={dt.bind}
         onReset={() => {
+          dt.reset();
           setSeason("all");
           setSampleType("all");
           setFabric("all");

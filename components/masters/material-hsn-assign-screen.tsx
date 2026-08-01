@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { FilterBar } from "@/components/masters/filter-bar";
+import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
@@ -12,9 +13,13 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { saveMaterialHsn, type MaterialHsnChange } from "@/lib/masters/material-hsn-actions";
 import type { MaterialHsnRow } from "@/lib/masters/material-hsn-service";
+import { isInactive } from "@/lib/masters/inactive";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
-type Opt = { id: string; code: string | null; name: string | null };
+// `is_active` rather than a bare {id, code, name}: these arrive as
+// `hsnDetailsAsLookups(...)` rows, and the flag is what lets a retired HSN drop
+// out of the picker while still resolving on the materials already assigned it.
+type Opt = { id: string; code: string | null; name: string | null; is_active: boolean };
 type CatOpt = { id: string; short_name: string | null; name: string | null };
 
 const hsnLabel = (o: Opt) => (o.code ? `${o.code}${o.name ? ` — ${o.name}` : ""}` : (o.name ?? "—"));
@@ -83,9 +88,11 @@ export function MaterialHsnAssignScreen({
     });
   }
 
+  const dt = useCreatedDateFilter(rows);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => {
+    return rows.filter(dt.matches).filter((r) => {
       if (q && !`${r.code ?? ""} ${r.name}`.toLowerCase().includes(q)) return false;
       if (fStatus === "Active" && !r.is_active) return false;
       if (fStatus === "Inactive" && r.is_active) return false;
@@ -95,7 +102,7 @@ export function MaterialHsnAssignScreen({
       if (fCat && fCat !== "__none" && r.category_id !== fCat) return false;
       return true;
     });
-  }, [rows, query, fStatus, fClass, fCat]);
+  }, [rows, dt.matches, query, fStatus, fClass, fCat]);
 
   const missing = useMemo(() => rows.filter((r) => !cur(r)).length, [rows, edits]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -133,6 +140,7 @@ export function MaterialHsnAssignScreen({
 
   function resetFilters() {
     setQuery("");
+    dt.reset();
     setFStatus("");
     setFClass("");
     setFCat("");
@@ -170,7 +178,7 @@ export function MaterialHsnAssignScreen({
   // the label ("6109 — T-SHIRTS…") because both are how an operator recognises
   // an HSN, and the picker filters on the label as you type.
   const hsnItems: PickerItem[] = useMemo(
-    () => hsnOptions.map((o) => ({ id: o.id, code: o.code, name: hsnLabel(o) })),
+    () => hsnOptions.map((o) => ({ id: o.id, code: o.code, name: hsnLabel(o), inactive: isInactive(o) })),
     [hsnOptions],
   );
 
@@ -213,8 +221,9 @@ export function MaterialHsnAssignScreen({
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search item code or name…"
-        activeCount={[fStatus, fClass, fCat].filter(Boolean).length}
+        activeCount={[fStatus, fClass, fCat].filter(Boolean).length + dt.active}
         onReset={resetFilters}
+        dateFilter={dt.bind}
         right={
           <>
             {filtered.length} of {rows.length} · {missing} missing HSN

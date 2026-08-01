@@ -25,10 +25,7 @@ import { getCourierOptions } from "@/lib/admin/extras-service";
 import { getCompanyProfile } from "@/lib/admin/company-service";
 import { listNotifies } from "@/lib/masters/notify-service";
 import { NotifyMasterScreen } from "@/components/masters/notify-master-screen";
-import { listEmployees, listEmployeeLocations } from "@/lib/masters/employee-service";
-import { EmployeeMasterScreen } from "@/components/masters/employee-master-screen";
-import { listMerchandisingTeams } from "@/lib/masters/merchandising-team-service";
-import { MerchandisingTeamMasterScreen } from "@/components/masters/merchandising-team-master-screen";
+import { listEmployeeLocations } from "@/lib/masters/employee-service";
 import { listWorkTimings } from "@/lib/masters/work-timing-service";
 import { WorkTimingMasterScreen } from "@/components/masters/work-timing-master-screen";
 import { listWorkingHours } from "@/lib/masters/working-hour-service";
@@ -39,23 +36,10 @@ import { listHsnDetails } from "@/lib/masters/hsn-detail-service";
 import { HsnDetailMasterScreen } from "@/components/masters/hsn-detail-master-screen";
 import { listEmployeeCategories } from "@/lib/masters/employee-category-service";
 import { EmployeeCategoryMasterScreen } from "@/components/masters/employee-category-master-screen";
-import { listAccountGroups } from "@/lib/masters/account-group-service";
-import { AccountGroupMasterScreen } from "@/components/masters/account-group-master-screen";
 import { listConsignees } from "@/lib/masters/consignee-service";
 import { ConsigneeMasterScreen } from "@/components/masters/consignee-master-screen";
 import { listVendors, listVendorsForPicker } from "@/lib/masters/vendor-service";
 import { VendorMasterScreen } from "@/components/masters/vendor-master-screen";
-import { listAccountHeads } from "@/lib/masters/account-head-service";
-import { AccountHeadMasterScreen } from "@/components/masters/account-head-master-screen";
-import { getCostHeads } from "@/lib/finance/cost-heads/service";
-import { listCourierDeliveryAddresses } from "@/lib/masters/courier-delivery-service";
-import { CourierDeliveryAddressMasterScreen } from "@/components/masters/courier-delivery-master-screen";
-import { listCustomerTcs } from "@/lib/masters/tcs-service";
-import { TcsAssignScreen } from "@/components/masters/tcs-assign-screen";
-import { listVendorGst } from "@/lib/masters/vendor-gst-service";
-import { GstAssignScreen } from "@/components/masters/gst-assign-screen";
-import { listCustomerGst } from "@/lib/masters/customer-gst-service";
-import { CustomerGstAssignScreen } from "@/components/masters/customer-gst-assign-screen";
 import { GstinCheckScreen } from "@/components/masters/gstin-check-screen";
 import { listProcessHsn } from "@/lib/masters/process-hsn-service";
 import { ProcessHsnAssignScreen } from "@/components/masters/process-hsn-assign-screen";
@@ -91,20 +75,16 @@ import { listOurBanks } from "@/lib/masters/our-bank-service";
 import { OurBankMasterScreen } from "@/components/masters/our-bank-master-screen";
 import { listZones } from "@/lib/masters/zone-service";
 import { ZoneMasterScreen } from "@/components/masters/zone-master-screen";
-import { listCertifications } from "@/lib/masters/certification-service";
-import { CertificationMasterScreen } from "@/components/masters/certification-master-screen";
-import { getDefaultAccountHead } from "@/lib/masters/default-account-head-service";
-import { DefaultAccountHeadScreen } from "@/components/masters/default-account-head-screen";
 import { listPackingFormatColumns } from "@/lib/masters/packing-format-columns-service";
 import {
   departmentsAsLookups,
   designationsAsLookups,
-  employeeCategoriesAsLookups,
   paymentTermsAsLookups,
   statesAsLookups,
   hsnDetailsAsLookups,
   categoriesAsLookups,
 } from "@/lib/masters/lookup-compat";
+import { isInactive } from "@/lib/masters/inactive";
 
 export default async function SubEntityPage({
   params,
@@ -188,50 +168,6 @@ export default async function SubEntityPage({
     } else if (child.custom === "payment_term") {
       const terms = await listPaymentTerms();
       screen = <PaymentTermMasterScreen rows={terms} perms={perms} />;
-    } else if (child.custom === "account_group") {
-      const [groups, all] = await Promise.all([listAccountGroups(), listConfigLookups()]);
-      screen = (
-        <AccountGroupMasterScreen
-          rows={groups}
-          schedules={all.filter((l) => l.kind === "account_schedule")}
-          perms={perms}
-        />
-      );
-    } else if (child.custom === "account_head") {
-      const [heads, accountGroups, costHeads] = await Promise.all([
-        listAccountHeads(),
-        listAccountGroups(),
-        getCostHeads(),
-      ]);
-      screen = (
-        <AccountHeadMasterScreen
-          rows={heads}
-          accountGroups={accountGroups}
-          costHeads={costHeads}
-          perms={perms}
-        />
-      );
-    } else if (child.custom === "courier_delivery_address") {
-      const [couriers, countries, all, deptRows, desigRows, stateRows] = await Promise.all([
-        listCourierDeliveryAddresses(),
-        listCountries(),
-        listConfigLookups(),
-        listDepartments(),
-        listDesignations(),
-        listStates(),
-      ]);
-      screen = (
-        <CourierDeliveryAddressMasterScreen
-          rows={couriers}
-          countries={countries}
-          cities={all.filter((l) => l.kind === "city")}
-          states={statesAsLookups(stateRows)}
-          departments={departmentsAsLookups(deptRows)}
-          designations={designationsAsLookups(desigRows)}
-          internalDepartments={all.filter((l) => l.kind === "internal_department")}
-          perms={perms}
-        />
-      );
     } else if (child.custom === "applicant") {
       const [applicants, countries, all, currencies, banks, deptRows, desigRows, stateRows, ptRows] = await Promise.all([
         listApplicants(),
@@ -319,6 +255,9 @@ export default async function SubEntityPage({
       const formatIds = [...new Set(customers.map((c) => c.packing_list_format_id).filter(Boolean))] as string[];
       const packingColumns = (await Promise.all(formatIds.map((fid) => listPackingFormatColumns(fid)))).flat();
       screen = (
+        // The four `RecordPicker` lists below flatten a master to {id, code,
+        // name}. The disable flag has to ride along or the picker cannot hide a
+        // retired row; `public.ports` is the one exception, having no such column.
         <CustomerMasterScreen
           rows={customers}
           applicants={applicants}
@@ -337,11 +276,17 @@ export default async function SubEntityPage({
           agentOptions={all.filter((l) => l.kind === "agent")}
           packingFormats={all.filter((l) => l.kind === "packing_list_format")}
           commercialFormats={all.filter((l) => l.kind === "commercial_invoice_format")}
-          vendors={vendors.map((v) => ({ id: v.id, code: v.code, name: v.name }))}
+          vendors={vendors.map((v) => ({
+            id: v.id,
+            code: v.code,
+            name: v.name,
+            inactive: isInactive(v),
+          }))}
           receivableTerms={terms.map((t) => ({
             id: t.id,
             code: String(t.entry_no),
             name: t.description ?? `Term #${t.entry_no}`,
+            inactive: isInactive(t),
           }))}
           ports={portRows.map((p) => ({
             id: p.id,
@@ -352,38 +297,18 @@ export default async function SubEntityPage({
             id: d.id,
             code: d.short_name,
             name: d.name ?? d.short_name ?? "—",
+            inactive: isInactive(d),
           }))}
-          couriers={couriers.map((c) => ({ id: c.id, code: c.code, name: c.name }))}
+          couriers={couriers.map((c) => ({
+            id: c.id,
+            code: c.code,
+            name: c.name,
+            inactive: isInactive(c),
+          }))}
           packingColumns={packingColumns}
           perms={perms}
         />
       );
-    } else if (child.custom === "employee") {
-      const [employees, all, locations, deptRows, desigRows, ecRows] = await Promise.all([
-        listEmployees(),
-        listConfigLookups(),
-        listEmployeeLocations(),
-        listDepartments(),
-        listDesignations(),
-        listEmployeeCategories(),
-      ]);
-      screen = (
-        <EmployeeMasterScreen
-          rows={employees}
-          categories={employeeCategoriesAsLookups(ecRows)}
-          departments={departmentsAsLookups(deptRows)}
-          designations={designationsAsLookups(desigRows)}
-          teams={all.filter((l) => l.kind === "team")}
-          locations={locations}
-          perms={perms}
-        />
-      );
-    } else if (child.custom === "merchandising_team") {
-      const [teams, locations] = await Promise.all([
-        listMerchandisingTeams(),
-        listEmployeeLocations(),
-      ]);
-      screen = <MerchandisingTeamMasterScreen rows={teams} locations={locations} perms={perms} />;
     } else if (child.custom === "work_timing") {
       const [timings, locations, all] = await Promise.all([
         listWorkTimings(),
@@ -478,7 +403,6 @@ export default async function SubEntityPage({
         vendors,
         countries,
         all,
-        accountGroups,
         stateRows,
         company,
         categories,
@@ -489,7 +413,6 @@ export default async function SubEntityPage({
           listVendors(),
           listCountries(),
           listConfigLookups(),
-          listAccountGroups(),
           listStates(),
           // Our own GSTIN — the reference point for classifying a vendor's GSTIN
           // as within-state or other-state. Null is fine (the strip just omits it).
@@ -511,7 +434,6 @@ export default async function SubEntityPage({
           cities={all.filter((l) => l.kind === "city")}
           states={statesAsLookups(stateRows)}
           groups={all.filter((l) => l.kind === "vendor_group")}
-          accountGroups={accountGroups}
           companyGstin={company?.gstin ?? null}
           itemClasses={all.filter((l) => l.kind === "item_class")}
           categories={categories}
@@ -521,29 +443,6 @@ export default async function SubEntityPage({
           supplyTypes={all.filter((l) => l.kind === "vendor_supply_type")}
           processes={processRows}
           serviceTypes={all.filter((l) => l.kind === "vendor_service_type")}
-          perms={perms}
-        />
-      );
-    } else if (child.custom === "tcs_assign") {
-      const [tcsRows, countries] = await Promise.all([listCustomerTcs(), listCountries()]);
-      screen = <TcsAssignScreen rows={tcsRows} countries={countries} perms={perms} />;
-    } else if (child.custom === "gst_assign") {
-      // Our own GSTIN — same source as the Vendor master. It is what turns each
-      // row's GSTIN into within-state / other-state, so the grid can flag a
-      // number whose state contradicts the vendor's own type (IGST vs CGST+SGST).
-      const [rows, company] = await Promise.all([listVendorGst(), getCompanyProfile()]);
-      screen = <GstAssignScreen rows={rows} companyGstin={company?.gstin ?? null} perms={perms} />;
-    } else if (child.custom === "customer_gst_assign") {
-      const [rows, all, company] = await Promise.all([
-        listCustomerGst(),
-        listConfigLookups(),
-        getCompanyProfile(),
-      ]);
-      screen = (
-        <CustomerGstAssignScreen
-          rows={rows}
-          cities={all.filter((l) => l.kind === "city")}
-          companyGstin={company?.gstin ?? null}
           perms={perms}
         />
       );
@@ -614,21 +513,6 @@ export default async function SubEntityPage({
     } else if (child.custom === "zone") {
       const rows = await listZones();
       screen = <ZoneMasterScreen rows={rows} perms={perms} />;
-    } else if (child.custom === "certification") {
-      const rows = await listCertifications();
-      screen = <CertificationMasterScreen rows={rows} perms={perms} />;
-    } else if (child.custom === "default_account_head") {
-      const [dahRow, accountHeads] = await Promise.all([
-        getDefaultAccountHead(),
-        listAccountHeads(),
-      ]);
-      screen = (
-        <DefaultAccountHeadScreen
-          row={dahRow}
-          accountHeads={accountHeads}
-          perms={{ canEdit: perms.canEdit }}
-        />
-      );
     }
   }
 

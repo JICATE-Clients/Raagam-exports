@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -9,8 +10,15 @@ import {
 } from "react";
 import { X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
-import { cycleTab, focusField, focusFirstField, focusLastField } from "@/lib/focus";
+import {
+  cycleTab,
+  focusField,
+  focusFirstField,
+  focusLastField,
+  registerContentEdge,
+} from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { useModalGuard, confirmDiscard, hasOpenModalInDom } from "@/lib/reload-guard";
 
@@ -93,6 +101,11 @@ export function MasterFullScreen({
   const rootRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // The scrolling pane that carries `data-focus-scope` — i.e. the element a
+  // field's navigation scope resolves to. `contentRef` is the inner width-capped
+  // div and is a DESCENDANT of it, which is the wrong end for a lookup that walks
+  // upwards, so the section hand-off has to be keyed on this one.
+  const paneRef = useRef<HTMLDivElement>(null);
   /** Where the cursor lands after a section switch — see the Tab listener. */
   const landingRef = useRef<"first" | "last">("first");
   /** Last field focused inside this overlay; the Tab cycle resumes from it. */
@@ -141,15 +154,51 @@ export function MasterFullScreen({
     return () => window.clearTimeout(id);
   }, [open, section]);
 
+  /**
+   * MOVING PAST THE LAST FIELD OF A SECTION OPENS THE NEXT SECTION — Tab off the
+   * last field goes forward, Shift+Tab off the first goes back. Only one section
+   * is mounted at a time, so "the next field" lives in a pane that does not exist
+   * yet; reaching it used to need the mouse (client 2026-07-30).
+   *
+   * Hoisted out of the `cycleTab` call below because BOTH forward keys need it
+   * now. Tab passes it in directly; Enter cannot — it is handled by the global
+   * listener — so the effect underneath also publishes it to lib/focus.ts. ONE
+   * callback, so the two can never disagree about where a section ends. If they
+   * did, Enter off the last field of Identity would save a record that has not
+   * reached Address yet, which is the exact premature save Enter-advance exists
+   * to remove (client 2026-07-31).
+   */
+  const onContentEdge = useCallback((dir: 1 | -1) => {
+    const { sections: list, section: current } = navRef.current;
+    const next = list.findIndex((s) => s.key === current) + dir;
+    // Off the end of the last section: decline. Tab carries on to the footer's
+    // Cancel/Save as it would on any other surface, and Enter saves.
+    if (next < 0 || next >= list.length) return false;
+    landingRef.current = dir === 1 ? "first" : "last";
+    setSection(list[next].key);
+    return true;
+  }, []);
+
+  // Publish the hand-off for the global Enter handler. Keyed on the pane
+  // carrying `data-focus-scope`, because that is the element a field's scope
+  // resolves to and the one lib/focus.ts walks up from.
+  useEffect(() => {
+    if (!open) return;
+    return registerContentEdge(paneRef.current, onContentEdge);
+  }, [open, onContentEdge]);
+
   // Tab owns the overlay while it is open: the page behind is still mounted, so
   // native Tab walks straight out of the editor and into it. `cycleTab` (the same
   // trap components/ui/sheet.tsx uses) orders the cycle fields → footer → ✕, and
-  // `onContentEdge` is where the sections join in — Tab off the LAST field of a
-  // section opens the next one, Shift+Tab off the first goes back. Reaching the
-  // next section used to need the mouse (client 2026-07-30).
+  // `onContentEdge` above is where the sections join in.
   //
-  // Tab still only MOVES: it never refuses because a required field is empty
-  // (Enter/Ctrl+S are what validate) and it never changes a value.
+  // Tab still never changes a value, and it still never refuses because a
+  // required field is empty — Enter/Ctrl+S are what validate. It has exactly
+  // ONE refusal, and it is deliberately not implemented here: a field showing a
+  // live "already exists" duplicate holds the cursor until the value is edited
+  // (client 2026-07-31). That guard runs on `window` in the capture phase and
+  // stops propagation, so this listener never sees the key — which is also what
+  // stops a held Tab from switching section out from under the message.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -159,21 +208,12 @@ export function MasterFullScreen({
       if (hasOpenModalInDom()) return;
       cycleTab(e, rootRef.current, {
         resumeFrom: lastFocusedRef.current,
-        onContentEdge: (dir) => {
-          const { sections: list, section: current } = navRef.current;
-          const next = list.findIndex((s) => s.key === current) + dir;
-          // Off the end of the last section: decline, and the cycle carries on
-          // to the footer's Cancel/Save as it would on any other surface.
-          if (next < 0 || next >= list.length) return false;
-          landingRef.current = dir === 1 ? "first" : "last";
-          setSection(list[next].key);
-          return true;
-        },
+        onContentEdge,
       });
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, onContentEdge]);
 
   // Ctrl/⌘+S saves the open editor (checklist keyboard shortcut).
   useRegisterShortcut(
@@ -292,9 +332,9 @@ export function MasterFullScreen({
           )}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate text-[15px] font-bold tracking-tight text-foreground">
+              <Truncated className="text-[15px] font-bold tracking-tight text-foreground">
                 {header.title}
-              </span>
+              </Truncated>
               {header.badges}
             </div>
             {header.meta && (
@@ -350,6 +390,9 @@ export function MasterFullScreen({
                 )}
               >
                 <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
+                {/* truncate-reveal: exempt -- rail chrome, not a value. The
+                    vocabulary is fixed and short, and clicking the step shows
+                    the section whose heading names it again in full. */}
                 <span className="flex-1 truncate whitespace-nowrap">{s.label}</span>
                 <span
                   className={cn(
@@ -364,13 +407,15 @@ export function MasterFullScreen({
         </nav>
 
         <div
+          ref={paneRef}
           className="min-h-0 flex-1 overflow-y-auto"
           // Field navigation comes from keyboard-nav-provider.tsx; this pane is
           // the navigation boundary because it carries data-focus-scope.
           data-focus-scope
           // ...and the FIELD region of the Tab cycle. Its edges are where "the
-          // last field of this section" is, which is what the Tab listener above
-          // turns into a section switch.
+          // last field of this section" is, which is what BOTH forward keys turn
+          // into a section switch — Tab through the listener above, Enter through
+          // the hand-off this pane is registered under.
           data-focus-region="content"
         >
           {/* max-w-3xl (768px) used to cap this pane, which made the whole layout
@@ -442,6 +487,10 @@ export function SectionBody({
           which is the only place a section explains itself. */}
       <div className="mb-4 @2xl/editor:mb-3 @2xl/editor:flex @2xl/editor:items-baseline @2xl/editor:gap-2">
         <h2 className="text-[15px] font-bold tracking-tight text-foreground @2xl/editor:shrink-0">{title}</h2>
+        {/* truncate-reveal: exempt -- truncates ONLY at @2xl, where the hint
+            shares a line with the title; below that it wraps and reads in full.
+            Routing it through <Truncated> would truncate it at every size and
+            hide text that is visible today. */}
         <p className="mt-0.5 text-[12.5px] text-muted-foreground @2xl/editor:mt-0 @2xl/editor:truncate">{hint}</p>
       </div>
       {/* Space the section's cards apart. A section often holds more than one

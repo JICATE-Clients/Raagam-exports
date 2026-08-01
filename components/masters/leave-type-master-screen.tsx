@@ -19,6 +19,8 @@ import {
   type LeaveType,
   type LeaveTypeInput,
 } from "@/lib/masters/leave-type-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -46,6 +48,18 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "leave_types",
+    name: form.code,
+    nameColumn: "code",
+    label: "ID",
+    excludeId: editId ?? undefined,
+    enabled: !!form.code.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.code,
+  });
 
   function openAdd() {
     setEditId(null);
@@ -163,7 +177,7 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.code.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.code.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -182,7 +196,9 @@ export function LeaveTypeMasterScreen({ rows, perms }: { rows: LeaveType[]; perm
                 onChange={(e) => set({ code: e.target.value })}
                 required
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "lt-code")}
               />
+              <DuplicateError error={dupError} id="lt-code" />
             </div>
             <div className="flex items-end gap-4 pb-1">
               <label className="flex cursor-pointer items-center gap-2">

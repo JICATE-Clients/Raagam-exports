@@ -758,7 +758,271 @@ def check_picker_perms(path: Path, code: str, slug: str):
         )
 
 
+# Row builders that legitimately carry no disable flag, keyed
+# "<file slug>#<variable>" so an exemption cannot quietly spread to the next
+# list in the same file. Each says WHY -- an unexplained exemption is how the
+# layout contract drifted before this script existed.
+#
+# Two reasons qualify, and only two:
+#   * the source table has no disable column at all, or
+#   * the picker FILTERS a list rather than SETTING a stored value -- narrowing
+#     a search to a since-retired buyer is a legitimate thing to want, and the
+#     rule is about fields that write.
+FLAGLESS_PICKERS = {
+    # `sales_orders` is a document with a status, not a master with a flag. The
+    # same list, under four names, on four screens.
+    "app/(app)/orders/advised-items/page.tsx#orderItems": "sales_orders: document",
+    "app/(app)/orders/garment-processes/page.tsx#pickerItems": "sales_orders: document",
+    "app/(app)/orders/amendments/amendment-screen.tsx#orderItems": "sales_orders: document",
+    "app/(app)/orders/packing-advice/packing-advice-screen.tsx#orderItems": "sales_orders: document",
+    # `color_card_colors` is a child of a colour card -- no flag of its own.
+    "app/(app)/orders/amendments/amendment-screen.tsx#dyeColorItems": "color_card_colors: no flag",
+    # Filter, not a field: this picker narrows the order list on a landing page,
+    # and `getBuyers()` already filters inactive buyers server-side.
+    "app/(app)/orders/advised-items/page.tsx#customerItems": "filter, not a field",
+    # `attribute_values` is a CHILD of the Attribute row; the parent is what
+    # gets switched off.
+    "components/masters/lookup-picker.tsx#rows": "attribute_values: no flag",
+    # `public.currencies` (0004) is code / name / symbol -- an ISO currency is
+    # retired by deleting the row, there is nothing to flag.
+    "components/masters/currency-picker.tsx#rows": "currencies: no flag",
+}
+
+# The two shapes a picker's option rows arrive in. Anything typed as one of
+# these must carry the flag; `PickerItem` accepts all three spellings via
+# `Deactivatable`, so passing the raw service row is the normal answer.
+PICKER_ROW_DECL = re.compile(
+    r"\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*:\s*(?:PickerRow|PickerItem)\[\]"
+)
+# The flag, in any spelling the schema uses, or the shared reader.
+INACTIVE_KEY = re.compile(r"\b(?:inactive|is_active|blocked|isInactive)\b")
+
+
+def check_picker_inactive(path: Path, code: str, slug: str):
+    """AGENTS.md STANDING: a disabled row is not offered for selection.
+
+    A master row switched off (`inactive` / `blocked` true, `is_active` false)
+    must drop out of every field that PICKS a value. `DataPicker` enforces it --
+    it hides a row flagged `inactive`, keeping only the one the record already
+    holds -- but it can only hide what the adapter tells it about, and the
+    adapter can only pass on what the service SELECTed. This check watches the
+    handoff, which is the link that silently breaks: SBI stayed in the Bank
+    dropdown for exactly this reason.
+
+    Fires on a `PickerRow[]` / `PickerItem[]` list whose builder never mentions
+    the flag in any of its three spellings. Deliberately shallow -- it cannot
+    know whether the SOURCE has a disable column, so `FLAGLESS_PICKERS` carries
+    the ones that genuinely do not, each naming its table.
+
+    Not a `<Select>` check: `stored-select` already says a stored-data field
+    should not be a `<Select>` at all, and duplicating the rule here would put
+    two findings on one line.
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    for m in PICKER_ROW_DECL.finditer(code):
+        if f"{slug}#{m.group(1)}" in FLAGLESS_PICKERS:
+            continue
+        # The builder runs from the declaration to the end of its initializer.
+        # `useMemo(...)` and a bare `.map(...)` both terminate at the first
+        # `;` that is not inside the expression -- close enough, and a false
+        # NEGATIVE here is safer than a false positive on a 900-line screen.
+        end = code.find(";", m.end())
+        body = code[m.end(): end if end != -1 else len(code)]
+        if ".map(" not in body:
+            continue  # a prop declaration, not a builder -- the producer is checked
+        if INACTIVE_KEY.search(body):
+            continue
+        yield Finding(
+            "picker-inactive", path, line_of(code, m.start()),
+            "picker rows built without the disable flag; a switched-off row "
+            "stays selectable. Pass `inactive: isInactive(row)` (or hand "
+            "RecordPicker the raw row) -- AGENTS.md, 'Disabled rows'",
+        )
+
+
+# Either half of the live duplicate check counts as wired: the descriptor field
+# (`SimpleMasterScreen`) or one of the two hooks (every other shell).
+DUP_WIRED = re.compile(r"\b(?:useDuplicateCheck|useDuplicateName|dupCheck)\b")
+# An opt-out, written in the screen it applies to and required to say why.
+# Matched against RAW text -- it is a comment, which `code` has blanked out.
+DUP_EXEMPT = re.compile(r"dup-check:\s*exempt\b[^\n]*\S", re.I)
+
+
+def check_dup_check(path: Path, code: str, slug: str):
+    """AGENTS.md STANDING: a master says "already exists" WHILE the operator types.
+
+    Every masters child either runs a live duplicate check on the column that is
+    its identity, or carries a written exemption. Without one, a second copy of a
+    record saves silently -- which is how 50 of 92 screens shipped, and how the
+    auto-code masters accepted duplicate names for months (the on-save guard sat
+    in the `else` of `if (!code) generateUniqueCode(...)`, and those forms have no
+    code box, so it never ran).
+
+    Exempt with a comment naming the reason, e.g.
+
+        // dup-check: exempt -- rate card keyed by (item, effective_from); a
+        // second row on a LATER date is how a revision is entered.
+
+    Genuinely exempt: dated / versioned documents (rate cards, levies, work
+    timings, holidays), auto-numbered entry docs, and any master whose identity
+    is a combination rather than one column. `employees` is exempt ON NAME
+    specifically -- two workers legitimately share a name, and a duplicate error
+    HOLDS THE CURSOR, so checking it would cage the operator on a correct value.
+
+    Also flags a hand-written `data-dup-error`. That attribute is what the
+    keyboard hold reads, and `dupFieldProps()` is the only thing allowed to emit
+    it -- spelling it by hand skips the paired `aria-describedby` and can pin the
+    cursor with no message on screen saying why.
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    if "components/masters/" not in slug:
+        return
+
+    for m in re.finditer(r'data-dup-error\s*=', code):
+        yield Finding(
+            "dup-check", path, code[: m.start()].count("\n") + 1,
+            "hand-written `data-dup-error` -- emit it via dupFieldProps(error, id) "
+            "so the message and the keyboard hold stay paired",
+        )
+
+    if not slug.endswith("-master-screen.tsx"):
+        return
+    if DUP_WIRED.search(code):
+        return
+    # The exemption is a comment, so it survives only in the raw file.
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    if DUP_EXEMPT.search(raw):
+        return
+    yield Finding(
+        "dup-check", path, 1,
+        "no live duplicate check -- wire useDuplicateName (or the SimpleMaster "
+        "`dupCheck` descriptor) on this master's identity column, or add a "
+        "`// dup-check: exempt -- <reason>` comment",
+    )
+
+
+# The classes that hide text. A responsive prefix hides it just as well
+# (`@2xl/editor:truncate`, `md:line-clamp-2`), so the prefix is optional rather
+# than absent -- matching only the bare word misses the container-query form,
+# which is exactly where a field gets narrow enough to clip.
+TRUNCATING_CLASS = re.compile(
+    r"""(?:^|[\s"'`])(?:[A-Za-z0-9@:\[\]/._-]+:)?(truncate|text-ellipsis|line-clamp-\d+)\b"""
+)
+
+# An opt-out written beside the line it applies to, required to say why.
+# Matched against RAW text -- it is a comment, which `code` has blanked out.
+TRUNCATE_EXEMPT = re.compile(r"truncate-reveal:\s*exempt\b[^\n]*\S", re.I)
+
+# The primitives that OWN the reveal and must write `truncate` themselves.
+TRUNCATE_OWNERS = {
+    "components/ui/truncated.tsx",
+    "components/ui/tooltip.tsx",
+}
+
+# Chrome, not data. Navigation, toolbars and search results truncate as a layout
+# decision, and the full text is reached by opening the thing rather than by
+# reading a bubble over it. Listed wholesale, each with its reason, rather than
+# sprinkling the same exemption comment through them -- same rationale as
+# FLAGLESS_PICKERS. A file here that starts rendering VALUES comes back off it.
+CHROME_TRUNCATION = {
+    "components/shell/mobile-nav.tsx": "nav labels, a fixed vocabulary",
+    "components/shell/topbar.tsx": "toolbar chrome",
+    "components/shell/notifications-bell.tsx": "previews; opening shows the whole thing",
+    "components/search/search-palette.tsx": "results re-render on every keystroke",
+    "components/dashboard/cards.tsx": "tile chrome",
+    "components/dashboard/charts.tsx": "axis labels, already carry title=",
+    "components/dashboard/lists.tsx": "dashboard tiles link to the record",
+    "components/ui/sheet.tsx": "sheet chrome; the title comes from the caller",
+}
+
+
+def comment_only_lines(raw: str, code: str) -> list[bool]:
+    """Per line (0-based), True when the line carries nothing but a comment.
+
+    `strip_comments` blanks comments to spaces and preserves length, so the two
+    texts agree line for line and a line that lost characters held a comment.
+    Losing characters is not enough on its own, though: a JSX comment is
+    `{/* ... */}` and the BRACES are code, so the first and last lines of one
+    still hold `{` and `}` after stripping. Those count as comment-only; a line
+    with anything else left does not.
+    """
+    out = []
+    for r, c in zip(raw.split("\n"), code.split("\n")):
+        out.append(c != r and c.strip(" \t{}") == "")
+    return out
+
+
+def exempt_above(exempt: set[int], commentish: list[bool], line: int) -> bool:
+    """True when an exemption marker governs `line`.
+
+    The marker may sit on the line itself (a trailing comment) or anywhere in
+    the contiguous comment block immediately above it. Walk up while the lines
+    are comment-only, stop at the first that carries code.
+
+    Written as a walk rather than a fixed window because the first attempt
+    capped it at three lines above, and the reason for one real exemption in
+    `master-full-screen.tsx` ran to four -- so a correctly written opt-out
+    silently did nothing. A window that quietly drops an exemption is worse
+    than no exemption: it teaches people to write shorter reasons.
+    """
+    if line in exempt:
+        return True
+    n = line - 1
+    while n >= 1 and commentish[n - 1]:  # list is 0-based, `line` is 1-based
+        if n in exempt:
+            return True
+        n -= 1
+    return False
+
+
+def check_truncate_reveal(path: Path, code: str, slug: str):
+    """LAYOUT.md §14: a clipped VALUE must still be readable.
+
+    `truncate` on its own is a dead end -- the ellipsis says text is missing and
+    nothing gets it back. `<Truncated>` (components/ui/truncated.tsx) measures
+    the box and, ONLY when something is actually hidden, reveals the whole value
+    on hover or press-and-hold.
+
+    The worst case is the one with no ellipsis at all: an `<input>` has no
+    `text-overflow` of its own, so a picker's selected value used to stop
+    mid-word and read as the whole thing. That is why the pickers carry
+    `text-ellipsis` as well as the bubble.
+
+    Values only. Chrome lives in CHROME_TRUNCATION above; anything else opts out
+    per line with a `truncate-reveal: exempt -- <reason>` comment, because the
+    judgement is "is this a value" and only the file can answer it.
+    """
+    if not slug.endswith(".tsx"):
+        return
+    if slug in TRUNCATE_OWNERS or slug in CHROME_TRUNCATION:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in TRUNCATE_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+    for m in TRUNCATING_CLASS.finditer(code):
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        yield Finding(
+            "truncate-reveal", path, line,
+            f"`{m.group(1)}` hides a value with no way to read it; render it "
+            "through <Truncated> (components/ui/truncated.tsx), or add a "
+            "`truncate-reveal: exempt -- <reason>` comment",
+        )
+
+
 CHECKS = {
+    "truncate-reveal": check_truncate_reveal,
+    "dup-check": check_dup_check,
+    "picker-inactive": check_picker_inactive,
     "screen-grid": check_screen_grid,
     "screen-table": check_screen_table,
     "field-track": check_field_track,

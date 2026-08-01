@@ -33,6 +33,8 @@ import {
   type PaymentTerm,
   type PaymentTermInput,
 } from "@/lib/masters/payment-term-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -116,6 +118,20 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
+
+  // Mirrors the check the Payment Term PICKER already ran -- the same record was
+  // guarded when quick-added from another form and unguarded on its own screen.
+  const dupError = useDuplicateName({
+    table: "payment_terms",
+    name: form.description,
+    nameColumn: "description",
+    label: "description",
+    excludeId: editId ?? undefined,
+    enabled: !!form.description.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.description,
+  });
 
   function openAdd() {
     setEditId(null);
@@ -234,7 +250,7 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.entry_date} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.entry_date} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -327,7 +343,9 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
                 rows={3}
                 value={form.description}
                 onChange={(e) => set({ description: e.target.value })}
+                {...dupFieldProps(dupError, "pt-desc")}
               />
+              <DuplicateError error={dupError} id="pt-desc" />
             </Field>
           </DetailSection>
 

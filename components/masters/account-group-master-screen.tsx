@@ -27,6 +27,8 @@ import {
   type AccountGroupInput,
   type NatureOfGroup,
 } from "@/lib/masters/account-group-types";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -88,6 +90,16 @@ export function AccountGroupMasterScreen({
   const [form, setForm] = useState(blankForm());
 
   const set = (patch: Partial<ReturnType<typeof blankForm>>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "account_groups",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
 
   const nameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -212,7 +224,7 @@ export function AccountGroupMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -241,7 +253,9 @@ export function AccountGroupMasterScreen({
               uppercase
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
+              {...dupFieldProps(dupError, "ag-name")}
             />
+            <DuplicateError error={dupError} id="ag-name" />
           </Field>
           <Field label="Nature of Group" size={FIELD_SIZE.nature_of_group} htmlFor="ag-nature">
             <Select

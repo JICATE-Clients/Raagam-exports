@@ -14,7 +14,8 @@ import { useToast } from "@/components/ui/toast";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { usePagination } from "@/lib/use-pagination";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { FilterBar } from "@/components/masters/filter-bar";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import {
@@ -62,14 +63,17 @@ export function CommodityMasterScreen({
   }, [itemClasses]);
 
   // Real-time duplicate check on Name (mirrors the on-save guard in commodity-actions).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "commodities",
     name: form.name ?? "",
     excludeId: editId ?? undefined,
     enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
   });
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     search: (r, q) =>
       [r.name, r.short_name, classLabel.get(r.item_class_id)].filter(Boolean).join(" ").toLowerCase().includes(q),
     filters: {
@@ -166,6 +170,13 @@ export function CommodityMasterScreen({
           }}
           searchPlaceholder="Search commodity…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -291,8 +302,9 @@ export function CommodityMasterScreen({
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="text-base md:text-sm"
+                {...dupFieldProps(dupError, "cmd-name")}
               />
-              {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+              <DuplicateError error={dupError} id="cmd-name" />
             </div>
 
             {/* Item Class stays the standard dialog picker (icon-field rule) */}

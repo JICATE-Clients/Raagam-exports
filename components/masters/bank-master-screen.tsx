@@ -24,11 +24,14 @@ import { createBank, updateBank, deleteBank } from "@/lib/masters/bank-actions";
 import { deletedToast } from "@/lib/masters/delete-message";
 import { BANK_TYPES, type Bank, type BankBranch, type BankInput, type BankType } from "@/lib/masters/bank-types";
 import type { Country } from "@/lib/masters/country-types";
+import { isInactive } from "@/lib/masters/inactive";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 // isd_code comes along for the ride so a branch's WhatsApp chip can build a
 // wa.me link with the right country prefix instead of assuming +91.
-type CountryOption = Pick<Country, "id" | "code" | "name" | "isd_code">;
+type CountryOption = Pick<Country, "id" | "code" | "name" | "isd_code" | "inactive">;
 type BranchRow = {
   key: string;
   country_id: string;
@@ -128,6 +131,16 @@ export function BankMasterScreen({
   const newKey = () => `b${keySeq.current++}`;
 
   const set = (patch: Partial<typeof BLANK>) => setForm((f) => ({ ...f, ...patch }));
+
+  const dupError = useDuplicateName({
+    table: "banks",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
   const codeLabel = codeLabelFor(form.bank_type);
 
   // Autosave the in-progress form to localStorage; offer to restore it if the
@@ -381,7 +394,7 @@ export function BankMasterScreen({
             <Button variant="outline" size="md" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="md" disabled={isPending || !form.name.trim()} onClick={submit}>
+            <Button size="md" disabled={isPending || !!dupError || !form.name.trim()} onClick={submit}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
@@ -445,7 +458,9 @@ export function BankMasterScreen({
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 required
+                {...dupFieldProps(dupError, "bk-name")}
               />
+              <DuplicateError error={dupError} id="bk-name" />
             </Field>
             {/* A radio set is one field with several controls; the inline gap
                 is intra-control spacing, not page layout. `h-8` matches the
@@ -523,10 +538,16 @@ export function BankMasterScreen({
                 {/* Row 1 — where the branch is. 3+3+3+3 = 12 */}
                 <Field label="Country" size="sm">
                   <Combobox
-                    options={countries.map((c) => ({
-                      value: c.id,
-                      label: countryLabel.get(c.id) ?? c.name,
-                    }))}
+                    // `Combobox` has no inactive state of its own, so the rule
+                    // is applied to the options: a switched-off country is not
+                    // offered, but the one this branch already sits in stays, or
+                    // the field would read empty on an existing bank.
+                    options={countries
+                      .filter((c) => !isInactive(c) || c.id === b.country_id)
+                      .map((c) => ({
+                        value: c.id,
+                        label: countryLabel.get(c.id) ?? c.name,
+                      }))}
                     value={b.country_id}
                     onChange={(v) => setBranchAt(b.key, { country_id: v })}
                     placeholder="— Select —"

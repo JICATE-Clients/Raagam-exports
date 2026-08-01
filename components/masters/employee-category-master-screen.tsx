@@ -38,6 +38,7 @@ const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
   fromRow: (r) => ({ name: r.name, for_type: r.for_type }),
   searchText: (r) => [r.name, r.for_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active"),
+  dupCheck: { table: "employee_categories", fieldKey: "name", nameColumn: "name" },
   toPayload: (v, s) => ({
     short_name: String(v.name) || null,
     name: String(v.name),

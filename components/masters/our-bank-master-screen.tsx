@@ -24,7 +24,8 @@ import {
   updateOurBank,
   deleteOurBank,
 } from "@/lib/masters/our-bank-actions";
-import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import type { OurBank, OurBankInput } from "@/lib/masters/our-bank-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
@@ -75,15 +76,18 @@ export function OurBankMasterScreen({
 
   // Real-time duplicate check on Account No — mirrors the on-save guard in
   // our-bank-actions (our_banks / account_no).
-  const dupError = useDuplicateCheck({
+  const dupError = useDuplicateName({
     table: "our_banks",
     name: form.account_no,
     nameColumn: "account_no",
     excludeId: editId ?? undefined,
     enabled: !!form.account_no.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.account_no,
   });
 
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset } = useMasterFilter(rows, {
+  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
     searchKey: (r) => [r.account_name, r.bank_name, r.branch_name, r.account_no].filter(Boolean).join(" "),
     filters: {
       status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
@@ -185,6 +189,13 @@ export function OurBankMasterScreen({
           }}
           searchPlaceholder="Search bank…"
           activeCount={activeCount}
+          dateFilter={{
+            ...dateFilter,
+            onChange: (v) => {
+              dateFilter.onChange(v);
+              pg.setPage(1);
+            },
+          }}
           onReset={() => {
             reset();
             pg.setPage(1);
@@ -289,8 +300,9 @@ export function OurBankMasterScreen({
               format="account"
               value={form.account_no}
               onChange={(e) => setForm({ ...form, account_no: e.target.value })}
+              {...dupFieldProps(dupError, "ob-account-no")}
             />
-            {dupError && <p className="mt-1 text-xs text-danger">{dupError}</p>}
+            <DuplicateError error={dupError} id="ob-account-no" />
           </Field>
           <Field label="Account Name" size={FIELD_SIZE.account_name} htmlFor="ob-account-name">
             <Input

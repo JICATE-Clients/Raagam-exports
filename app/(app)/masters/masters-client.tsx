@@ -18,7 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
-import { RecordPicker } from "@/components/masters/record-picker";
+import { RecordPicker, type PickerItem as RecordPickerItem } from "@/components/masters/record-picker";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import {
   createBuyer,
@@ -62,16 +62,19 @@ const BUYER_DEFAULTS: BuyerInput = {
   contact_email: null,
   contact_phone: null,
   address: null,
+  customer_id: null,
   is_active: true,
 };
 
 function BuyersSection({
   buyers,
   currencies,
+  customers,
   io,
 }: {
   buyers: Buyer[];
   currencies: Currency[];
+  customers: RecordPickerItem[];
   io: IoPerms;
 }) {
   const router = useRouter();
@@ -97,6 +100,7 @@ function BuyersSection({
       contact_email: b.contact_email,
       contact_phone: b.contact_phone,
       address: b.address,
+      customer_id: b.customer_id,
       is_active: b.is_active,
     });
     setEditId(b.id);
@@ -218,6 +222,19 @@ function BuyersSection({
                   canCreate={io.canCreate}
                   canEdit={io.canEdit}
                   canDelete={io.canDelete}
+                />
+              </div>
+              {/* The link that lets an ORDER reach this party's nominated /
+                  recommended vendor lists — those hang off `customers`, orders
+                  hang off `buyers` (0380). Optional: left null, Trims ▸ Vendor
+                  offers every vendor and says on the field why it could not
+                  narrow. It does not guess by name. */}
+              <div>
+                <RecordPicker
+                  label="Customer (for nominated vendors)"
+                  items={customers}
+                  value={form.customer_id ?? null}
+                  onChange={(id) => setForm({ ...form, customer_id: id })}
                 />
               </div>
               <div>
@@ -704,6 +721,7 @@ export default function MastersClient({
   items,
   uoms,
   currencies,
+  customers = [],
   lookups = [],
   transporters = [],
   gstRates = [],
@@ -717,6 +735,8 @@ export default function MastersClient({
   items: Item[];
   uoms: Uom[];
   currencies: Currency[];
+  /** For the Buyer ▸ Customer link (0380) — id/code/name only. */
+  customers?: RecordPickerItem[];
   lookups?: ConfigLookup[];
   transporters?: Transporter[];
   gstRates?: GstRate[];
@@ -731,7 +751,9 @@ export default function MastersClient({
     {
       key: "buyers",
       label: "Buyers",
-      content: <BuyersSection buyers={buyers} currencies={currencies} io={io} />,
+      content: (
+        <BuyersSection buyers={buyers} currencies={currencies} customers={customers} io={io} />
+      ),
     },
     {
       key: "items",

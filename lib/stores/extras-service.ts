@@ -11,10 +11,13 @@ import type {
   CspReceiptLine,
 } from "./extras-types";
 
-export type StoreOption = { id: string; code: string; name: string };
-export type ItemOption = { id: string; code: string | null; name: string };
-export type VendorOption = { id: string; code: string | null; name: string };
-export type BuyerOption = { id: string; name: string };
+// `is_active` rides on every option row: the picker hides a disabled store /
+// material / vendor / buyer, and keeps the one a document already names so
+// reopening it still reads (AGENTS.md, "Disabled rows").
+export type StoreOption = { id: string; code: string; name: string; is_active: boolean };
+export type ItemOption = { id: string; code: string | null; name: string; is_active: boolean };
+export type VendorOption = { id: string; code: string | null; name: string; is_active: boolean };
+export type BuyerOption = { id: string; name: string; is_active: boolean };
 
 function joined(row: Record<string, unknown>, rel: string, field: string): string | null {
   const r = row[rel] as Record<string, unknown> | null;
@@ -27,24 +30,23 @@ export async function getStoreOptions(): Promise<StoreOption[]> {
   const s = await createClient();
   const { data } = await s
     .from("stores")
-    .select("id, code, name")
-    .eq("is_active", true)
+    .select("id, code, name, is_active")
     .order("code");
   return (data ?? []) as StoreOption[];
 }
 export async function getItems(): Promise<ItemOption[]> {
   const s = await createClient();
-  const { data } = await s.from("items").select("id, code, name").order("name");
+  const { data } = await s.from("items").select("id, code, name, is_active").order("name");
   return (data ?? []) as ItemOption[];
 }
 export async function getVendors(): Promise<VendorOption[]> {
   const s = await createClient();
-  const { data } = await s.from("vendors").select("id, code, name").order("name");
+  const { data } = await s.from("vendors").select("id, code, name, is_active").order("name");
   return (data ?? []) as VendorOption[];
 }
 export async function getBuyers(): Promise<BuyerOption[]> {
   const s = await createClient();
-  const { data } = await s.from("buyers").select("id, name").order("name");
+  const { data } = await s.from("buyers").select("id, name, is_active").order("name");
   return (data ?? []) as BuyerOption[];
 }
 

@@ -34,6 +34,7 @@ const descriptor: SimpleMasterDescriptor<Currency> = {
   ],
   fromRow: (r) => ({ code: r.code, name: r.name, symbol: r.symbol ?? "" }),
   searchText: (r) => [r.code, r.name, r.symbol].filter(Boolean).join(" "),
+  dupCheck: { table: "currencies", fieldKey: "name", nameColumn: "name" },
   toPayload: (v) => ({
     code: String(v.code).toUpperCase(),
     name: String(v.name),

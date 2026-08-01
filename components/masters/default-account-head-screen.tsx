@@ -16,6 +16,7 @@ import type {
   DefaultAccountHeadInput,
 } from "@/lib/masters/default-account-head-types";
 import type { AccountHead } from "@/lib/masters/account-head-types";
+import { isInactive } from "@/lib/masters/inactive";
 
 type Perms = { canEdit: boolean };
 
@@ -125,15 +126,15 @@ export function DefaultAccountHeadScreen({
   // legacy dropdown read ("DISC — DISCOUNT ALLOWED"), and it is what an operator
   // types to find the head. A deactivated head stays in the list while a field
   // still points at it — dropping it outright would show that field as empty and
-  // silently blank the FK on the next save.
-  const chosen = new Set(Object.values(form).filter(Boolean) as string[]);
-  const headOptions: PickerItem[] = accountHeads
-    .filter((h) => !h.inactive || chosen.has(h.id))
-    .map((h) => ({
-      id: h.id,
-      code: h.short_name,
-      name: h.short_name ? `${h.short_name} — ${h.name}` : h.name,
-    }));
+  // silently blank the FK on the next save. That exception used to be hand-rolled
+  // here against the union of all nine chosen ids, which is coarser than it needs
+  // to be; `RecordPicker` now applies it per field, against that field's own value.
+  const headOptions: PickerItem[] = accountHeads.map((h) => ({
+    id: h.id,
+    code: h.short_name,
+    name: h.short_name ? `${h.short_name} — ${h.name}` : h.name,
+    inactive: isInactive(h),
+  }));
 
   return (
     // A singleton settings page rather than a record editor, so it declares its
