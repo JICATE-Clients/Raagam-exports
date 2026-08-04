@@ -8,6 +8,8 @@
     "build:check": "node scripts/build-check.mjs",
     "start": "next start",
     "gen:icons": "node scripts/generate-pwa-icons.mjs",
+    "mine:vocab": "node --experimental-strip-types scripts/mine-name-vocabularies.mts",
+    "check:names": "node --experimental-strip-types scripts/check-name-suggest.mts",
     "lint": "eslint"
   },
   "dependencies": {

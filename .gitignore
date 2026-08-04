@@ -57,6 +57,14 @@ next-env.d.ts
 # Local dev-server log capture
 .devlog.txt
 
+# Vocabulary miner (scripts/mine-name-vocabularies.mts) — both regenerated on
+# demand. The 668 KB HSN workbook is a cached download, and the proposal file is
+# a working document: what gets KEPT from it lands in name-vocabularies.ts, which
+# is committed. Committing the proposals instead would turn a reviewed decision
+# back into a list of maybes.
+/scripts/.vocab-cache/
+/scripts/out/
+
 # Python bytecode from scripts/audit_layout.py — regenerated on every run
 __pycache__/
 *.py[cod]
