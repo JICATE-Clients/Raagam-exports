@@ -50,6 +50,20 @@ type LineRow = {
   mandatory: boolean;
   inactive: boolean;
   options: OptionRow[];
+  /**
+   * The operator has hand-edited this stepped line's value list, so it is theirs
+   * now and Start/End/Step/Unit stop rewriting it (client 2026-08-04).
+   *
+   * Needed because `genOptions` rebuilds the WHOLE list with fresh keys on every
+   * range change. Without this, editing "3 MM" to "3 MM THICK" and then fixing a
+   * typo in Step would silently discard the edit — which is the bug this file
+   * already records once, when changing the Unit rewrote every description and
+   * cleared every flag the user had set (client 2026-07-28).
+   *
+   * UI-only: never sent, never stored. A saved line comes back with its options
+   * as plain rows, which is exactly what "the list is yours" means.
+   */
+  options_edited: boolean;
 };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -228,6 +242,7 @@ export function MaterialAttributeMasterScreen({
       // asks for one — "+ Add value", or Enter off the last value — never as a
       // permanently open empty field (client 2026-08-04).
       options: [],
+      options_edited: false,
     };
   }
 
@@ -275,12 +290,21 @@ export function MaterialAttributeMasterScreen({
               description: o.description,
               blocked: o.blocked,
             })),
+            // A SAVED line's list is already the operator's — it is whatever they
+            // last chose to store. Re-deriving it on open would silently discard
+            // any edit made in an earlier session, so a stepped line only
+            // regenerates when it has no stored values to lose.
+            options_edited: (l.options ?? []).length > 0,
           }))
         : [];
     setLines(withStarRow(built));
-    // Stepped lines: re-derive the generated value list from the stored
-    // Start/End/Step/Unit so it shows immediately (blocked flags preserved).
-    setLines((ls) => ls.map((l) => (l.value_in_steps ? { ...l, options: genOptions(l) } : l)));
+    // A stepped line with NO stored values re-derives them so the list shows
+    // immediately. One that HAS them keeps them — see `options_edited`: those
+    // rows are what the operator chose to save, and regenerating would discard
+    // an edit made in an earlier session.
+    setLines((ls) =>
+      ls.map((l) => (l.value_in_steps && !l.options_edited ? { ...l, options: genOptions(l) } : l)),
+    );
     // Open the first line: on an existing record the user is usually here to
     // change one attribute, and a fully collapsed list gives no clue that the
     // rows expand at all.
@@ -359,7 +383,13 @@ export function MaterialAttributeMasterScreen({
     setLines((ls) =>
       ls.map((l) =>
         l.key === lineKey
-          ? { ...l, options: l.options.map((o) => (o.key === optKey ? { ...o, ...patch } : o)) }
+          ? {
+              ...l,
+              // Editing a value is what makes the list the operator's — from
+              // here the range fields stop regenerating it. See `options_edited`.
+              options_edited: true,
+              options: l.options.map((o) => (o.key === optKey ? { ...o, ...patch } : o)),
+            }
           : l,
       ),
     );
@@ -367,7 +397,7 @@ export function MaterialAttributeMasterScreen({
     setLines((ls) =>
       ls.map((l) =>
         l.key === lineKey
-          ? { ...l, options: l.options.filter((o) => o.key !== optKey) }
+          ? { ...l, options_edited: true, options: l.options.filter((o) => o.key !== optKey) }
           : l,
       ),
     );
@@ -447,9 +477,15 @@ export function MaterialAttributeMasterScreen({
       ls.map((l) => {
         if (l.key !== key) return l;
         const next = { ...l, ...patch };
-        // Stepped lines regenerate their (read-only) list; a manual one keeps
-        // whatever the operator typed, untouched.
-        if (next.value_in_steps) next.options = genOptions(next);
+        // A stepped line regenerates from Start/End/Step/Unit — UNTIL the
+        // operator edits the list, after which it is theirs and the range fields
+        // stop rewriting it. Ticking Value In Steps ON is the one thing that
+        // always regenerates: that is the operator asking for a fresh list.
+        const turningStepsOn = patch.value_in_steps === true && !l.value_in_steps;
+        if (next.value_in_steps && (turningStepsOn || !next.options_edited)) {
+          next.options = genOptions(next);
+          if (turningStepsOn) next.options_edited = false;
+        }
         return next;
       }),
     );
@@ -923,9 +959,17 @@ export function MaterialAttributeMasterScreen({
              * very key meant to reach it. The width the card layout wasted is
              * reclaimed by the columns on the attribute row instead.
              *
-             * For a Value-In-Steps line the rows are AUTO-GENERATED from
-             * Start/End/Step/Unit and read-only — narrow the range to exclude a
-             * value.
+             * BOTH KINDS ARE EDITABLE. A Value-In-Steps line SEEDS its list from
+             * Start/End/Step/Unit, and the rows were read-only chips until the
+             * client asked to edit them (2026-08-04) — narrowing the range was
+             * the only way to change a value, which cannot relabel one.
+             *
+             * The seed then has to stop overwriting them, or the first correction
+             * to Step silently discards every edit. `options_edited` is that
+             * latch: touching any value hands the list to the operator, the range
+             * fields stop rewriting it, and the caption says so with a
+             * "Regenerate" button as the way back. Re-ticking Value In Steps also
+             * regenerates — that is the operator asking for a fresh list.
              */
             const VALUE_TRACKS = "2.5rem minmax(0,1fr) 2rem";
             const valuesCell = (l: LineRow) => {
@@ -933,13 +977,46 @@ export function MaterialAttributeMasterScreen({
               const dupValues = duplicateOptions.get(l.key);
               return (
                 <div className="max-w-xl rounded-md border border-border bg-surface-muted/40 p-2">
-                  <div className="mb-1 flex items-baseline gap-2">
+                  <div className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                       {stepped ? "Generated values" : "Values"}
                     </span>
-                    {!stepped && (
+                    {!stepped ? (
                       <span className="text-xs text-muted-foreground">
                         these become the dropdown on the Material form
+                      </span>
+                    ) : l.options_edited ? (
+                      /* SAYING WHICH STATE THE LIST IS IN, because the range
+                         fields above have silently stopped driving it. Without
+                         this the operator edits one value, later corrects Step,
+                         sees nothing happen, and has no way to know why. The
+                         button is the way back — and it is honest about the cost,
+                         since regenerating is exactly what discards the edits. */
+                      <>
+                        <span className="text-xs text-muted-foreground">
+                          edited — Start / End / Step no longer rewrite this list
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto px-1 py-0 text-xs"
+                          onClick={() =>
+                            setLines((ls) =>
+                              ls.map((x) =>
+                                x.key === l.key
+                                  ? { ...x, options_edited: false, options: genOptions(x) }
+                                  : x,
+                              ),
+                            )
+                          }
+                        >
+                          Regenerate
+                        </Button>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        from Start / End / Step — editing one makes the list yours
                       </span>
                     )}
                   </div>
@@ -954,30 +1031,17 @@ export function MaterialAttributeMasterScreen({
                   <div
                     data-grid-body
                     className="space-y-1"
-                    onKeyDown={stepped ? undefined : (e) => gridKeyNav(e, () => addOption(l.key))}
+                    // Both kinds now, because both are editable. A stepped list
+                    // used to be read-only text with nothing to focus, so it
+                    // needed no grid nav; its rows are real inputs now.
+                    onKeyDown={(e) => gridKeyNav(e, () => addOption(l.key))}
                   >
-                    {stepped ? (
-                      // Read-only text, and there can be a hundred of them, so
-                      // they wrap as chips rather than taking a row each. Nothing
-                      // here is focusable — hence no row markers.
-                      l.options.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          Set Start / End / Step on the row above to generate values.
-                        </p>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {l.options.map((o) => (
-                            <span
-                              key={o.key}
-                              className="rounded-md border border-border bg-surface px-2 py-1 text-sm tabular-nums text-foreground"
-                            >
-                              {o.description}
-                            </span>
-                          ))}
-                        </div>
-                      )
-                    ) : (
-                      <>
+                    {stepped && l.options.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Set Start / End / Step on the row above to generate values.
+                      </p>
+                    )}
+                    <>
                         {/* The column header earns its place only once there is
                             a column to head. On an empty list it would be two
                             captions stacked above a button. */}
@@ -1077,8 +1141,7 @@ export function MaterialAttributeMasterScreen({
                         >
                           + Add value
                         </Button>
-                      </>
-                    )}
+                    </>
                   </div>
                 </div>
               );
@@ -1143,7 +1206,40 @@ export function MaterialAttributeMasterScreen({
                   // yet, and offering to delete nothing reads as a bug.
                   const isStar = !l.attribute_id && i === lines.length - 1;
                   return (
-                    <div className="space-y-1.5">
+                    <div
+                      className="space-y-1.5"
+                      /**
+                       * ONLY THE ROW THE CURSOR IS IN STAYS OPEN (client
+                       * 2026-08-04). Moving on to the next attribute left the
+                       * previous one's value panel hanging open, so the grid grew
+                       * a block of someone else's values between every two rows.
+                       *
+                       * Driven by FOCUS, not by the chevron: "I have moved on" is
+                       * a thing the cursor says, and it covers Tab, the arrows and
+                       * the mouse in one rule rather than three. React's onFocus
+                       * bubbles, so a click or a Tab anywhere inside this row —
+                       * including into its own value list — reports the row and
+                       * keeps it open.
+                       *
+                       * NOT a keyboard handler: it reads where focus landed and
+                       * never touches a key, so the contract in lib/focus.ts still
+                       * owns every movement (the skill's "never bind keys per
+                       * screen" rule).
+                       *
+                       * The star row is not expandable, so focusing it collapses
+                       * everything — which is the reported case: you move to the
+                       * new row and the old panel closes behind you.
+                       */
+                      onFocus={() =>
+                        setExpandedKeys((s) => {
+                          const keep = s.has(l.key);
+                          // Already in the wanted shape — return the SAME set, or
+                          // every focus move inside one row re-renders the grid.
+                          if (keep ? s.size === 1 : s.size === 0) return s;
+                          return keep ? new Set([l.key]) : new Set();
+                        })
+                      }
+                    >
                       <div
                         className="grid items-start gap-x-2"
                         style={{ gridTemplateColumns: ROW_TRACKS }}
