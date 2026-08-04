@@ -26,6 +26,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   /** The order these advised items belong to — fixed for this page. */
@@ -271,7 +272,7 @@ export function AdvisedItemsEditor({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, items)}
         rows={items}
         getKey={(i) => i.id}
         empty="No advised items for this order yet. Use 'New advised item' above."

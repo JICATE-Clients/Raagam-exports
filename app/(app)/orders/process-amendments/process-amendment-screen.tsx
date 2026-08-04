@@ -25,6 +25,7 @@ import type {
   GpaFormData,
   StyleRow,
 } from "@/lib/orders/process-amendments/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
@@ -195,7 +196,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
           description="Amend the component / garment process of styles on an order."
           actions={perms.canCreate ? <Button onClick={openAdd}>New Amendment</Button> : undefined}
         />
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No amendments yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No amendments yet." />
       </div>
     );
   }

@@ -10,6 +10,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import type { PurchasePpmRow } from "@/lib/planning/ppm-types";
 import type { PpmStatus } from "@/lib/planning/ppm-types";
 import { ACK_STATUS_LABELS } from "@/lib/planning/ppm-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
   draft: "Draft",
@@ -107,7 +108,7 @@ export default async function PurchasePpmPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, ppms)}
         rows={ppms}
         getKey={(r) => r.id}
         empty="No purchase PPM records yet."

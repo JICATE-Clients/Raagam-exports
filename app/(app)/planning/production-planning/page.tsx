@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { ProductionPlan, PpStatus } from "@/lib/planning/production-planning-types";
 import { DATE_TYPE_LABELS } from "@/lib/planning/production-planning-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_LABELS: Record<PpStatus, string> = {
   draft: "Draft",
@@ -90,7 +91,7 @@ export default async function ProductionPlanningPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, plans)}
         rows={plans}
         getKey={(r) => r.id}
         empty="No production plans yet."

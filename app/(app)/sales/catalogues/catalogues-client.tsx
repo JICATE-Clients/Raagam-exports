@@ -18,6 +18,7 @@ import { createCatalogue, deleteCatalogue, createPriceList, deletePriceList, cre
 import type { StyleCatalogue, StylePriceList } from "@/lib/sales/catalogue-types";
 import type { PiEnquiryRow } from "@/lib/sales/catalogue-service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", sent: "info", confirmed: "success", cancelled: "danger" };
 
@@ -67,7 +68,7 @@ function CatalogueTab({ rows }: { rows: StyleCatalogue[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Catalogue</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No catalogues yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No catalogues yet." />
       {selectedId && (
         <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -147,7 +148,7 @@ function PriceListTab({ rows }: { rows: StylePriceList[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Price List</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No price lists yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No price lists yet." />
       {selectedId && (
         <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -235,7 +236,7 @@ function PiEnquiryTab({ rows }: { rows: PiEnquiryRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New PI Enquiry</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No PI enquiries yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No PI enquiries yet." />
       {selectedId && (
         <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
           <div className="flex items-center justify-between">

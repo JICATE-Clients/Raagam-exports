@@ -13,6 +13,7 @@ import { useRegisterShortcut } from "@/lib/shortcuts";
 import { saveCustomerTcs } from "@/lib/masters/tcs-actions";
 import type { CustomerTcsRow } from "@/lib/masters/tcs-service";
 import type { Country } from "@/lib/masters/country-types";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -146,7 +147,7 @@ export function TcsAssignScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No customers yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No customers yet." />
       </div>
 
       {/* mobile cards */}
@@ -167,6 +168,7 @@ export function TcsAssignScreen({
                   {r.code ?? "—"}
                   {r.country_id ? ` · ${countryCode.get(r.country_id) ?? ""}` : ""}
                 </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {valueOf(r) && <StatusPill tone="success">TCS</StatusPill>}

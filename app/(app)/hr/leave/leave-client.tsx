@@ -23,6 +23,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrLeave } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: LeaveStatus): StatusTone {
   switch (s) {
@@ -171,7 +172,7 @@ export function LeaveClient({ rows, employees, canCreate, canEdit, canApprove, c
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New leave</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No leave records yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No leave records yet." />
     </div>
   );
 }

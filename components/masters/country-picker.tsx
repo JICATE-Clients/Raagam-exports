@@ -61,12 +61,26 @@ export function CountryPicker({
   canEdit,
   canDelete,
   compact = false,
+  required = true,
 }: {
   countries: Country[];
   value: string | null;
   onChange: (id: string) => void;
   canCreate: boolean;
   canEdit: boolean;
+  /**
+   * Defaults to TRUE, which is what this picker has always done — the inner
+   * `LookupDialogPicker` hard-coded `required`, so every Country field in the app
+   * already holds a blank cursor. Exposing it changes no behaviour; it lets the
+   * call site SAY so, which is the difference between a screen that is correct
+   * and a screen that can be seen to be correct.
+   *
+   * `audit_layout.py --check required-hold` counts `required` in the screen, and
+   * requiredness buried in a shared picker is invisible to it: Destination
+   * declared one `required` against two mandatory fields and looked balanced,
+   * with the declaration on Name and the mandatory field being Country.
+   */
+  required?: boolean;
   /** Defaults to `canEdit` — see the note in `lookup-dialog-picker.tsx`. The
    *  delete itself is guarded: a country any record references is deactivated,
    *  not removed. */
@@ -219,7 +233,7 @@ export function CountryPicker({
         // The legacy contract is "a picked id", never null.
         onChange={(id) => onChange(id ?? "")}
         clearable={false}
-        required
+        required={required}
         compact={compact}
         manage={manage}
         onAddOverride={openAdd}

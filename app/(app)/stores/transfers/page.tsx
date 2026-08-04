@@ -7,6 +7,7 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { TransferForm } from "./transfer-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type TransferRow = {
   id: string;
@@ -91,7 +92,7 @@ export default async function TransfersPage() {
       <Card>
         <CardHeader><CardTitle>Recent Transfers</CardTitle></CardHeader>
         <CardBody>
-          <DataTable columns={columns} rows={transfers} getKey={(r) => r.id} empty="No transfers recorded." />
+          <DataTable columns={withCreatedColumns(columns, transfers)} rows={transfers} getKey={(r) => r.id} empty="No transfers recorded." />
         </CardBody>
       </Card>
     </div>

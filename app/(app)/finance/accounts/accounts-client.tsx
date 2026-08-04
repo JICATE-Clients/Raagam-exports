@@ -17,6 +17,7 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   asset: "Asset",
@@ -216,7 +217,7 @@ export function AccountsClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, accounts)}
         rows={accounts}
         getKey={(r) => r.id}
         empty="No accounts in the chart of accounts."

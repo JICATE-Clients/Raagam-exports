@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { ColorCard, ColorCardColor } from "./types";
 import type { Buyer } from "@/lib/masters/types";
+import { withCreators } from "@/lib/created-by";
 
 export type ColorCardWithBuyer = ColorCard & {
   buyers: Pick<Buyer, "id" | "name"> | null;
@@ -16,13 +17,15 @@ export async function getColorCards(): Promise<ColorCardWithBuyer[]> {
     .select("*, buyers(id, name), color_card_colors(count)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as (ColorCard & {
-    buyers: Pick<Buyer, "id" | "name"> | null;
-    color_card_colors: { count: number }[];
-  })[]).map((c) => ({
-    ...c,
-    color_count: c.color_card_colors?.[0]?.count ?? 0,
-  }));
+  return withCreators(
+    ((data ?? []) as unknown as (ColorCard & {
+      buyers: Pick<Buyer, "id" | "name"> | null;
+      color_card_colors: { count: number }[];
+    })[]).map((c) => ({
+      ...c,
+      color_count: c.color_card_colors?.[0]?.count ?? 0,
+    })),
+  );
 }
 
 /** Colour cards for a single customer (buyer), newest first. */

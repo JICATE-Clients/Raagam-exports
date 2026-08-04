@@ -22,6 +22,158 @@ destroying half-typed work is `lib/reload-guard.ts`, so every screen must declar
 `Sheet`, `MasterFullScreen`, `SimpleMasterScreen` and `useFormDraft` already register,
 so anything built on those is covered without doing anything.
 
+## Tab lands on fields (STANDING)
+
+**Tab moves between FIELDS and nothing else** — not a ✕, not a child row's Remove, not
+Save or Cancel. One implementation, `cycleTab` in `lib/focus.ts`, delivered by the single
+`document` listener in `components/shell/keyboard-nav-provider.tsx`, so every surface
+answers the key identically and a new screen is correct without doing anything.
+
+"A field" is `isFieldLike()` — the same predicate Enter-advance uses, and the same axis
+`ROW_FIELDS` (`child-grid.tsx`) declares for the arrows. **All three movement keys read
+one definition**, because when they disagreed the disagreement was visible inside a single
+grid row: tabbing along it stopped on the Remove ✕ that ↑↓←→ and Enter both stepped over.
+
+That bug is the whole reason this is written down. It was fixed once with `tabIndex={-1}`
+on `ChildGrid`'s three layouts (2026-08-01) — and came straight back three days later,
+because **~22 screens hand-roll a grid row instead of using `ChildGrid`**. A per-component
+fix for a contract-level rule always leaves a remainder. **Never answer a keyboard
+complaint with a per-screen or per-component patch**; fix `lib/focus.ts` and the whole app
+changes at once.
+
+The actions that left the Tab path each keep a key, and the shortcuts sheet says so:
+
+- **Save** — Enter off the last field, or Ctrl+S.
+- **Cancel / close** — Escape, one layer per press.
+- **Delete a grid row** — **Ctrl+Del** on any cell (`gridKeyNav`). It drives the row's own
+  ✕ with `.click()`, found by `[data-row-remove]` or an `aria-label` starting "Remove", so
+  the 22 hand-rolled grids get it without being edited.
+- Everything is still on the mouse, and still in screen-reader focus order — the ✕ is
+  *reordered out of the typing path*, never removed from the document.
+
+Three things that look like details:
+
+- **Tab does not escape the surface.** It wraps inside the editor's field region, or hands
+  to the next section of a rail editor (`registerContentEdge`, the one callback Enter also
+  reads). On an overlay that is the focus trap; on a page form it is what makes the two
+  behave the same. `Sheet` and `MasterFullScreen` no longer carry Tab handlers of their own.
+- **Tab is claimed only on an editor** (`isEditorScope`: a dialog, a `data-focus-scope`
+  pane, or a surface with a footer region). A list page, a filter bar and the app chrome
+  keep native tab order — deliberately NOT gated on `canSubmitSurface`, whose
+  "any form with a submit button" branch would cage the operator inside a search form
+  (98 of the 99 unmarked forms in this repo have one).
+- **Inside a child grid the GRID owns Tab** (`tabAlongRow`, `child-grid.tsx`): along the
+  row's `ROW_FIELDS`, on to the next row, declining at the last cell so Tab can still leave.
+  That is the same exception the grid already has for ↑↓←→ and Enter, and it is what covers
+  the **page-level** screens the gate above excludes — TA Plan / TA Style / TA Department
+  Assign are page forms with hand-rolled grids, and they were three of the ~22.
+
+**Known remainder, enumerated not guessed:** a page-level editor that declares no marker
+keeps native Tab *outside* its grids (~51 screens: the `planning/*-detail` family, the
+`*-assign-screen` masters). `--check tab-page-form` lists them; each needs one
+`data-focus-scope` on its form wrapper — a marker, never a handler.
+
+Tab refuses to move in exactly two cases — a live duplicate-name error, and a blank
+mandatory field (below). Full contract, reasoning and the accessibility trade-off in the
+`raagam-keyboard-contract` skill; checked by
+`python .claude/skills/raagam-keyboard-contract/scripts/audit_keyboard.py . --check tab-fields`.
+
+## Mandatory fields (STANDING)
+
+**A field the record cannot be saved without HOLDS THE CURSOR while it is blank**
+(client 2026-08-04). Tab, Shift+Tab, Enter and the arrows all refuse; the operator fills
+it in or presses Escape. This is the legacy RP-Software behaviour, and it reversed the
+earlier rule — the contract used to say a blank required field must let Tab straight
+through, so a change that "fixes" it back is undoing this deliberately.
+
+**One declaration, four enforcers, and they cannot drift apart.** `required` is stated
+once — `<Field required>`, a picker's own `required` prop, or `ChildGridColumn.required` —
+and from that one prop come the red `*`, the `data-required-empty` marker that holds the
+cursor (`useRequiredHold` in `components/ui/field.tsx`), the Save button, and the server
+action. Never stamp the marker by hand, and never key a hold off `aria-invalid`: that is
+live for a half-typed GSTIN as well as an empty box, so it would cage an operator on a
+value they are getting right.
+
+**Requiredness is often a property of the field FOR A CASE, not of the column.** Count is
+mandatory on a Yarn and meaningless on a General, so it cannot live in the Zod field types
+— and the schema only sees `item_class_id`, a uuid, not the class code that decides it.
+`missingRequiredMaterialFields(input, classCode)` in `material-types.ts` is the shape:
+one exported function the screen, the Save button and both actions call.
+
+**A HOLD REFUSES MOVEMENT AND NEVER REFUSES CHOOSING.** This is the half that is easy to
+get wrong and fatal when you do: refusing a key the control uses to *pick a value* does not
+make the rule stricter, it makes it **unsatisfiable** — the operator can neither fill the
+field nor leave it, and the only way on is the mouse. It shipped that way once. The first
+cut exempted ↓-opens-a-list and nothing else, so on a held Item Class you could open the
+list, walk down it, and **Enter would not pick anything** (client 2026-08-04).
+
+`keyFills` in `lib/focus.ts` is the rule, with vectors in `scripts/check-keyboard-holds.mts`:
+
+- **an OPEN list owns ↑ ↓ and Enter** — moving the highlight and picking are both filling;
+- **a CLOSED list opens on ↓** — the only keyboard route to reaching a value;
+- **a native `<select>` fills on ↑ ↓** — it has no popup, the arrows *are* the value;
+- **Tab is in none of those branches** — leaving an open list without choosing is exactly
+  the departure being refused, so an open list must never become an escape hatch.
+- **Ctrl+Del still removes a child-grid row.** A blank mandatory cell in a row the operator
+  should not have added is otherwise a dead end: they cannot fill it, leave it, or reach
+  its ✕, which Tab has not visited since it began landing on fields only.
+
+Do not confuse `keyFills` with `ownsArrowKeys` beside it. That one asks "does this control
+handle ↑/↓ itself?", and a **child-grid row answers yes** — but moving a row is still
+moving, so a hold that reused it would let ↑/↓ walk straight out of a held cell.
+
+Escape, the mouse and every other Ctrl/⌘ shortcut stay live too, as under the duplicate
+hold. **A `readOnly` field never holds** — it has no exit, which is why a composed name
+(Material's) requires its *sources* instead and fills itself.
+
+**Marking a field `required` is no longer cosmetic.** The test is not "should this usually
+be filled?" but "must the record be unsaveable without it?" — the `*` now stops the
+operator dead. `lib/data-io` imports are the one door this does not reach: they write
+straight to Postgres, so an entity whose importable `fields` cannot express a complete
+record still lets a half-filled row in (see the note on `materials` in
+`lib/data-io/entities.ts`).
+
+## Created Date / Created User (STANDING)
+
+**Every listing of records shows who made the row and when** — two columns, in that
+order, last before Status and the row actions. Wording, order, formatting and the uuid
+guard live in `components/ui/created-columns.tsx` and nowhere else.
+
+Six screens grew their own before that file existed and no two agreed: "Created Dt" vs
+"Created Date" vs plain "Created", `created_by_name` vs raw `created_by` vs
+`creator.full_name`, `fmtDate` on five and `fmtDateTime` on the sixth, one that put the
+User first — and **four that printed a 36-character uuid at the operator**. `creatorName()`
+refuses to return anything uuid-shaped; that is the regression the file exists to prevent.
+
+- `MasterListShell` and `SimpleMasterScreen` splice it in themselves, so anything built on
+  them is already correct.
+- A raw `<DataTable>` asks for it in one call: `columns={withCreatedColumns(columns, rows)}`.
+  **It is safe to add anywhere** — `hasCreatedInfo` returns false when the rows carry no
+  `created_at`, so a list whose service does not select the column is left unchanged rather
+  than growing a column of dashes. It also STRIPS a hand-rolled Created column, deliberately.
+- The same record shown three ways uses the same three helpers: `createdColumns` /
+  `withCreatedColumns` (desktop table), `createdMeta` (mobile card, one muted line —
+  *appended* to the screen's own meta, never substituted for it), `createdSection`
+  (`RecordViewSheet`, which drops the User line when it is unknown because the sheet hides
+  empty pairs; a table cell has to show the dash).
+
+**The data half is `withCreators()`** (`lib/created-by.ts`), called on the list return in the
+service. Not a PostgREST embed: `profiles_read_own` lets a user select only their OWN
+profile row, so `creator:profiles!created_by(full_name)` resolves to null for every record
+made by anyone else — it looked right only while `created_by` was NULL everywhere.
+`creator_names()` is `SECURITY DEFINER` and returns nothing but id + name.
+
+`created_by` holds three different things and all three must keep working: a `profiles`
+uuid (106 tables), a uuid that is always NULL (26 tables from 0333/0334, declared with no
+default), and a **verbatim legacy username** on the 7 `text` tables — "SELVARAJ", "admin"
+(0290, deliberate: those are not Auth accounts). They fail the uuid test, are never sent to
+the RPC, and reach the screen unchanged.
+
+**Line-item tables are exempt** — a PO line has no creator worth a column; the document
+above it does, and its detail page shows that. The exemption is by path (`[id]` routes,
+tab panels, report views), so it cannot rot into "whatever a screen felt like".
+Checked by `python scripts/audit_layout.py . --check created-columns`.
+
 ## CAPITALS (STANDING)
 
 Field **values** are stored in capitals — stored, not merely displayed. Two halves, both
@@ -180,9 +332,30 @@ through.** Type `TUTICORN` beside an existing `TUTICORIN` and nothing objects �
 every Customer pointing at that berth is split across two masters that mean the same
 thing. So a master that runs a duplicate check also **offers the close names it knows**:
 `useSpellSuggest` + `<SpellSuggestHint>`, or `spellSuggest` on a `SimpleMasterScreen`
-descriptor. The chip sits in the same slot as the red error and is suppressed while that
-error shows — one line under the input, and the name it collided with is the one name
-that is no use.
+descriptor.
+
+**A CHIP IS ONLY EVER A NAME THAT SAVES.** `names` is scoped exactly as the duplicate
+check is scoped, so a candidate that is already a row is a candidate the guard is about to
+reject — offering it is offering a click that lands on "already exists". On a screen with
+no vocabulary that was *every* chip it could produce: typing `COT` under Item Class YARN
+offered COTTON and POLYCOTTON, both already there (client 2026-08-04). `useSpellSuggest`
+now returns two lists and the split is the rule — `suggestions` are free names, rendered as
+chips and reachable with ↓; `existing` are taken names, rendered as inert text with nothing
+focusable in them.
+
+**The taken ones are still SAID, because that is the original job.** The guard fires on an
+exact match, so `INTARLOCK` typed beside an existing `INTERLOCK` is invisible to it — and
+both of those are in the categories table today. Naming it is what catches the twin; it
+just stops pretending to be a fix.
+
+**Do NOT gate `enabled` on `!dupError`.** The old rule suppressed the whole strip during a
+duplicate, reasoning that "the name it collided with is the one name that is no use". That
+is right, and it argues for dropping *that name*, not the strip — the two were the same
+statement only while every seed was empty. COTTON is no use; COTTON SLUB is the point, and
+a duplicate is when the operator most needs it. The error even holds the cursor in the
+field (`data-dup-error`), so the chips beneath it are the way out. At most two lines: the
+red error and the chips, with the "already exists" half standing down while the red one
+shows.
 
 **Advisory, never a hold.** The chip is not wired through `dupFieldProps`, so it never
 sets `data-dup-error`: SEWING ACCESSORY and SEWING ACCESSORIES may both be correct rows,
@@ -200,10 +373,36 @@ fibre word list, a Packing Accessories name was "corrected" to COTTON (client 20
 and the client had it removed outright two days later. A seed named at the call site
 cannot reach a screen that did not ask for it.
 
-**Rows-only is a correct answer.** Where no real-world standard exists (Bin, Count, Gauge,
-Knitting Dia, and every party master — those are the names of real trading parties), pass
-`seed: []` / `spellSuggest: true` and offer only the rows beside what is being typed.
-Inventing a vocabulary is how the first version died.
+**What was wrong there was the FALLBACK, not the map.** Category names are keyed by Item
+Class — `categoryNameSeed(code)` in `name-vocabularies.ts`, the one keyed lookup in the
+file, all 7 classes, ~262 names — because the field means "which fibre" under YARN and
+"which packing item" under PACK. It is safe for the reason gen 1 was not: an unlisted code
+resolves to `[]`, never to "whatever the first list happens to be", so the fibre words are
+unreachable from a Packing category. Read it through the function; never index the map.
+
+**THE BOUNDARY: a field is only ever offered its own subject's words.** `candidates` —
+`[...seed, ...names]` — is the whole boundary and the only one there is. On a Category
+under Item Class YARN that means the yarn vocabulary and the yarn categories that already
+exist; nothing from FABRIC, nothing from PACKING, nothing from outside the app. The one way
+to break it is to widen `candidates` at a call site, so don't: no merged all-classes list,
+no fallback for a class with no vocabulary. Proved exhaustively by
+`scripts/check-name-suggest.mts`, which probes each class with every prefix of every word
+every other class knows (1136 probes × 7) and asserts nothing outside comes back.
+
+**No free dictionary or API can replace these lists** — asked and measured (2026-08-04).
+Against Datamuse, the best of the free general-English options: `viscos` returns VISCOUS,
+VISCUS, DISCOS and **never VISCOSE**, so it would "correct" a fibre to a real English word
+that is a different material — the 07-28 bug from a word list you cannot edit. `cot*` ranks
+COTTON ninth behind COTERIE and COTILLION, and no general dictionary holds a compound trade
+name at all (COTTON SLUB, POLYCOTTON, CVC). They are good at plain English spelling and
+wrong for this trade. Grow the curated lists instead; they are meant to be edited.
+
+**Rows-only is still a correct answer, but it can no longer offer anything.** Where no
+real-world standard exists (Bin, Count, Gauge, Knitting Dia, and every party master — those
+are the names of real trading parties), `seed: []` / `spellSuggest: true` is right, and the
+strip there becomes a pure warning: every candidate is a row, so nothing reaches the chips
+and the "already exists" line is all it says. That is the honest behaviour, not a
+regression. Inventing a vocabulary to fill it is how the first version died.
 
 Genuinely exempt, with a `// spell-suggest: exempt -- <reason>` comment: a field holding an
 ID or code rather than a name (employee ID, account number, HSN code, leave-type code); a
@@ -268,6 +467,56 @@ Two things worth knowing:
   pass `autoComplete`; the caller's spread wins, and the `data-*` trio drops itself so the
   opt-in isn't cancelled out by the manager opt-outs.
 
-A **raw `<input>` is where this rule leaks**, since it inherits none of the above. There is
-exactly one in the app (the mobile search field in `components/shell/mobile-nav.tsx`) and
-it sets the attributes by hand; anything hand-rolled must do the same or use `Input`.
+A **raw lowercase element is where this rule leaks**, since it inherits none of the above.
+Raw text fields have stayed at one — the mobile search field in
+`components/shell/mobile-nav.tsx`, which sets the attributes by hand — but the leak that
+actually happened was a raw **`<select>`**: four of them across two Planning detail screens
+(Fabric Consumption, Material Excess Plan) hand-rolled `<select className="…">` instead of
+the primitive, so they carried no opt-out at all. Anything hand-rolled must set the
+attributes itself or use `Input` / `Textarea` / `Select`.
+
+Checked by `python scripts/audit_layout.py . --check autofill`, which reads
+comment-stripped source (half a dozen files describe an `<input>` in prose) and skips the
+types with no suggestion list — checkbox, radio, file, date. Opt out per line with an
+`autofill: exempt -- <reason>` comment; the login fields above are the shape that earns one.
+
+## Function grants (STANDING)
+
+**No function in schema `public` is executable by `anon`.** This app has no logged-out
+surface — every `.rpc()` runs behind a session and the anon key is only the transport key.
+So a function reachable without a login is always a mistake, and for a `SECURITY DEFINER`
+one it is a hole straight through RLS.
+
+**A new function is born anon-callable by TWO independent grants**, which is the whole
+reason this keeps happening:
+
+- `=X/owner` — Postgres's own built-in `EXECUTE TO PUBLIC` on every new function.
+- `anon=X/owner` — Supabase's default privileges, a *separate direct grant*.
+
+Revoking one leaves the other standing, and the migration reads as a lockdown either way.
+So it is always both, in one statement — the idiom 0042 · 0352 · 0382 already use:
+
+```sql
+revoke all on function public.foo(text, uuid) from public, anon;
+```
+
+`revoke … from public` alone is exactly what 0383 wrote, and `creator_names()` stayed an
+unauthenticated name oracle until 0385 came back for the other half. 0386 then found eight
+more functions in the same state.
+
+**0387 closed the default, so this should not recur** — but only in its GLOBAL form.
+`alter default privileges … IN SCHEMA public revoke execute on functions from public` runs,
+succeeds and does *nothing*: a new function's ACL starts from Postgres's built-in default
+and pg_default_acl entries are merged **on top**, so a schema-scoped entry can only add. It
+was in 0386 for an hour, silently. Drop the `in schema` clause and the same statement works.
+
+**A function that genuinely should answer a logged-out caller must now say so in writing**
+(`grant execute on function public.foo() to anon;`) and justify it in its migration. There
+are none today.
+
+**Verify from the catalog, never by reading the migration.** Both bugs above applied
+cleanly and reported success — `{"success": true}` means the SQL ran, not that it achieved
+its stated goal. `scripts/check-anon-grants.sql`; both checks must return zero rows. Note
+its CHECK 2 exists because CHECK 1 cannot catch a broken default on its own — the functions
+it inspects were fixed by hand, so it passes while the *next* one is still born open. That
+is precisely how 0386 asserted its own success and shipped a no-op.

@@ -9,6 +9,7 @@ import { NewRunForm } from "./new-run-form";
 import type { RunRow } from "@/lib/hr/payroll-service";
 import type { PayrollStatus } from "@/lib/hr/types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function runStatusTone(status: PayrollStatus): StatusTone {
   switch (status) {
@@ -102,7 +103,7 @@ export default async function PayrollPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, runs)}
         rows={runs}
         getKey={(row) => row.id}
         empty="No payroll runs yet. Use 'New run' to create one."

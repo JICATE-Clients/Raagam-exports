@@ -12,6 +12,7 @@ import { PROC_STATUS_LABELS } from "@/lib/stores/process-types";
 import type { ProcStatus } from "@/lib/stores/process-types";
 import type { ProcWithVendor } from "@/lib/stores/process-service";
 import Link from "next/link";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function procStatusTone(status: ProcStatus): StatusTone {
   switch (status) {
@@ -88,7 +89,7 @@ export default async function ProcessOrdersPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, orders)}
         rows={orders}
         getKey={(r) => r.id}
         empty="No process orders yet."

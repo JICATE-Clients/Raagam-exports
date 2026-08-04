@@ -30,6 +30,7 @@ import type {
   OpportunityRow,
   StyleRegisterRow,
 } from "@/lib/sales/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = {
   draft: "neutral",
@@ -462,7 +463,7 @@ export function PrepareCostSheetClient({
       </FilterBar>
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, filtered)}
         rows={filtered}
         getKey={(c) => c.id}
         empty="No cost sheets yet. Prepare one against an enquiry to get started."

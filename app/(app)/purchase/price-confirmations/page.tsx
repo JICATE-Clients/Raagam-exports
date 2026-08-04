@@ -15,6 +15,7 @@ import {
 import type { PcStatus, ApplicabilityType } from "@/lib/purchase/price-confirmation-types";
 import type { PcWithVendor } from "@/lib/purchase/price-confirmation-service";
 import Link from "next/link";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function pcStatusTone(status: PcStatus): StatusTone {
   switch (status) {
@@ -97,7 +98,7 @@ export default async function PriceConfirmationsPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, pcs)}
         rows={pcs}
         getKey={(r) => r.id}
         empty="No price confirmations yet."

@@ -26,6 +26,7 @@ import type {
 } from "@/lib/masters/document-no-format-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { fmtDate } from "@/lib/format";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -341,7 +342,7 @@ export function DocumentNoFormatMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No document formats yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No document formats yet." />
       </div>
 
       {/* mobile cards */}
@@ -365,6 +366,7 @@ export function DocumentNoFormatMasterScreen({
                     {fmtDate(r.date)} · {r.menus.length} menu{r.menus.length === 1 ? "" : "s"}
                     {r.track_id ? ` · ${trackLabel.get(r.track_id) ?? ""}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 {r.is_draft ? (
                   <StatusPill tone="warning">Draft</StatusPill>
@@ -381,7 +383,16 @@ export function DocumentNoFormatMasterScreen({
       {open && (
         <div className="fixed inset-0 z-[80] flex flex-col bg-background">
           {/* topbar */}
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5">
+          <div
+            className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5"
+            // Chrome, not fields. This hand-rolled clone of MasterFullScreen had
+            // copied the layout but not the markers, so `regionOf` sorted its ✕
+            // with the CONTENT — i.e. into the field region the arrows and Enter
+            // are confined to. Tab already leaves it alone (it targets fields
+            // everywhere now), but the region has to be right or ↓ from a field
+            // could land on the close button.
+            data-focus-region="header"
+          >
             <div className="text-sm font-semibold text-foreground">
               {editId ? `Edit Document Format #${editNo}` : "New Document Format"}
               {dirty && <span className="ml-2 text-[11px] font-medium text-warning">● Unsaved</span>}
@@ -409,10 +420,14 @@ export function DocumentNoFormatMasterScreen({
                   <Input value={editNo != null ? `#${editNo}` : "(auto)"} readOnly disabled className="text-base md:text-sm" />
                 </div>
                 <div>
-                  <Label htmlFor="dnf-date">Date</Label>
+                  <Label htmlFor="dnf-date">
+                    Date <span className="text-danger">*</span>
+                  </Label>
                   <Input
                     id="dnf-date"
                     type="date"
+                    // `.min(1)` in `documentNoFormatInput`.
+                    required
                     value={date}
                     onChange={(e) => {
                       setDate(e.target.value);
@@ -621,7 +636,14 @@ export function DocumentNoFormatMasterScreen({
           </div>
 
           {/* footer */}
-          <div className="flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6">
+          <div
+            className="flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6"
+            // Same reason as the topbar above — chrome, outside the field region.
+            // It does not change where Enter saves: the nav scope is the
+            // `data-focus-scope` pane, which does not contain this footer, so the
+            // save still goes through the registered "save" shortcut.
+            data-focus-region="footer"
+          >
             <span className="text-xs text-muted-foreground">
               {dirty ? "Unsaved changes" : editId ? "All changes saved" : "New document format"}
             </span>

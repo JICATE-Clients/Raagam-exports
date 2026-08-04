@@ -33,6 +33,7 @@ function normalizeLines(data: GarmentRejectionRuleInput): LineRow[] {
       from_value: l.from_value ?? null,
       to_value: l.to_value ?? null,
       rejection_allowance: l.rejection_allowance ?? null,
+      allowance_type: l.allowance_type,
     }))
     .filter(
       (l) =>

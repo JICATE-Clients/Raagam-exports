@@ -42,6 +42,7 @@ import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-che
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -317,7 +318,7 @@ export function ApplicantMasterScreen({
     // real trading parties. Rows only — which is exactly the useful check here,
     // catching "ABC TEXTILES" typed beside an existing "ABC TEXTILE".
     seed: [],
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -725,7 +726,7 @@ export function ApplicantMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No applicants yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No applicants yet." />
       </div>
 
       {/* mobile cards */}
@@ -749,6 +750,7 @@ export function ApplicantMasterScreen({
                     {r.code ?? "—"}
                     {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
                   {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
@@ -828,7 +830,9 @@ export function ApplicantMasterScreen({
                 <DuplicateError error={dupError} id="ap-name" />
                 <SpellSuggestHint
                   suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
                   activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
                   onApply={(v) => setForm((f) => ({ ...f, name: v }))}
                 />
                 </Field>
@@ -1276,7 +1280,7 @@ export function ApplicantMasterScreen({
             </StatusPill>
           )
         }
-        sections={viewRow ? viewSections(viewRow) : []}
+        sections={viewRow ? [...viewSections(viewRow), ...createdSection(viewRow)] : []}
       />
     </div>
   );

@@ -21,6 +21,7 @@ import { saveAttributeValues } from "@/lib/masters/extras-actions";
 import { type Attribute } from "@/lib/masters/extras-types";
 import { dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 // An attribute value is just a NAME now — its numeric/option behaviour and value
@@ -34,6 +35,13 @@ type ValueRow = { key: string; value: string };
  * Yes it shows the value-adding grid (e.g. GSM 180/200), for No it shows the
  * class with no value section. Item Class lifecycle (create / rename / block)
  * lives on the Item Class screen — here you only edit the per-class value list.
+ *
+ * required-hold: exempt -- `name` is mandatory in the shared `extras-types`
+ * schema, but this screen never captures it: the class already exists, its name
+ * is set on the Item Class screen, and the editor's own title reads it back
+ * ("Attributes — {name}"). There is no field to declare `required` on and no
+ * cursor to hold. The one field this screen DOES own — the value — declares it
+ * on both render paths (the `columns` entry and `renderMobileRow`).
  */
 export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perms: Perms }) {
   const router = useRouter();
@@ -228,7 +236,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No item classes yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No item classes yet." />
       </div>
 
       {/* mobile cards */}
@@ -252,6 +260,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                     Has Attribute: {r.has_attribute ? "Yes" : "No"}
                     {r.has_attribute && r.values.length > 0 ? ` · ${r.values.length} value${r.values.length === 1 ? "" : "s"}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "danger"}>
                   {r.is_active ? "Active" : "Inactive"}
@@ -309,6 +318,12 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 columns={[
                   {
                     header: "Value",
+                    // `.min(1)` in the schema. `ChildGridColumn.required` draws
+                    // the header `*` and wraps the cell in `RequiredScope` — but
+                    // ONLY on this columns path; `renderMobileRow` below never
+                    // sees it (child-grid.tsx says so where the prop is defined),
+                    // so that copy of the input declares `required` itself.
+                    required: true,
                     cell: (v) => (
                       <>
                         <Input
@@ -329,6 +344,9 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                     <Input
                       value={v.value}
                       uppercase
+                      // The card layout does not inherit `ChildGridColumn.required`
+                      // from the column above — it renders its own row.
+                      required
                       onChange={(e) => setValueAt(v.key, e.target.value)}
                       placeholder="Attribute value"
                       className="text-base md:text-sm"

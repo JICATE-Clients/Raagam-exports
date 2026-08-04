@@ -71,10 +71,13 @@ export function prefixDistanceFor(input: string): number {
 }
 
 /** Uppercase, trim, collapse runs of whitespace. Names are stored in CAPS
- *  (AGENTS.md "CAPITALS"), so this is comparing like with like. */
-function norm(s: string): string {
+ *  (AGENTS.md "CAPITALS"), so this is comparing like with like. Exported because
+ *  a caller building the "already a row" set must normalise it the SAME way, or
+ *  membership is undecidable on this module's output. */
+export function normName(s: string): string {
   return (s ?? "").trim().replace(/\s+/g, " ").toUpperCase();
 }
+const norm = normName;
 
 /**
  * Up to `limit` known names worth offering for what the user has typed so far,
@@ -141,4 +144,76 @@ export function suggestEntityNames(input: string, names: string[], limit = 3): s
     (a, b) => a.score - b.score || a.name.length - b.name.length || a.name.localeCompare(b.name),
   );
   return scored.slice(0, limit).map((s) => s.name);
+}
+
+/* -------------------------------------------------------------------------- */
+
+/** Scored candidates fetched before splitting free from taken. Comfortably
+ *  bigger than MAX_CHIPS, and it has to be: the limit inside suggestEntityNames
+ *  is applied BEFORE anything here can filter, so a pool that happened to be all
+ *  taken would leave no chips while free names sat just below the cut. Dense
+ *  classes make that the normal case, not the edge one — YARN already holds six
+ *  of the fibres it would otherwise offer first. */
+const POOL = 24;
+
+/** Chips shown. Five, not three (client 2026-08-04, "only limited suggestion"):
+ *  the category vocabularies run 20-59 names a class, so a typed prefix
+ *  routinely has more than three free matches. It stops at five because the
+ *  strip is one wrapped line under an input and a list nobody finishes reading
+ *  is not more help — and every chip past the first few is, by construction, a
+ *  worse match than the ones above it. */
+export const MAX_CHIPS = 5;
+
+/** Taken names named in the warning. A warning, not a menu; two is enough to
+ *  recognise a twin. */
+export const MAX_EXISTING = 2;
+
+/**
+ * The two lists a Name field's hint is made of.
+ *
+ *   suggestions — FREE names. Chips: every one of them saves.
+ *   existing    — names that are ALREADY ROWS. Inert text, never chips.
+ *
+ * ── THE BOUNDARY (client 2026-08-04) ────────────────────────────────────────
+ * `candidates` IS the boundary, and it is the only one there is. Every name this
+ * function can return came out of that array, so a field can only ever be
+ * offered words that belong to the thing it is naming: on a Category under Item
+ * Class YARN, the yarn vocabulary and the yarn categories that already exist —
+ * nothing from FABRIC, nothing from PACKING, and nothing from outside the app.
+ *
+ * That means the ONE way to break the rule is to widen `candidates` at a call
+ * site. Do not: no merged "all classes" list, no fallback when a class has no
+ * vocabulary, and above all **no general dictionary or word API**. That last one
+ * was asked and measured (2026-08-04) — Datamuse answers `viscos` with VISCOUS
+ * and never VISCOSE, and ranks COTTON ninth for `cot*` behind COTERIE and
+ * COTILLION. A general word list is exactly the unrelated-word listing this
+ * boundary exists to forbid, with the extra problem that it is not yours to fix.
+ *
+ * Enforced exhaustively by scripts/check-name-suggest.mts, which probes every
+ * class with every prefix of every word every OTHER class knows and asserts
+ * nothing from outside comes back.
+ *
+ * The split is the point. A caller scopes `taken` exactly as its duplicate check
+ * is scoped, so a candidate already in it is one the guard is about to reject —
+ * offering it as a chip is offering a click that lands on "already exists". That
+ * was every chip a screen with no vocabulary could produce (client 2026-08-04).
+ *
+ * The taken ones are still returned, because they are the only warning a typo
+ * TWIN gets: the duplicate guard fires on an exact match, so INTARLOCK typed
+ * beside an existing INTERLOCK is invisible to it.
+ *
+ * Lives here rather than in useSpellSuggest so it can be exercised without React
+ * — scripts/check-name-suggest.mts runs it against the real category rows, and a
+ * copy of these rules in the test would be a copy free to drift.
+ */
+export function splitSuggestions(
+  input: string,
+  candidates: string[],
+  taken: ReadonlySet<string>,
+): { suggestions: string[]; existing: string[] } {
+  const pool = suggestEntityNames(input, candidates, POOL);
+  return {
+    suggestions: pool.filter((n) => !taken.has(n)).slice(0, MAX_CHIPS),
+    existing: pool.filter((n) => taken.has(n)).slice(0, MAX_EXISTING),
+  };
 }

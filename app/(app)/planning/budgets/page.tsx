@@ -10,6 +10,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import type { BudgetRow } from "@/lib/planning/budget-service";
 import type { BudgetStatus, BudgetType } from "@/lib/planning/budget-types";
 import { BUDGET_TYPE_LABELS } from "@/lib/planning/budget-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
   draft: "Draft",
@@ -101,7 +102,7 @@ export default async function BudgetsPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, budgets)}
         rows={budgets}
         getKey={(r) => r.id}
         empty="No budgets yet."

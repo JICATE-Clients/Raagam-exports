@@ -25,6 +25,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   cheques: Cheque[];
@@ -238,7 +239,7 @@ export function ChequesClient({ cheques, currencies, canCreate, canEdit, canDele
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, cheques)}
         rows={cheques}
         getKey={(c) => c.id}
         empty="No cheques recorded yet."

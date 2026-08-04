@@ -27,6 +27,7 @@ import {
 import { COURIER_DESPATCH_STATUS_LABELS, type CourierDespatchStatus } from "@/lib/admin/extras-types";
 import type { Courier } from "@/lib/admin/extras-types";
 import type { CourierDespatchWithRefs, CourierOption } from "@/lib/admin/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function dTone(s: CourierDespatchStatus): StatusTone {
   switch (s) {
@@ -205,7 +206,7 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
         ) : (
           <div className="flex justify-end"><Button onClick={() => setCOpen(true)}>New courier</Button></div>
         ))}
-      <DataTable columns={courierColumns} rows={couriers} getKey={(r) => r.id} empty="No couriers yet." />
+      <DataTable columns={withCreatedColumns(courierColumns, couriers)} rows={couriers} getKey={(r) => r.id} empty="No couriers yet." />
     </div>
   );
 
@@ -245,7 +246,7 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
         ) : (
           <div className="flex justify-end"><Button onClick={() => setDOpen(true)}>New despatch</Button></div>
         ))}
-      <DataTable columns={despatchColumns} rows={despatches} getKey={(r) => r.id} empty="No despatches yet." />
+      <DataTable columns={withCreatedColumns(despatchColumns, despatches)} rows={despatches} getKey={(r) => r.id} empty="No despatches yet." />
     </div>
   );
 

@@ -10,6 +10,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { NewJournalForm } from "./new-journal-form";
 import type { JournalEntry } from "@/lib/finance/types";
 import type { JournalStatus } from "@/lib/finance/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function journalStatusTone(s: JournalStatus): StatusTone {
   switch (s) {
@@ -97,7 +98,7 @@ export default async function LedgerPage() {
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, journals)}
         rows={journals}
         getKey={(r) => r.id}
         empty="No journal entries yet. Create one above."

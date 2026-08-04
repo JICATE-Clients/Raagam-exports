@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { materialInput, fabricStructureUom, resolveUomId, type MaterialInput } from "./material-types";
+import {
+  materialInput,
+  fabricStructureUom,
+  missingRequiredMaterialFields,
+  resolveUomId,
+  type MaterialInput,
+} from "./material-types";
 import { deleteOrDeactivate } from "./delete-guard";
 import { findDuplicateYarn, findDuplicateBySpec } from "./material-service";
 import { checkDuplicateName } from "./dup-guard";
@@ -158,14 +164,32 @@ async function resolveItemClassCode(s: Awaited<ReturnType<typeof createClient>>,
 }
 
 /**
- * Fabric units are not the operator's to choose (client 2026-08-01).
+ * A fabric's structure SUPPLIES its units; it no longer dictates them (client
+ * 2026-08-04).
  *
- * The structure decides them — Circular Knit = KGS, Flat Knit = NOS + KGS,
- * Woven = MTR + KGS — so this REWRITES what the client sent rather than
- * validating it. That is deliberate and it is the guard: the screen renders the
- * same units read-only, but a screen check is a courtesy, and this is the only
- * thing standing between a crafted payload (or a future caller) and a fabric
- * stocked in the wrong unit.
+ * Circular Knit = KGS, Flat Knit = NOS + KGS, Woven = MTR + KGS. For three days
+ * (2026-08-01 → 08-04) this function REWROTE `base_uom_id` with the structure's
+ * answer on every save, and the screen rendered the field read-only to match.
+ * The request came back asking for a "default" base unit, and a default is
+ * something you can change — so the screen now prefills and lets the operator
+ * override, and this must not silently undo that. A save that reverts a field
+ * with no message is worse than one that refuses.
+ *
+ * What it still does, and why each is worth keeping:
+ *
+ *  - **Supplies a MISSING base.** A crafted payload, a form that loaded before
+ *    the UOM master did, or a future non-screen caller — none of them should be
+ *    able to file a fabric with no unit at all.
+ *  - **Owns `has_alternate_uom`.** The screen hides that checkbox on fabric
+ *    (`singleUomClass`), so nothing on the client can set it and the structure
+ *    is the only thing that knows. Flat Knit and Woven carry the pairing
+ *    `doc/recording/business logic.md` records — a collar is counted in pieces
+ *    and costed by weight — and Circular Knit carries none.
+ *  - **Keeps the one conversion row coherent.** Its base half follows the base
+ *    that ACTUALLY saved, not the structure's, or an overridden fabric would
+ *    store "1 KG = 10 NOS" against a material whose base is KGS. The row is
+ *    dropped outright when the two halves resolve to the same unit, which is
+ *    what an override to the secondary unit means.
  *
  * Mutates `d` in place, and must therefore run BEFORE `toHeader`/`uomSlots`
  * read it — call it straight after `resolveItemClassCode`.
@@ -178,6 +202,10 @@ async function resolveItemClassCode(s: Awaited<ReturnType<typeof createClient>>,
  *  - It never invents the conversion QUANTITIES. How many kilos a knitted panel
  *    weighs is per-material; only the two UNITS on that row are derivable, so a
  *    row the operator left blank is dropped rather than saved half-answered.
+ *
+ * It also stopped writing stock/billing/planning/purchase. `uomSlots` below
+ * already points all four at the base whenever `has_alternate_uom` is off, for
+ * every class — this was a second copy of that one rule.
  */
 async function applyFabricUomRule(
   s: Awaited<ReturnType<typeof createClient>>,
@@ -192,21 +220,22 @@ async function applyFabricUomRule(
   const rule = fabricStructureUom(st?.code);
   if (!rule) return;
   const { data: units } = await s.from("uoms").select("id, code, is_active");
-  const baseId = resolveUomId(units ?? [], rule.base);
-  if (!baseId) return;
+  const structureBaseId = resolveUomId(units ?? [], rule.base);
+  if (!structureBaseId) return;
   const altId = rule.secondary ? resolveUomId(units ?? [], rule.secondary) : null;
 
+  // The operator's choice wins; the structure only fills a gap.
+  const baseId = d.base_uom_id ?? structureBaseId;
   d.base_uom_id = baseId;
-  d.stock_uom_id = baseId;
-  d.billing_uom_id = baseId;
-  d.planning_uom_id = baseId;
-  d.purchase_uom_id = baseId;
-  d.has_alternate_uom = !!altId;
+  // An override ONTO the secondary unit collapses the pair — "1 KG = n KG" is
+  // not a conversion — so the flag has to read the resolved base, not the rule.
+  const pairs = !!altId && altId !== baseId;
+  d.has_alternate_uom = pairs;
   // Exactly ONE conversion for a fabric — "1 piece = 0.42 KGS" is one fact, and
   // a second row would be a second answer to it. Rows with no quantity at all
   // are dropped: `normConversions` keeps any row naming a unit, and with the
   // units forced here that would insert a meaningless (null, NOS, null, KGS).
-  d.conversions = altId
+  d.conversions = pairs
     ? d.conversions
         .filter((c) => c.alt_qty != null || c.base_qty != null)
         .slice(0, 1)
@@ -303,6 +332,13 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
   const classCode = await resolveItemClassCode(s, p.data.item_class_id);
+  // MANDATORY FIELDS (client 2026-08-04). Here rather than in the Zod schema
+  // because requiredness depends on the class CODE, which the schema cannot see
+  // from a uuid — and here rather than only on the screen because lib/data-io
+  // parses spreadsheet imports with the same schema and reaches this action
+  // directly. The screen's `*`s and its Save button call the SAME function.
+  const missing = missingRequiredMaterialFields(p.data, classCode);
+  if (missing.length) return fail(`Fill in ${missing.join(", ")} before saving.`);
   if (classCode === "FABRIC") await applyFabricUomRule(s, p.data);
   // Code (Short Name) is system-generated from the Name — codes are unique per
   // item class, so the generator is scoped the same way as the dup check below.
@@ -390,6 +426,13 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
   const classCode = await resolveItemClassCode(s, p.data.item_class_id);
+  // MANDATORY FIELDS (client 2026-08-04). Here rather than in the Zod schema
+  // because requiredness depends on the class CODE, which the schema cannot see
+  // from a uuid — and here rather than only on the screen because lib/data-io
+  // parses spreadsheet imports with the same schema and reaches this action
+  // directly. The screen's `*`s and its Save button call the SAME function.
+  const missing = missingRequiredMaterialFields(p.data, classCode);
+  if (missing.length) return fail(`Fill in ${missing.join(", ")} before saving.`);
   if (classCode === "FABRIC") await applyFabricUomRule(s, p.data);
   const header: Partial<ReturnType<typeof toHeader>> & Partial<UomSlots> = {
     ...toHeader(p.data),

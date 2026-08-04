@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { FabricConsumption } from "@/lib/planning/material-planning-types";
 import type { MpStatus } from "@/lib/planning/material-planning-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const MP_STATUS_LABELS: Record<MpStatus, string> = {
   draft: "Draft",
@@ -93,7 +94,7 @@ export default async function FabricConsumptionPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, consumptions)}
         rows={consumptions}
         getKey={(r) => r.id}
         empty="No fabric consumption records yet."

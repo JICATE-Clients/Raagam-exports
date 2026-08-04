@@ -116,7 +116,7 @@ export function AccountGroupMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
     seed: ACCOUNT_GROUP_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -279,7 +279,9 @@ export function AccountGroupMasterScreen({
             <DuplicateError error={dupError} id="ag-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
           </Field>

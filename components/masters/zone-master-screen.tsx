@@ -31,6 +31,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { ZONE_NAMES } from "@/lib/masters/name-vocabularies";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; area_name: string };
@@ -95,7 +96,7 @@ export function ZoneMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.zone_name ?? "").filter(Boolean),
     seed: ZONE_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, zone_name: v })),
   });
 
@@ -258,7 +259,7 @@ export function ZoneMasterScreen({
       {/* desktop table */}
       <div className="hidden md:block">
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
           getKey={(r) => r.id}
           empty="No zone records yet."
@@ -284,6 +285,7 @@ export function ZoneMasterScreen({
                   <div className="truncate text-[15px] font-semibold text-foreground">
                     {r.zone_name}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.inactive ? "danger" : "success"}>
                   {r.inactive ? "Inactive" : "Active"}
@@ -355,7 +357,9 @@ export function ZoneMasterScreen({
                 <DuplicateError error={dupError} id="zn-name" />
                 <SpellSuggestHint
                   suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
                   activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
                   onApply={(v) => setForm((f) => ({ ...f, zone_name: v }))}
                 />
               </Field>

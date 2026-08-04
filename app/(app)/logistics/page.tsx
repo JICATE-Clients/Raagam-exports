@@ -17,6 +17,7 @@ import {
 } from "@/lib/logistics/types";
 import type { ShipmentWithBuyer } from "@/lib/logistics/service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function shipmentStatusTone(status: ShipmentStatus): StatusTone {
   switch (status) {
@@ -104,7 +105,7 @@ export default async function LogisticsPage() {
       <NewShipmentForm buyers={buyers} currencies={currencies} orders={orders} />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, shipments)}
         rows={shipments}
         getKey={(row) => row.id}
         empty="No shipments yet. Use 'New shipment' above to create the first."

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { rejectionFor, sdQtyOf, type RejectionTier } from "@/lib/masters/rejection-rule";
 
 // ---------------------------------------------------------------------------
 // SQ Detail types
@@ -21,6 +22,8 @@ export interface SqDetail {
   order_qty: number;
   excess_pct: number;
   excess_qty: number;
+  /** NULL = the manual path: `rejection_pct` is typed by hand (0390). */
+  rejection_rule_id: string | null;
   rejection_pct: number;
   rejection_qty: number;
   approval_qty: number;
@@ -166,11 +169,77 @@ export const sqDetailInput = z.object({
   uom_id: z.string().optional().nullable(),
   order_qty: z.coerce.number().default(0),
   excess_pct: z.coerce.number().default(0),
+  rejection_rule_id: z.string().uuid().optional().nullable(),
   rejection_pct: z.coerce.number().default(0),
   sq_description: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
 export type SqDetailInput = z.infer<typeof sqDetailInput>;
+
+/**
+ * THE QUANTITY CASCADE, derived rather than typed.
+ *
+ * `sq_details` has carried `excess_qty`, `rejection_qty`, `gross_qty` and
+ * `sq_qty` since 0321 and every one of them has sat at `default 0` on every row,
+ * because `createSqDetail` inserts exactly what the form sends and the form only
+ * ever sent the two PERCENTAGES. This is the arithmetic that was missing.
+ *
+ * Called from BOTH sides — the screen shows it live as the operator types, the
+ * action recomputes it on save — so what is read and what is stored cannot
+ * disagree. Same one-function shape as `missingRequiredMaterialFields`.
+ *
+ * Two paths, and the rule only takes over when it is actually chosen:
+ *
+ *  - **A rule is picked** → its tiers decide, through `rejectionFor`. The tier
+ *    may be flat pieces or a percentage; `rejection_pct` is then back-computed
+ *    from the pieces so the two stored columns describe the same garments.
+ *  - **No rule** → the hand-typed `rejection_pct` is honoured exactly as before.
+ *    Every SQ raised before 0390 is in this state and must not shift.
+ *
+ * `rejectionFor` returns null when no tier covers the quantity; that is a rule
+ * with a gap in it, and the caller surfaces it rather than storing a silent 0.
+ */
+export function deriveSqQuantities(input: {
+  order_qty: number;
+  excess_pct: number;
+  rejection_pct: number;
+  tiers?: readonly RejectionTier[] | null;
+}): { excess_qty: number; rejection_qty: number; rejection_pct: number; gross_qty: number; sq_qty: number; noTier: boolean } {
+  const order = Number(input.order_qty) || 0;
+  const excessQty = Math.ceil((order * (Number(input.excess_pct) || 0)) / 100);
+
+  let rejectionQty: number;
+  let rejectionPct = Number(input.rejection_pct) || 0;
+  let noTier = false;
+
+  if (input.tiers && input.tiers.length) {
+    const hit = rejectionFor(order, input.tiers);
+    if (hit) {
+      rejectionQty = hit.rejectionQty;
+      // From the ROUNDED pieces, not from the tier's allowance: on a flat tier
+      // there is no percentage to copy (3 spares on an order of 2 really is
+      // 150%), and on a percent tier the rounding has already moved the number.
+      rejectionPct = order > 0 ? Number(((rejectionQty / order) * 100).toFixed(2)) : 0;
+    } else {
+      rejectionQty = 0;
+      noTier = true;
+    }
+  } else {
+    rejectionQty = Math.ceil((order * rejectionPct) / 100);
+  }
+
+  const grossQty = order + excessQty + rejectionQty;
+  return {
+    excess_qty: excessQty,
+    rejection_qty: rejectionQty,
+    rejection_pct: rejectionPct,
+    gross_qty: grossQty,
+    // SD Qty. `sdQtyOf` owns the "excess counts too" decision — see the note
+    // there; it is 0 on every row today, so all three worked examples hold.
+    sq_qty: sdQtyOf(order, excessQty, rejectionQty),
+    noTier,
+  };
+}
 
 export const sqGroupInput = z.object({
   group_date: z.string(),

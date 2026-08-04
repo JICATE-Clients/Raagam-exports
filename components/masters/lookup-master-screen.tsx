@@ -19,6 +19,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/extras-types";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -77,7 +78,7 @@ export function LookupMasterScreen({
     // No curated vocabulary: this master has no real-world standard to draw
     // on, so the rows beside what is being typed are the only safe candidates.
     seed: [],
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -184,7 +185,7 @@ export function LookupMasterScreen({
       {/* desktop table */}
       <div className="hidden md:block">
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, filtered)}
           rows={filtered}
           getKey={(r) => r.id}
           empty={`No ${singular.toLowerCase()} records yet.`}
@@ -208,6 +209,7 @@ export function LookupMasterScreen({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Truncated className="text-[15px] font-semibold text-foreground">{lookupLabel(kind, r)}</Truncated>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "neutral"}>
                   {r.is_active ? "Active" : "Inactive"}
@@ -256,7 +258,9 @@ export function LookupMasterScreen({
             <DuplicateError error={dupError} id="lk-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
           </div>

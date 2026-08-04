@@ -3,6 +3,7 @@
 import { ChevronDown, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRequiredHold } from "@/components/ui/field";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -53,6 +54,7 @@ export function Combobox({
   className,
   inputClassName,
   openOnFocus = true,
+  required = false,
 }: {
   options: ComboboxOption[];
   value: string;
@@ -82,7 +84,14 @@ export function Combobox({
    * typing.
    */
   openOnFocus?: boolean;
+  /** Mandatory: hold the cursor while nothing is picked. See useRequiredHold. */
+  required?: boolean;
 }) {
+  // Empty is "no value picked" — the typed query is a search, not a value.
+  // `required` is threaded from <Select required> on the desktop-enhanced
+  // branch, which renders this instead of a native <select>; ORed with an
+  // enclosing <Field required>.
+  const hold = useRequiredHold(!disabled && !value, { required });
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -273,6 +282,11 @@ export function Combobox({
         type="text"
         role="combobox"
         aria-expanded={open}
+        // Mandatory and blank holds the cursor, declared by the enclosing
+        // `<Field required>`. Safe on a combobox precisely because `role
+        // ="combobox"` is one of the two things the hold checks before refusing
+        // ↓ — the list still opens, which is the only keyboard way to fill it.
+        {...hold}
         // Same pairing as data-picker.tsx: `off` for Chrome's own list, the
         // `data-*` trio for the password managers that ignore it.
         autoComplete="off"

@@ -15,6 +15,7 @@ import { NewOrderForm } from "./new-order-form";
 import type { OrderWithBuyer } from "@/lib/orders/service";
 import type { OrderStatus } from "@/lib/orders/types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 /**
  * The legacy RP-Software "Garment Orders" To-Do panel, reproduced as a workflow
@@ -168,7 +169,7 @@ export default async function OrdersPage() {
         <NewOrderForm quotes={quotes} buyers={buyers} locations={locations} />
 
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, orders)}
           rows={orders}
           getKey={(row) => row.id}
           empty="No orders yet. Use 'New order' above to create your first."

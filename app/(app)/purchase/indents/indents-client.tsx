@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createPurchaseIndent } from "@/lib/purchase/extras-actions";
 import { INDENT_STATUS_LABELS, type IndentStatus } from "@/lib/purchase/extras-types";
 import type { PurchaseIndentWithRefs, OrderOption } from "@/lib/purchase/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: IndentStatus): StatusTone {
   switch (s) {
@@ -122,7 +123,7 @@ export function IndentsClient({ rows, orders, canCreate }: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New indent</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No indents yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No indents yet." />
     </div>
   );
 }

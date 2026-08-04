@@ -10,6 +10,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import type { PickerItem } from "@/components/masters/record-picker";
 import { GarmentProcessFilter } from "./garment-process-filter";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<AcceptedOrderRow>[] = [
   {
@@ -105,7 +106,7 @@ export default async function GarmentProcessesSelectorPage({
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, rows)}
         rows={rows}
         getKey={(row) => row.id}
         empty="No accepted orders match. Confirm an order first, or clear the filter."

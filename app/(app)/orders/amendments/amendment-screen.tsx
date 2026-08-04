@@ -45,6 +45,7 @@ import type {
   StylePickerRow,
   DyeColorRow,
 } from "@/lib/orders/amendments/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -677,7 +678,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
           }
         />
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, rows)}
           rows={rows}
           getKey={(r) => r.id}
           empty="No amendments yet. Use 'New Amendment' to create the first."

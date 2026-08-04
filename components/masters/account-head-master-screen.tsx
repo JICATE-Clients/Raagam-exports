@@ -90,7 +90,7 @@ export function AccountHeadMasterScreen({
     // No curated vocabulary: this master has no real-world standard to draw
     // on, so the rows beside what is being typed are the only safe candidates.
     seed: [],
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -255,7 +255,9 @@ export function AccountHeadMasterScreen({
               <DuplicateError error={dupError} id="ah-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </Field>

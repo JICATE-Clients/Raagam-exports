@@ -126,7 +126,7 @@ export function ProcessMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
     seed: PROCESS_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -446,7 +446,9 @@ export function ProcessMasterScreen({
               <DuplicateError error={dupError} id="pr-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </div>

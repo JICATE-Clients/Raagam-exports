@@ -30,6 +30,7 @@ import {
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -222,7 +223,7 @@ export function HsnDetailMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No HSN details yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No HSN details yet." />
       </div>
 
       {/* mobile cards */}
@@ -248,6 +249,7 @@ export function HsnDetailMasterScreen({
                     {itemClassLabel.get(r.item_class_id) ?? "—"} · {hsnDetailForLabel(r.for_type)}
                     {r.description ? ` · ${r.description}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 {statusPill(r)}
               </div>

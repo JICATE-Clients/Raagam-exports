@@ -9,6 +9,7 @@ import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type InterdeptRow = {
   id: string;
@@ -88,7 +89,7 @@ export default async function InterdeptPage() {
       <Card>
         <CardHeader><CardTitle>Deliveries</CardTitle></CardHeader>
         <CardBody>
-          <DataTable columns={columns} rows={deliveries} getKey={(r) => r.id} empty="No inter-department deliveries yet." />
+          <DataTable columns={withCreatedColumns(columns, deliveries)} rows={deliveries} getKey={(r) => r.id} empty="No inter-department deliveries yet." />
         </CardBody>
       </Card>
     </div>

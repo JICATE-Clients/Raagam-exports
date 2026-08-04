@@ -22,6 +22,7 @@ import { Ban, CheckCircle2 } from "lucide-react";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   activities: TaActivity[];
@@ -312,7 +313,7 @@ export function TaMastersClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, activities)}
         rows={activities}
         getKey={(a) => a.id}
         empty="No T&A activities defined yet."

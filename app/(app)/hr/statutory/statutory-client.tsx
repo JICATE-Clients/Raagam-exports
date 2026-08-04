@@ -21,6 +21,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrStatutoryDoc } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   rows: HrStatutoryDoc[];
@@ -140,7 +141,7 @@ export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New document</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No statutory documents yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No statutory documents yet." />
     </div>
   );
 }

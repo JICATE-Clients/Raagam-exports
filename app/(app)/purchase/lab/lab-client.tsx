@@ -34,6 +34,7 @@ import {
 import type { LabTestStandard } from "@/lib/purchase/extras-types";
 import type { LabTestWithRefs, OrderOption, BuyerOption, VendorForPicker } from "@/lib/purchase/extras-service";
 import type { Item } from "@/lib/masters/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function testTone(s: LabTestStatus): StatusTone {
   switch (s) {
@@ -273,7 +274,7 @@ export function LabClient(props: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setStOpen(true)}>New standard</Button></div>
         ))}
-      <DataTable columns={standardColumns} rows={standards} getKey={(r) => r.id} empty="No test standards yet." />
+      <DataTable columns={withCreatedColumns(standardColumns, standards)} rows={standards} getKey={(r) => r.id} empty="No test standards yet." />
     </div>
   );
 
@@ -344,7 +345,7 @@ export function LabClient(props: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setTOpen(true)}>New test</Button></div>
         ))}
-      <DataTable columns={testColumns} rows={tests} getKey={(r) => r.id} empty="No tests yet." />
+      <DataTable columns={withCreatedColumns(testColumns, tests)} rows={tests} getKey={(r) => r.id} empty="No tests yet." />
     </div>
   );
 

@@ -20,6 +20,7 @@ import { PORT_TYPES, type Port, type PortInput, type PortType } from "@/lib/mast
 import type { Country } from "@/lib/masters/country-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -136,7 +137,8 @@ export function PortMasterScreen({
         // Create derives the short name from the display name; edit keeps the
         // record's original stored short name (held in state, never rendered).
         short_name: editId ? form.short_name.trim() || null : form.name.trim() || null,
-        name: form.name.trim() || null,
+        // Mandatory in the schema — see port-types.ts.
+        name: form.name.trim(),
         country_id: form.country_id,
         port_type: form.port_type ? form.port_type : null,
       };
@@ -206,7 +208,7 @@ export function PortMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No port records yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No port records yet." />
       </div>
 
       {/* mobile cards */}
@@ -231,6 +233,7 @@ export function PortMasterScreen({
                   {countryName(r)}
                   {r.port_type ? ` · ${r.port_type}` : ""}
                 </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
               </div>
             </button>
           ))
@@ -277,7 +280,9 @@ export function PortMasterScreen({
             <DuplicateError error={dupError} id="pt-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => set({ name: v })}
             />
           </Field>
@@ -290,6 +295,12 @@ export function PortMasterScreen({
               onChange={(id) => set({ country_id: id })}
               canCreate={perms.canCreate}
               canEdit={perms.canEdit}
+              // `portInput.country_id` is a bare `.uuid()` — mandatory. This
+              // already held (CountryPicker defaults `required` to true); stating
+              // it changes nothing at runtime and everything about whether the
+              // screen can be SEEN to be correct. Destination looked balanced
+              // for the same reason and had its `*` on the wrong field.
+              required
             />
           </Field>
           {/* Air / Sea / Sea-Air — `sm` is already generous for it. */}

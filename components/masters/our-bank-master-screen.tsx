@@ -27,6 +27,7 @@ import {
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import type { OurBank, OurBankInput } from "@/lib/masters/our-bank-types";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
@@ -125,7 +126,8 @@ export function OurBankMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: OurBankInput = {
-        account_no: form.account_no.trim() || null,
+        // Mandatory in the schema — see our-bank-types.ts (`requiredKind`).
+        account_no: form.account_no.trim(),
         account_name: form.account_name.trim() || null,
         bank_name: form.bank_name.trim() || null,
         branch_name: form.branch_name.trim() || null,
@@ -234,7 +236,7 @@ export function OurBankMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No bank records yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No bank records yet." />
       </div>
 
       {/* mobile cards */}
@@ -259,6 +261,7 @@ export function OurBankMasterScreen({
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {r.bank_name ?? "—"} — {r.branch_name ?? "—"}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.inactive ? "danger" : "success"}>
                   {r.inactive ? "Inactive" : "Active"}
@@ -299,7 +302,18 @@ export function OurBankMasterScreen({
             field order preserved. Widths come from FIELD_SIZE above, which
             carries the per-row arithmetic. */}
         <DetailSection label="Details" cols={12}>
-          <Field label="Account No" size={FIELD_SIZE.account_no} htmlFor="ob-account-no">
+          {/* The one field this record cannot exist without: an Our Bank row is
+              here to be PRINTED on a proforma invoice so a buyer can wire money
+              to it, and without the account number it serves no purpose at all.
+
+              Deliberately the only one. The schema makes account_no, swift_code
+              and ifsc_code `nullableKind` — format-checked when present, never
+              demanded — because a domestic account has no SWIFT and a foreign one
+              may have no IFSC. Requiring either would make half the real accounts
+              unsaveable, which is the over-marking AGENTS.md warns about: the test
+              is "must the record be unsaveable without it?", not "should this
+              usually be filled?". */}
+          <Field label="Account No" required size={FIELD_SIZE.account_no} htmlFor="ob-account-no">
             <ValidatedInput
               id="ob-account-no"
               format="account"

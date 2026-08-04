@@ -23,6 +23,7 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const DEFAULTS: PieceRecordInput = {
   worker_id: "",
@@ -294,7 +295,7 @@ export default function PieceRecordsClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, records)}
         rows={records}
         getKey={(r) => r.id}
         empty="No piece records for the selected filters."

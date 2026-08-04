@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { sqDetailInput, sqGroupInput, sqDetailNoteInput, sqCancellationInput } from "./sq-types";
+import { sqDetailInput, sqGroupInput, sqDetailNoteInput, sqCancellationInput, deriveSqQuantities } from "./sq-types";
 import type { SqDetailInput, SqGroupInput, SqDetailNoteInput, SqCancellationInput } from "./sq-types";
+import type { RejectionTier } from "@/lib/masters/rejection-rule";
 
 type Result = { ok: true } | { ok: false; error: string };
 type CreateResult = { ok: true; id: string } | { ok: false; error: string };
@@ -21,12 +22,57 @@ function rev(): void {
 // SQ Detail
 // ---------------------------------------------------------------------------
 
+/**
+ * The derived quantity columns, computed server-side from what the form sent.
+ *
+ * The client shows the same numbers live through the same `deriveSqQuantities`,
+ * but it must not be the one that decides them: a stale tab, a `lib/data-io`
+ * import or any future caller would otherwise store a rejection allowance that
+ * no rule ever produced. So the form sends the INPUTS — order qty, the two
+ * percentages, the rule — and the server writes the results.
+ *
+ * The rule's tiers are read here rather than trusted from the client for the
+ * same reason. One round trip, only when a rule is actually picked.
+ */
+async function withDerivedQuantities(
+  s: Awaited<ReturnType<typeof createClient>>,
+  d: SqDetailInput,
+) {
+  let tiers: RejectionTier[] | null = null;
+  if (d.rejection_rule_id) {
+    const { data } = await s
+      .from("garment_rejection_rule_lines")
+      .select("from_value, to_value, rejection_allowance, allowance_type")
+      .eq("rule_id", d.rejection_rule_id)
+      .order("sno");
+    tiers = (data ?? []) as RejectionTier[];
+  }
+  const derived = deriveSqQuantities({
+    order_qty: d.order_qty,
+    excess_pct: d.excess_pct,
+    rejection_pct: d.rejection_pct,
+    tiers,
+  });
+  // `noTier` is not written anywhere — it is a screen concern. Storing 0 for a
+  // quantity that fell in a gap is correct here precisely BECAUSE the screen
+  // refuses to save one silently; see the guard in sq-details-client.tsx.
+  return {
+    ...d,
+    excess_qty: derived.excess_qty,
+    rejection_qty: derived.rejection_qty,
+    rejection_pct: derived.rejection_pct,
+    gross_qty: derived.gross_qty,
+    sq_qty: derived.sq_qty,
+  };
+}
+
 export async function createSqDetail(data: SqDetailInput): Promise<CreateResult> {
   if (!(await can("sales", "create"))) return fail("Forbidden");
   const p = sqDetailInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { data: row, error } = await s.from("sq_details").insert(p.data).select("id").single();
+  const row_ = await withDerivedQuantities(s, p.data);
+  const { data: row, error } = await s.from("sq_details").insert(row_).select("id").single();
   if (error) return fail(error.message);
   rev();
   return { ok: true, id: row.id };
@@ -37,7 +83,8 @@ export async function updateSqDetail(id: string, data: SqDetailInput): Promise<R
   const p = sqDetailInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
-  const { error } = await s.from("sq_details").update(p.data).eq("id", id);
+  const row_ = await withDerivedQuantities(s, p.data);
+  const { error } = await s.from("sq_details").update(row_).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

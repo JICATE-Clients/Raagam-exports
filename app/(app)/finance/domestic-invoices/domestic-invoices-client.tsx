@@ -27,6 +27,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   invoices: DomesticInvoiceRow[];
@@ -212,7 +213,7 @@ export function DomesticInvoicesClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, invoices)}
         rows={invoices}
         getKey={(r) => r.id}
         empty="No domestic invoices yet."

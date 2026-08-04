@@ -16,6 +16,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { NewProformaForm } from "./new-proforma-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<ProformaWithBuyer>[] = [
   {
@@ -80,7 +81,7 @@ export default async function ProformaPage() {
       <NewProformaForm buyers={buyers} currencies={currencies} />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, invoices)}
         rows={invoices}
         getKey={(row) => row.id}
         empty="No proforma invoices yet. Use 'New proforma' above to create the first."

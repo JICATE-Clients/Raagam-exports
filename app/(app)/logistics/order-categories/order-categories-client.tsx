@@ -20,6 +20,7 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   assignments: AssignmentRow[];
@@ -174,7 +175,7 @@ export function OrderCategoriesClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, assignments)}
         rows={assignments}
         getKey={(a) => a.id}
         empty="No category assignments yet."

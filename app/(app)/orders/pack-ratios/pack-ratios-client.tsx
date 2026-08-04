@@ -15,6 +15,7 @@ import { fmtDate } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { createPackRatio, deletePackRatio, addPackRatioLine } from "@/lib/orders/pack-ratio-actions";
 import type { PackRatioRow } from "@/lib/orders/pack-ratio-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const SIZE_LABELS = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"];
 
@@ -115,7 +116,7 @@ export function PackRatiosClient({ rows }: { rows: PackRatioRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Pack Ratio</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No pack ratios yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No pack ratios yet." />
 
       {/* Size matrix editor for selected pack ratio */}
       {selectedId && (

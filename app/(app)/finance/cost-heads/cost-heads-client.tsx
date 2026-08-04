@@ -22,6 +22,7 @@ import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   heads: CostHead[];
@@ -144,7 +145,7 @@ export function CostHeadsClient({
           <CardTitle>Cost Heads ({heads.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={headCols} rows={heads} getKey={(h) => h.id} empty="No cost heads yet." />
+          <DataTable columns={withCreatedColumns(headCols, heads)} rows={heads} getKey={(h) => h.id} empty="No cost heads yet." />
           {canCreate && (
             <form
               onSubmit={(e) => {
@@ -182,7 +183,7 @@ export function CostHeadsClient({
           <CardTitle>Cost Items ({items.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={itemCols} rows={items} getKey={(i) => i.id} empty="No cost items yet." />
+          <DataTable columns={withCreatedColumns(itemCols, items)} rows={items} getKey={(i) => i.id} empty="No cost items yet." />
           {canCreate && (
             <form
               onSubmit={(e) => {

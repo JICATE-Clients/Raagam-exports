@@ -15,6 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useRequiredHold } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
@@ -286,6 +287,9 @@ export function DataPicker({
   const fine = useFinePointer();
   // Ties the trigger to its list for `aria-controls`; `role="combobox"` is
   // incomplete without it.
+  // Empty is "no id chosen". The trigger's TEXT is a search box while the list
+  // is open, so it is never the test.
+  const hold = useRequiredHold(!disabled && !value, { required, label });
   const listId = useId();
 
   const [open, setOpen] = useState(false);
@@ -920,6 +924,15 @@ export function DataPicker({
           aria-expanded={open}
           aria-controls={listId}
           aria-invalid={invalid || undefined}
+          // Mandatory and blank holds the cursor (client 2026-08-04). Declared
+          // by this component's own `required` — the same prop that draws the
+          // `*` beside the label — or by an enclosing `<Field required>`.
+          //
+          // A picker is the case that makes the hold survivable at all: the
+          // provider refuses every movement key EXCEPT ↓ on a `role="combobox"`,
+          // so the list still opens and the field can still be filled without a
+          // mouse. On touch this input is `readOnly`, which the hold skips.
+          {...hold}
           // `off` keeps Chrome's remembered-values list from stacking on top of
           // ours (and from eating ↓, which is how this list opens). The `data-*`
           // trio says the same to the password managers, which ignore

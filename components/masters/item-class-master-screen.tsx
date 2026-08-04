@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { createdSection, withCreatedColumns } from "@/components/ui/created-columns";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
@@ -100,7 +100,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name),
     seed: ITEM_CLASS_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -338,7 +338,9 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
               <DuplicateError error={dupError} id="ic-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </div>
@@ -420,6 +422,7 @@ export function ItemClassMasterScreen({ rows, perms }: { rows: Attribute[]; perm
                 </ul>
               ),
             },
+            ...createdSection(viewRow),
           ]}
         />
       )}

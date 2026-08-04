@@ -185,6 +185,76 @@ export function itemClassForm(code: string | null | undefined): MaterialFormKey 
   }
 }
 
+/**
+ * The fields a material of this class MUST carry, by the class's own CODE
+ * (client 2026-08-04). One declaration, three enforcers — the screen's `*`s and
+ * the cursor hold, the Save button, and the create/update actions that
+ * `lib/data-io` imports also reach.
+ *
+ * WHY THIS IS A FUNCTION AND NOT THE ZOD FIELD TYPES. Requiredness here is not a
+ * property of a column, it is a property of a column *for a class*: Count is
+ * mandatory on a Yarn and meaningless on a General. And `materialInput` only
+ * ever sees `item_class_id`, a uuid — the class CODE that decides all of this is
+ * a lookup away, so a `.superRefine()` on the schema could not answer it. The
+ * action resolves the code (as `findDuplicateYarn` already does) and calls this.
+ *
+ * `purity_id` is deliberately absent from YARN: a yarn with no purity is a real
+ * yarn, and `findDuplicateYarn` (0279) already treats a null purity as its own
+ * identity rather than as a missing value. `hsn_code` and `shade` are absent
+ * from every class for the same kind of reason — HSN is tax paperwork that
+ * accounts fills in later, and Shade only exists on melange.
+ *
+ * `name` is NOT listed. On Yarn/Fabric/accessory classes it is composed from the
+ * fields above and is `readOnly`, so requiring it would hold a field the
+ * operator cannot type into — a cage with no keyboard way out. Filling the
+ * sources is what writes it, which is why requiring the sources is enough.
+ */
+const REQUIRED_BY_FORM: Record<MaterialFormKey, readonly (keyof MaterialInput)[]> = {
+  YARN: ["item_class_id", "yarn_type_id", "count_id", "category_id", "base_uom_id"],
+  FABRIC: ["item_class_id", "fabric_type_id", "category_id", "base_uom_id"],
+  GEN: ["item_class_id", "category_id", "item_type_name", "base_uom_id"],
+  A: ["item_class_id", "category_id", "base_uom_id"],
+  C: ["item_class_id", "category_id", "base_uom_id"],
+};
+
+/** Human labels, so a caller can say WHICH field without re-deriving it. */
+export const MATERIAL_FIELD_LABELS: Partial<Record<keyof MaterialInput, string>> = {
+  item_class_id: "Item Class",
+  yarn_type_id: "Yarn Type",
+  count_id: "Count",
+  category_id: "Category",
+  base_uom_id: "Base UOM",
+  fabric_type_id: "Fabric Type",
+  item_type_name: "Item Type",
+};
+
+/** Is this field mandatory for this class? Drives the `*` and the cursor hold. */
+export function isMaterialFieldRequired(
+  field: keyof MaterialInput,
+  classCode: string | null | undefined,
+): boolean {
+  return REQUIRED_BY_FORM[itemClassForm(classCode)].includes(field);
+}
+
+/**
+ * The mandatory fields this material has left blank, as labels. Empty = complete.
+ *
+ * Deliberately tolerant of a partial object so the screen can call it on its
+ * in-progress form state, which is the only way the Save button and the field
+ * `*`s can be guaranteed to agree with what the action will decide.
+ */
+export function missingRequiredMaterialFields(
+  input: Partial<MaterialInput>,
+  classCode: string | null | undefined,
+): string[] {
+  return REQUIRED_BY_FORM[itemClassForm(classCode)]
+    .filter((f) => {
+      const v = input[f];
+      return v == null || (typeof v === "string" && v.trim() === "");
+    })
+    .map((f) => MATERIAL_FIELD_LABELS[f] ?? String(f));
+}
+
 /** Sewing and Packing are the accessory classes: their materials are named from
  *  the Material Attribute questions configured per (Item Class + Category), and
  *  their "Type" is a Transaction Type (Purchased/Converted, no Production).
@@ -215,20 +285,36 @@ export function usesNumbersUom(code: string | null | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Fabric structure → UOM. NOT a default any more (client 2026-08-01): these are
-// FIXED. A fabric's Base UOM and its Alternative UOM are decided by the
-// structure and nothing else — the screen shows them read-only and the server
-// re-derives them on every save, so a crafted payload cannot set them either.
+// Fabric structure → UOM. A PREFILL, and overridable (client 2026-08-04).
 //
 //   Circular Knit  base KGS   alternative — none
 //   Flat Knit      base NOS   alternative KGS
 //   Woven          base MTR   alternative KGS
 //
-// This REVERSES the 2026-07-24 single-unit spec (Circular/Flat = KGS, Woven =
-// MTR, prefilled and freely overridable), and note it moves Flat Knit's base
-// from KGS to NOS. Existing Flat Knit fabrics were stocked in KGS; the screen
-// says so when it re-derives one, because the number on those records did not
-// change meaning just because the unit label did.
+// READ THE HISTORY BEFORE CHANGING THIS — it has moved three times and each
+// version looks like the "obvious" one from inside the next:
+//
+//   2026-07-24  a prefill, freely overridable (Circular/Flat KGS, Woven MTR)
+//   2026-08-01  FIXED. Flat Knit moved KGS → NOS, the screen went read-only and
+//               the server re-derived on every save
+//   2026-08-04  a prefill again, and overridable — but keeping 08-01's UNITS
+//
+// The last step came from a request for a "default base uom", and a default is
+// something you can change. So `material-master-screen.tsx` prefills Base from
+// this table when the STRUCTURE changes and leaves the operator the last word,
+// and `applyFabricUomRule` only supplies a base that is missing. What did NOT
+// come back is 07-24's unit table: Flat Knit stays NOS and Woven stays MTR,
+// because `doc/recording/business logic.md` records Flat Knit as "Pcs & KG —
+// used for collars/cuffs, requires tracking by both unit count and physical
+// weight for costing", and the `secondary` row below is the only place "10
+// collars = 1 KG" is written down. Circular Knit is ~90% of fabric and is KGS in
+// every version, so "fabric should be KGS" is satisfied for almost all of it
+// without deleting that costing input.
+//
+// Existing records were deliberately NOT migrated at any step. A Flat Knit
+// stocked in KGS before 08-01 keeps KGS until someone changes it by hand, and
+// the screen warns when the unit on the form differs from the stored one —
+// a booked quantity does not change meaning because the label above it did.
 //
 // `secondary` is the alternative unit — the second half of the conversion row
 // (the QUANTITIES on that row stay the operator's: how many kilos a knitted

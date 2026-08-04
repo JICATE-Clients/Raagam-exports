@@ -16,6 +16,7 @@ import { createContractReview, approveContractReview, rejectContractReview, send
 import { usePermission } from "@/lib/auth/permission-context";
 import type { ContractReviewRow } from "@/lib/orders/booking-service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = { pending: "neutral", approved: "success", rejected: "danger", revision: "warning" };
 
@@ -93,7 +94,7 @@ export function ContractReviewClient({ rows }: { rows: ContractReviewRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Review</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No contract reviews yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No contract reviews yet." />
       <Sheet open={open} onClose={() => setOpen(false)} title="New Contract Review" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Order">

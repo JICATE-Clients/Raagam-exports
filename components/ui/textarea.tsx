@@ -1,12 +1,21 @@
 import { forwardRef, type TextareaHTMLAttributes } from "react";
+import { useRequiredHold } from "@/components/ui/field";
+import { holdEmpty } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export const Textarea = forwardRef<
   HTMLTextAreaElement,
   TextareaHTMLAttributes<HTMLTextAreaElement>
->(({ className, ...props }, ref) => (
+>(({ className, ...props }, ref) => {
+  // Mandatory and blank holds the cursor — see input.tsx. A textarea owns Enter
+  // ("new line"), so only Tab and the arrows are ever refused here anyway.
+  const hold = useRequiredHold(!props.readOnly && !props.disabled && holdEmpty(props.value), {
+    required: props.required,
+  });
+  return (
   <textarea
     ref={ref}
+    {...hold}
     // Same rule as input.tsx: the browser's memory of past typing is not a
     // master list, and a shared machine must not offer the last operator's
     // remarks to the next one. A textarea is never a credential, so unlike
@@ -37,5 +46,6 @@ export const Textarea = forwardRef<
     )}
     {...props}
   />
-));
+  );
+});
 Textarea.displayName = "Textarea";

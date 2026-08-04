@@ -20,6 +20,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   limits: BankLimit[];
@@ -179,7 +180,7 @@ export function BankLimitsClient({ limits, currencies, canCreate, canDelete }: P
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, limits)}
         rows={limits}
         getKey={(l) => l.id}
         empty="No bank limits yet."

@@ -87,6 +87,11 @@ export function DepartmentMasterScreen({
   // Checks `name`, the box the operator actually types, even though the payload
   // also derives `short_name` from it on create. The message quotes what they
   // typed; pointing it at short_name would name a column the form never shows.
+  //
+  // required-hold: exempt -- `departmentInput.short_name` is `.min(1)`, but this
+  // screen DERIVES it from the name rather than asking for it. There is no field
+  // to carry `required` and none to hold a cursor on; the schema is satisfied by
+  // the derivation, and the name that feeds it is the field the operator sees.
   const dupError = useDuplicateName({
     table: "departments",
     name: form.name,
@@ -109,7 +114,7 @@ export function DepartmentMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
     seed: DEPARTMENT_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -326,7 +331,9 @@ export function DepartmentMasterScreen({
             <DuplicateError error={dupError} id="dep-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
           </div>

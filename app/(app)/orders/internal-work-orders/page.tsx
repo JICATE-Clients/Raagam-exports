@@ -15,6 +15,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { NewIwoForm } from "./new-iwo-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<IwoWithOrder>[] = [
   {
@@ -100,7 +101,7 @@ export default async function InternalWorkOrdersPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, iwos)}
         rows={iwos}
         getKey={(row) => row.id}
         empty="No internal work orders yet. Use 'New work order' above to create the first."

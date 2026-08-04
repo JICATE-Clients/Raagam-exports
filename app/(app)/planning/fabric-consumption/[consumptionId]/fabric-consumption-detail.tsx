@@ -23,6 +23,7 @@ import { CATEGORY_TYPES, CATEGORY_TYPE_LABELS } from "@/lib/planning/material-pl
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
@@ -279,15 +280,14 @@ function ComponentsTab({
               </div>
               <div>
                 <Label>Item Type</Label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
                   value={form.item_type}
                   onChange={(e) => setForm((f) => ({ ...f, item_type: e.target.value }))}
                 >
                   {CATEGORY_TYPES.map((t) => (
                     <option key={t} value={t}>{CATEGORY_TYPE_LABELS[t]}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div className="flex items-center gap-2 pt-5">
                 <input

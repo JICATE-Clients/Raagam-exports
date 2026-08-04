@@ -274,7 +274,10 @@ export function PaymentTermMasterScreen({ rows, perms }: { rows: PaymentTerm[]; 
             <Field label="Entry No" size={FIELD_SIZE.entry_no} htmlFor="pt-entry">
               <Input id="pt-entry" value={editEntryNo ?? "(auto)"} disabled />
             </Field>
-            <Field label="Date" size={FIELD_SIZE.entry_date} htmlFor="pt-date">
+            {/* `paymentTermInput.entry_date` is `.min(1)`, and Save is already
+                gated on it below — the screen knew it was mandatory and only the
+                FIELD did not. `required` draws the `*` and holds the cursor. */}
+            <Field label="Date" required size={FIELD_SIZE.entry_date} htmlFor="pt-date">
               <Input
                 id="pt-date"
                 type="date"

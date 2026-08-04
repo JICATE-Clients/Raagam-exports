@@ -21,6 +21,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrAdjustment } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   rows: HrAdjustment[];
@@ -147,7 +148,7 @@ export function AdjustmentsClient({ rows, employees, canCreate, canEdit, canDele
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New adjustment</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No allowances/deductions yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No allowances/deductions yet." />
     </div>
   );
 }

@@ -176,10 +176,16 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
               <Input id="pe-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
             </div>
             <div>
-              <Label htmlFor="pe-date">Date</Label>
+              <Label htmlFor="pe-date">
+                Date <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="pe-date"
                 type="date"
+                // `pfEsiControlInput.entry_date` is `.min(1)`. Without `required`
+                // the hold never fires and a blank one only surfaces as a server
+                // error after Save (useRequiredHold, components/ui/field.tsx).
+                required
                 value={form.entry_date}
                 onChange={(e) => set({ entry_date: e.target.value })}
                 className="text-base md:text-sm"
@@ -187,10 +193,14 @@ export function PfEsiControlMasterScreen({ rows, perms }: { rows: PfEsiControl[]
             </div>
           </div>
           <div>
-            <Label htmlFor="pe-eff">Effective From Date</Label>
+            <Label htmlFor="pe-eff">
+              Effective From Date <span className="text-danger">*</span>
+            </Label>
             <Input
               id="pe-eff"
               type="date"
+              // `.min(1)` in the schema — same reasoning as Date above.
+              required
               value={form.effective_from}
               onChange={(e) => set({ effective_from: e.target.value })}
               className="text-base md:text-sm"

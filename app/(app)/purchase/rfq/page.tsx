@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { NewRfqForm } from "./new-rfq-form";
 import type { Rfq, RfqStatus } from "@/lib/purchase/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function rfqStatusTone(status: RfqStatus): StatusTone {
   switch (status) {
@@ -78,7 +79,7 @@ export default async function RfqPage() {
       {canCreate && <NewRfqForm budgets={budgets} />}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, rfqs)}
         rows={rfqs}
         getKey={(r) => r.id}
         empty="No RFQs yet. Create one above."

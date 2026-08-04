@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const DEFAULTS: WorkerInput = {
   name: "",
@@ -389,7 +390,7 @@ export default function WorkersClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, workers)}
         rows={workers}
         getKey={(r) => r.id}
         empty="No workers yet. Add one above."

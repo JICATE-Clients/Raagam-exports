@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { NewCancellationForm } from "./new-cancellation-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<CancellationRow>[] = [
   {
@@ -84,7 +85,7 @@ export default async function OrderCancellationsPage() {
       <NewCancellationForm orders={orders} buyers={buyers} />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, cancellations)}
         rows={cancellations}
         getKey={(row) => row.id}
         empty="No cancellations yet."

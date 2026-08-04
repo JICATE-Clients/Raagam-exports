@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { cycleTab, focusFirstField, focusField } from "@/lib/focus";
+import { focusFirstField, focusField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
 import { useModalGuard, confirmDiscard } from "@/lib/reload-guard";
 
@@ -92,10 +92,6 @@ export function Sheet({
   useEffect(() => {
     onCloseRef.current = onClose;
   });
-  // The last field the user was actually on inside this sheet. If focus is ever
-  // orphaned to <body> (a dialog picker closing, a control that blurs itself),
-  // Tab resumes from here instead of restarting at the top of the form.
-  const lastFocusedRef = useRef<HTMLElement | null>(null);
   // Whatever was focused *before* this sheet opened — restored on close, so
   // dismissing a nested picker returns the cursor to the trigger that opened it.
   const openerRef = useRef<HTMLElement | null>(null);
@@ -158,6 +154,16 @@ export function Sheet({
       // editor instead of the picker, and Tab moved focus through the form
       // behind the scrim. Anything wearing its own dialog role owns its keys.
       if (inForeignModal(containerRef.current)) return;
+      // TAB IS NOT HANDLED HERE ANY MORE (2026-08-04). It used to run `cycleTab`
+      // on this container, which made this one of only two surfaces in the app
+      // where Tab was ordered at all — and it cycled every focusable, so it
+      // stopped on the ✕ and on Save/Cancel while the arrows and Enter stepped
+      // over them. Both halves are now `cycleTab` called from
+      // components/shell/keyboard-nav-provider.tsx: this dialog is a
+      // `[role="dialog"]`, so the provider already resolves it as the scope and
+      // as an editor surface, and the trap comes with it. A second copy here
+      // would silently claim the key back — the provider bails on
+      // `defaultPrevented`.
       if (e.key === "Escape") {
         // A control that already consumed Escape (an open Combobox list, an
         // open DropdownMenu) must not also close the editor. React's delegated
@@ -171,14 +177,6 @@ export function Sheet({
         // closes silently would also navigate the operator away.
         e.preventDefault();
         entry();
-      } else if (e.key === "Tab") {
-        // Focus trap — the shared implementation, so this and the section rail
-        // in master-full-screen.tsx cannot drift apart. It already stands down on
-        // `defaultPrevented` (a control that claimed Tab, e.g. an open list
-        // closing itself and stepping on, must not ALSO be moved by the trap or
-        // focus would jump two fields) and resumes from `lastFocusedRef` when a
-        // picker unmounted and stranded focus on <body>.
-        cycleTab(e, containerRef.current, { resumeFrom: lastFocusedRef.current });
       }
     };
     document.addEventListener("keydown", onKey);
@@ -197,15 +195,14 @@ export function Sheet({
       if (home && home.isConnected && (!active || active === document.body)) {
         focusField(home); // caret at the end when the opener is a text field
       }
-      lastFocusedRef.current = null;
     };
   }, [open]);
 
-  /** Remember the last real field focused inside this sheet (see the trap). */
-  const onFocusCapture = (e: React.FocusEvent<HTMLElement>) => {
-    const t = e.target;
-    if (t instanceof HTMLElement) lastFocusedRef.current = t;
-  };
+  // A per-sheet "last focused field" ref used to live here, so the Tab trap could
+  // resume after a portal picker unmounted and stranded the cursor on <body>.
+  // `rememberFocus` / `restoreFocusIfLost` (lib/focus.ts), fed by one `focusin`
+  // listener in the keyboard provider, is the app-wide version of exactly that,
+  // and the provider calls it before every Tab. One history, every surface.
 
   // Field navigation (Tab / Enter / ↑ / ↓) is NOT wired here any more — it comes
   // from components/shell/keyboard-nav-provider.tsx, which drives every surface
@@ -243,7 +240,6 @@ export function Sheet({
               ref={containerRef}
               role="dialog"
               aria-modal="true"
-              onFocusCapture={onFocusCapture}
               className={cn(
                 "flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl transition-all duration-200 ease-out",
                 open ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0",
@@ -286,7 +282,6 @@ export function Sheet({
             ref={containerRef}
             role="dialog"
             aria-modal="true"
-            onFocusCapture={onFocusCapture}
             style={{ zIndex: zIndexBase + 1 }}
             className={cn(
               "fixed inset-0 flex flex-col bg-surface transition-all duration-200 ease-out",
@@ -309,8 +304,8 @@ export function Sheet({
                 </button>
               </div>
             </div>
-            {/* content — the one scroll */}
-            <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6">
+            {/* content — the one scroll, and the footer rides INSIDE it (below) */}
+            <div data-focus-region="content" className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 md:px-8 md:pt-6">
               {/* `@container/editor` is the density container: the compact control
                   sizes in input/select/combobox/label and the tighter gaps in
                   DetailSection all key off `@2xl/editor:`. Being a CONTAINER query
@@ -323,15 +318,42 @@ export function Sheet({
                   (1024px) it was already above SectionGrid's 896px 2-up threshold,
                   but the mockup's two ~560px columns need the extra 156px. */}
               <div className="@container/editor mx-auto w-full max-w-[1180px]">{children}</div>
+              {/* THE ACTION BAR MEETS THE FORM.
+                  It used to be a SIBLING of this scroll pane, and the pane is
+                  `flex-1` — so it stretched to the whole viewport whatever the
+                  record's height and pushed Save/Cancel to the bottom edge
+                  regardless. On a short record that left ~400px of white between
+                  the last field and the buttons, and the client read them as
+                  orphaned (2026-08-04). Legacy puts them directly under the grid
+                  with empty window below, which is what this restores.
+
+                  `sticky bottom-0` gives both behaviours from one rule: with a
+                  short form the pane does not overflow, sticky stays inert, and
+                  the bar sits in normal flow under the last field; with a long
+                  one (Material, Customer, Vendor) it pins to the bottom exactly
+                  as before while the fields scroll beneath it. `bg-surface` is
+                  what stops them showing through once pinned, and `-mx`/`px`
+                  re-bleed the band to the pane's full width after this element
+                  inherited the pane's padding.
+
+                  Still carries its own `data-focus-region="footer"`, and nesting
+                  costs the keyboard nothing: `regionOf` resolves by `closest()`
+                  so Tab still steps over these buttons, `submitTargetOf` finds
+                  them with a descendant `querySelector`, and Ctrl+S goes through
+                  `footerRef`. It also stays OUTSIDE `@container/editor` above —
+                  LAYOUT.md §10 — which is what keeps Save/Cancel at `h-9` while
+                  every field beside them compacts to `h-8`. */}
+              {footer && (
+                <div
+                  data-focus-region="footer"
+                  className="sticky bottom-0 z-10 -mx-4 mt-4 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:-mx-8 md:mt-6 md:px-8 md:pb-3"
+                >
+                  {/* same cap as the content above, so Save/Cancel stay aligned with
+                      the right edge of the form rather than the viewport. */}
+                  <div ref={footerRef} className="mx-auto flex w-full max-w-[1180px] items-center justify-end gap-2">{footer}</div>
+                </div>
+              )}
             </div>
-            {/* footer */}
-            {footer && (
-              <div data-focus-region="footer" className="shrink-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-8 md:pb-3">
-                {/* same cap as the content above, so Save/Cancel stay aligned with
-                    the right edge of the form rather than the viewport. */}
-                <div ref={footerRef} className="mx-auto flex w-full max-w-[1180px] items-center justify-end gap-2">{footer}</div>
-              </div>
-            )}
           </div>
         )
       ) : (
@@ -341,7 +363,6 @@ export function Sheet({
           ref={containerRef}
           role="dialog"
           aria-modal="true"
-          onFocusCapture={onFocusCapture}
           style={{ zIndex: zIndexBase + 1 }}
           className={cn(
             "fixed flex flex-col bg-surface shadow-lg transition-transform duration-200 ease-out",

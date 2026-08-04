@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -28,8 +28,10 @@ import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-picker";
 import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
+import { IdentityRow } from "@/components/masters/section-grid";
 import { DetailSection } from "@/components/masters/detail-section";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };
 
@@ -106,23 +108,23 @@ export function MaterialAttributeMasterScreen({
   const NAME_SEPARATOR = " / ";
   const [lines, setLines] = useState<LineRow[]>([]);
   /**
-   * Which attribute line is open for editing — at most one at a time.
+   * Which attribute lines are showing their value list. A SET — any number at
+   * once, like the legacy grid's ⊟/⊞ (screenshot 2026-07-27).
    *
-   * A line ticked "Value In Steps" grows by a Start/End/Step/Unit row PLUS a
-   * generated value list, so a screen with a few filled-in attributes pushed
-   * "+ Add attribute" below the fold and the user had to scroll to the bottom
-   * to add the next one (client 2026-07-27). Collapsing every line except the
-   * one being worked on keeps that button in reach no matter how many
-   * attributes the category ends up with.
-   *
-   * This is NOT the accordion `doc/ui/LAYOUT.md` §4 forbids — that rule is
-   * about hiding SECTIONS of one record, where the user needs most of the
-   * content at once. These are repeating line items, and §6 already says a row
-   * this wide (picker + 3 flags + 4 range fields + an N-row value list) should
-   * stop being inlined and get its own editor. A summary row that expands in
-   * place is the lighter version of that.
+   * It used to be one key, "at most one open", and the reason was purely
+   * mechanical: a line's spec occupied several stacked rows, so a few open lines
+   * pushed "+ Add attribute" below the fold (client 2026-07-27). Both halves of
+   * that are gone — a line is one row now, and the trailing star row replaced the
+   * button — so the restriction was buying nothing and cost the operator the
+   * ability to compare two attributes side by side.
    */
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const toggleExpanded = (key: string) =>
+    setExpandedKeys((s) => {
+      const next = new Set(s);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
   const keySeq = useRef(0);
   const newKey = () => `l${keySeq.current++}`;
   const optSeq = useRef(0);
@@ -222,9 +224,25 @@ export function MaterialAttributeMasterScreen({
       step_value: "",
       mandatory: false,
       inactive: false,
+      // No values, and no blank one either. A value box appears when the operator
+      // asks for one — "+ Add value", or Enter off the last value — never as a
+      // permanently open empty field (client 2026-08-04).
       options: [],
     };
   }
+
+  /**
+   * THE STAR ROW. Legacy's grid always ends in a blank `*` line: you type in it
+   * and it becomes a row, and a fresh blank takes its place (screenshot
+   * 2026-07-27). That is the whole add affordance — legacy has no "+ Add"
+   * button anywhere on this screen, which is why asking where ours should sit
+   * kept producing unsatisfying answers.
+   *
+   * Cheap to keep honest: `submit()` already drops lines with no attribute
+   * picked, so the trailing blank never reaches the server.
+   */
+  const withStarRow = (ls: LineRow[]): LineRow[] =>
+    ls.length && !ls[ls.length - 1].attribute_id ? ls : [...ls, blankLine()];
 
   function openAdd() {
     setEditId(null);
@@ -232,7 +250,7 @@ export function MaterialAttributeMasterScreen({
     setCategoryId("");
     const first = blankLine();
     setLines([first]);
-    setExpandedKey(first.key);
+    setExpandedKeys(new Set([first.key]));
     setOpen(true);
   }
   function openEdit(r: MaterialAttribute) {
@@ -258,54 +276,85 @@ export function MaterialAttributeMasterScreen({
               blocked: o.blocked,
             })),
           }))
-        : [blankLine()];
-    setLines(built);
+        : [];
+    setLines(withStarRow(built));
     // Stepped lines: re-derive the generated value list from the stored
     // Start/End/Step/Unit so it shows immediately (blocked flags preserved).
     setLines((ls) => ls.map((l) => (l.value_in_steps ? { ...l, options: genOptions(l) } : l)));
     // Open the first line: on an existing record the user is usually here to
     // change one attribute, and a fully collapsed list gives no clue that the
     // rows expand at all.
-    setExpandedKey(built[0]?.key ?? null);
+    setExpandedKeys(new Set(built[0] ? [built[0].key] : []));
     setOpen(true);
   }
 
+  /**
+   * Patch a line and re-assert the star row: the moment the trailing blank gains
+   * an attribute it stops being the star row, so a fresh blank takes its place.
+   * That single rule is the whole "add" mechanism on this screen.
+   */
   const setLineAt = (key: string, patch: Partial<LineRow>) =>
-    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
-  /** Adding always opens the new line and closes whatever was open — this is
-   *  the "move on to the next attribute" step, and the finished one folds away
-   *  behind its summary. */
-  const addLine = () => {
-    // Enter on the last row now adds the next one (child-grid.tsx gridKeyNav),
-    // so this runs on a key the user may be holding down. An unpicked line is
-    // already "the next attribute" — open it again rather than laying a second
-    // blank one on top of it.
-    const last = lines[lines.length - 1];
-    if (last && !last.attribute_id) {
-      setExpandedKey(last.key);
-      return;
-    }
-    const next = blankLine();
-    setLines((ls) => [...ls, next]);
-    setExpandedKey(next.key);
-  };
+    setLines((ls) => withStarRow(ls.map((l) => (l.key === key ? { ...l, ...patch } : l))));
   const removeLine = (key: string) => {
-    setLines((ls) => ls.filter((l) => l.key !== key));
-    setExpandedKey((k) => (k === key ? null : k));
+    setLines((ls) => withStarRow(ls.filter((l) => l.key !== key)));
+    setExpandedKeys((s) => {
+      if (!s.has(key)) return s;
+      const next = new Set(s);
+      next.delete(key);
+      return next;
+    });
   };
 
-  // Per-line pre-defined value list (legacy nested grid). Enter on the last
-  // value adds the next one, so a held Enter would otherwise stack blank rows —
-  // there is nothing to add until the row already there has been typed into.
-  const addOption = (lineKey: string) =>
+  /**
+   * Picking the attribute is what turns the star row into a real line, so it is
+   * also the moment to OPEN it.
+   *
+   * Without this the new row arrived collapsed and the operator had to click its
+   * chevron before they could type a single value — "if the user moves to the
+   * next attribute it is automatically closed" (client 2026-08-04). Nothing was
+   * closing it; it had simply never been opened, which looks identical from the
+   * outside. Opening on the pick means the whole flow — pick, type values, move
+   * on — never needs the mouse.
+   *
+   * Only ever ADDS a key. Whatever else the operator has open stays open; that
+   * is the point of `expandedKeys` being a set.
+   */
+  const pickAttribute = (key: string, attributeId: string) => {
+    setLineAt(key, { attribute_id: attributeId });
+    if (attributeId) setExpandedKeys((s) => (s.has(key) ? s : new Set(s).add(key)));
+  };
+
+  /**
+   * Per-line pre-defined value list (legacy nested grid). Enter on the last
+   * value adds the next one, so a held Enter would otherwise stack blank rows —
+   * there is nothing to add until the row already there has been typed into.
+   *
+   * THE REFUSAL IS THE ESCALATION. Returning `false` makes `gridKeyNav` decline
+   * the key instead of swallowing it, so Enter carries up to the attribute grid
+   * and starts the next ATTRIBUTE. That is the whole "Enter Enter" path: Enter
+   * after the last value opens a blank box, Enter on the blank box means "no
+   * more values here" and moves the operator on. Before this the refusal
+   * happened inside the `setLines` updater, where the caller could not see it,
+   * and Enter was simply dead in that box (client 2026-08-04).
+   *
+   * Decided against the current `lines`, not inside the updater, because the
+   * answer has to be known SYNCHRONOUSLY — the keydown is already deciding
+   * whether to preventDefault.
+   */
+  const addOption = (lineKey: string): boolean => {
+    const line = lines.find((l) => l.key === lineKey);
+    if (!line) return false;
+    const last = line.options[line.options.length - 1];
+    if (last && !last.description.trim()) return false;
     setLines((ls) =>
-      ls.map((l) => {
-        if (l.key !== lineKey) return l;
-        const last = l.options[l.options.length - 1];
-        if (last && !last.description.trim()) return l;
-        return { ...l, options: [...l.options, { key: newOptKey(), description: "", blocked: false }] };
-      }),
+      ls.map((l) =>
+        l.key === lineKey
+          ? { ...l, options: [...l.options, { key: newOptKey(), description: "", blocked: false }] }
+          : l,
+      ),
     );
+    return true;
+  };
   const setOptionAt = (lineKey: string, optKey: string, patch: Partial<OptionRow>) =>
     setLines((ls) =>
       ls.map((l) =>
@@ -317,7 +366,9 @@ export function MaterialAttributeMasterScreen({
   const removeOption = (lineKey: string, optKey: string) =>
     setLines((ls) =>
       ls.map((l) =>
-        l.key === lineKey ? { ...l, options: l.options.filter((o) => o.key !== optKey) } : l,
+        l.key === lineKey
+          ? { ...l, options: l.options.filter((o) => o.key !== optKey) }
+          : l,
       ),
     );
 
@@ -396,6 +447,8 @@ export function MaterialAttributeMasterScreen({
       ls.map((l) => {
         if (l.key !== key) return l;
         const next = { ...l, ...patch };
+        // Stepped lines regenerate their (read-only) list; a manual one keeps
+        // whatever the operator typed, untouched.
         if (next.value_in_steps) next.options = genOptions(next);
         return next;
       }),
@@ -404,8 +457,11 @@ export function MaterialAttributeMasterScreen({
   function submit() {
     startTransition(async () => {
       const payload: MaterialAttributeInput = {
-        item_class_id: itemClassId || null,
-        category_id: categoryId || null,
+        // Both mandatory now — the pair is this record's unique key (0347). Save
+        // is already disabled until each is picked, so the empty string can only
+        // reach here if that gate is ever removed, and the schema will say so.
+        item_class_id: itemClassId,
+        category_id: categoryId,
         name_separator: NAME_SEPARATOR,
         lines: lines
           .filter((l) => l.attribute_id)
@@ -549,7 +605,7 @@ export function MaterialAttributeMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No material attributes yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No material attributes yet." />
       </div>
 
       {/* mobile cards */}
@@ -572,6 +628,7 @@ export function MaterialAttributeMasterScreen({
               <div className="mt-0.5 text-xs text-muted-foreground">
                 {r.category_id ? categoryName.get(r.category_id) ?? "—" : "No category"}
               </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
               <div className="mt-2 text-[13px] text-muted-foreground">
                 {r.lines.length} attribute{r.lines.length === 1 ? "" : "s"}
               </div>
@@ -623,15 +680,28 @@ export function MaterialAttributeMasterScreen({
               ~570px and every line wrapped. Stacking gives the lines the full
               1180px, which is what lets the picker and the three flags share
               one row instead of three. */}
-          <DetailSection label="Header" cols={12}>
-            {/* Two `lg` halves = 12. At `md` + `lg` the row stopped at 10 and
-                left ~200px dead at the right edge of the section. Both values
-                are long ("SEWING ACCESSORIES", a full category name), so both
-                earn the width — this is not a case of padding a row out. */}
+          {/* The record's IDENTITY, not a section: `(item_class_id,
+              category_id)` is the unique key behind
+              `uq_material_attributes_class_category`, which is exactly what
+              `IdentityRow` is for — a full-width band with no border and no
+              caption, because the thing that identifies a record needs none.
+              (It replaced a `DetailSection label="Header"`, whose caption named
+              nothing and whose chrome cost a row of vertical space.) Same
+              treatment as the Material editor's own identity row.
+
+              Category takes the wider track: it is free text and holds the
+              longer value, while Item Class is a two-value enum that must not
+              sprawl to match it.
+
+              The children are `Field`s with NO `size`. Span classes only
+              resolve inside `@container/section` and there is none here, so
+              they fall through to the full width of their track — the
+              documented fallback (field.tsx), and what lets the tracks below
+              own the widths. */}
+          <IdentityRow tracks="minmax(0,1fr) minmax(0,1.4fr)">
             <Field
               label="Item Class"
               required
-              size="lg"
               htmlFor="ma-item-class"
               hint="Sewing and Packing only"
             >
@@ -662,11 +732,7 @@ export function MaterialAttributeMasterScreen({
                   ))}
               </Select>
             </Field>
-            {/* `lg` (6), not `md`: a category is free text and holds the
-                longest value on this row, while Item Class is a two-value enum
-                that must not sprawl to match it.
-
-                The label is `Field`'s, not the picker's. Passing `label` down
+            {/* The label is `Field`'s, not the picker's. Passing `label` down
                 made the picker render its OWN <Label> — no `htmlFor`, and a
                 plain space before the required marker instead of `ml-0.5` — so
                 the two asterisks on this row sat at different offsets and only
@@ -674,7 +740,6 @@ export function MaterialAttributeMasterScreen({
             <Field
               label="Category"
               required
-              size="lg"
               hint={
                 !itemClassId
                   ? "Pick an Item Class first."
@@ -697,7 +762,7 @@ export function MaterialAttributeMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-          </DetailSection>
+          </IdentityRow>
 
           {/* Attribute lines — meaningless until an Item Class scopes the
               pickable values, so keep the placeholder gate here */}
@@ -709,345 +774,457 @@ export function MaterialAttributeMasterScreen({
           ) : (
           <div>
           {(() => {
+            /**
+             * THE LEGACY ROW, as columns.
+             *
+             * One attribute is one line and its flags are columns
+             * (`doc/screen/87106156_HRSERVER2772026_111050.png`) — that is what
+             * lets eight fields fit where the stacked card fitted three, because
+             * the labels come off every row and are said once in the strip above.
+             *
+             * The track is an inline `gridTemplateColumns`, not a `grid-cols-*`
+             * class: column widths are DATA, the same reasoning (and the same
+             * technique) as `IdentityRow` in section-grid.tsx. It is declared
+             * once and used by both the header strip and every row, so the two
+             * cannot drift.
+             */
+            const ROW_TRACKS =
+              "2rem 2.5rem minmax(9rem,1fr) 6.5rem 6rem 6rem 5rem 6rem 6rem 5.5rem 2rem";
+            const HEADINGS = [
+              "", "#", "Attribute", "Value In Steps",
+              "Start Value", "End Value", "Unit", "Step Value",
+              "Mandatory", "Blocked", "",
+            ];
+            const headerStrip = (
+              <div
+                className="grid items-end gap-x-2 border-b border-border pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                style={{ gridTemplateColumns: ROW_TRACKS }}
+              >
+                {HEADINGS.map((h, i) => (
+                  <div key={i} className={cn(i >= 3 && i <= 9 && "text-center")}>
+                    {h}
+                  </div>
+                ))}
+              </div>
+            );
+
             // The picker ALONE — no wrapper, no message underneath. It is the
-            // row's identity control and lives on the header line, where a
+            // row's identity control and lives in the Attribute column, where a
             // second stacked element would push the line to two rows in the
-            // duplicate state. The caller renders the warning beside it.
-            const attrCell = (l: LineRow) => (
+            // duplicate state. The caller renders the warning under it.
+            const attrCell = (l: LineRow, isStar: boolean) => (
               <AttributePicker
                 label=""
                 values={scopedAttributeValues}
                 value={l.attribute_id}
-                onChange={(v) => setLineAt(l.key, { attribute_id: v })}
+                onChange={(v) => pickAttribute(l.key, v)}
                 invalid={!!l.attribute_id && duplicateAttrIds.has(l.attribute_id)}
+                // MANDATORY, and the star row is the exemption that makes it
+                // usable. `submit()` drops a line with no attribute, so a real
+                // row that is blank has been CLEARED and silently loses whatever
+                // else is on it — exactly what the hold exists to stop. The
+                // trailing star row is blank by design; requiring it would cage
+                // the operator on a row they never meant to add.
+                //
+                // Declared here rather than through `ChildGridColumn.required`
+                // because this screen renders `renderMobileRow`, which those
+                // columns never reach (child-grid.tsx says so where the prop is
+                // defined). The picker's own `required` is the sanctioned second
+                // way in, and it is the same prop that draws the `*`.
+                required={!isStar}
               />
             );
-            // Start / End / Step / Unit on ONE row (client 2026-07-25) —
-            // changing any of them regenerates the line's value list
-            // (patchLine).
-            //
-            // Four `sm` cells = 3+3+3+3, one flush row. This was a hand-rolled
-            // `grid-cols-2 sm:grid-cols-4` with its own `text-[11px]` labels, so
-            // nothing in the card lined up with the section above it — and `sm:`
-            // is a VIEWPORT breakpoint deciding the layout of a card whose width
-            // comes from the sheet. `FieldGrid` is the same track
-            // `DetailSection cols={12}` uses, minus the border and title this
-            // already sits inside.
-            const rangeCell = (l: LineRow) => (
-              <>
-                <Field label="Start Value" size="sm">
-                  <Input type="number" step="0.0001" value={l.start_value} onChange={(e) => patchLine(l.key, { start_value: e.target.value })} />
-                </Field>
-                <Field label="End Value" size="sm">
-                  <Input type="number" step="0.0001" value={l.end_value} onChange={(e) => patchLine(l.key, { end_value: e.target.value })} />
-                </Field>
-                <Field label="Step Value" size="sm">
-                  <Input type="number" step="0.0001" value={l.step_value} onChange={(e) => patchLine(l.key, { step_value: e.target.value })} />
-                </Field>
-                {/* Typed, not picked from the UOM master (client 2026-07-28).
-                    It is only ever printed onto the generated values ("10 MM")
-                    — nothing converts by it — so the FK made the user maintain
-                    a UOM row for every label they wanted to print. Regenerates
-                    the value list like Start/End/Step, hence patchLine. */}
-                <Field label="Unit" size="sm">
-                  <Input
-                    uppercase
-                    value={l.unit_label}
-                    onChange={(e) => patchLine(l.key, { unit_label: e.target.value })}
-                    placeholder="e.g. MM"
-                  />
-                </Field>
-              </>
+
+            /**
+             * Start / End / Unit / Step are ALWAYS PRESENT, and disabled unless
+             * the line is Value In Steps.
+             *
+             * Legacy leaves them live and showing `0.00` on every row, stepped or
+             * not, which invites an operator to type a range that nothing will
+             * ever read. Keeping the columns preserves the rectangle — a grid
+             * whose cells appear and disappear per row is not a grid — while
+             * disabling them says which rows they belong to. `Input` sets
+             * `tabIndex={-1}` on a disabled control itself, so the whole group
+             * leaves the Tab order on a non-stepped row without this screen
+             * saying anything.
+             */
+            const numCell = (
+              l: LineRow,
+              field: "start_value" | "end_value" | "step_value",
+            ) => (
+              <Input
+                type="number"
+                step="0.0001"
+                className="text-right tabular-nums"
+                disabled={!l.value_in_steps}
+                value={l[field]}
+                onChange={(e) => patchLine(l.key, { [field]: e.target.value })}
+              />
             );
-            const flagsCell = (l: LineRow) => (
-              // `min-h-9 items-center` so the checkbox line centres on the same
-              // 36px control height as the picker beside it — otherwise the two
-              // halves share a label baseline but not a control baseline.
-              <div className="flex min-h-9 flex-wrap items-center gap-3">
-                {(
-                  [
-                    ["value_in_steps", "Value In Steps"],
-                    ["mandatory", "Mandatory"],
-                    ["inactive", "Blocked"],
-                  ] as const
-                ).map(([field, label]) => (
-                  <label key={field} className="flex cursor-pointer items-center gap-1.5">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 cursor-pointer accent-primary"
-                      checked={l[field]}
-                      // Toggling Value In Steps regenerates the value list; the
-                      // other flags don't touch it.
-                      onChange={(e) =>
-                        field === "value_in_steps"
-                          ? patchLine(l.key, { value_in_steps: e.target.checked })
-                          : setLineAt(l.key, { [field]: e.target.checked })
-                      }
-                    />
-                    <span className="text-sm text-foreground">{label}</span>
-                  </label>
-                ))}
+            // Typed, not picked from the UOM master (client 2026-07-28). It is
+            // only ever printed onto the generated values ("10 MM") — nothing
+            // converts by it — so the FK made the user maintain a UOM row for
+            // every label they wanted to print.
+            const unitCell = (l: LineRow) => (
+              <Input
+                uppercase
+                disabled={!l.value_in_steps}
+                value={l.unit_label}
+                onChange={(e) => patchLine(l.key, { unit_label: e.target.value })}
+                placeholder="MM"
+              />
+            );
+            const flagCell = (l: LineRow, field: "value_in_steps" | "mandatory" | "inactive") => (
+              // Centred in its column and `min-h-9` so the box sits on the same
+              // 36px control line as the inputs either side of it.
+              <div className="flex min-h-9 items-center justify-center">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={l[field]}
+                  // Toggling Value In Steps regenerates the value list; the other
+                  // two flags don't touch it.
+                  onChange={(e) =>
+                    field === "value_in_steps"
+                      ? patchLine(l.key, { value_in_steps: e.target.checked })
+                      : setLineAt(l.key, { [field]: e.target.checked })
+                  }
+                  aria-label={
+                    field === "value_in_steps"
+                      ? "Value in steps"
+                      : field === "mandatory"
+                        ? "Mandatory"
+                        : "Blocked"
+                  }
+                />
               </div>
             );
-            // The line's value list — the single source of the Material form's
-            // dropdown. For a Value-In-Steps line the rows are AUTO-GENERATED from
-            // Start/End/Step/Unit and are fully read-only — narrow the range to
-            // exclude a value. Otherwise they're typed manually and removed with
-            // Remove. Neither kind has a per-value Blocked box any more
-            // (client 2026-07-28); every configured value is offered.
+
+            /**
+             * The line's value list — the single source of the Material form's
+             * dropdown.
+             *
+             * A BORDERED SUB-PANEL WITH ITS OWN HEADER, indented under the
+             * Attribute column, which is how legacy nests it. Without the box it
+             * read as orphaned (client 2026-08-04): a lone input floating in the
+             * band between one attribute row and the next, with nothing saying
+             * which row it belonged to. Indentation is not containment — the
+             * border is what makes it a child of the row above.
+             *
+             * `#` earns its column for the same reason legacy has one: it gives
+             * the operator something to say ("value 3 is wrong") about a list of
+             * otherwise interchangeable text boxes.
+             *
+             * ONE VALUE PER ROW. That is legacy's shape (its sub-grid lists
+             * PLAIN / WITH CENTRE / WITH "O" RING as three rows) and the only one
+             * the keyboard can serve: four-across needs the values chunked four
+             * to a `data-grid-row` so the arrows stay spatial, and Enter then
+             * means "next chunk", which leaves the star row unreachable by the
+             * very key meant to reach it. The width the card layout wasted is
+             * reclaimed by the columns on the attribute row instead.
+             *
+             * For a Value-In-Steps line the rows are AUTO-GENERATED from
+             * Start/End/Step/Unit and read-only — narrow the range to exclude a
+             * value.
+             */
+            const VALUE_TRACKS = "2.5rem minmax(0,1fr) 2rem";
             const valuesCell = (l: LineRow) => {
               const stepped = l.value_in_steps;
               const dupValues = duplicateOptions.get(l.key);
               return (
-                  <Field label={stepped ? "Generated values" : "Values"} size="full">
+                <div className="max-w-xl rounded-md border border-border bg-surface-muted/40 p-2">
+                  <div className="mb-1 flex items-baseline gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {stepped ? "Generated values" : "Values"}
+                    </span>
+                    {!stepped && (
+                      <span className="text-xs text-muted-foreground">
+                        these become the dropdown on the Material form
+                      </span>
+                    )}
+                  </div>
+
                   {/* Its OWN grid, not just a stack of inputs. Without these
                       markers each value counted as a column of the outer
                       ATTRIBUTE row, so ↓ from "End Value" landed on the second
                       value of the next attribute line and ↓ inside the list
                       jumped lines instead of walking values (client 2026-07-25).
-                      `ownDescendants` in child-grid.tsx scopes by nearest
-                      marker, so this also removes them from the outer row's
-                      axis. The local handler runs before the outer grid's and
-                      stops the key, so Enter on the last value adds a VALUE
-                      rather than a whole attribute line. */}
+                      `ownDescendants` in child-grid.tsx scopes by nearest marker,
+                      so this also removes them from the outer row's axis. */}
                   <div
                     data-grid-body
-                    className="space-y-1.5"
+                    className="space-y-1"
                     onKeyDown={stepped ? undefined : (e) => gridKeyNav(e, () => addOption(l.key))}
                   >
-                    {l.options.length === 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {stepped
-                          ? "Set Start / End / Step above to generate values."
-                          : "No values yet — add the pick-list the Material form will offer."}
-                      </p>
-                    )}
-                    {l.options.map((o) => {
-                      const dup = !!dupValues?.has(o.description.trim().toUpperCase());
-                      return (
-                        // `data-grid-row` sits on the wrapper, not the flex row:
-                        // the duplicate hint below belongs to the same row, and
-                        // child-grid finds a row's fields by containment.
-                        <div key={o.key} data-grid-row>
-                          <div className="flex items-center gap-2">
-                            {stepped ? (
-                              <span className="flex-1 rounded-md border border-border bg-surface-muted px-3 py-1.5 text-sm text-foreground">
-                                {o.description}
-                              </span>
-                            ) : (
-                              <Input
-                                value={o.description}
-                                uppercase
-                                onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
-                                placeholder="e.g. MAIN LABEL"
-                                aria-invalid={dup ? true : undefined}
-                                className={cn(dup && "border-danger")}
-                              />
-                            )}
-                            {/* No per-value Blocked box. It went from stepped rows
-                                first — a stepped line's values are derived from
-                                Start/End/Step, so the way to exclude one is to narrow
-                                the range (client 2026-07-27) — and the same argument
-                                finishes it for manual lists: the way to exclude a
-                                value you typed is to Remove it. Between that and the
-                                line-level Blocked, a third control that half-hides a
-                                single value earned nothing (client 2026-07-28).
-
-                                `options.blocked` is deliberately still in the row
-                                type, the payload and the DB (migration 0346): the UI
-                                is hidden, the column round-trips, so a value blocked
-                                before this change stays blocked rather than being
-                                silently re-offered. Its one reader is the
-                                `filter((o) => !o.blocked)` in material-master-screen.tsx,
-                                which now simply never filters anything out. */}
-                            {!stepped && (
-                              <Button variant="ghost" size="sm" onClick={() => removeOption(l.key, o.key)}>
-                                Remove
-                              </Button>
-                            )}
-                          </div>
-                          {/* Both copies are flagged, not just the later one — the
-                              user is as likely to want to retype the first. */}
-                          {dup && (
-                            <p className="mt-1 text-xs text-danger">Already listed in this attribute</p>
-                          )}
+                    {stepped ? (
+                      // Read-only text, and there can be a hundred of them, so
+                      // they wrap as chips rather than taking a row each. Nothing
+                      // here is focusable — hence no row markers.
+                      l.options.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Set Start / End / Step on the row above to generate values.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {l.options.map((o) => (
+                            <span
+                              key={o.key}
+                              className="rounded-md border border-border bg-surface px-2 py-1 text-sm tabular-nums text-foreground"
+                            >
+                              {o.description}
+                            </span>
+                          ))}
                         </div>
-                      );
-                    })}
-                    {!stepped && (
-                      <Button variant="outline" size="sm" onClick={() => addOption(l.key)}>
-                        + Add value
-                      </Button>
-                    )}
-                  </div>
-                  </Field>
-              );
-            };
-            /**
-             * The whole expanded body: behaviour, then (when stepped) the
-             * range row, then the value list.
-             *
-             * ONE `FieldGrid`, not one per group. They are rows of the same
-             * 12-col track, so they share its left edge and its vertical
-             * rhythm — stacked grids agree on the edge but not on the gap,
-             * because the gap between two grids is the parent's `space-y-2`
-             * while the gap inside one compacts to `gap-y-1.5` on a wide
-             * editor.
-             *
-             * `Behaviour` is `full` rather than a part span: a checkbox group
-             * does not stretch to fill its cell, so 12 is the same three
-             * checkboxes with more air — and it leaves no part-row sitting
-             * above the full rows beneath it.
-             */
-            const specCell = (l: LineRow) => (
-              <FieldGrid>
-                <Field label="Behaviour" size="full">
-                  {flagsCell(l)}
-                </Field>
-                {l.value_in_steps && rangeCell(l)}
-                {valuesCell(l)}
-              </FieldGrid>
-            );
-            /** One-line stand-in for a collapsed attribute: what it is, how it
-             *  behaves, and how many values it will offer. Enough to recognise
-             *  the line without opening it. */
-            const summaryOf = (l: LineRow) => {
-              const bits: string[] = [];
-              if (l.value_in_steps) bits.push("Steps");
-              if (l.mandatory) bits.push("Mandatory");
-              if (l.inactive) bits.push("Blocked");
-              bits.push(l.options.length === 1 ? "1 value" : `${l.options.length} values`);
-              return bits.join(" · ");
-            };
-            return (
-              <ChildGrid<LineRow>
-                label="Attributes"
-                forceCards
-                listRows
-                pageSize={6}
-                rows={lines}
-                onAdd={addLine}
-                onRemove={(l) => removeLine(l.key)}
-                addLabel="+ Add attribute"
-                columns={[
-                  // `listRows` + `renderMobileRow` mean these never render — they
-                  // are the fallback if this grid is ever switched back to a
-                  // table. Two entries now, not three: the flags moved inside
-                  // specCell when the Attribute picker moved up to the header.
-                  { header: "Attribute", cell: attrCell },
-                  { header: "Details", cell: specCell },
-                ]}
-                renderMobileRow={(l, i) => {
-                  const isOpen = expandedKey === l.key;
-                  const name = attrValueLabel.get(l.attribute_id) ?? "";
-                  // A duplicate blocks Save, and only one line is expanded at a
-                  // time — so the summary has to carry the complaint too, or the
-                  // dead Save button has no explanation anywhere on screen.
-                  const dupAttr = !!l.attribute_id && duplicateAttrIds.has(l.attribute_id);
-                  const dupValue = (duplicateOptions.get(l.key)?.size ?? 0) > 0;
-                  const invalid = dupAttr || dupValue;
-                  return (
-                    <div className="space-y-2">
-                      {/* ONE header line: index, expander, name, summary and
-                          remove. `listRows` suppresses ChildGrid's own `#N` +
-                          remove band, which used to sit above this and repeat
-                          the same identity in ~40px of its own height.
-
-                          The remove button is a SIBLING of the expander, not
-                          nested inside it — a <button> inside a <button> is
-                          invalid and the inner one never receives its click. */}
-                      <div className="flex items-center gap-2">
-                        {/* Closed, the expander owns the whole line so anywhere
-                            on it opens the row. Open, it shrinks to the chevron
-                            and the number: the rest of the line is the picker,
-                            and a <button> cannot live inside a <button> — the
-                            inner one never receives its click. */}
-                        <button
-                          type="button"
-                          onClick={() => setExpandedKey(isOpen ? null : l.key)}
-                          aria-expanded={isOpen}
-                          aria-label={isOpen ? "Collapse attribute" : `Expand ${name || "attribute"}`}
-                          className={cn(
-                            "flex min-w-0 items-center gap-2 rounded-md py-0.5 text-left hover:bg-surface-muted",
-                            !isOpen && "flex-1",
-                          )}
-                        >
-                          {isOpen ? (
-                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          )}
-                          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                            #{i + 1}
-                          </span>
-                          {/* Only while closed. Open, this text WAS the picker's
-                              own value echoed back — two controls for one field,
-                              and the user could not tell which one was live. */}
-                          {!isOpen && (
-                            <>
-                              <span
-                                className={cn(
-                                  "truncate text-sm font-medium",
-                                  invalid ? "text-danger" : name ? "text-foreground" : "text-muted-foreground",
-                                )}
-                              >
-                                {name || "— No attribute picked —"}
-                              </span>
-                              <span
-                                className={cn(
-                                  "ml-auto shrink-0 text-xs",
-                                  invalid ? "text-danger" : "text-muted-foreground",
-                                )}
-                              >
-                                {dupAttr
-                                  ? "Already used in this set"
-                                  : dupValue
-                                    ? "Duplicate value"
-                                    : summaryOf(l)}
-                              </span>
-                            </>
-                          )}
-                        </button>
-                        {/* The row's identity control, in the exact spot its name
-                            occupies when closed. Unlabelled on purpose: the same
-                            reasoning `IdentityRow` is built on (section-grid.tsx)
-                            — the record's identity is the one thing that needs no
-                            caption, and "— None —" already says it.
-
-                            `max-w-sm` because the header owns this track: an
-                            attribute value is "MAIN LABEL", not a paragraph. */}
-                        {isOpen && (
-                          <>
-                            <div className="w-full min-w-0 max-w-sm">{attrCell(l)}</div>
-                            {dupAttr && (
-                              <span className="shrink-0 text-xs text-danger">
-                                Already used in this set
-                              </span>
-                            )}
-                            <div className="flex-1" />
-                          </>
+                      )
+                    ) : (
+                      <>
+                        {/* The column header earns its place only once there is
+                            a column to head. On an empty list it would be two
+                            captions stacked above a button. */}
+                        {l.options.length > 0 && (
+                          <div
+                            className="grid items-center gap-x-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                            style={{ gridTemplateColumns: VALUE_TRACKS }}
+                          >
+                            <div className="text-center">#</div>
+                            <div>Value</div>
+                            <div />
+                          </div>
                         )}
+                        {l.options.map((o, oi) => {
+                          const dup = !!dupValues?.has(o.description.trim().toUpperCase());
+                          return (
+                            // `data-grid-row` on the wrapper, not the grid row: the
+                            // duplicate hint below belongs to the same row, and
+                            // child-grid finds a row's fields by containment.
+                            <div key={o.key} data-grid-row>
+                              <div
+                                className="grid items-center gap-x-2"
+                                style={{ gridTemplateColumns: VALUE_TRACKS }}
+                              >
+                                <div className="text-center text-xs text-muted-foreground">
+                                  {oi + 1}
+                                </div>
+                                <Input
+                                  value={o.description}
+                                  uppercase
+                                  onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
+                                  placeholder="Type a value…"
+                                  aria-invalid={dup ? true : undefined}
+                                  className={cn(dup && "border-danger")}
+                                />
+                                <div className="flex items-center justify-center">
+                                  {(
+                                    // `data-row-remove` is all this needs: Tab steps
+                                    // over every non-field centrally (lib/focus.ts),
+                                    // and the marker is what lets Ctrl+Del on this
+                                    // value click it.
+                                    //
+                                    // No per-value Blocked box, though legacy has
+                                    // one. It went from stepped rows first — their
+                                    // values are derived from Start/End/Step, so the
+                                    // way to exclude one is to narrow the range
+                                    // (client 2026-07-27) — and the same argument
+                                    // finished it for manual lists: the way to
+                                    // exclude a value you typed is to remove it
+                                    // (client 2026-07-28). `options.blocked` stays in
+                                    // the row type, the payload and the DB (0346), so
+                                    // a value blocked before that change stays
+                                    // blocked rather than being silently re-offered.
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      data-row-remove
+                                      className="px-1 text-muted-foreground hover:text-danger"
+                                      onClick={() => removeOption(l.key, o.key)}
+                                      aria-label={`Remove value ${o.description}`.trim()}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Both copies are flagged, not just the later one —
+                                  the user is as likely to want to retype the first. */}
+                              {dup && (
+                                <p className="pl-[3.25rem] text-xs text-danger">
+                                  Already listed in this attribute
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {/* A BUTTON, not a permanently open empty box.
+                            The values list carried a star row like the attribute
+                            grid above it, for symmetry with legacy — but an
+                            always-visible blank input in a bordered panel reads
+                            as clutter rather than as an invitation, and the
+                            client asked for the button back (2026-08-04).
+
+                            The keyboard is unaffected, because the button was
+                            never its path: Enter off the last value still opens
+                            the next box, and Enter on that box while it is still
+                            empty declines and moves the operator to the next
+                            attribute. The difference is only that the box now
+                            appears when it is asked for. */}
                         <Button
                           type="button"
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          className="shrink-0 text-muted-foreground hover:text-danger"
-                          onClick={() => removeLine(l.key)}
-                          aria-label="Remove attribute"
+                          className="mt-0.5"
+                          onClick={() => addOption(l.key)}
                         >
-                          <X className="h-4 w-4 shrink-0" />
+                          + Add value
                         </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            };
+            // Just the value list now, and rendered DIRECTLY — no `FieldGrid`.
+            // Start/End/Unit/Step used to live here as a four-field row on the
+            // 12-col track; they are columns on the line itself since the grid
+            // went tabular, which is the point of the change. `valuesCell` now
+            // draws its own bordered panel and owns its own width, so putting it
+            // back on that track would make it one column of twelve.
+            const specCell = (l: LineRow) => valuesCell(l);
+            /** What a collapsed row shows in place of its value list: how many
+             *  values it will offer. The flags are columns now, so they no longer
+             *  need restating in words. */
+            const valueCount = (l: LineRow) => {
+              const n = l.options.filter((o) => o.description.trim()).length;
+              return n === 1 ? "1 value" : `${n} values`;
+            };
+            return (
+              // `DetailSection` draws the panel and names it once; the grid inside
+              // is `frameless` with no caption of its own, so there is one border
+              // and one title rather than a card inside a card. The header strip
+              // sits between them — the columns belong to the rows, not to the
+              // section, and this is the only place both can see the same track.
+              <DetailSection label="Attributes">
+                {headerStrip}
+                <ChildGrid<LineRow>
+                label=""
+                forceCards
+                listRows
+                frameless
+                rows={lines}
+                // NO BUTTON, AND NO KEY THAT ADDS. Rows appear by filling in the
+                // trailing star row (`withStarRow`), which is how the legacy grid
+                // works and why it needs no "+ Add" anywhere. `hideAdd` also makes
+                // `addFn` = `NO_ADD`, which now DECLINES Enter on the last row —
+                // so Enter there advances out of the grid instead of dying.
+                hideAdd
+                onAdd={() => false}
+                onRemove={(l) => removeLine(l.key)}
+                // Paging is gone with the tall cards: a line is one row now, so a
+                // category with a dozen attributes is a dozen rows — legacy shows
+                // them all, and §6 forbids capping the height instead.
+                columns={[
+                  // `listRows` + `renderMobileRow` mean these never render — they
+                  // are the fallback if this grid is ever switched to a table.
+                  // `required` here as well as on the picker: this column is the
+                  // fallback if the grid is ever switched to a table, and that
+                  // path DOES honour `ChildGridColumn.required`. `isStar` is
+                  // false because a table renders every row the same way — the
+                  // star-row exemption belongs to `renderMobileRow`, which is
+                  // what actually draws one.
+                  { header: "Attribute", cell: (l) => attrCell(l, false), required: true },
+                  { header: "Values", cell: valuesCell },
+                ]}
+                renderMobileRow={(l, i) => {
+                  const isOpen = expandedKeys.has(l.key);
+                  const dupAttr = !!l.attribute_id && duplicateAttrIds.has(l.attribute_id);
+                  const dupValue = (duplicateOptions.get(l.key)?.size ?? 0) > 0;
+                  // The star row is the one line that is SUPPOSED to be empty, so
+                  // it gets no "#", no chevron and no remove — it is not a record
+                  // yet, and offering to delete nothing reads as a bug.
+                  const isStar = !l.attribute_id && i === lines.length - 1;
+                  return (
+                    <div className="space-y-1.5">
+                      <div
+                        className="grid items-start gap-x-2"
+                        style={{ gridTemplateColumns: ROW_TRACKS }}
+                      >
+                        {/* ⊟ / ⊞, legacy's expander, in its own leading column.
+                            A row with no attribute picked has nothing to show, so
+                            the chevron only appears once the row is real. */}
+                        <div className="flex min-h-9 items-center justify-center">
+                          {!isStar && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpanded(l.key)}
+                              aria-expanded={isOpen}
+                              aria-label={isOpen ? "Hide values" : "Show values"}
+                              className="rounded p-0.5 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {isOpen ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex min-h-9 items-center justify-center text-xs text-muted-foreground">
+                          {isStar ? "*" : i + 1}
+                        </div>
+                        <div className="min-w-0">
+                          {attrCell(l, isStar)}
+                          {dupAttr && (
+                            <p className="mt-1 text-xs text-danger">Already used in this set</p>
+                          )}
+                        </div>
+                        {flagCell(l, "value_in_steps")}
+                        {numCell(l, "start_value")}
+                        {numCell(l, "end_value")}
+                        {unitCell(l)}
+                        {numCell(l, "step_value")}
+                        {flagCell(l, "mandatory")}
+                        {flagCell(l, "inactive")}
+                        <div className="flex min-h-9 items-center justify-center">
+                          {!isStar && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              // `data-row-remove` is what Ctrl+Del drives; Tab
+                              // steps over it centrally (lib/focus.ts).
+                              data-row-remove
+                              className="px-1 text-muted-foreground hover:text-danger"
+                              onClick={() => removeLine(l.key)}
+                              aria-label="Remove attribute"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
 
-                      {isOpen && (
-                        <>
-                          {specCell(l)}
-                        </>
-                      )}
+                      {/* The nested block, indented under its own row exactly as
+                          legacy indents its values sub-grid. Collapsed, the row
+                          says only how many values it holds — and carries the
+                          duplicate complaint, because a duplicate blocks Save and
+                          the operator may have folded the offending row away. */}
+                      {!isStar &&
+                        (isOpen ? (
+                          <div className="pb-1 pl-[4.5rem] pr-2">{specCell(l)}</div>
+                        ) : (
+                          <div className="pl-[4.5rem] text-xs text-muted-foreground">
+                            {dupValue ? (
+                              <span className="text-danger">Duplicate value</span>
+                            ) : (
+                              valueCount(l)
+                            )}
+                          </div>
+                        ))}
                     </div>
                   );
                 }}
-              />
+                />
+              </DetailSection>
             );
           })()}
           </div>

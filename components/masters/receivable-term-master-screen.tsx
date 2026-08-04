@@ -269,7 +269,9 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
             <Field label="Entry No" size={FIELD_SIZE.entry_no} htmlFor="rt-entry">
               <Input id="rt-entry" value={editEntryNo ?? "(auto)"} disabled />
             </Field>
-            <Field label="Date" size={FIELD_SIZE.entry_date} htmlFor="rt-date">
+            {/* `receivableTermInput.entry_date` is `.min(1)`, and Save is already
+                gated on it below. Same shape as Payment Term. */}
+            <Field label="Date" required size={FIELD_SIZE.entry_date} htmlFor="rt-date">
               <Input
                 id="rt-date"
                 type="date"

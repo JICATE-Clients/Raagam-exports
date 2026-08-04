@@ -29,6 +29,7 @@ import { GARMENT_COMPONENT_NAMES } from "@/lib/masters/name-vocabularies";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type CoordinateRow = { key: string; coordinate: string };
@@ -82,7 +83,7 @@ export function ComponentMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.short_name ?? "").filter(Boolean),
     seed: GARMENT_COMPONENT_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, short_name: v })),
   });
 
@@ -276,7 +277,7 @@ export function ComponentMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No component records yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No component records yet." />
       </div>
 
       {/* mobile cards */}
@@ -301,6 +302,10 @@ export function ComponentMasterScreen({
                   {r.description && (
                     <div className="mt-0.5 text-xs text-muted-foreground">{r.description}</div>
                   )}
+                  {/* Outside the conditional above: a record with no description
+                      still has a creator, and the desktop table shows it either
+                      way. */}
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.inactive ? "danger" : "success"}>
                   {r.inactive ? "Inactive" : "Active"}
@@ -357,6 +362,9 @@ export function ComponentMasterScreen({
                   <Input
                     id="cmp-short"
                     uppercase
+                    // `.min(1)` in `componentInput`. The `*` above was drawn by
+                    // hand with nothing behind it — see useRequiredHold.
+                    required
                     value={form.short_name}
                     onChange={(e) => setForm({ ...form, short_name: e.target.value })}
                     className="text-base md:text-sm"
@@ -367,7 +375,9 @@ export function ComponentMasterScreen({
                   <DuplicateError error={dupError} id="cmp-short" />
                   <SpellSuggestHint
                     suggestions={nameSuggest.suggestions}
+                    existing={nameSuggest.existing}
                     activeIndex={nameSuggest.activeIndex}
+                    duplicate={!!dupError}
                     onApply={(v) => setForm((f) => ({ ...f, short_name: v }))}
                   />
                 </div>

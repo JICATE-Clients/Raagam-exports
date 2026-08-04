@@ -265,11 +265,28 @@ export const IO_ENTITIES: IoEntity[] = [
     schema: materialInput,
     // Code and Name only, which is also what keeps the Fabric UOM rule intact:
     // `lib/data-io/actions.ts` writes straight to Postgres and never reaches
-    // `createMaterial`, so the fabric derivation in `applyFabricUomRule` is not
-    // in the path. Harmless today — an import cannot set item_class_id,
-    // fabric_structure_id or any *_uom_id, so it cannot make a fabric at all.
-    // Widen this list to include them and that stops being true: the rule would
-    // then have to move into the import path too, not just the action.
+    // `createMaterial`, so `applyFabricUomRule` is not in the path. Harmless
+    // today — an import cannot set item_class_id, fabric_structure_id or any
+    // *_uom_id, so it cannot make a fabric at all. Widen this list to include
+    // them and that stops being true: the rule would then have to move into the
+    // import path too, not just the action. Note what it supplies got SMALLER on
+    // 2026-08-04 (a missing base and the conversion pairing, no longer the four
+    // downstream slots), so an import that set a base and nothing else would now
+    // land a fabric with four null UOM slots — `uomSlots` is not in this path
+    // either.
+    //
+    // THE MANDATORY-FIELD RULE (client 2026-08-04) DOES NOT REACH HERE EITHER,
+    // and it is the same cause with a different consequence. `createMaterial` /
+    // `updateMaterial` call `missingRequiredMaterialFields`, this path does not,
+    // so an import can still write an `items` row carrying nothing but a code
+    // and a name. Calling the guard here would not fix that — it would BREAK
+    // the feature, because the two fields above cannot express a complete
+    // material: `item_class_id` is mandatory for every class and is not
+    // importable, so every row would be rejected.
+    //
+    // Whoever widens `fields` owns both rules at once. Until then a bulk import
+    // is the one door a half-filled material can still come through, which is
+    // worth knowing before trusting the screen rule to mean the data is clean.
     fields: [
       { key: "code", header: "Code", kind: "string", required: true },
       { key: "name", header: "Name", kind: "string" },

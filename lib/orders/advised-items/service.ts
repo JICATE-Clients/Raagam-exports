@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderAdvisedItem } from "./types";
 import type { OrderWithBuyer } from "@/lib/orders/service";
+import { withCreators } from "@/lib/created-by";
 
 export type AdvisedItemWithOrder = OrderAdvisedItem & {
   sales_orders: {
@@ -17,7 +18,7 @@ export async function getAdvisedItems(): Promise<AdvisedItemWithOrder[]> {
     .from("order_advised_items")
     .select("*, sales_orders(id, order_number, buyers(name))")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as AdvisedItemWithOrder[];
+  return withCreators((data ?? []) as unknown as AdvisedItemWithOrder[]);
 }
 
 /** Advised items for one order (per-order editor). */

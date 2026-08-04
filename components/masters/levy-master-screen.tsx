@@ -600,9 +600,17 @@ export function LevyMasterScreen({
               </div>
             )}
             <div className="sm:col-span-2">
-              <Label htmlFor="lv-type">Type</Label>
+              <Label htmlFor="lv-type">
+                Type <span className="text-danger">*</span>
+              </Label>
+              {/* `levyInput.type` is a bare `z.enum` — mandatory. The hold itself
+                  is inert here because this Select has no blank option, so
+                  `holdEmpty` never sees an empty value; `required` is carried
+                  anyway so the `*` and the schema agree, and so it starts holding
+                  by itself the day someone adds a "— Select —" row. */}
               <Select
                 id="lv-type"
+                required
                 value={form.type}
                 onChange={(e) => {
                   set({ type: e.target.value as LevyType });
@@ -617,20 +625,28 @@ export function LevyMasterScreen({
               </Select>
             </div>
             <div>
-              <Label htmlFor="lv-date">Date</Label>
+              <Label htmlFor="lv-date">
+                Date <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="lv-date"
                 type="date"
+                // `.min(1)` in `levyInput` — see useRequiredHold.
+                required
                 value={form.levy_date}
                 onChange={(e) => set({ levy_date: e.target.value })}
                 className="text-base md:text-sm"
               />
             </div>
             <div>
-              <Label htmlFor="lv-eff">Effective From</Label>
+              <Label htmlFor="lv-eff">
+                Effective From <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="lv-eff"
                 type="date"
+                // `.min(1)` in `levyInput`.
+                required
                 value={form.effective_from}
                 onChange={(e) => set({ effective_from: e.target.value })}
                 className="text-base md:text-sm"

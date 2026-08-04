@@ -11,6 +11,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import type { GanQualityCheck, GanStatus, GanResult } from "@/lib/purchase/gan-types";
 import Link from "next/link";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function ganStatusTone(status: GanStatus): StatusTone {
   switch (status) {
@@ -106,7 +107,7 @@ export default async function GanQualityPage({
         </CardHeader>
         <CardBody>
           <DataTable
-            columns={columns}
+            columns={withCreatedColumns(columns, checks)}
             rows={checks}
             getKey={(r) => r.id}
             empty="No quality checks yet."

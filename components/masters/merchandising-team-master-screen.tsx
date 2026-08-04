@@ -27,6 +27,7 @@ import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-che
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -85,7 +86,7 @@ export function MerchandisingTeamMasterScreen({
     // No curated vocabulary: this master has no real-world standard to draw
     // on, so the rows beside what is being typed are the only safe candidates.
     seed: [],
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -202,7 +203,7 @@ export function MerchandisingTeamMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No merchandising teams yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No merchandising teams yet." />
       </div>
 
       {/* mobile cards */}
@@ -226,6 +227,7 @@ export function MerchandisingTeamMasterScreen({
                     {r.code ?? "—"}
                     {r.location?.name ? ` · ${r.location.name}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 {statusPill(r)}
               </div>
@@ -281,7 +283,9 @@ export function MerchandisingTeamMasterScreen({
             <DuplicateError error={dupError} id="mt-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
           </Field>

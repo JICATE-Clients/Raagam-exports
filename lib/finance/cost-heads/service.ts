@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { CostHead, CostItem } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export type CostItemRow = CostItem & {
   cost_heads: { id: string; name: string } | null;
@@ -9,7 +10,7 @@ export type CostItemRow = CostItem & {
 export async function getCostHeads(): Promise<CostHead[]> {
   const supabase = await createClient();
   const { data } = await supabase.from("cost_heads").select("*").order("name");
-  return (data ?? []) as CostHead[];
+  return withCreators((data ?? []) as CostHead[]);
 }
 
 export async function getActiveHeads(): Promise<Pick<CostHead, "id" | "name">[]> {
@@ -28,5 +29,5 @@ export async function getCostItems(): Promise<CostItemRow[]> {
     .from("cost_items")
     .select("*, cost_heads(id, name)")
     .order("name");
-  return (data ?? []) as unknown as CostItemRow[];
+  return withCreators((data ?? []) as unknown as CostItemRow[]);
 }

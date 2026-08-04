@@ -429,7 +429,7 @@ export function SimpleMasterScreen<Row>({
     name: dupValue,
     names: suggestNames,
     seed: suggestSeed,
-    enabled: !!d.spellSuggest && !!d.dupCheck && !dupError,
+    enabled: !!d.spellSuggest && !!d.dupCheck,
     // Applied through the same setter the input uses, so an accepted chip is
     // indistinguishable from having typed the name.
     onApply: (v) => d.dupCheck && setFieldValue(d.dupCheck.fieldKey, v),
@@ -581,6 +581,26 @@ export function SimpleMasterScreen<Row>({
       // Auto/derived fields drop out of Tab order but stay clickable/editable.
       tabIndex: f.skipTab ? -1 : undefined,
       "aria-label": f.label,
+      /**
+       * THE SAME `required` THAT DRAWS THE `*` MUST REACH THE CONTROL.
+       *
+       * `f.required` already drew the star in both headers and already gated
+       * Save (`canSave` above) — but it stopped there, so `useRequiredHold`
+       * never saw it and the cursor never held. The operator got a `*`, a dead
+       * Save button, and a Tab key that walked straight past the blank field
+       * with nothing to say why (client 2026-08-04).
+       *
+       * That is the star-without-hold disagreement the contract exists to
+       * prevent, and it was here at scale: this engine backs ~31 masters, and 16
+       * of them declare `required: true` on 20 fields between them. It is also
+       * invisible to `audit_layout.py --check required-hold`, whose
+       * `is_editor_screen()` gate never matches a descriptor screen — it renders
+       * no Sheet, DetailSection or FieldGrid of its own.
+       *
+       * A `skipTab` field is auto-generated and never held: it has no keyboard
+       * exit, which is the same reason `Input` refuses to hold a readOnly one.
+       */
+      required: f.required && !f.skipTab,
       // Spread inside `common`, which every branch below spreads LAST — so on a
       // ValidatedInput it wins over that component's own `aria-invalid`. It
       // emits no keys at all when there is no duplicate, which is what keeps
@@ -599,12 +619,18 @@ export function SimpleMasterScreen<Row>({
       return (
         <div>
           {input}
-          {/* At most one line under the input: the hook is disabled while a
-              duplicate error shows, so these never stack. */}
+          {/* These now STACK on purpose, and only ever two deep. The red error
+              says the typed name is taken; the chips under it are free names —
+              which is exactly what the operator needs at that moment, and the
+              way out of a field the error is holding the cursor in. The hint's
+              own "already exists" half stands down while the error shows, so
+              there is never a third line. */}
           <DuplicateError error={dupError} />
           <SpellSuggestHint
             suggestions={nameSuggest.suggestions}
+            existing={nameSuggest.existing}
             activeIndex={nameSuggest.activeIndex}
+            duplicate={!!dupError}
             onApply={(v) => setV(v)}
           />
         </div>

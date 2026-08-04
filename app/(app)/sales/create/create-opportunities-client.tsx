@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { createOpportunitiesForBuyers } from "@/lib/sales/actions";
 import type { Buyer } from "@/lib/masters/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 /**
  * Legacy "Create opportunities — By Customer": a bulk customer-selection grid.
@@ -191,7 +192,7 @@ export function CreateOpportunitiesClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, filtered)}
         rows={filtered}
         getKey={(b) => b.id}
         empty="No customers match your filter."

@@ -19,6 +19,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { NewBillForm } from "./new-bill-form";
 import type { PayableWithVendor } from "@/lib/finance/ap-service";
 import type { PayableStatus, MatchStatus } from "@/lib/finance/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function payableStatusTone(s: PayableStatus): StatusTone {
   switch (s) {
@@ -193,7 +194,7 @@ export default async function PayablesPage() {
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, payables)}
         rows={payables}
         getKey={(r) => r.id}
         empty="No vendor bills yet. Create one above."

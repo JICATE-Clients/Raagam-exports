@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type KeyboardEvent } from "react";
-import { orderedFocusables, focusField, restoreFocusIfLost } from "@/lib/focus";
+import { cycleTab, restoreFocusIfLost } from "@/lib/focus";
 
 /**
  * Hand the cursor back to the trigger when this picker closes.
@@ -142,19 +142,17 @@ export function pickerKeyDown<T>({
       // Keep Tab inside the dialog. These pickers portal to <body>, so they are
       // outside any Sheet's focus trap; before this, Tab walked straight into
       // the form behind the scrim while the picker was still up.
-      const items_ = orderedFocusables(e.currentTarget);
-      if (!items_.length) return;
-      const active = document.activeElement;
-      const idx = active instanceof HTMLElement ? items_.indexOf(active) : -1;
-      e.preventDefault();
-      // focusField, not .focus() — it lands the caret at the end, which is what
-      // lets ←/→ leave a field on the first press. See lib/focus.ts.
-      if (idx === -1) {
-        focusField(e.shiftKey ? items_[items_.length - 1] : items_[0]);
-        return;
-      }
-      const next = e.shiftKey ? idx - 1 : idx + 1;
-      focusField(items_[(next + items_.length) % items_.length]);
+      //
+      // THE SHARED CYCLE, not a local copy (2026-08-04). This block used to walk
+      // `orderedFocusables` itself, which meant Tab stopped on Cancel / Back /
+      // ✕ here while it stepped over them on every other surface — the picker's
+      // Add form is a form like any other. `cycleTab` traps just the same and
+      // applies the one rule; a dialog whose only focusables are buttons (a
+      // confirm) still cycles them, by its own fallback.
+      //
+      // It preventDefaults, so the global provider's Tab branch stands down and
+      // this stays the innermost owner of the key.
+      cycleTab(e, e.currentTarget);
     }
   };
 }

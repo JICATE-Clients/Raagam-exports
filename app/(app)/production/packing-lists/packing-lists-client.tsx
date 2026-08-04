@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createPackingList } from "@/lib/production/extras-actions";
 import { PACKING_STATUS_LABELS, type PackingStatus } from "@/lib/production/extras-types";
 import type { PackingListWithRefs, OrderOption } from "@/lib/production/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: PackingStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "finalized" ? "success" : "danger";
@@ -106,7 +107,7 @@ export function PackingListsClient({ rows, orders, canCreate }: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New packing list</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No packing lists yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No packing lists yet." />
     </div>
   );
 }

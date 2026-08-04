@@ -23,6 +23,7 @@ import {
 } from "@/lib/hr/extras-types";
 import type { HrCompEvent } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: CompStatus): StatusTone {
   return s === "draft" ? "info" : s === "approved" ? "success" : "danger";
@@ -155,7 +156,7 @@ export function CompEventsClient({ rows, employees, canCreate, canApprove, canDe
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New event</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No bonus/increment events yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No bonus/increment events yet." />
     </div>
   );
 }

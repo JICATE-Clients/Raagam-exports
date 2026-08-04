@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { PpmCompletionRow } from "@/lib/planning/ppm-types";
 import type { PpmStatus } from "@/lib/planning/ppm-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
   draft: "Draft",
@@ -92,7 +93,7 @@ export default async function PpmCompletionPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, completions)}
         rows={completions}
         getKey={(r) => r.id}
         empty="No PPM completion records yet."

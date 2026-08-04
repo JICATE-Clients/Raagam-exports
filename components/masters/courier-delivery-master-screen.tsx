@@ -35,6 +35,7 @@ import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-che
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { createdSection } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -207,7 +208,7 @@ export function CourierDeliveryAddressMasterScreen({
     // No curated vocabulary: this master has no real-world standard to draw
     // on, so the rows beside what is being typed are the only safe candidates.
     seed: [],
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -613,7 +614,9 @@ export function CourierDeliveryAddressMasterScreen({
                 <DuplicateError error={dupError} id="cda-name" />
                 <SpellSuggestHint
                   suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
                   activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
                   onApply={(v) => setForm((f) => ({ ...f, name: v }))}
                 />
               </Field>
@@ -887,7 +890,7 @@ export function CourierDeliveryAddressMasterScreen({
             </StatusPill>
           )
         }
-        sections={viewRow ? viewSections(viewRow) : []}
+        sections={viewRow ? [...viewSections(viewRow), ...createdSection(viewRow)] : []}
       />
     </div>
   );

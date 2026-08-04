@@ -18,6 +18,7 @@ import type { ReceivableWithBuyer } from "@/lib/finance/ar-service";
 import type { ReceivableStatus } from "@/lib/finance/types";
 import type { AgingBucket } from "@/lib/finance/calc";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function receivableStatusTone(status: ReceivableStatus): StatusTone {
   switch (status) {
@@ -167,7 +168,7 @@ export default async function ReceivablesPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, receivables)}
         rows={receivables}
         getKey={(row) => row.id}
         empty="No receivables yet. Create an invoice above."

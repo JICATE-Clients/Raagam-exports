@@ -27,6 +27,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   openings: PartyOpeningRow[];
@@ -236,7 +237,7 @@ export function PartyOpeningsClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, openings)}
         rows={openings}
         getKey={(o) => o.id}
         empty="No party opening balances yet."

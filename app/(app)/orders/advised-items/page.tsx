@@ -10,6 +10,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import type { PickerItem } from "@/components/masters/record-picker";
 import { AdvisedItemsFilter } from "./advised-items-filter";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<AdvisedOrderRow>[] = [
   {
@@ -99,7 +100,7 @@ export default async function AdvisedItemsPage({
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, rows)}
         rows={rows}
         getKey={(row) => row.id}
         empty="No accepted orders match. Confirm an order first, or clear the filter."

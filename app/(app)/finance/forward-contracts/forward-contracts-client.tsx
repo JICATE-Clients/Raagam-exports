@@ -27,6 +27,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtNumber, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   contracts: ForwardContract[];
@@ -257,7 +258,7 @@ export function ForwardContractsClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, contracts)}
         rows={contracts}
         getKey={(c) => c.id}
         empty="No forward contracts yet."

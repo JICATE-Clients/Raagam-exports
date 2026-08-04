@@ -20,6 +20,7 @@ import { RecordPicker } from "@/components/masters/record-picker";
 import { createTaPlan, updateTaPlan, deleteTaPlan } from "@/lib/orders/ta-plan/actions";
 import type { TaPlanDoc } from "@/lib/orders/ta-plan/types";
 import type { TaPlanFormData } from "@/lib/orders/ta-plan/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
@@ -274,7 +275,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
           description="Time & Action plan document — schedule activities against an order with target dates."
           actions={perms.canCreate ? <Button onClick={openAdd}>New TA Plan</Button> : undefined}
         />
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No TA plans yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No TA plans yet." />
       </div>
     );
   }

@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 import {
-  cycleTab,
   focusField,
   focusFirstField,
   focusLastField,
@@ -106,12 +105,10 @@ export function MasterFullScreen({
   // div and is a DESCENDANT of it, which is the wrong end for a lookup that walks
   // upwards, so the section hand-off has to be keyed on this one.
   const paneRef = useRef<HTMLDivElement>(null);
-  /** Where the cursor lands after a section switch — see the Tab listener. */
+  /** Where the cursor lands after a section switch — see `onContentEdge`. */
   const landingRef = useRef<"first" | "last">("first");
-  /** Last field focused inside this overlay; the Tab cycle resumes from it. */
-  const lastFocusedRef = useRef<HTMLElement | null>(null);
-  // Latest sections/active key behind a ref, so the Tab listener registered on
-  // open reads the current ones without re-subscribing on every render (the
+  // Latest sections/active key behind a ref, so `onContentEdge` (registered once
+  // per open) reads the current ones without re-subscribing on every render (the
   // `sections` array is a fresh literal at every consumer's render).
   const navRef = useRef({ sections, section });
   useEffect(() => {
@@ -160,19 +157,20 @@ export function MasterFullScreen({
    * is mounted at a time, so "the next field" lives in a pane that does not exist
    * yet; reaching it used to need the mouse (client 2026-07-30).
    *
-   * Hoisted out of the `cycleTab` call below because BOTH forward keys need it
-   * now. Tab passes it in directly; Enter cannot — it is handled by the global
-   * listener — so the effect underneath also publishes it to lib/focus.ts. ONE
-   * callback, so the two can never disagree about where a section ends. If they
-   * did, Enter off the last field of Identity would save a record that has not
-   * reached Address yet, which is the exact premature save Enter-advance exists
-   * to remove (client 2026-07-31).
+   * BOTH forward keys need it, and neither can be handed it directly any more —
+   * they are both delivered by the global listener. So it is published ONCE, to
+   * lib/focus.ts, by the effect underneath; `cycleTab` and `enterAdvances` each
+   * look it up through `registerContentEdge`. One callback, one registry, so the
+   * two can never disagree about where a section ends. If they did, Enter off the
+   * last field of Identity would save a record that has not reached Address yet,
+   * which is the exact premature save Enter-advance exists to remove (client
+   * 2026-07-31).
    */
   const onContentEdge = useCallback((dir: 1 | -1) => {
     const { sections: list, section: current } = navRef.current;
     const next = list.findIndex((s) => s.key === current) + dir;
-    // Off the end of the last section: decline. Tab carries on to the footer's
-    // Cancel/Save as it would on any other surface, and Enter saves.
+    // Off the end of the last section: decline. Tab wraps to the section's first
+    // field as it would on any other surface, and Enter saves.
     if (next < 0 || next >= list.length) return false;
     landingRef.current = dir === 1 ? "first" : "last";
     setSection(list[next].key);
@@ -187,33 +185,25 @@ export function MasterFullScreen({
     return registerContentEdge(paneRef.current, onContentEdge);
   }, [open, onContentEdge]);
 
-  // Tab owns the overlay while it is open: the page behind is still mounted, so
-  // native Tab walks straight out of the editor and into it. `cycleTab` (the same
-  // trap components/ui/sheet.tsx uses) orders the cycle fields → footer → ✕, and
-  // `onContentEdge` above is where the sections join in.
+  // TAB IS NOT HANDLED HERE ANY MORE (2026-08-04). A local listener used to run
+  // `cycleTab` over this whole overlay — fields, then the footer, then the ✕ —
+  // which made Tab stop on buttons that the arrows and Enter both step over, and
+  // made this one of only two surfaces in the app where Tab was ordered at all.
   //
-  // Tab still never changes a value, and it still never refuses because a
-  // required field is empty — Enter/Ctrl+S are what validate. It has exactly
-  // ONE refusal, and it is deliberately not implemented here: a field showing a
-  // live "already exists" duplicate holds the cursor until the value is edited
-  // (client 2026-07-31). That guard runs on `window` in the capture phase and
-  // stops propagation, so this listener never sees the key — which is also what
-  // stops a held Tab from switching section out from under the message.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Tab" || e.defaultPrevented) return;
-      // Anything modal above us owns Tab, exactly as for Escape below: nested
-      // picker Sheets stack over this surface and run their own trap.
-      if (hasOpenModalInDom()) return;
-      cycleTab(e, rootRef.current, {
-        resumeFrom: lastFocusedRef.current,
-        onContentEdge,
-      });
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onContentEdge]);
+  // Both halves moved to components/shell/keyboard-nav-provider.tsx. The content
+  // pane below carries `data-focus-scope`, so the provider resolves it as this
+  // editor's scope and as an editor surface, and cycles the SECTION's fields
+  // inside it. The section hand-off still comes from `onContentEdge` above — but
+  // through `registerContentEdge` alone now, which is what both forward keys read,
+  // so Tab and Enter can no longer hold separate copies of where a section ends.
+  //
+  // Nothing else about Tab changed: it never changes a value, it never refuses
+  // because a required field is empty (Enter/Ctrl+S are what validate), and it has
+  // exactly ONE refusal — a field showing a live "already exists" duplicate holds
+  // the cursor until the value is edited (client 2026-07-31). That guard runs on
+  // `window` in the capture phase and stops propagation, so the provider never
+  // sees the key, which is also what stops a held Tab from switching section out
+  // from under the message.
 
   // Ctrl/⌘+S saves the open editor (checklist keyboard shortcut).
   useRegisterShortcut(
@@ -298,11 +288,6 @@ export function MasterFullScreen({
     <div
       ref={rootRef}
       className="fixed inset-0 z-[80] flex flex-col bg-background"
-      // Remember the last field focused in here, so the Tab cycle can resume
-      // from it when a portal picker unmounts and strands focus on <body>.
-      onFocusCapture={(e) => {
-        if (e.target instanceof HTMLElement) lastFocusedRef.current = e.target;
-      }}
     >
       {/* topbar */}
       <div

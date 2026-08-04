@@ -9,6 +9,7 @@ import type { Column } from "@/components/ui/data-table";
 import type { ApprovalItem, CrisisItem, TallyExport } from "@/lib/integration/types";
 import { EXPORT_TYPE_LABELS } from "@/lib/integration/types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   approvals: ApprovalItem[];
@@ -105,7 +106,7 @@ export function IntegrationTabs({ approvals, crisisItems, recentExports }: Props
                 Items pending approval across all modules. Action required by MD / management.
               </p>
               <DataTable
-                columns={approvalColumns}
+                columns={withCreatedColumns(approvalColumns, approvals)}
                 rows={approvals}
                 getKey={(_, i) => String(i)}
                 empty="No pending approvals — all clear."
@@ -122,7 +123,7 @@ export function IntegrationTabs({ approvals, crisisItems, recentExports }: Props
                 Daily crisis digest — overdue milestones, late POs, pending amendments, negative stock.
               </p>
               <DataTable
-                columns={crisisColumns}
+                columns={withCreatedColumns(crisisColumns, crisisItems)}
                 rows={crisisItems}
                 getKey={(_, i) => String(i)}
                 empty="No crisis items today — all on track."
@@ -147,7 +148,7 @@ export function IntegrationTabs({ approvals, crisisItems, recentExports }: Props
                 </Link>
               </div>
               <DataTable
-                columns={exportColumns}
+                columns={withCreatedColumns(exportColumns, recentExports)}
                 rows={recentExports}
                 getKey={(r) => r.id}
                 onRowHref={(r) => `/integration/tally/${r.id}`}

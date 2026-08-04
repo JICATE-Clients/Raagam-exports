@@ -10,6 +10,7 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import type { GarmentPpmRow } from "@/lib/planning/ppm-types";
 import type { PpmStatus } from "@/lib/planning/ppm-types";
 import { SOURCING_TYPE_LABELS } from "@/lib/planning/ppm-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
   draft: "Draft",
@@ -109,7 +110,7 @@ export default async function GarmentPpmPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, ppms)}
         rows={ppms}
         getKey={(r) => r.id}
         empty="No garment PPM records yet."

@@ -92,7 +92,7 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
     seed: ALLOWANCE_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
   const isOther = form.allowance_type === "Other Allowance";
@@ -240,6 +240,11 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
             <Input
               id="al-name"
               uppercase
+              // `allowanceInput.name` is `capsName()`, i.e. `.min(1)` — so a blank
+              // one is refused by the action anyway. `required` is what makes the
+              // refusal arrive AT THE FIELD, as a hold, instead of as a server
+              // error after Save (see useRequiredHold).
+              required
               value={form.name}
               onChange={(e) => set({ name: e.target.value })}
               className="text-base md:text-sm"
@@ -250,7 +255,9 @@ export function AllowanceMasterScreen({ rows, perms }: { rows: Allowance[]; perm
             <DuplicateError error={dupError} id="al-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
           </div>

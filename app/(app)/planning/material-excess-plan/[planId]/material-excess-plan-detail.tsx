@@ -16,6 +16,7 @@ import { ALLOWANCE_TYPES, ALLOWANCE_TYPE_LABELS } from "@/lib/planning/material-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
@@ -319,15 +320,14 @@ function ItemsTab({
               {/* To Order band */}
               <div>
                 <Label>To Order — Type</Label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
                   value={form.allowance_type_to_order}
                   onChange={(e) => setForm((f) => ({ ...f, allowance_type_to_order: e.target.value }))}
                 >
                   {ALLOWANCE_TYPES.map((t) => (
                     <option key={t} value={t}>{ALLOWANCE_TYPE_LABELS[t]}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div>
                 <Label>To Order — Value</Label>
@@ -343,15 +343,14 @@ function ItemsTab({
               {/* To Issue band */}
               <div>
                 <Label>To Issue — Type</Label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
                   value={form.allowance_type_to_issue}
                   onChange={(e) => setForm((f) => ({ ...f, allowance_type_to_issue: e.target.value }))}
                 >
                   {ALLOWANCE_TYPES.map((t) => (
                     <option key={t} value={t}>{ALLOWANCE_TYPE_LABELS[t]}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div>
                 <Label>To Issue — Value</Label>
@@ -367,15 +366,14 @@ function ItemsTab({
               {/* To Receive band */}
               <div>
                 <Label>To Receive — Type</Label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                <Select
                   value={form.allowance_type_to_receive}
                   onChange={(e) => setForm((f) => ({ ...f, allowance_type_to_receive: e.target.value }))}
                 >
                   {ALLOWANCE_TYPES.map((t) => (
                     <option key={t} value={t}>{ALLOWANCE_TYPE_LABELS[t]}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div>
                 <Label>To Receive — Value</Label>

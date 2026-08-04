@@ -34,6 +34,7 @@ import {
   type PlaStatus,
 } from "@/lib/orders/packing-advice/types";
 import type { PackingAdviceFormData, PickerRow } from "@/lib/orders/packing-advice/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -302,7 +303,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
           actions={perms.canCreate ? <Button onClick={openAdd}>New Packing Advice</Button> : undefined}
         />
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, rows)}
           rows={rows}
           getKey={(r) => r.id}
           empty="No packing advices yet. Use 'New Packing Advice' to create the first."

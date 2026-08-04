@@ -19,6 +19,7 @@ import { createPriceConfirmation, confirmPriceConf, amendPriceConf, deletePriceC
 import { ITEM_CLASS_TYPES, PROCESS_TYPES } from "@/lib/orders/pricing-types";
 import type { PriceConfirmationRow } from "@/lib/orders/pricing-service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", confirmed: "success", amended: "warning", cancelled: "danger" };
 
@@ -200,7 +201,7 @@ export function PriceConfirmationClient({ rows }: { rows: PriceConfirmationRow[]
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Price Confirmation</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No price confirmations yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No price confirmations yet." />
 
       {/* 9-tab detail panel for selected PC */}
       {selectedId && (

@@ -11,6 +11,7 @@ import { NewOpportunityForm } from "./new-opportunity-form";
 import type { OpportunityRow } from "@/lib/sales/service";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { OpportunityStage } from "@/lib/sales/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 // Map pipeline stage → display tone
 const STAGE_TONE: Record<OpportunityStage, StatusTone> = {
@@ -129,7 +130,7 @@ export default async function SalesPipelinePage() {
       <NewOpportunityForm buyers={buyers} brands={brands} seasons={seasons} />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, opportunities)}
         rows={opportunities}
         getKey={(row) => row.id}
         empty="No opportunities yet. Create one to get started."

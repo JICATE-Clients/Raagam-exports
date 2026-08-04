@@ -9,6 +9,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { ShipmentPnlRow } from "@/lib/finance/pnl-service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function marginTone(pct: number): StatusTone {
   if (pct < 0) return "danger";
@@ -99,7 +100,7 @@ export default async function PnlPage() {
       </div>
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, rows)}
         rows={rows}
         getKey={(row) => row.shipment.id}
         empty="No shipments found."

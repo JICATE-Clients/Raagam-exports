@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { NewTaCompletionForm } from "./new-ta-completion-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<TaCompletionRow>[] = [
   {
@@ -84,7 +85,7 @@ export default async function TaCompletionPage() {
       <NewTaCompletionForm orders={orders} buyers={buyers} />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, completions)}
         rows={completions}
         getKey={(row) => row.id}
         empty="No TA completions yet."

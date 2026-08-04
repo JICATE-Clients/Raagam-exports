@@ -29,6 +29,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   files: ExportIncentiveFile[];
@@ -252,7 +253,7 @@ export function IncentivesClient({ files, currencies, canCreate, canEdit, canDel
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, files)}
         rows={files}
         getKey={(f) => f.id}
         empty="No export-incentive claims yet."

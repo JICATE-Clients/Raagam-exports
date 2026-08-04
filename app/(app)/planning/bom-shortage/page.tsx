@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { BomShortageRow } from "@/lib/planning/bom-service";
 import type { BomStatus } from "@/lib/planning/bom-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const BOM_STATUS_LABELS: Record<BomStatus, string> = {
   draft: "Draft",
@@ -104,7 +105,7 @@ export default async function BomShortagePage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, shortages)}
         rows={shortages}
         getKey={(r) => r.id}
         empty="No BOM shortage requisitions yet."

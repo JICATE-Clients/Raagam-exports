@@ -32,6 +32,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   notes: FinanceNoteRow[];
@@ -285,7 +286,7 @@ export function FinanceNotesClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, notes)}
         rows={notes}
         getKey={(n) => n.id}
         empty="No debit / credit notes yet."

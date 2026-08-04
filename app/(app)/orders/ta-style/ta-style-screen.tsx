@@ -27,6 +27,7 @@ import {
   type TaStyle,
 } from "@/lib/orders/ta-styles/types";
 import type { TaStyleFormData, PickerRow } from "@/lib/orders/ta-styles/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
@@ -192,7 +193,7 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
           description="Reusable Time & Action templates — activities, predecessors and day offsets."
           actions={perms.canCreate ? <Button onClick={openAdd}>New TA Style</Button> : undefined}
         />
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No TA styles yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No TA styles yet." />
       </div>
     );
   }
