@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, LogOut, Search } from "lucide-react";
+import { Bug, ChevronDown, LogOut, Search } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { Select } from "@/components/ui/select";
+import { bugPortalUrl, bugReporterConfigured } from "@/lib/bug-reporter";
 import { cn } from "@/lib/utils";
 
 interface Location {
@@ -110,6 +111,32 @@ export function Topbar({ locations }: { locations: Location[] }) {
                       : user.roleNames.join(", ") || "No roles assigned"}
                   </p>
                 </div>
+                {/* WHAT HAPPENED TO THE BUG I REPORTED. The widget takes
+                    reports and says nothing back; this is the vendor's
+                    reporter-facing portal, keyed on the same email the SDK
+                    already sends as `userContext.email`.
+
+                    Gated on `bugReporterConfigured` so it cannot outlive the
+                    widget — offering a portal for an app the platform has never
+                    been told about lands the operator on someone else's 404 —
+                    and on the email itself, which is the portal's only key.
+
+                    `rel="noopener"` because it is an external domain: without
+                    it the opened tab can reach back through `window.opener`. */}
+                {bugReporterConfigured && user.email && (
+                  <a
+                    href={bugPortalUrl(user.email)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setMenuOpen(false)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded px-3 py-2 text-sm",
+                      "text-foreground hover:bg-surface-muted",
+                    )}
+                  >
+                    <Bug className="h-4 w-4" /> My bug reports
+                  </a>
+                )}
                 <form action={signOut}>
                   <button
                     type="submit"
