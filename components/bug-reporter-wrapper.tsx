@@ -4,22 +4,20 @@ import { BugReporterProvider } from "@boobalan_jkkn/bug-reporter-sdk";
 import { useEffect, useState, type ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { bugReporterConfigured } from "@/lib/bug-reporter";
 
 const apiKey = process.env.NEXT_PUBLIC_BUG_REPORTER_API_KEY;
 const apiUrl = process.env.NEXT_PUBLIC_BUG_REPORTER_API_URL;
 
 /**
- * The SDK only mounts when real credentials are present — both a key and URL that
- * are no longer the `REPLACE_ME` placeholder. (The platform issues `br_…` keys;
- * we intentionally do NOT hard-code a key prefix so a format change on the
- * platform can't silently disable the widget.) Until `.env.local` is filled this
- * renders children untouched, so the ERP is unaffected.
+ * The SDK only mounts when real credentials are present. The test moved to
+ * `lib/bug-reporter.ts` when the topbar's "My bug reports" link needed the same
+ * answer: the widget and that link must appear and disappear together, or the
+ * menu offers a portal for an app the platform has never heard of. Until
+ * `.env.local` is filled this renders children untouched, so the ERP is
+ * unaffected — unchanged behaviour, one owner.
  */
-const configured =
-  !!apiKey &&
-  !!apiUrl &&
-  !apiKey.includes("REPLACE_ME") &&
-  !apiUrl.includes("REPLACE_ME");
+const configured = bugReporterConfigured;
 
 /**
  * Wraps the app with the JKKN Bug Reporter, seeding the signed-in Supabase user

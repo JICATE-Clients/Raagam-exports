@@ -172,11 +172,15 @@ export function CategoryMasterScreen({
    *   - Escape and the mouse are always live.
    *
    * So this list and the hold are now two halves of one rule rather than a
-   * substitute for it: this one blocks the RECORD (Save disabled, names the
-   * missing field, jumps the cursor there), the `required` props block the
+   * substitute for it: this one blocks the RECORD (a save attempt names the
+   * missing field and jumps the cursor there), the `required` props block the
    * CURSOR at the field itself. Keep them in step — a field named here that does
    * not declare `required` shows a `*` the keyboard walks straight past, which is
    * the disagreement the contract exists to prevent.
+   *
+   * It is read at SAVE TIME, not on every render (`triedSave`). Rendering it
+   * eagerly meant a new record opened already complaining, and revealing a
+   * conditional field announced it as missing before the operator could reach it.
    *
    * `fabric_structure_id` counts only while it is on screen — requiring a field
    * the operator cannot see is unsaveable-by-invisible-field, which is how
@@ -318,10 +322,26 @@ export function CategoryMasterScreen({
 
   const pg = usePagination(filtered, 10);
 
+  /**
+   * Has the operator ASKED to save yet? Until they have, the footer says nothing
+   * about missing fields.
+   *
+   * The message used to render the moment a field was blank, which meant a brand
+   * new Category opened already accusing the operator of not having filled it in,
+   * and picking Item Class FABRIC — which REVEALS Fabric Structure — announced
+   * that the field they had just been given was required before they could reach
+   * it (client 2026-08-04). Telling someone off for not having done a thing they
+   * have not had the chance to do reads as an error, not as help.
+   *
+   * Reset on every open, so a fresh editor is always quiet.
+   */
+  const [triedSave, setTriedSave] = useState(false);
+
   function openAdd() {
     setEditId(null);
     setForm(BLANK);
     setSubs([]);
+    setTriedSave(false);
     setOpen(true);
   }
   function openEdit(r: Category) {
@@ -346,10 +366,30 @@ export function CategoryMasterScreen({
       has_sub_categories: r.has_sub_categories,
     });
     setSubs((r.sub_categories ?? []).map((c) => ({ key: newKey(), id: c.id, name: c.name })));
+    setTriedSave(false);
     setOpen(true);
   }
 
   function submit() {
+    /**
+     * THE SAVE ATTEMPT IS WHAT ASKS THE QUESTION.
+     *
+     * Save is no longer disabled while a field is missing — it is clickable, and
+     * clicking it is how the operator says "I think I am done". Only then does
+     * the footer name what is missing, and the cursor jumps straight to it.
+     *
+     * Disabling it instead left `focusFirstMissing` reachable from ONE place: a
+     * click on the message. So the message had to be permanently visible to be
+     * useful, and Ctrl+S / Enter-off-the-last-field found a disabled button and
+     * did nothing at all — a keyboard operator had no way to ask what was wrong.
+     * Nothing is silently ignored now: every save attempt either saves or says
+     * why it did not.
+     */
+    if (missingRequired.length > 0) {
+      setTriedSave(true);
+      focusFirstMissing();
+      return;
+    }
     startTransition(async () => {
       const payload: CategoryInput = {
         item_class_id: form.item_class_id,
@@ -573,14 +613,21 @@ export function CategoryMasterScreen({
         title={editId ? "Edit Category" : "New Category"}
         footer={
           <>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
             {/* Says WHY Save is off, and clicking it takes the operator there.
                 A greyed button with no reason is the thing that makes people
                 hunt the form for the field they missed — which is the actual
-                complaint behind "don't let the cursor leave an empty field". */}
-            {missingRequired.length > 0 && !isPending && (
+                complaint behind "don't let the cursor leave an empty field".
+
+                FIRST IN THE ROW, AND THAT MATTERS. The footer is `justify-end`,
+                so `mr-auto` here absorbs the free space to its RIGHT and packs
+                everything BEFORE it to the left. With Cancel sitting ahead of
+                this message, Cancel was thrown to the far left the moment the
+                message appeared and snapped back to Save when it cleared — the
+                buttons moved as a side effect of a validation message (client
+                2026-08-04). Message left, buttons right, and the pair never
+                moves; the same shape `MasterFullScreen`'s footer already uses
+                for its status line. */}
+            {triedSave && missingRequired.length > 0 && !isPending && (
               <button
                 type="button"
                 onClick={focusFirstMissing}
@@ -593,9 +640,16 @@ export function CategoryMasterScreen({
                 {missingRequired.length > 1 ? ` (+${missingRequired.length - 1} more)` : ""}
               </button>
             )}
+            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
             <Button
               size="md"
-              disabled={isPending || missingRequired.length > 0 || !!dupError}
+              // NOT disabled on a missing field — `submit` catches that and points
+              // at it. Still disabled on a live DUPLICATE, which is different: the
+              // field is already red and already says so, and the standing rule
+              // puts `|| !!dupError` on Save.
+              disabled={isPending || !!dupError}
               onClick={submit}
             >
               {isPending ? "Saving…" : "Save"}

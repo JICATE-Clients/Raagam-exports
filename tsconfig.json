@@ -43,6 +43,8 @@
     "node_modules",
     "scripts/check-gstin.mts",
     "scripts/check-name-suggest.mts",
-    "scripts/check-keyboard-holds.mts"
+    "scripts/check-keyboard-holds.mts",
+    "scripts/mine-name-vocabularies.mts",
+    "scripts/vocab-sources/**/*.mts"
   ]
 }

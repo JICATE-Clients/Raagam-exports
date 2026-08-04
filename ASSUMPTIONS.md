@@ -215,6 +215,24 @@ the client can review and correct intent after seeing the software.
 - Mobile floating-button offset in `app/globals.css` is **best-effort** (the SDK
   ships no stable class); the selector must be verified against the live widget
   once credentials are active and tightened if needed.
+- **"My bug reports"** in the topbar user menu opens the vendor's reporter-facing
+  portal, `…/portal/raagam-export?u=<email>`, built by `bugPortalUrl()` in
+  `lib/bug-reporter.ts`. It shares `bugReporterConfigured` with the widget, so the
+  two appear and disappear together — a link to a portal for an unregistered app
+  would 404 on the vendor's domain.
+- **The portal link is UNSIGNED, and that is an accepted trade-off, not an
+  oversight** (client 2026-08-04: *"the raagam signed user can manage bugs now,
+  after will restrict it"*). `?u=` is built in the browser, so any signed-in
+  operator can edit it in the address bar and read another person's reports —
+  which on this app can include screenshots of customer and costing data. Everyone
+  who can reach it is an authenticated staff member, and the vendor documents the
+  plain link as appropriate for internal tools.
+  Closing it needs three things from the vendor that we do not have: the signing
+  algorithm and the exact canonical string that is signed, the NAME of the
+  signature query parameter, and a shared secret — which must be read
+  **server-side only**, never `NEXT_PUBLIC_`, or signing achieves nothing. Their
+  portal's "Require signed links" switch must also be turned on; without it a
+  signed link changes nothing, because the unsigned form still works.
 
 ## Auth / RBAC
 - One **super-admin** (MD or IT) seeded at setup; all other access is

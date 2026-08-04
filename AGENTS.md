@@ -389,13 +389,40 @@ no fallback for a class with no vocabulary. Proved exhaustively by
 `scripts/check-name-suggest.mts`, which probes each class with every prefix of every word
 every other class knows (1136 probes × 7) and asserts nothing outside comes back.
 
-**No free dictionary or API can replace these lists** — asked and measured (2026-08-04).
+**NO EXTERNAL SOURCE IS EVER ON THE KEYSTROKE PATH** — asked and measured (2026-08-04).
 Against Datamuse, the best of the free general-English options: `viscos` returns VISCOUS,
 VISCUS, DISCOS and **never VISCOSE**, so it would "correct" a fibre to a real English word
 that is a different material — the 07-28 bug from a word list you cannot edit. `cot*` ranks
 COTTON ninth behind COTERIE and COTILLION, and no general dictionary holds a compound trade
-name at all (COTTON SLUB, POLYCOTTON, CVC). They are good at plain English spelling and
-wrong for this trade. Grow the curated lists instead; they are meant to be edited.
+name at all (COTTON SLUB, POLYCOTTON, CVC). Two structural reasons on top of the ranking:
+the strip is read at **keydown**, so an answer 300 ms later has already lost the cursor
+(same argument as `useDuplicateName` under "Duplicates"); and `candidates` being a
+compile-time constant is what makes THE BOUNDARY assertion in `check-name-suggest.mts` a
+**proof** rather than a spot-check. A runtime lookup, a DB-backed vocabulary table and an
+in-app vocabulary master all cost that proof — none of them is the way to grow a list.
+
+**A BUILD-TIME MINER IS THE WAY TO GROW ONE** (2026-08-04). `npm run mine:vocab` runs
+`scripts/mine-name-vocabularies.mts` offline and by hand: it reads the official GST HSN
+master (`tutorial.gst.gov.in`, the nomenclature this business already invoices under),
+Wikidata's fibre and fabric subclass trees (CC0) and Wiktionary's fabric category
+(CC BY-SA 4.0), partitions them onto item classes, and writes `scripts/out/vocab-proposals.md`
+with **every box unticked**. `-- --apply` appends only what a human ticked, re-sorted and
+de-duplicated, preserving the map's comments. Runtime is untouched, so the distinction that
+matters is *when* a source is consulted, not whether one is: a wrong word in review costs a
+glance, a wrong word in Datamuse cost a corrected fibre name in production.
+
+Three things that file learned the hard way, all in its comments: the **HSN partition is a
+declared table** (`vocab-sources/hsn-chapter-map.mts`, longest prefix wins) because a chapter
+under the wrong class is the 07-28 bug with an official-looking citation beside it; the
+official workbook contains **40 malformed codes whose leading zero was eaten**, so `504005`
+(animal guts, chapter 05) reads as chapter 50 silk and duly proposed BLADDERS AND STOMACHS as
+a yarn — caught by requiring a code's 4-digit parent heading to exist, not by a blocklist; and
+`normName` **strips no punctuation**, so nothing in the existing checks would have rejected a
+90-character legal definition as a name. Sanitising is the miner's job, and it reports a
+reject histogram so the rules can be tuned from evidence.
+
+Still grow the lists by hand too — they are meant to be edited, and no source holds a
+compound trade name, so COTTON SLUB, POLYCOTTON and CVC will always come from the trade.
 
 **Rows-only is still a correct answer, but it can no longer offer anything.** Where no
 real-world standard exists (Bin, Count, Gauge, Knitting Dia, and every party master — those

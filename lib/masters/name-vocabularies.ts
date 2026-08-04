@@ -41,6 +41,23 @@
 // the whole job here is to be the dictionary. Two genuine names for one thing
 // are fine where the trade really uses both; neither is a typo of the other, so
 // each only ever answers someone already typing towards it.
+//
+// ── OR EXTEND THEM WITH THE MINER ──────────────────────────────────────────
+//
+//     npm run mine:vocab              # writes scripts/out/vocab-proposals.md
+//     npm run mine:vocab -- --apply   # appends only what you ticked
+//
+// `scripts/mine-name-vocabularies.mts` proposes names for
+// CATEGORY_NAMES_BY_ITEM_CLASS from three free sources. It runs OFFLINE and by
+// hand: nothing it finds reaches an operator until a human ticks a box, and
+// nothing is ever fetched on the keystroke path. The reasoning is in the map's
+// own doc comment at the bottom of this file, and the sources are in
+// scripts/vocab-sources/. Everything else here is hand-written only.
+//
+// Source attribution, since some of these words were mined rather than typed:
+// the GST HSN master is Government of India open data; Wikidata is CC0;
+// en.wiktionary category listings are CC BY-SA 4.0. Individual words carry no
+// copyright, so nothing here is encumbered — naming them is simply honest.
 
 /* ------------------------------------------------------------- materials */
 
@@ -316,15 +333,35 @@ export const DEFECT_GROUP_NAMES: string[] = [
  * stores, not as a standard being handed down. If a name here is not what the
  * floor calls it, change it — that is what these lists are for.
  *
- * WHY THESE ARE HAND-WRITTEN, since it will be asked again: no free dictionary
- * or API knows this trade. Measured against Datamuse (2026-08-04, the best of
- * the free general-English options): `viscos` returns VISCOUS, VISCUS, VISCO,
+ * WHY NO API ANSWERS THE KEYSTROKE, since it will be asked again: no free
+ * dictionary knows this trade. Measured against Datamuse (2026-08-04, the best
+ * of the free general-English options): `viscos` returns VISCOUS, VISCUS, VISCO,
  * DISCOS — and never VISCOSE, so it would "correct" a fibre to a real English
  * word that is the wrong material. `cot*` ranks COTTON ninth, behind COTERIE,
  * COTILLION and COTERMINOUS. And none of them hold a compound trade name at all
  * — no COTTON SLUB, no POLYCOTTON, no CVC. A general dictionary is good at plain
  * English spelling and actively wrong here, with the added problem that its word
  * list is not yours to fix.
+ *
+ * That verdict is about RUNTIME, and it stands. Two further reasons it has to:
+ * the strip is read at keydown (a suggestion that arrives 300 ms later has
+ * already lost the cursor), and `candidates` being a compile-time constant is
+ * what makes THE BOUNDARY assertion in `scripts/check-name-suggest.mts` a proof
+ * rather than a spot-check.
+ *
+ * WHERE THE LISTS COME FROM NOW: still by hand, plus proposals from
+ * `scripts/mine-name-vocabularies.mts` — an offline miner that reads the
+ * official GST HSN master, Wikidata's fibre and fabric subclass trees and
+ * Wiktionary's fabric category, partitions them onto these classes and writes a
+ * file of UNTICKED checkboxes. A human ticks; `--apply` appends only what was
+ * ticked. So an external source can widen a list and can never answer a
+ * keystroke, and a name still reaches an operator only because someone chose it.
+ *
+ * The miner cannot supply what matters most here either: no source holds a
+ * compound trade name, so COTTON SLUB, POLYCOTTON and CVC came from this trade
+ * and always will. It is good at the long tail of single words — CHIFFON,
+ * GEORGETTE, ORGANZA, MUSLIN, HERRINGBONE, GINGHAM, CAMBRIC, CHENILLE, VELVET
+ * and CREPE below are its first ten accepted proposals.
  *
  * Used by: category-master-screen.tsx
  */
@@ -353,15 +390,16 @@ const CATEGORY_NAMES_BY_ITEM_CLASS: Record<string, string[]> = {
    * never an alternative here, and the twin already in the table is exactly what
    * the warning half of the strip is for. */
   FABRIC: [
-    "1X1 RIB", "2X1 RIB", "2X2 RIB", "AIRTEX", "BIRDSEYE", "CANVAS",
-    "CHAMBRAY", "COLLAR", "CORDUROY", "CUFF", "DENIM", "DOBBY",
-    "DOUBLE JERSEY", "DRILL", "FLANNEL", "FLEECE", "FRENCH TERRY",
-    "GABARDINE", "HONEYCOMB", "INTERLOCK", "JACQUARD", "LOOP KNIT",
-    "LYCRA RIB", "MESH", "MICRO MESH", "OXFORD", "PIQUE", "PLAIN JERSEY",
-    "POLAR FLEECE", "PONTE ROMA", "POPLIN", "RIB", "RIPSTOP", "ROPE",
-    "SATEEN", "SATIN", "SEERSUCKER", "SHEETING", "SINGLE JERSEY",
+    "1X1 RIB", "2X1 RIB", "2X2 RIB", "AIRTEX", "BIRDSEYE", "CAMBRIC",
+    "CANVAS", "CHAMBRAY", "CHENILLE", "CHIFFON", "COLLAR", "CORDUROY",
+    "CREPE", "CUFF", "DENIM", "DOBBY", "DOUBLE JERSEY", "DRILL", "FLANNEL",
+    "FLEECE", "FRENCH TERRY", "GABARDINE", "GEORGETTE", "GINGHAM",
+    "HERRINGBONE", "HONEYCOMB", "INTERLOCK", "JACQUARD", "LOOP KNIT",
+    "LYCRA RIB", "MESH", "MICRO MESH", "MUSLIN", "ORGANZA", "OXFORD", "PIQUE",
+    "PLAIN JERSEY", "POLAR FLEECE", "PONTE ROMA", "POPLIN", "RIB", "RIPSTOP",
+    "ROPE", "SATEEN", "SATIN", "SEERSUCKER", "SHEETING", "SINGLE JERSEY",
     "SLUB JERSEY", "TAFFETA", "TERRY", "THERMAL", "TIPPING", "TWILL",
-    "VOILE", "WAFFLE", "WELT",
+    "VELVET", "VOILE", "WAFFLE", "WELT",
   ],
   /* Trims that go INTO the garment. Label, tape and zipper each come in kinds
    * the trade orders separately, so each kind earns its own name. */

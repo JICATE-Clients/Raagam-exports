@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Field, type FieldSize } from "@/components/ui/field";
+import { Truncated } from "@/components/ui/truncated";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -293,6 +294,26 @@ export function MaterialMasterScreen({
    *  untouched — the minimal-forms rule, same as Budget/Cost Rate and the Using
    *  (Items) grid further down this file. */
   const singleUomClass = formKey === "YARN" || formKey === "FABRIC";
+  /**
+   * FABRIC USES THE SPLIT LAYOUT, like every other class.
+   *
+   * It stacked its sections full width for part of 2026-08-04 — "make it three
+   * fields per row" — which put Structure · Type · Fabric Type on one line at
+   * `sm`. The client reverted it the same day and asked for the split screen
+   * back, and the signed-off mockup agrees: `doc/ui/New Material Fabric -
+   * Organized Layout.html` is `grid-template-columns:1fr 1fr` at the top level,
+   * with Classification's own `.grid2` also `1fr 1fr` — TWO fields per row, so
+   * Structure | Type share the first and Fabric Type takes the second.
+   *
+   * That is the whole reason the flag is gone rather than flipped to `false`: a
+   * boolean sitting at `false` invites the next reader to try `true` again. The
+   * layout doc is the authority, and it has said two columns since 2026-07-23.
+   *
+   * The coupling still holds and is why this note stays: sections in a
+   * `SectionColumn` (~566px) need `lg` fields, sections across the sheet
+   * (~1150px) need `sm`. Change one without the other and you get either two
+   * enormous fields or the starved-field bug LAYOUT.md §3 names.
+   */
   /** A unit's code for display in the read-only boxes the fabric rule renders
    *  ("KGS", "NOS", "MTR") — same text `uomSelect` puts in its options. */
   const unitCode = (id: string) => units.find((u) => u.id === id)?.code ?? "—";
@@ -1032,6 +1053,14 @@ export function MaterialMasterScreen({
           <CategoryPicker
             key={key}
             label="Category"
+            // Every class requires a Category — it is in all five entries of
+            // `REQUIRED_BY_FORM` — but this path, which renders the WHOLE
+            // Classification section for General, Sewing/Packing and Capital
+            // Goods, passed `required` to nothing. Those classes showed no `*`
+            // and held no cursor while Save was already blocked on the field
+            // (client 2026-08-04). Yarn and Fabric were wired directly and so
+            // looked correct, which is why only these three drifted.
+            required={req("category_id")}
             categories={scopedCategories}
             value={form.category_id}
             // A sub-category belongs to one category — changing the category
@@ -1090,11 +1119,18 @@ export function MaterialMasterScreen({
         // anyone maintains, they are whatever was bought this month.
         return (
           <div key={key}>
-            <Label htmlFor="mt-item-type">Item Type</Label>
+            <Label htmlFor="mt-item-type">
+              Item Type
+              {req("item_type_name") && <span className="ml-0.5 text-danger">*</span>}
+            </Label>
             <Input
               id="mt-item-type"
               uppercase
               placeholder="BRUSH"
+              // Mandatory on GENERAL — it is the second segment of the composed
+              // Name, so a General material without it cannot be named. The star
+              // and the hold both come from this one call, as everywhere else.
+              required={req("item_type_name")}
               value={form.item_type_name}
               onChange={(e) => set({ item_type_name: e.target.value })}
               className="text-base md:text-sm"
@@ -1135,6 +1171,10 @@ export function MaterialMasterScreen({
             key={key}
             kind="yarn_count"
             label="Count"
+            // Mandatory on YARN only, and `req` already knows that — Count is
+            // meaningless on a General, which is exactly why requiredness here
+            // cannot live in the Zod schema and goes through REQUIRED_BY_FORM.
+            required={req("count_id")}
             options={counts}
             value={form.count_id}
             onChange={(v) => set({ count_id: v })}
@@ -1487,12 +1527,27 @@ export function MaterialMasterScreen({
             Layout.html): Classification on the 12-col track, each field sized to
             its data, with the long hints tucked into ⓘ tooltips; Mixing nests
             INSIDE Composition (it IS the composition), never in the right
-            column. Structure is the only long value here — Type and Fabric Type
-            are single words, so they no longer take a half row each. */}
+            column. The section sits in the LEFT column of the two-column split,
+            exactly as the mockup draws it, and its fields are `lg` — the
+            mockup's Classification is a `.grid2` of `1fr 1fr`, so Structure and
+            Type share the first row and Fabric Type takes the second. */}
         <DetailSection label="Classification" cols={12}>
             <Field size="lg">
               <CategoryPicker
                 label="Structure"
+                // MANDATORY, and it always was — `category_id` has been in
+                // FABRIC's `REQUIRED_BY_FORM` set from the start, so Save was
+                // already blocked without it. The picker just never carried the
+                // prop, so the field drew no `*` and never held: required in the
+                // logic, silent in the UI (client 2026-08-04).
+                //
+                // Requiring THIS is also what makes Type satisfiable. Type is
+                // read-only and derived from the picked category's structure, so
+                // it can never be required itself — a hold on a field the
+                // operator cannot type into is a cage with no keyboard exit. The
+                // contract's answer is to require the SOURCE, and Structure is
+                // the source; fill it and Type fills itself.
+                required={req("category_id")}
                 categories={scopedCategories}
                 value={form.category_id}
                 onChange={handleFabricCategoryChange}
@@ -1505,7 +1560,19 @@ export function MaterialMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-            <Field size="sm">
+            {/* `lg`, because this section sits in a `SectionColumn` (~566px)
+                where LAYOUT.md §3's ~280px reference field is 6 of 12. `sm` here
+                is ~132px — half the reference, and the commonest layout bug on
+                these screens: it showed as Type and Fabric Type starved to
+                ~165px with neither "— Pick a Structure —" nor "— Select —"
+                fitting (client 2026-08-04).
+
+                The two are coupled and must move together: `sm` is correct only
+                across the full sheet (3 of 12 of ~1150px IS the 280px reference).
+                Stacking the sections to get three fields on one row was tried and
+                reverted the same day — the signed-off mockup is a two-column
+                split with two fields per row, and it is the authority. */}
+            <Field size="lg">
               {/* Fabric "Type" — Circular Knit/Flat Knit/Woven. Derived from the
                   picked Structure/category (which already carries its structure,
                   set in the Category child) and shown read-only — no separate
@@ -1516,14 +1583,33 @@ export function MaterialMasterScreen({
                   <Info className="h-3.5 w-3.5" />
                 </span>
               </Label>
+              {/* `truncate` used to sit on THIS div, which is `flex` — so it
+                  clipped the flex ITEM, never the text, and the placeholder
+                  "— Pick a Structure —" ran straight out of the box and over
+                  Fabric Type beside it (client 2026-08-04). `min-w-0` is the
+                  other half: a flex child will not shrink below its content
+                  width without it, so even a correct `truncate` inside would
+                  have had nothing to shrink into.
+
+                  `Truncated` rather than a bare `truncate` span, per the standing
+                  rule — an ellipsis is a promise the rest is reachable, and this
+                  is a real value (a structure name) that can genuinely be cut. */}
               <div
                 id="mt-fabric-structure"
-                className="flex h-9 items-center truncate rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground"
+                className="flex h-9 min-w-0 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground"
               >
-                {fabricStructures.find((s) => s.id === form.fabric_structure_id)?.name ?? "— Pick a Structure —"}
+                <Truncated
+                  text={
+                    fabricStructures.find((s) => s.id === form.fabric_structure_id)?.name ??
+                    "— Pick a Structure —"
+                  }
+                  className="min-w-0"
+                />
               </div>
             </Field>
-            <Field size="sm">
+            {/* `lg`, same reason as Type above — and it takes the second row on
+                its own, which is exactly what the mockup's `.grid2` draws. */}
+            <Field size="lg">
               {/* Fixed 3-value classification (Solid/Yarn Dyed/Melange) — plain
                   dropdown, no Add/Modify/Delete (client 2026-07-23, Screenshot
                   2070): users must pick, never grow this list.
@@ -1544,6 +1630,11 @@ export function MaterialMasterScreen({
               </Label>
               <Select
                 id="mt-fabric-type"
+                // The `*` above was hand-drawn and nothing backed it: the field
+                // was in FABRIC's required set and blocked Save, but the control
+                // never held, so the operator saw a mandatory marker and Tab
+                // walked straight past it. Same declaration, same source.
+                required={req("fabric_type_id")}
                 value={form.fabric_type_id}
                 onChange={(e) => handleFabricTypeChange(e.target.value)}
               >
@@ -2044,7 +2135,22 @@ export function MaterialMasterScreen({
             <>
           {/* Two-column body — class-specific details LEFT, UOM RIGHT. No more
               Details/UOM tabs: both are always visible (planned layout), so the
-              duplicate-name error simply gates Save. */}
+              duplicate-name error simply gates Save.
+
+              EXCEPT ON FABRIC, where both columns claim the full row and the
+              sections simply stack (client 2026-08-04). Fabric's Classification
+              holds three fields — Structure, Type, Fabric Type — and only two fit
+              a half-width column: LAYOUT.md §3 fixes the field at ~280px, which
+              in a `SectionColumn` is `lg`, 6 of 12. Shrinking them inside the
+              column is not the way out and was tried and reverted the same day
+              (see the note on Structure in `fabricDetails`). §3's own answer is
+              to stack: across the sheet the reference width is `sm`, 3 of 12, and
+              four fit — so three sit on one row at full size rather than a
+              squeezed one. `applicant`, `bank`, `courier-delivery` and `notify`
+              already do this.
+
+              The LEFT/RIGHT rule below still governs the other classes; on
+              Fabric the same order simply reads top-to-bottom instead. */}
           <SectionGrid>
             <SectionColumn>
               {formKey === "FABRIC" ? (
@@ -2145,10 +2251,14 @@ export function MaterialMasterScreen({
                   </div>
                 </DetailSection>
               )}
-              {/* Composition grids belong on the LEFT with the class fields —
-                  global rule (Screenshot 2084): LEFT = what the material is,
-                  RIGHT = how it's measured. Fabric's grid nests in Composition
-                  above; Yarn Mixing and Using (Items) render here. */}
+              {/* Composition grids belong with the class fields, never with the
+                  measurements — global rule (Screenshot 2084): LEFT = what the
+                  material is, RIGHT = how it's measured. Every class uses the two
+                  columns, so that is literally left and right, and the signed-off
+                  fabric mockup draws the same split. What must not change is the
+                  GROUPING.
+                  Fabric's grid nests in Composition above; Yarn Mixing and Using
+                  (Items) render here. */}
               {yarnMixingVisible && mixingGrid("yarn")}
               {/* Using (Items) is a General-item concept only. Accessories
                   (SEW/PACK) list their configured attributes instead (client
@@ -2156,7 +2266,9 @@ export function MaterialMasterScreen({
             </SectionColumn>
 
             {/* RIGHT: pure measurement for ALL classes — Units of Measure,
-                Conversions, status. Composition grids never render here. */}
+                Conversions, status. Composition grids never render here. On a
+                stacked Fabric this is the last full-width band rather than a
+                right-hand column; the reading order is unchanged. */}
             <SectionColumn>
               {/* Order follows how the client describes the job (2026-07-28):
                   tick Alternative UOM → the conversion grid comes to the TOP of
@@ -2195,7 +2307,13 @@ export function MaterialMasterScreen({
                 <Field
                   label={
                     formKey === "FABRIC" ? (
-                      <span className="flex items-center gap-1">
+                      // `inline-flex`, NOT `flex`. A block-level label box pushes
+                      // `Field`'s required `*` onto its own line, so Base showed
+                      // the marker stranded under the caption and its control sat
+                      // a line lower than every field beside it (client
+                      // 2026-08-04). Fabric Type reads correctly because its `*`
+                      // is INSIDE the flex row rather than after it.
+                      <span className="inline-flex items-center gap-1">
                         Base
                         <span
                           title="Prefilled from the fabric structure — Circular Knit KGS, Flat Knit NOS, Woven MTR. Change it if this material is stocked differently."
