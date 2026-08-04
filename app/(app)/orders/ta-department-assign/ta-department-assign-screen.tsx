@@ -24,6 +24,7 @@ import {
 } from "@/lib/orders/ta-department-assign/actions";
 import type { TaDepartmentAssign } from "@/lib/orders/ta-department-assign/types";
 import type { TaDeptAssignFormData } from "@/lib/orders/ta-department-assign/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
@@ -157,7 +158,7 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
           description="Assign Time & Action activities to a department at a location, flagging the owner."
           actions={perms.canCreate ? <Button onClick={openAdd}>New Assignment</Button> : undefined}
         />
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No assignments yet." />
+        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No assignments yet." />
       </div>
     );
   }

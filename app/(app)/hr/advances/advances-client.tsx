@@ -16,6 +16,7 @@ import { createAdvance, recordRepayment, cancelAdvance, deleteAdvance } from "@/
 import { ADVANCE_STATUS_LABELS, EMPLOYEE_TYPE_LABELS, type AdvanceStatus } from "@/lib/hr/extras-types";
 import type { HrAdvance } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: AdvanceStatus): StatusTone {
   switch (s) {
@@ -146,7 +147,7 @@ export function AdvancesClient({ rows, employees, canCreate, canEdit, canDelete 
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New advance</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No advances yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No advances yet." />
     </div>
   );
 }

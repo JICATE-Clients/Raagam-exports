@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createOpeningStock } from "@/lib/stores/extras-actions";
 import { OPENING_STOCK_STATUS_LABELS, type OpeningStockStatus } from "@/lib/stores/extras-types";
 import type { OpeningStockWithRefs, StoreOption } from "@/lib/stores/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: OpeningStockStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "posted" ? "success" : "danger";
@@ -110,7 +111,7 @@ export function OpeningStockClient({ rows, stores, canCreate }: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New opening stock</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No opening-stock documents yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No opening-stock documents yet." />
     </div>
   );
 }

@@ -1,5 +1,29 @@
 import { forwardRef, type InputHTMLAttributes } from "react";
+import { useRequiredHold } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
+
+/**
+ * Is this control empty, for the mandatory-field hold?
+ *
+ * `undefined` means UNCONTROLLED, and an uncontrolled input's emptiness is not
+ * knowable from props — so it reads as "not empty" and never holds. Choosing the
+ * miss over the false positive on purpose: a hold that fires on a field which is
+ * actually filled is a cage, and every form in this app is controlled.
+ */
+export function holdEmpty(value: unknown): boolean {
+  return value !== undefined && value !== null && String(value).trim() === "";
+}
+
+/**
+ * Input types that must never hold, whatever `required` says.
+ *
+ * A tick box and a radio are not "empty", they are OFF — and `value` on one is
+ * a submit token, not its state, so `holdEmpty` cannot read them anyway. More
+ * to the point Enter on a tick box TOGGLES it (the keyboard contract), so a
+ * hold there would refuse the key that fills the field: the same unsatisfiable
+ * cage that Enter-on-a-picker was (client 2026-08-04). Buttons are not fields.
+ */
+const NEVER_HOLDS = new Set(["checkbox", "radio", "button", "submit", "reset", "image", "range", "color"]);
 
 export const Input = forwardRef<
   HTMLInputElement,
@@ -12,10 +36,32 @@ export const Input = forwardRef<
      *  (client 2026-07-25). Placeholder stays normal-case so hints read cleanly. */
     uppercase?: boolean;
   }
->(({ className, uppercase, onChange, readOnly, tabIndex, ...props }, ref) => (
+>(({ className, uppercase, onChange, readOnly, tabIndex, ...props }, ref) => {
+  /**
+   * MANDATORY AND BLANK HOLDS THE CURSOR (client 2026-08-04). Declared once, on
+   * the enclosing `<Field required>` — the same prop that draws the `*` — so the
+   * star and the hold cannot disagree. Never stamped on a readOnly/disabled
+   * field: that is a cage with no keyboard way out, and a derived value
+   * (the composed Material Name) fills itself once its sources are filled.
+   */
+  const hold = useRequiredHold(
+    !readOnly &&
+      !props.disabled &&
+      !NEVER_HOLDS.has(props.type ?? "text") &&
+      holdEmpty(props.value),
+    {
+    // A control's OWN `required` counts as a declaration too. The house
+    // convention states it twice — `<Field required>` draws the star, `<Input
+    // required>` sets the native attribute — but 102 controls carry it against
+    // only 25 Fields, so reading just the wrapper would miss most of the fields
+    // the app already calls mandatory. ORed, never overriding.
+    required: props.required,
+  });
+  return (
   <input
     ref={ref}
     readOnly={readOnly}
+    {...hold}
     /**
      * THE BROWSER'S MEMORY IS NOT A MASTER LIST.
      *
@@ -108,5 +154,6 @@ export const Input = forwardRef<
     }
     {...props}
   />
-));
+  );
+});
 Input.displayName = "Input";

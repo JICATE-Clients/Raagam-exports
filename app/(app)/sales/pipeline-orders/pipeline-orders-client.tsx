@@ -18,6 +18,7 @@ import { createPipelineOrder, confirmPipelineOrder, deletePipelineOrder, createS
 import type { PipelineOrderRow } from "@/lib/sales/pipeline-service";
 import type { SeasonalOrder } from "@/lib/sales/pipeline-types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", confirmed: "success", cancelled: "danger" };
 
@@ -146,7 +147,7 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Pipeline Order</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No pipeline orders yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No pipeline orders yet." />
 
       {/* Styles + Dyeing editor for selected pipeline order */}
       {selectedId && (
@@ -263,7 +264,7 @@ function SeasonalTab({ rows }: { rows: SeasonalOrder[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Seasonal Order</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No seasonal orders yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No seasonal orders yet." />
       <Sheet open={open} onClose={() => setOpen(false)} title="New Seasonal Order" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Details">

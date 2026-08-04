@@ -26,6 +26,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { focusField, focusFirstField } from "@/lib/focus";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { categoryNameSeed } from "@/lib/masters/name-vocabularies";
 import {
   MADE_TYPES,
   showsSubCategories,
@@ -155,13 +156,27 @@ export function CategoryMasterScreen({
    * the message under Save. Three separate conditions would be three places to
    * keep in step, and the message is the one that would silently go stale.
    *
-   * It deliberately does NOT hold the cursor. The request was for Tab to refuse
-   * to leave an empty field; the keyboard contract allows exactly one refusal
-   * (a live duplicate name) because keying a hold off "required but empty" cages
-   * the operator in the first blank box of every form — they cannot fill out of
-   * order, cannot go back, and cannot reach Save. So the record is blocked, not
-   * the cursor: Save stays disabled, says which field is missing, and the
-   * keyboard save attempt jumps the cursor there.
+   * IT NO LONGER STANDS ALONE. Until 2026-08-04 this list was the whole story
+   * and this note said the cursor deliberately does not hold, because the
+   * contract allowed exactly one refusal and keying a hold off "required but
+   * empty" would cage the operator in the first blank box of every form — unable
+   * to fill out of order, to go back, or to reach Save.
+   *
+   * Every one of those objections has since been answered, which is why the
+   * fields now ALSO carry `required` and hold the cursor:
+   *   - the hold keys off `data-required-empty`, an explicit marker a field only
+   *     carries when a screen DECLARED it mandatory — never off `aria-invalid`,
+   *     which is live for a half-typed value too;
+   *   - backward movement is allowed out of it (Shift+Tab / ↑ / ←), so filling
+   *     out of order and going back both work;
+   *   - Escape and the mouse are always live.
+   *
+   * So this list and the hold are now two halves of one rule rather than a
+   * substitute for it: this one blocks the RECORD (Save disabled, names the
+   * missing field, jumps the cursor there), the `required` props block the
+   * CURSOR at the field itself. Keep them in step — a field named here that does
+   * not declare `required` shows a `*` the keyboard walks straight past, which is
+   * the disagreement the contract exists to prevent.
    *
    * `fabric_structure_id` counts only while it is on screen — requiring a field
    * the operator cannot see is unsaveable-by-invisible-field, which is how
@@ -242,14 +257,28 @@ export function CategoryMasterScreen({
    * regardless of class. A Packing Accessories name duly got "corrected" to
    * COTTON (client 2026-07-28), and two days later the whole feature was pulled.
    *
-   * The seed was the bug, not the suggestion. So there is NO seed here:
-   * candidates are the categories that already exist UNDER THE SELECTED ITEM
-   * CLASS, which is the same scope `dupError` above checks. A Packing category
-   * can therefore only ever be offered other Packing categories, and the 07-28
-   * failure is not representable rather than merely fixed.
+   * THE FIX IS THE KEY, NOT THE ABSENCE OF A LIST. From 2026-08-01 to 08-04 this
+   * passed `seed: []` and drew only on existing rows, which fixed 07-28 by having
+   * no vocabulary to leak. It also made the strip useless: `names` here is scoped
+   * exactly as `dupError` above is scoped, so every chip it could produce was a
+   * row the guard was about to reject. Typing COT under YARN offered COTTON and
+   * POLYCOTTON — both already there, both landing on "already exists" if picked
+   * (client 2026-08-04). A hundred per cent of the chips were dead ends.
    *
-   * Disabled while the red duplicate error shows: that field already has a line
-   * under it, and the name it collided with is the one name that is no use.
+   * So the vocabulary is back, KEYED BY ITEM CLASS. `categoryNameSeed()` answers
+   * [] for any class it does not list, so a Packing category resolves to the
+   * packing words and the fibre words are unreachable from it — 07-28 stays
+   * unrepresentable rather than merely absent. And `useSpellSuggest` now drops
+   * any candidate that is already a row, so what reaches the chips is only ever a
+   * name that saves; the taken ones move to inert text, which is what still
+   * catches a typo-twin (INTARLOCK beside INTERLOCK — both in FABRIC today).
+   *
+   * NOT disabled by the duplicate error any more. The old note said "the name it
+   * collided with is the one name that is no use" — true, and it argues for
+   * dropping that name, not the strip. Those were the same statement only while
+   * the seed was empty. COTTON is no use; COTTON SLUB is the whole point, and a
+   * duplicate is when the operator most needs it — the error even holds the
+   * cursor in the field, so the chips under it are the way out.
    */
   const nameSuggest = useSpellSuggest({
     name: form.name ?? "",
@@ -257,8 +286,8 @@ export function CategoryMasterScreen({
       .filter((r) => r.id !== editId && r.item_class_id === form.item_class_id)
       .map((r) => r.name ?? "")
       .filter(Boolean),
-    seed: [],
-    enabled: !!form.item_class_id && !dupError,
+    seed: categoryNameSeed(selectedClassCode),
+    enabled: !!form.item_class_id,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -590,6 +619,10 @@ export function CategoryMasterScreen({
               </Label>
               <Select
                 id="cat-item-class"
+                // Always on screen, always mandatory — `categoryInput.item_class_id`
+                // is a bare `.uuid()`, and every question this form asks is
+                // decided by it.
+                required
                 value={form.item_class_id}
                 onChange={(e) => setForm({ ...form, item_class_id: e.target.value })}
                 className="text-base md:text-sm"
@@ -621,6 +654,13 @@ export function CategoryMasterScreen({
                 </Label>
                 <Select
                   id="cat-made"
+                  // Bare, and that is the point: this control only EXISTS inside
+                  // `showCategoryType`, so the render condition is the gate. A
+                  // computed `required={showCategoryType}` would be a second copy
+                  // of the same condition to keep in step, and the note above
+                  // (`required-but-invisible is unsaveable`) is about exactly that
+                  // drift.
+                  required
                   value={form.made}
                   onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
                   className="text-base md:text-sm"
@@ -672,6 +712,9 @@ export function CategoryMasterScreen({
               <Input
                 id="cat-name"
                 uppercase
+                // The identity — a nameless category is unusable in every picker
+                // that offers it.
+                required
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="text-base md:text-sm"
@@ -684,7 +727,9 @@ export function CategoryMasterScreen({
               <DuplicateError error={dupError} id="cat-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </div>

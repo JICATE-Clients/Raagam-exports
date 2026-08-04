@@ -30,6 +30,7 @@ import {
 } from "@/lib/masters/stock-unit-actions";
 import { type StockUnit, type StockUnitInput } from "@/lib/masters/stock-unit-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -123,7 +124,7 @@ export function StockUnitMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
     seed: STOCK_UNIT_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -277,7 +278,7 @@ export function StockUnitMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No stock units yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No stock units yet." />
       </div>
 
       {/* mobile cards */}
@@ -300,6 +301,7 @@ export function StockUnitMasterScreen({
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {r.decimal_places} dp
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "neutral"}>
                   {r.is_active ? "Active" : "Inactive"}
@@ -352,6 +354,10 @@ export function StockUnitMasterScreen({
               <Input
                 id="su-name"
                 uppercase
+                // `stockUnitInput.name` is `capsName()` (`.min(1)`). The `*` above
+                // was drawn by hand and nothing backed it — the operator saw a
+                // mandatory marker and Tab walked straight past the blank field.
+                required
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 placeholder="Kilogram"
@@ -363,7 +369,9 @@ export function StockUnitMasterScreen({
               <DuplicateError error={dupError} id="su-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </div>

@@ -49,6 +49,7 @@ import {
   CurrenciesSection,
 } from "./config-sections";
 import type { ConfigLookup, Transporter, GstRate } from "@/lib/masters/extras-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 /* ------------------------------------------------------------------ */
 /* Buyers                                                               */
@@ -310,7 +311,7 @@ function BuyersSection({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, buyers)}
         rows={buyers}
         getKey={(r) => r.id}
         empty="No buyers yet. Add one above."
@@ -529,7 +530,7 @@ function ItemsSection({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, items)}
         rows={items}
         getKey={(r) => r.id}
         empty="No items yet. Add one above."
@@ -699,7 +700,7 @@ function UomsSection({ uoms, io }: { uoms: Uom[]; io: IoPerms }) {
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, uoms)}
         rows={uoms}
         getKey={(r) => r.id}
         empty="No units of measure yet. Add one above."

@@ -32,6 +32,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { CERTIFICATION_NAMES } from "@/lib/masters/name-vocabularies";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type ChildRow = { key: string; valid_from: string; valid_to: string };
@@ -96,7 +97,7 @@ export function CertificationMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.certification_name ?? "").filter(Boolean),
     seed: CERTIFICATION_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, certification_name: v })),
   });
 
@@ -267,7 +268,7 @@ export function CertificationMasterScreen({
       {/* desktop table */}
       <div className="hidden md:block">
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
           getKey={(r) => r.id}
           empty="No certification records yet."
@@ -298,6 +299,7 @@ export function CertificationMasterScreen({
                       {r.description}
                     </div>
                   )}
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.inactive ? "danger" : "success"}>
                   {r.inactive ? "Inactive" : "Active"}
@@ -376,7 +378,9 @@ export function CertificationMasterScreen({
                 <DuplicateError error={dupError} id="cert-name" />
                 <SpellSuggestHint
                   suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
                   activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
                   onApply={(v) => setForm((f) => ({ ...f, certification_name: v }))}
                 />
               </Field>

@@ -28,6 +28,7 @@ import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-che
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 
@@ -108,7 +109,7 @@ export function DefectDetailMasterScreen({
     name: form.name,
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
     seed: [],
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => set({ name: v }),
   });
 
@@ -309,7 +310,7 @@ export function DefectDetailMasterScreen({
       {/* desktop table */}
       <div className="hidden md:block">
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, pg.paged)}
           rows={pg.paged}
           getKey={(r) => r.id}
           empty="No defect detail records yet."
@@ -337,6 +338,7 @@ export function DefectDetailMasterScreen({
                     {autoCode(r.defect_catg_id, r.defect_id, r.defect_det_id)}
                     {r.defect_type ? ` · ${r.defect_type}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.is_active ? "success" : "danger"}>
                   {r.is_active ? "Active" : "Inactive"}
@@ -381,6 +383,11 @@ export function DefectDetailMasterScreen({
               <Input
                 uppercase
                 id="dd-catg"
+                // All four fields on this screen drew a `*` by hand and none of
+                // them carried `required`, so the operator saw four mandatory
+                // markers and Tab walked past every one. The prop is what makes
+                // the star and the hold the same declaration.
+                required
                 value={form.defect_catg_id}
                 onChange={(e) => set({ defect_catg_id: e.target.value })}
                 className="text-base md:text-sm"
@@ -394,6 +401,7 @@ export function DefectDetailMasterScreen({
               <Input
                 uppercase
                 id="dd-id"
+                required
                 value={form.defect_id}
                 onChange={(e) => set({ defect_id: e.target.value })}
                 className="text-base md:text-sm"
@@ -407,6 +415,7 @@ export function DefectDetailMasterScreen({
               <Input
                 uppercase
                 id="dd-det"
+                required
                 value={form.defect_det_id}
                 onChange={(e) => set({ defect_det_id: e.target.value })}
                 className="text-base md:text-sm"
@@ -431,6 +440,7 @@ export function DefectDetailMasterScreen({
               <Input
                 id="dd-name"
                 uppercase
+                required
                 value={form.name}
                 onChange={(e) => set({ name: e.target.value })}
                 // ↓ into the suggestion strip, Enter applies, Esc dismisses.
@@ -441,7 +451,9 @@ export function DefectDetailMasterScreen({
               <DuplicateError error={dupError} id="dd-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
                 onApply={(v) => set({ name: v })}
               />
             </div>

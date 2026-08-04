@@ -7,6 +7,7 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { AdjustmentForm } from "./adjustment-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type AdjustmentRow = {
   id: string;
@@ -89,7 +90,7 @@ export default async function AdjustmentsPage() {
       <Card>
         <CardHeader><CardTitle>Recent Adjustments</CardTitle></CardHeader>
         <CardBody>
-          <DataTable columns={columns} rows={adjustments} getKey={(r) => r.id} empty="No adjustments recorded." />
+          <DataTable columns={withCreatedColumns(columns, adjustments)} rows={adjustments} getKey={(r) => r.id} empty="No adjustments recorded." />
         </CardBody>
       </Card>
     </div>

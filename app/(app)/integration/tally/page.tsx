@@ -9,6 +9,7 @@ import { fmtDate } from "@/lib/format";
 import type { Column } from "@/components/ui/data-table";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { ExportForm } from "./export-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const exportStatusTone: Record<TallyExport["status"], StatusTone> = {
   generated: "success",
@@ -59,7 +60,7 @@ export default async function TallyPage() {
           Export History
         </h2>
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, exports)}
           rows={exports}
           getKey={(r) => r.id}
           onRowHref={(r) => `/integration/tally/${r.id}`}

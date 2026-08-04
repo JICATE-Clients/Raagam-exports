@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PaginationBar } from "@/components/ui/pagination";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Truncated } from "@/components/ui/truncated";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
@@ -34,6 +35,7 @@ import type { Composition, CompositionInput } from "@/lib/masters/composition-ty
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type LineRow = { key: string; category_id: string; description: string; mixing_pct: string };
@@ -131,7 +133,7 @@ export function CompositionMasterScreen({
     // No curated vocabulary: this master has no real-world standard to draw
     // on, so the rows beside what is being typed are the only safe candidates.
     seed: [],
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -230,7 +232,9 @@ export function CompositionMasterScreen({
       const payload: CompositionInput = {
         item_class_id: form.item_class_id,
         short_name: form.name.trim() || null,
-        name: form.name.trim() || null,
+        // No `|| null` — `name` is mandatory in the schema now, so sending null
+        // for a blank one would trade a caught error for a rejected save.
+        name: form.name.trim(),
         inactive: form.inactive,
         lines: lines
           // A line counts if it names a fibre EITHER way — a legacy row opened
@@ -335,7 +339,6 @@ export function CompositionMasterScreen({
                 setFilter("status", e.target.value);
                 pg.setPage(1);
               }}
-              className="text-base md:text-sm"
             >
               <option value="">All</option>
               <option value="active">Active</option>
@@ -355,7 +358,7 @@ export function CompositionMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No composition records yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No composition records yet." />
       </div>
 
       {/* mobile cards */}
@@ -374,12 +377,18 @@ export function CompositionMasterScreen({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">
+                  {/* `Truncated`, not a bare `truncate` class: an ellipsis is a
+                      promise the rest is reachable, and a composition name
+                      ("POLYCOTTON 60/40 MELANGE") is exactly the length that
+                      gets cut on a phone. It writes the `truncate` span itself
+                      and only shows the bubble when something really is hidden. */}
+                  <Truncated className="text-[15px] font-semibold text-foreground">
                     {r.name ?? r.short_name ?? classLabel.get(r.item_class_id) ?? "—"}
-                  </div>
+                  </Truncated>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {classLabel.get(r.item_class_id) ?? "—"}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.inactive ? "danger" : "success"}>
                   {r.inactive ? "Inactive" : "Active"}
@@ -420,111 +429,118 @@ export function CompositionMasterScreen({
           </>
         }
       >
+        {/* ONE COLUMN, TOP TO BOTTOM (client 2026-08-04).
+            This was a hand-rolled `lg:grid-cols-2` with the two header fields
+            LEFT and the Mixing grid RIGHT, copied from the Material form. It
+            does not survive the copy: Material fills both columns with ~50
+            fields, and a Composition has TWO — so the split drew a card holding
+            an Item Class and a Name beside a card holding one mixing row, and
+            left the bottom two thirds of a full-screen editor empty.
+
+            LAYOUT.md §4 already answered it: under 7 fields is a flat section,
+            not a grouped one. And §1 forbids a screen writing its own
+            `grid-cols-*` at all — the audit was flagging this file
+            (`--check screen-grid`), which is how the drift was visible before
+            anyone opened the screen. Read top to bottom now: who this is, then
+            what it is made of. */}
         <div className="space-y-4">
-          {/* Two-column body — header fields LEFT, line-item grid RIGHT (Material
-              form design). Stacks on mobile via grid-cols-1. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-            {/* LEFT: header fields + status */}
-            <div className="space-y-4">
-              <DetailSection label="Details" cols={2}>
-                {/* Item Class — same LookupDialogPicker every master uses (search +
-                    inline Add/Modify/Delete). Composition only ever applies to
-                    Fabric, so `itemClasses` from page.tsx is already filtered to
-                    that single row — the dialog just naturally lists only Fabric. */}
-                <LookupDialogPicker
-                  kind="item_class"
-                  label="Item Class"
-                  required
-                  options={itemClasses}
-                  value={form.item_class_id}
-                  onChange={(v) => setForm({ ...form, item_class_id: v })}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                  canDelete={perms.canDelete}
-                  isSuperAdmin={perms.isSuperAdmin}
-                />
+          <DetailSection label="Details" cols={2}>
+            {/* Item Class — same LookupDialogPicker every master uses (search +
+                inline Add/Modify/Delete). Composition only ever applies to
+                Fabric, so `itemClasses` from page.tsx is already filtered to
+                that single row — the dialog just naturally lists only Fabric. */}
+            <LookupDialogPicker
+              kind="item_class"
+              label="Item Class"
+              required
+              options={itemClasses}
+              value={form.item_class_id}
+              onChange={(v) => setForm({ ...form, item_class_id: v })}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isSuperAdmin={perms.isSuperAdmin}
+            />
 
-                <div>
-                  <Label htmlFor="cmp-name">
-                    Name <span className="text-danger">*</span>
-                  </Label>
-                  <Input
-                    id="cmp-name"
-                    uppercase
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    required
-                    className="text-base md:text-sm"
-                    // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-                    onKeyDown={nameSuggest.onKeyDown}
-                    {...dupFieldProps(dupError, "cmp-name")}
-                  />
-                  <DuplicateError error={dupError} id="cmp-name" />
-                  <SpellSuggestHint
-                    suggestions={nameSuggest.suggestions}
-                    activeIndex={nameSuggest.activeIndex}
-                    onApply={(v) => setForm((f) => ({ ...f, name: v }))}
-                  />
-                </div>
-              </DetailSection>
-
-              {editId && (
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.inactive}
-                    onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              )}
-            </div>
-
-            {/* RIGHT: mixing grid */}
-            <div className="space-y-4">
-              <ChildGrid<LineRow>
-                label="Mixing"
-                badge={
-                  <span className={`text-xs tabular-nums ${pctTotal === 100 ? "text-success" : "text-muted-foreground"}`}>
-                    Total {fmtNumber(pctTotal)}%
-                  </span>
-                }
-                pageSize={10}
-                forceCards
-                rows={lines}
-                onAdd={addLine}
-                onRemove={(l) => removeLine(l.key)}
-                addLabel="+ Add line"
-                columns={[
-                  {
-                    header: "Yarn",
-                    cell: (l) => fibreCell(l),
-                  },
-                  {
-                    header: "%",
-                    align: "center",
-                    cell: (l) => (
-                      <Input type="number" min="0" step="0.01" value={l.mixing_pct} onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })} placeholder="%" className="text-base md:text-sm" />
-                    ),
-                  },
-                ]}
-                renderMobileRow={(l) => (
-                  <>
-                    {/* This grid is `forceCards`, so this renderer — not the
-                        column above — is what draws every viewport. Both are
-                        kept in step so flipping to `inlineCards` later is a
-                        one-word change. */}
-                    {fibreCell(l)}
-                    {/* fields pair up two-per-row inside cards */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input type="number" min="0" step="0.01" value={l.mixing_pct} onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })} placeholder="%" className="text-base md:text-sm" />
-                    </div>
-                  </>
-                )}
+            <div>
+              <Label htmlFor="cmp-name">
+                Name <span className="text-danger">*</span>
+              </Label>
+              <Input
+                id="cmp-name"
+                uppercase
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
+                onKeyDown={nameSuggest.onKeyDown}
+                {...dupFieldProps(dupError, "cmp-name")}
+              />
+              <DuplicateError error={dupError} id="cmp-name" />
+              <SpellSuggestHint
+                suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
+                activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
+                onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </div>
-          </div>
+          </DetailSection>
+
+          {editId && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer accent-primary"
+                checked={form.inactive}
+                onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+              />
+              <span className="text-sm text-foreground">Inactive</span>
+            </label>
+          )}
+
+          {/* `inlineCards`, not `forceCards` — LAYOUT.md §6 picks the mode by
+              FIELDS PER ROW, and a mixing line has two. `forceCards` is the 6-8
+              band, so it drew each line as a stacked box: "#1", then the yarn on
+              its own line, then the % on another, ~120px of chrome for two
+              controls. This is the same grid Material ▸ Mixing renders, with the
+              same 5rem % column — the two screens edit the same idea and should
+              not look like different products. `renderMobileRow` goes with it:
+              `inlineCards` ignores it by contract, and a second copy of the
+              cells was only ever there to keep the card mode in step. */}
+          <ChildGrid<LineRow>
+            label="Mixing"
+            badge={
+              <span className={`text-xs tabular-nums ${pctTotal === 100 ? "text-success" : "text-muted-foreground"}`}>
+                Total {fmtNumber(pctTotal)}%
+              </span>
+            }
+            pageSize={10}
+            inlineCards
+            rows={lines}
+            onAdd={addLine}
+            onRemove={(l) => removeLine(l.key)}
+            addLabel="+ Add line"
+            columns={[
+              { header: "Yarn", cell: (l) => fibreCell(l) },
+              {
+                header: "Mixing %",
+                align: "center",
+                width: "5rem",
+                cell: (l) => (
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={l.mixing_pct}
+                    onChange={(e) => setLineAt(l.key, { mixing_pct: e.target.value })}
+                    placeholder="%"
+                    className="text-center"
+                  />
+                ),
+              },
+            ]}
+          />
         </div>
       </Sheet>
     </div>

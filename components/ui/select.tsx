@@ -12,6 +12,8 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { useRequiredHold } from "@/components/ui/field";
+import { holdEmpty } from "@/components/ui/input";
 
 /**
  * Drop-in replacement for a native <select> (same API: <option> children,
@@ -109,6 +111,9 @@ export const Select = forwardRef<
   // listbox is single-select and controlled-only.
   const nativeOnly = Boolean(props.multiple) || props.value == null;
   const enhance = useEnhance(nativeOnly);
+  const hold = useRequiredHold(!props.disabled && holdEmpty(props.value), {
+    required: props.required,
+  });
 
   const native = (
     // `autoComplete="off"` for a different reason than input.tsx: a <select>
@@ -116,7 +121,16 @@ export const Select = forwardRef<
     // one from the saved address profile, which quietly rewrites a State or
     // Country the operator never touched. The enhanced (desktop) branch below
     // is a Combobox and carries its own `off`.
-    <select ref={ref} autoComplete="off" className={cn(NATIVE_CLASS, className)} {...props}>
+    <select
+      ref={ref}
+      autoComplete="off"
+      // Mandatory and blank holds the cursor (see input.tsx). The enhanced
+      // branch below is a Combobox and stamps its own — this is the touch / SSR
+      // / multiple / uncontrolled branch.
+      {...hold}
+      className={cn(NATIVE_CLASS, className)}
+      {...props}
+    >
       {children}
     </select>
   );
@@ -153,6 +167,9 @@ export const Select = forwardRef<
         placeholder={placeholder ?? "Select…"}
         clearable={hasEmpty}
         disabled={props.disabled}
+        // Carry the mandatory declaration across the native → listbox swap, or a
+        // `<Select required>` would hold on touch and not on a mouse.
+        required={props.required}
         // Deliberately BOTH. On a native <select> — which this claims to be a
         // drop-in for, and which is what the touch/SSR branch above still
         // renders — `className` styles the control. The enhanced branch splits

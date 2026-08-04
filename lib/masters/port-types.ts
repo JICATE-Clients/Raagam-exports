@@ -21,7 +21,11 @@ export interface Port {
 
 export const portInput = z.object({
   short_name: z.string().optional().nullable(),
-  name: z.string().optional().nullable(),
+  // MANDATORY: the schema already insisted on the Country that scopes a port but
+  // not on the name the operator picks it by, so a nameless port could be saved
+  // and would then sit blank in every shipping dropdown. The screen has always
+  // declared `required`; this half also covers `lib/data-io` imports.
+  name: z.string().trim().min(1, "Name is required"),
   country_id: z.string().uuid("Country is required"),
   port_type: z.enum(PORT_TYPES).nullable().default(null),
 });

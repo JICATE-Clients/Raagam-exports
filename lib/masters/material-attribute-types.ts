@@ -71,8 +71,17 @@ export const materialAttributeLineInput = z.object({
 });
 
 export const materialAttributeInput = z.object({
-  item_class_id: z.string().uuid().nullable().default(null),
-  category_id: z.string().uuid().nullable().default(null),
+  // MANDATORY: the pair IS this record's identity — `uq_material_attributes_
+  // class_category` (0347) is unique on exactly these two, and the whole point of
+  // the row is to say "for this Item Class and Category, ask these questions".
+  // Neither could be null and mean anything.
+  //
+  // The screen has always gated Save on both, so nothing about the UI changes;
+  // what changes is that the SERVER now agrees, which is what `lib/data-io`
+  // imports go through. They previously defaulted to null and wrote a row whose
+  // unique key was (null, null).
+  item_class_id: z.string().uuid("Item Class is required"),
+  category_id: z.string().uuid("Category is required"),
   name_separator: z.string().default(" "),
   lines: z.array(materialAttributeLineInput).default([]),
 });

@@ -219,10 +219,16 @@ export function WorkingHourMasterScreen({ rows, perms }: { rows: WorkingHour[]; 
               <Input value={editNo != null ? `#${editNo}` : "(auto)"} readOnly disabled className="text-base md:text-sm" />
             </div>
             <div>
-              <Label htmlFor="wh-date">Date</Label>
+              <Label htmlFor="wh-date">
+                Date <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="wh-date"
                 type="date"
+                // `workingHourInput.date` is `.min(1)`. The label carried no `*`
+                // either, so this field was mandatory in the schema and said
+                // nothing about it in the UI — `required` supplies both halves.
+                required
                 value={form.date}
                 onChange={(e) => set({ date: e.target.value })}
                 className="text-base md:text-sm"

@@ -63,6 +63,7 @@ import type { StateLookup } from "@/lib/masters/lookup-compat";
 import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Process } from "@/lib/masters/process-types";
+import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -921,7 +922,7 @@ export function VendorMasterScreen({
     // real trading parties. Rows only — which is exactly the useful check here,
     // catching "ABC TEXTILES" typed beside an existing "ABC TEXTILE".
     seed: [],
-    enabled: open && !nameDupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -1381,7 +1382,9 @@ export function VendorMasterScreen({
             <DuplicateError error={nameDupError} id="ve-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!nameDupError}
               onApply={(v) => setForm((f) => ({ ...f, name: v }))}
             />
           </Field>
@@ -2118,7 +2121,7 @@ export function VendorMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No vendors yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No vendors yet." />
       </div>
 
       {/* mobile cards */}
@@ -2148,6 +2151,7 @@ export function VendorMasterScreen({
                     {r.code ?? "—"}
                     {r.vendor_type ? ` · ${r.vendor_type}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 {r.is_draft ? (
                   <StatusPill tone="warning">Draft</StatusPill>
@@ -2266,7 +2270,7 @@ export function VendorMasterScreen({
             <StatusPill tone={statusTone(viewRow.status)}>{viewRow.status}</StatusPill>
           ))
         }
-        sections={viewRow ? viewSections(viewRow) : []}
+        sections={viewRow ? [...viewSections(viewRow), ...createdSection(viewRow)] : []}
       />
     </div>
   );

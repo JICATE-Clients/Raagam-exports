@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { createUser, assignRole, removeRole } from "@/app/(app)/admin/actions";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 /* ------------------------------------------------------------------ */
 /* Create User Form                                                     */
@@ -421,7 +422,7 @@ export default function UsersClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, profiles)}
         rows={profiles}
         getKey={(r) => r.id}
         empty="No users found."

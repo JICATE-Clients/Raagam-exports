@@ -249,10 +249,14 @@ export function WorkTimingMasterScreen({
               />
             </div>
             <div>
-              <Label htmlFor="wt-date">Date</Label>
+              <Label htmlFor="wt-date">
+                Date <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="wt-date"
                 type="date"
+                // `.min(1)` in `workTimingInput`.
+                required
                 value={form.date}
                 onChange={(e) => set({ date: e.target.value })}
                 className="text-base md:text-sm"
@@ -269,10 +273,14 @@ export function WorkTimingMasterScreen({
               />
             </div>
             <div>
-              <Label htmlFor="wt-eff">Effective From</Label>
+              <Label htmlFor="wt-eff">
+                Effective From <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="wt-eff"
                 type="date"
+                // `.min(1)` in `workTimingInput`.
+                required
                 value={form.effective_from}
                 onChange={(e) => set({ effective_from: e.target.value })}
                 className="text-base md:text-sm"

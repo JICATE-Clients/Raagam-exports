@@ -33,6 +33,7 @@ import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtDate } from "@/lib/format";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin?: boolean; canExport?: boolean };
 type LineRow = { key: string; description: string };
@@ -296,7 +297,7 @@ export function OutDocumentTermMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={pg.paged} getKey={(r) => r.id} empty="No out document terms yet." />
+        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No out document terms yet." />
       </div>
 
       {/* mobile cards */}
@@ -322,6 +323,7 @@ export function OutDocumentTermMasterScreen({
                     {fmtDate(r.entry_date)}
                     {r.process_id ? ` · ${processLabel.get(r.process_id) ?? ""}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                   {r.lines.length} line{r.lines.length === 1 ? "" : "s"}
@@ -371,10 +373,14 @@ export function OutDocumentTermMasterScreen({
               />
             </div>
             <div>
-              <Label htmlFor="odt-date">Date</Label>
+              <Label htmlFor="odt-date">
+                Date <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="odt-date"
                 type="date"
+                // `.min(1)` in `outDocumentTermInput`.
+                required
                 value={form.entry_date}
                 onChange={(e) => set({ entry_date: e.target.value })}
                 className="text-base md:text-sm"

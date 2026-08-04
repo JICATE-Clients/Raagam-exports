@@ -22,6 +22,7 @@ import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   groups: CostCentreGroup[];
@@ -148,7 +149,7 @@ export function CostCentresClient({
           <CardTitle>Cost Centre Groups ({groups.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={groupCols} rows={groups} getKey={(g) => g.id} empty="No groups yet." />
+          <DataTable columns={withCreatedColumns(groupCols, groups)} rows={groups} getKey={(g) => g.id} empty="No groups yet." />
           {canCreate && (
             <form
               onSubmit={(e) => {
@@ -186,7 +187,7 @@ export function CostCentresClient({
           <CardTitle>Cost Centres ({centres.length})</CardTitle>
         </CardHeader>
         <CardBody className="space-y-3">
-          <DataTable columns={centreCols} rows={centres} getKey={(c) => c.id} empty="No cost centres yet." />
+          <DataTable columns={withCreatedColumns(centreCols, centres)} rows={centres} getKey={(c) => c.id} empty="No cost centres yet." />
           {canCreate && (
             <form
               onSubmit={(e) => {

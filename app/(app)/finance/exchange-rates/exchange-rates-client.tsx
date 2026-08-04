@@ -18,6 +18,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtNumber, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   rates: ExchangeRateDetail[];
@@ -198,7 +199,7 @@ export function ExchangeRatesClient({ rates, currencies, canCreate, canDelete }:
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, rates)}
         rows={rates}
         getKey={(r) => r.id}
         empty="No exchange-rate details yet."

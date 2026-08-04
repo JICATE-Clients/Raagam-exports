@@ -44,6 +44,7 @@ import type {
 import type { OpportunityRow, CostSheetWithItems, BrandOption, SeasonOption } from "@/lib/sales/service";
 import type { Buyer, Uom } from "@/lib/masters/types";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -487,7 +488,7 @@ function StylesTab({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, styles)}
         rows={styles}
         getKey={(row) => row.id}
         empty="No styles yet. Add a style card to get started."
@@ -936,7 +937,7 @@ function CostSheetsTab({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, costSheets)}
         rows={costSheets}
         getKey={(row) => row.id}
         empty="No cost sheets yet."
@@ -1245,7 +1246,7 @@ function QuotesTab({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, quotes)}
         rows={quotes}
         getKey={(row) => row.id}
         empty="No quotes yet."
@@ -1471,7 +1472,7 @@ function SamplesTab({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, samples)}
         rows={samples}
         getKey={(row) => row.id}
         empty="No samples recorded yet."

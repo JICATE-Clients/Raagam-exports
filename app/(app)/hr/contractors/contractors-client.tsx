@@ -19,6 +19,7 @@ import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const DEFAULTS: ContractorInput = {
   name: "",
@@ -216,7 +217,7 @@ export default function ContractorsClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, contractors)}
         rows={contractors}
         getKey={(r) => r.id}
         empty="No contractors yet. Add one above."

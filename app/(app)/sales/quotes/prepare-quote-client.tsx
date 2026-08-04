@@ -31,6 +31,7 @@ import {
   type QuoteCosting,
 } from "@/lib/sales/quote-costings/types";
 import type { QuoteCostingFormData, PickerRow } from "@/lib/sales/quote-costings/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -435,7 +436,7 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
       </FilterBar>
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, filtered)}
         rows={filtered}
         getKey={(r) => r.id}
         empty="No costings yet. Use 'Prepare Quote' to create the first."

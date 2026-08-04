@@ -8,6 +8,7 @@ import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import type { ProcessMaterialReceipt } from "@/lib/stores/process-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 export default async function ProcessReceiptsPage() {
   await requirePermission("stores", "view");
@@ -49,7 +50,7 @@ export default async function ProcessReceiptsPage() {
         description="Receive processed materials back from vendors"
         actions={canCreate ? <ProcessReceiptForm processOrders={procOrders.map((o) => ({ id: o.id, code: o.code }))} stores={stores} items={items} /> : undefined}
       />
-      <DataTable columns={columns} rows={receipts} getKey={(r) => r.id} empty="No process receipts yet." />
+      <DataTable columns={withCreatedColumns(columns, receipts)} rows={receipts} getKey={(r) => r.id} empty="No process receipts yet." />
     </div>
   );
 }

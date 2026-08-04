@@ -131,7 +131,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name),
     seed: COUNTRY_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     // Enter applies the highlighted chip; see the hook.
     onApply: (v) => set({ name: v }),
   });
@@ -284,7 +284,9 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
             <DuplicateError error={dupError} id="co-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => set({ name: v })}
             />
           </Field>

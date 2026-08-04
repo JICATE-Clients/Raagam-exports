@@ -29,7 +29,11 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl / ⌘ + S", label: "Save the open form" },
   { keys: "Ctrl / ⌘ + F", label: "Focus the list search box" },
   { keys: "Ctrl / ⌘ + /", label: "Show this shortcuts help" },
-  { keys: "Tab", label: "Move to the next field" },
+  // Tab visits FIELDS and nothing else — not Save, not Cancel, not a ✕. Spelled
+  // out here because the operator has to be told where the buttons went: the
+  // three lines that answer it (Enter, Ctrl+S, Esc) are all already on this list.
+  { keys: "Tab", label: "Move to the next field — fields only, never a button" },
+  { keys: "Ctrl / ⌘ + Del", label: "Delete the grid row you are on" },
   // The one case a movement key refuses. Listed for the operator who is sitting
   // on a field wondering why nothing happens — see the hold in
   // components/shell/keyboard-nav-provider.tsx.

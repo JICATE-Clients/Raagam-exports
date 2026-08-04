@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { createRole, toggleRolePermission } from "@/app/(app)/admin/actions";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 /* ------------------------------------------------------------------ */
 /* Create Role Form                                                     */
@@ -259,7 +260,7 @@ export default function RolesClient({
       )}
 
       <DataTable
-        columns={roleColumns}
+        columns={withCreatedColumns(roleColumns, roles)}
         rows={roles}
         getKey={(r) => r.id}
         empty="No roles defined."

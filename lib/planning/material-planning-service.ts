@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type {
   MaterialExcessPlanRow,
   MaterialExcessPlanItem,
@@ -283,7 +284,7 @@ export async function listFabricConsumptions(): Promise<FabricConsumption[]> {
     .select("*")
     .order("created_at", { ascending: false });
 
-  return (data ?? []) as FabricConsumption[];
+  return withCreators((data ?? []) as FabricConsumption[]);
 }
 
 export async function getFabricConsumption(id: string) {

@@ -7,6 +7,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<CustomerCardSummary>[] = [
   {
@@ -72,7 +73,7 @@ export default async function ColorCardsPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, customers)}
         rows={customers}
         getKey={(row) => row.id}
         empty="No customers yet. Add buyers in Master Data first."

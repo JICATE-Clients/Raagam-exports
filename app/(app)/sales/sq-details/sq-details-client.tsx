@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,9 +14,12 @@ import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
 import { fmtDate } from "@/lib/format";
 import { createSqDetail, confirmSqDetail, deleteSqDetail, addSqPack, deleteSqPack } from "@/lib/sales/sq-actions";
-import { SQ_SUB_TYPES, SOURCING_TYPES } from "@/lib/sales/sq-types";
+import { SQ_SUB_TYPES, SOURCING_TYPES, deriveSqQuantities } from "@/lib/sales/sq-types";
+import { isInactive } from "@/lib/masters/inactive";
+import type { GarmentRejectionRule } from "@/lib/masters/garment-rejection-rule-types";
 import type { SqDetailRow } from "@/lib/sales/sq-service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = {
   draft: "neutral",
@@ -24,7 +27,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
   cancelled: "danger",
 };
 
-export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
+export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: GarmentRejectionRule[] }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -39,10 +42,27 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
     sourcing_type: "" as string,
     order_qty: "",
     excess_pct: "",
+    rejection_rule_id: "",
     rejection_pct: "",
     sq_description: "",
     notes: "",
   });
+
+  /** What the rule works out, live. Recomputed by the server on save from the
+   *  same function, so this is a preview of the stored answer rather than a
+   *  second opinion about it. */
+  const derived = useMemo(
+    () =>
+      deriveSqQuantities({
+        order_qty: Number(form.order_qty) || 0,
+        excess_pct: Number(form.excess_pct) || 0,
+        rejection_pct: Number(form.rejection_pct) || 0,
+        tiers: form.rejection_rule_id
+          ? rules.find((r) => r.id === form.rejection_rule_id)?.lines ?? []
+          : null,
+      }),
+    [form.order_qty, form.excess_pct, form.rejection_pct, form.rejection_rule_id, rules],
+  );
 
   function submit() {
     startTransition(async () => {
@@ -53,6 +73,7 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
         sourcing_type: (form.sourcing_type as (typeof SOURCING_TYPES)[number]) || null,
         order_qty: form.order_qty ? Number(form.order_qty) : 0,
         excess_pct: form.excess_pct ? Number(form.excess_pct) : 0,
+        rejection_rule_id: form.rejection_rule_id || null,
         rejection_pct: form.rejection_pct ? Number(form.rejection_pct) : 0,
         sq_description: form.sq_description || null,
         notes: form.notes || null,
@@ -137,7 +158,7 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
         <Button size="md" onClick={() => setOpen(true)}>+ New SQ Detail</Button>
       </div>
 
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No SQ Details yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No SQ Details yet." />
 
       {/* Pack editor for selected SQ */}
       {selectedId && (
@@ -211,9 +232,53 @@ export function SqDetailsClient({ rows }: { rows: SqDetailRow[] }) {
               <Label htmlFor="sq-excess">Excess %</Label>
               <Input id="sq-excess" type="number" value={form.excess_pct} onChange={(e) => setForm({ ...form, excess_pct: e.target.value })} />
             </div>
+            {/* THE RULE REPLACES THE HAND-TYPED PERCENTAGE, and only while one is
+                picked. Every SQ raised before 0390 has no rule and keeps typing
+                Rejection % exactly as before — which is why this swaps the field
+                rather than adding a third one that could contradict it. */}
             <div>
-              <Label htmlFor="sq-rej">Rejection %</Label>
-              <Input id="sq-rej" type="number" value={form.rejection_pct} onChange={(e) => setForm({ ...form, rejection_pct: e.target.value })} />
+              <Label htmlFor="sq-rule">Rejection Rule</Label>
+              <Select
+                id="sq-rule"
+                value={form.rejection_rule_id}
+                onChange={(e) => setForm({ ...form, rejection_rule_id: e.target.value })}
+              >
+                <option value="">Enter % manually</option>
+                {rules
+                  // Disabled rows are not offered, but the one this document
+                  // already holds survives — AGENTS.md "Disabled rows".
+                  .filter((r) => !isInactive(r) || r.id === form.rejection_rule_id)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.rule ?? `#${r.entry_no}`}
+                      {isInactive(r) ? " (inactive)" : ""}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+            {!form.rejection_rule_id && (
+              <div>
+                <Label htmlFor="sq-rej">Rejection %</Label>
+                <Input id="sq-rej" type="number" value={form.rejection_pct} onChange={(e) => setForm({ ...form, rejection_pct: e.target.value })} />
+              </div>
+            )}
+            {/* Read-back. The operator's whole reason for the rule is not having
+                to work this out, so it has to be visible BEFORE saving — and it
+                comes from `deriveSqQuantities`, the same function the server
+                recomputes with, so what is shown is what will be stored. */}
+            <div className="sm:col-span-2">
+              {derived.noTier ? (
+                <p className="text-xs text-danger">
+                  No tier in this rule covers an order of {form.order_qty || 0}. Add a band that
+                  includes it, or the rejection will save as zero.
+                </p>
+              ) : Number(form.order_qty) > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Rejection <span className="font-semibold tabular-nums text-foreground">{derived.rejection_qty}</span>
+                  {" "}({derived.rejection_pct}%) · SQ Qty{" "}
+                  <span className="font-semibold tabular-nums text-foreground">{derived.sq_qty}</span>
+                </p>
+              ) : null}
             </div>
           </DetailSection>
           <DetailSection label="Description">

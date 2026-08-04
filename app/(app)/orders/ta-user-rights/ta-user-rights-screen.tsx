@@ -16,6 +16,7 @@ import type {
   TaUserRightsSummaryRow,
 } from "@/lib/orders/ta-user-rights/service";
 import type { TaUserRight } from "@/lib/orders/ta-user-rights/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const ALL_KEY = "__all__";
 const ACTIONS = ["view", "add", "modify", "delete"] as const;
@@ -267,7 +268,7 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
         <div>
           <h3 className="mb-2 text-sm font-semibold text-foreground">Configured users</h3>
           <DataTable
-            columns={summaryColumns}
+            columns={withCreatedColumns(summaryColumns, summary)}
             rows={summary}
             getKey={(r) => r.user_id}
             empty="No user rights configured yet. Pick a user above to start."

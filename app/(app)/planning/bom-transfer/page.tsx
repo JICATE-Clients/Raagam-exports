@@ -8,6 +8,7 @@ import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { BomTransferRow } from "@/lib/planning/bom-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type TransferStatus = "draft" | "submitted" | "approved";
 
@@ -94,7 +95,7 @@ export default async function BomTransferPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, transfers)}
         rows={transfers}
         getKey={(r) => r.id}
         empty="No BOM transfers yet."

@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { DcWithVendor } from "@/lib/purchase/grn-service";
 import type { DcStatus } from "@/lib/purchase/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const statusTone: Record<
   DcStatus,
@@ -70,7 +71,7 @@ export default async function DcListPage() {
         }
       />
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, dcs)}
         rows={dcs}
         getKey={(r) => r.id}
         empty="No delivery challans yet. Create a DC to track material sent to a processor."

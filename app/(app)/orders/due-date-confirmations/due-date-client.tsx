@@ -13,6 +13,7 @@ import { DetailSection } from "@/components/masters/detail-section";
 import { fmtDate } from "@/lib/format";
 import { createDueDateConfirmation, deleteDueDateConfirmation } from "@/lib/orders/booking-actions";
 import type { DueDateConfirmationRow } from "@/lib/orders/booking-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 export function DueDateClient({ rows }: { rows: DueDateConfirmationRow[] }) {
   const router = useRouter();
@@ -58,7 +59,7 @@ export function DueDateClient({ rows }: { rows: DueDateConfirmationRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Confirmation</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No due date confirmations yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No due date confirmations yet." />
       <Sheet open={open} onClose={() => setOpen(false)} title="New Due Date Confirmation" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Details">

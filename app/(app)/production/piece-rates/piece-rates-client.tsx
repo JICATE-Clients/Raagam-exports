@@ -21,6 +21,7 @@ import {
 } from "@/lib/production/extras-actions";
 import { PIECE_RATE_STATUS_LABELS, type PieceRateStatus } from "@/lib/production/extras-types";
 import type { PieceRateWithRefs, ContractorOption, WorkTypeOption } from "@/lib/production/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: PieceRateStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "submitted" ? "info" : s === "approved" ? "success" : "danger";
@@ -155,7 +156,7 @@ export function PieceRatesClient({ rows, contractors, workTypes, canCreate, canE
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New piece rate</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No piece rates yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No piece rates yet." />
     </div>
   );
 }

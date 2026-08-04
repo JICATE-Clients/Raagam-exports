@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createCspReceipt } from "@/lib/stores/extras-actions";
 import { CSP_STATUS_LABELS, type CspStatus } from "@/lib/stores/extras-types";
 import type { CspReceiptWithRefs, StoreOption, BuyerOption } from "@/lib/stores/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: CspStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "posted" ? "success" : "danger";
@@ -127,7 +128,7 @@ export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New CSP receipt</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No CSP receipts yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No CSP receipts yet." />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import type { ProcessMaterialIssue } from "@/lib/stores/process-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 export default async function ProcessIssuesPage() {
   await requirePermission("stores", "view");
@@ -49,7 +50,7 @@ export default async function ProcessIssuesPage() {
         description="Issue materials from store to external processors"
         actions={canCreate ? <ProcessIssueForm processOrders={procOrders.map((o) => ({ id: o.id, code: o.code }))} stores={stores} items={items} /> : undefined}
       />
-      <DataTable columns={columns} rows={issues} getKey={(r) => r.id} empty="No process issues yet." />
+      <DataTable columns={withCreatedColumns(columns, issues)} rows={issues} getKey={(r) => r.id} empty="No process issues yet." />
     </div>
   );
 }

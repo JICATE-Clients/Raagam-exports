@@ -64,6 +64,7 @@ import type { Customer } from "@/lib/masters/customer-types";
 import type { Currency } from "@/lib/masters/types";
 import type { Bank } from "@/lib/masters/bank-types";
 import type { Notify } from "@/lib/masters/notify-types";
+import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -622,7 +623,7 @@ export function ConsigneeMasterScreen({
     // `editOrigin` means this row was PUBLISHED by another party master and its
     // Name is read-only here (see the field). Offering a correction for a value
     // that cannot be typed is noise pointing at the wrong screen.
-    enabled: open && !nameDupError && !editOrigin,
+    enabled: open && !editOrigin,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -1179,7 +1180,7 @@ export function ConsigneeMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No consignees yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No consignees yet." />
       </div>
 
       {/* mobile cards */}
@@ -1204,6 +1205,7 @@ export function ConsigneeMasterScreen({
                     {r.country_id ? ` · ${countryLabel.get(r.country_id) ?? ""}` : ""}
                     {consigneeOrigin(r) ? ` · from ${consigneeOrigin(r)?.from}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
                   {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
@@ -1314,7 +1316,9 @@ export function ConsigneeMasterScreen({
                       <DuplicateError error={nameDupError} id="cn-name" />
                       <SpellSuggestHint
                         suggestions={nameSuggest.suggestions}
+                        existing={nameSuggest.existing}
                         activeIndex={nameSuggest.activeIndex}
+                        duplicate={!!nameDupError}
                         onApply={(v) => setForm((f) => ({ ...f, name: v }))}
                       />
                     </Field>
@@ -2034,7 +2038,7 @@ export function ConsigneeMasterScreen({
             </StatusPill>
           )
         }
-        sections={viewRow ? viewSectionsFor(viewRow) : []}
+        sections={viewRow ? [...viewSectionsFor(viewRow), ...createdSection(viewRow)] : []}
       />
     </div>
   );

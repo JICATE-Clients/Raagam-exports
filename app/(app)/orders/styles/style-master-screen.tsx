@@ -37,6 +37,7 @@ import {
   type GarmentStyle,
 } from "@/lib/orders/styles/types";
 import type { PickerRow, StyleFormData } from "@/lib/orders/styles/service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -340,7 +341,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           }
         />
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, rows)}
           rows={rows}
           getKey={(r) => r.id}
           empty="No styles yet. Use 'New Style' to create the first."

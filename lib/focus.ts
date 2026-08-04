@@ -1,9 +1,15 @@
 /**
  * Shared focus helpers. The key-handling ones are driven from ONE place —
  * components/shell/keyboard-nav-provider.tsx — so every surface in the app gets
- * the same contract without per-screen wiring. Sheet/MasterFullScreen still use
- * the focus-trap and autofocus helpers directly, because those are overlay
- * concerns rather than field navigation.
+ * the same contract without per-screen wiring.
+ *
+ * That now includes Tab (2026-08-04). It was the last key still bound per
+ * surface: `Sheet` and `MasterFullScreen` each ran `cycleTab` themselves and
+ * nothing else ran it at all, so Tab was ordered on two surfaces, native on the
+ * rest, and — because it walked every focusable rather than every field — landed
+ * on buttons that ↑↓←→ and Enter both stepped over. Overlays still use the
+ * autofocus and focus-return helpers here directly; those are genuinely overlay
+ * lifecycle, not field navigation.
  */
 
 /**
@@ -122,10 +128,14 @@ export function focusablesIn(root: HTMLElement): HTMLElement[] {
  * An editor surface renders header → content → footer, so in raw DOM order the
  * header ✕ is `items[0]` — it became the first Tab stop and the wrap target of
  * the focus trap, so Tab hit "close" in the middle of data entry (client
- * 2026-07-24 #5). Reordering keeps ✕ reachable by keyboard (unlike
- * `tabindex="-1"`, which would strand keyboard-only users) while moving it out
- * of the typing path. Surfaces opt in by stamping `data-focus-region` on their
+ * 2026-07-24 #5). Surfaces opt in by stamping `data-focus-region` on their
  * wrappers; anything unstamped sorts with the content.
+ *
+ * NOTE this is no longer what decides where Tab goes — `cycleTab` targets FIELDS
+ * and a ✕ is not one (client 2026-08-04, see the note there). Ordering still
+ * matters for everything else that walks a surface: the focus-trap fallback for
+ * a surface with no fields at all, `focusFirstField`'s last resort, and the
+ * region confinement `arrowNavigate` / `enterAdvances` apply.
  */
 const REGION_ORDER: Record<string, number> = { content: 0, footer: 1, header: 2 };
 
@@ -336,16 +346,28 @@ export function submitSurface(root: HTMLElement | null, hooks?: SaveHooks): bool
 }
 
 /**
- * Can Enter-advance LAND here? Buttons and links are deliberately not fields.
+ * THE ONE DEFINITION OF "A FIELD" — where Tab may land, and where Enter-advance
+ * may land. Buttons and links are deliberately not fields.
  *
- * This is one of the two defences against the oldest trap in this file: an
- * unconfined Enter-advance once walked off the last data field onto the footer's
- * FIRST button — Cancel — and the next Enter discarded the form. Region
- * confinement (`regionItems`) covers surfaces that mark their regions; targeting
- * fields only covers the ones that do not mark anything, which is most page
- * forms. Enter ON a real button is untouched anyway — native activation is right.
+ * It began as Enter's own guard, one of the two defences against the oldest trap
+ * in this file: an unconfined Enter-advance once walked off the last data field
+ * onto the footer's FIRST button — Cancel — and the next Enter discarded the
+ * form. Region confinement (`regionItems`) covers surfaces that mark their
+ * regions; targeting fields only covers the ones that mark nothing, which is most
+ * page forms.
+ *
+ * TAB NOW SHARES IT, and that is the whole point of exporting it. Tab used to
+ * walk `FOCUSABLE_SELECTOR`, which matches any `<button>`, so the three movement
+ * keys held two different ideas of what a field is: the arrows and Enter stepped
+ * over a child row's Remove ✕ while Tab stopped on it (client 2026-08-01, and
+ * again 2026-08-04 on the ~22 screens that hand-roll a grid row rather than using
+ * `ChildGrid`). One predicate, one answer, on every surface at once.
+ *
+ * `components/masters/child-grid.tsx` keeps its own `ROW_FIELDS` selector for the
+ * grid axis. It is this list minus `radio`, because ↑/↓ natively move within a
+ * radio group and a grid must not steal that. Any other divergence is a bug.
  */
-function isFieldLike(el: HTMLElement): boolean {
+export function isFieldLike(el: HTMLElement): boolean {
   if (el.matches(FIELD_TRIGGER)) return true;
   if (el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) return true;
   return el instanceof HTMLInputElement && !/^(button|submit|reset|hidden|image)$/.test(el.type);
@@ -511,6 +533,106 @@ function ownsArrowKeys(t: HTMLElement): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * A KEY THAT PUTS A VALUE IN IS NOT A KEY THAT MOVES AWAY.
+ *
+ * Read by the duplicate / mandatory holds in keyboard-nav-provider.tsx, which
+ * refuse MOVEMENT off a field that is not yet acceptable. Refusing a key the
+ * focused control uses to CHOOSE a value does not make the rule stricter, it
+ * makes it unsatisfiable: the operator can neither fill the field nor leave it,
+ * and the only way out is the mouse.
+ *
+ * That shipped. The first cut exempted ↓-opens-a-list and nothing else, so on a
+ * held Item Class the operator could open the list and walk down it but **Enter
+ * could not pick anything** (client 2026-08-04).
+ *
+ * NOT the same predicate as `ownsArrowKeys` above, and the difference is the
+ * whole reason this is separate. That one answers "does this control handle ↑/↓
+ * itself, so the global spatial walk must stand down?" — and a CHILD GRID ROW
+ * answers yes, because ↑/↓ move a row there. Moving a row is still moving.
+ * This one answers "does this key produce a VALUE in this field?", which a row
+ * jump does not. Keep them apart; a hold that reused `ownsArrowKeys` would let
+ * ↑/↓ walk straight out of a held grid cell.
+ *
+ * Tab appears in no branch, deliberately: leaving an open list without choosing
+ * is exactly the departure a hold exists to refuse.
+ */
+export type FillProbe = {
+  /** Uppercase tag name — SELECT / INPUT / TEXTAREA / BUTTON. */
+  tag: string;
+  role: string | null;
+  ariaExpanded: string | null;
+  /** Carries `data-field-trigger` — a picker button that is really a field. */
+  fieldTrigger: boolean;
+};
+
+/** The pure rule. Split from the DOM so it can be exercised without a browser —
+ *  see scripts/check-keyboard-holds.mts. */
+export function keyFills(p: FillProbe, key: string): boolean {
+  const arrowY = key === "ArrowUp" || key === "ArrowDown";
+  const listOpen = p.ariaExpanded === "true";
+  const hasList = p.fieldTrigger || p.role === "combobox";
+  // An OPEN list owns its navigation AND its commit key.
+  if (listOpen && (arrowY || key === "Enter")) return true;
+  // A CLOSED list opens on ↓ — the only keyboard route to reaching a value.
+  if (hasList && key === "ArrowDown") return true;
+  // A native <select> has no popup to expand: ↑/↓ change the value in place, so
+  // they are its entire keyboard interface. (The touch / SSR / multiple /
+  // uncontrolled branch of components/ui/select.tsx.)
+  if (p.tag === "SELECT" && arrowY) return true;
+  return false;
+}
+
+export function probeOf(el: HTMLElement): FillProbe {
+  return {
+    tag: el.tagName,
+    role: el.getAttribute("role"),
+    ariaExpanded: el.getAttribute("aria-expanded"),
+    fieldTrigger: el.matches(FIELD_TRIGGER),
+  };
+}
+
+/** `keyFills` for a live element. */
+export function keyFillsField(el: HTMLElement, key: string): boolean {
+  return keyFills(probeOf(el), key);
+}
+
+/**
+ * Does this key move the cursor BACKWARD? The half of a hold that is allowed out
+ * of a mandatory-but-blank field (client 2026-08-04).
+ *
+ * THE TWO HOLDS PART COMPANY HERE, and it is what each one guards that decides
+ * it. A `data-dup-error` guards a value that is **wrong**: leaving in any
+ * direction leaves it wrong, so both directions stay refused. A
+ * `data-required-empty` guards a value that is **blank**, and stepping back off
+ * it leaves the field exactly as it already was — nothing is lost.
+ *
+ * What IS lost by refusing it: the field that makes a blank one fillable is
+ * routinely BEHIND it. A Category picker's options are scoped by the Item Class
+ * above it, so a blank mandatory Category with no way back is a hold the keyboard
+ * cannot satisfy — the operator has to reach for the mouse to fix the field that
+ * would let them fill this one. A rule that cannot be satisfied is not strict, it
+ * is broken; that is the same failure as the first cut of the required hold,
+ * where ↓ opened a list and Enter would not pick from it.
+ *
+ * Forward progress is still gated either way — Tab, Enter, ↓ and → refuse — so an
+ * operator who walks back and returns meets the same hold, and Save stays out of
+ * reach.
+ *
+ * SHIFT IS THE WHOLE POINT for Tab: forward and backward are the same `key`, told
+ * apart only by the modifier. Anything that classifies on `key` alone gets this
+ * one case exactly wrong, which is why `scripts/check-keyboard-holds.mts` probes
+ * `Tab` with the modifier both ways rather than trusting the shape of the code.
+ *
+ * Lives here rather than in the provider because it is a rule, not delivery — the
+ * same reason `keyFillsField` above is here. The provider decides WHICH hold is
+ * in force by reading the two markers; this decides only what the key means.
+ */
+export function keyMovesBackward(key: string, shiftKey: boolean): boolean {
+  if (key === "Tab") return shiftKey;
+  return key === "ArrowUp" || key === "ArrowLeft";
 }
 
 /**
@@ -758,23 +880,68 @@ export function focusLastField(root: HTMLElement | null): boolean {
 }
 
 /**
- * Own the Tab cycle for an overlay surface.
+ * IS THIS SURFACE AN EDITOR? — the gate that decides whether Tab belongs to this
+ * contract at all.
  *
- * Tab is native everywhere else in the app (see keyboard-nav-provider.tsx —
- * `NAV_KEYS` deliberately excludes it). An overlay is the one exception, because
- * native Tab would walk straight out of it into the page behind, which is still
- * mounted underneath.
+ * Tab is claimed only inside a surface that declares itself one: an overlay, a
+ * pane that stamped `data-focus-scope`, or anything carrying a footer region. On
+ * a list page, a filter bar or the app chrome, Tab stays exactly as native as it
+ * has always been — the operator still tabs from the search box to Add to the
+ * table to the sidebar.
  *
- * We drive the WHOLE cycle rather than only guarding the two edges: the cycle is
- * region-ordered (fields → footer → ✕) while native Tab is DOM-ordered
- * (✕ → fields → footer), so edge-only trapping compared the wrong elements and
- * let Tab off Save escape the dialog entirely. Owning every Tab keeps the visible
- * order and the trap boundary as one and the same thing.
+ * Deliberately NOT `canSubmitSurface`. That predicate answers "could Enter commit
+ * here", and its last branch accepts *any* `<form>` with a submit button, which
+ * would silently cage the operator inside an incidental search form. It is also
+ * fed by the app-wide shortcut registry, so a `"save"` registered by an editor
+ * elsewhere on the page would answer true for a scope that has nothing to do with
+ * it. A marker on the surface itself cannot be wrong about which surface it is.
+ */
+export function isEditorScope(root: HTMLElement | null): boolean {
+  if (!root) return false;
+  if (root.matches('[role="dialog"], [aria-modal="true"], [data-focus-scope]')) return true;
+  return !!root.querySelector('[data-focus-region="footer"]');
+}
+
+/**
+ * TAB MOVES BETWEEN FIELDS, AND ONLY BETWEEN FIELDS (client 2026-08-04).
  *
- * `onContentEdge` is how a surface that holds MORE than one pane of fields — the
- * section rail in components/masters/master-full-screen.tsx — joins in: it fires
- * at the moment Tab would leave the field region, i.e. exactly where "the last
- * field of this section" is, without this file needing to know what a section is.
+ * Every stop is an `isFieldLike` control in the focused element's region. A ✕, a
+ * child row's Remove, Save, Cancel, "+ Add" — none of them are fields, so none of
+ * them are Tab stops, on any surface in the app.
+ *
+ * That last clause is the fix. Tab used to walk `orderedFocusables`, i.e. every
+ * `<button>` that was not `tabindex="-1"`, while the arrows (`ROW_FIELDS` in
+ * child-grid.tsx) and Enter (`isFieldLike`) both stepped over buttons. So the
+ * three movement keys disagreed about what a field is, and the disagreement was
+ * visible on one row of one grid: tabbing along it kept landing on the Remove ✕.
+ * It was patched once per component — `tabIndex={-1}` on `ChildGrid`'s three
+ * layouts (2026-08-01) — and came straight back on the ~22 screens that hand-roll
+ * a grid row instead of using `ChildGrid`. Component-shaped fixes for a
+ * contract-shaped bug always leave a remainder; this is the contract-shaped one.
+ *
+ * The actions that left the Tab path each keep a key: **Enter** off the last
+ * field or **Ctrl+S** saves, **Escape** cancels and closes, and the mouse still
+ * reaches everything. See the trade-off note in the skill's contract reference —
+ * it is a deliberate deviation for a fixed-workstation ERP, not an oversight.
+ *
+ * TWO FALLBACKS, both load-bearing:
+ *
+ *  - **A surface with no fields at all** (a confirm dialog: message, Cancel, OK)
+ *    would otherwise have no stops, and native Tab would walk straight out of it
+ *    into the page behind. Every focusable becomes a stop there, which is the old
+ *    behaviour, kept exactly where it is the only sensible one.
+ *  - **Standing on a non-field** — the operator clicked ✕ or Save with the mouse,
+ *    or arrowed onto an optional control. The walk is over the FULL ordered list
+ *    with a stop predicate, never a pre-filtered list, so Tab still knows where
+ *    that control sits and carries on into the fields from there rather than
+ *    restarting at field one. A button origin aims at the CONTENT region, so Tab
+ *    off the footer goes back to the data rather than round the footer forever.
+ *
+ * Off the end it hands to the next pane if the surface has one (a rail editor's
+ * next section, via the same `registerContentEdge` publication Enter uses — ONE
+ * lookup, so the two forward keys cannot disagree about where a section ends),
+ * and otherwise wraps. It never escapes the surface: on an overlay that is the
+ * focus trap, and on a page form it is what makes Tab behave identically to one.
  *
  * Returns true when it consumed the key.
  */
@@ -788,13 +955,6 @@ export function cycleTab(
      * top of the form instead of at the field the operator last stood on.
      */
     resumeFrom?: HTMLElement | null;
-    /**
-     * Called when Tab would leave the CONTENT region: forward off the last
-     * content focusable, backward off the first. Return true when the callback
-     * moved focus itself; false falls through to the normal wrapping cycle
-     * (on to the footer, or round to the start).
-     */
-    onContentEdge?: (dir: 1 | -1) => boolean;
   },
 ): boolean {
   if (e.key !== "Tab" || e.defaultPrevented || !root) return false;
@@ -806,6 +966,14 @@ export function cycleTab(
   const from = inside ? (active as HTMLElement) : opts?.resumeFrom ?? null;
   const idx = from ? items.indexOf(from) : -1;
 
+  // Which region the stops live in. A non-field origin aims at the content, so a
+  // moused-to ✕ or Save leads back to the data rather than nowhere.
+  const region = from && isFieldLike(from) ? regionOf(from) : "content";
+  const isStop = (el: HTMLElement) =>
+    isFieldLike(el) && !isOffTabPath(el) && regionOf(el) === region;
+  // The fallback above: a surface with nothing field-like still has to trap.
+  const stops = items.some(isStop) ? isStop : (el: HTMLElement) => !isOffTabPath(el);
+
   // focusField, not .focus() — it lands the caret at the END of the text. A bare
   // .focus() left it at 0, and `atCaretEdge` then refused to let → leave the
   // field until the operator had walked the whole value one character at a time.
@@ -813,32 +981,30 @@ export function cycleTab(
   // move to the next field" was (client 2026-07-28).
   e.preventDefault();
   if (idx === -1) {
-    focusField(e.shiftKey ? items[items.length - 1] : items[0]);
+    const ordered = e.shiftKey ? [...items].reverse() : items;
+    const first = ordered.find(stops);
+    if (first) focusField(first);
     return true;
   }
 
   const dir: 1 | -1 = e.shiftKey ? -1 : 1;
-  // The next stop, stepping over anything marked off the typing path. Walking
-  // the FULL list rather than pre-filtering it is what makes Tab work when the
-  // operator arrowed ONTO an optional control: it still knows where that control
-  // sits, so Tab carries on from there instead of restarting at field one.
   const step = (start: number): number | undefined => {
     for (let n = 1; n <= items.length; n++) {
       const at = (start + dir * n + items.length * n) % items.length;
-      if (!isOffTabPath(items[at])) return at;
+      if (stops(items[at])) return at;
     }
-    return undefined; // every focusable is optional — leave focus alone
+    return undefined; // nothing to move to — leave focus alone
   };
   const nextIdx = step(idx);
   if (nextIdx === undefined) return true;
 
-  if (opts?.onContentEdge && regionOf(items[idx]) === "content") {
-    // "Leaving content" is decided by the stop Tab will ACTUALLY make, not by the
-    // raw DOM neighbour — an optional control sitting last in the section would
-    // otherwise look like a reason to stay and swallow the hand-off to the next
-    // pane.
-    const leaving = regionOf(items[nextIdx]) !== "content" || nextIdx === idx;
-    if (leaving && opts.onContentEdge(dir)) return true;
+  // Off the end of this pane. "Wrapped" is read off the stop Tab will ACTUALLY
+  // make: a single remaining stop, or a jump backwards while going forwards, both
+  // mean there is no next field in this section — which is precisely where a rail
+  // editor hands over to the next one.
+  const wrapped = dir === 1 ? nextIdx <= idx : nextIdx >= idx;
+  if (wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root)?.(dir)) {
+    return true;
   }
   focusField(items[nextIdx]);
   return true;

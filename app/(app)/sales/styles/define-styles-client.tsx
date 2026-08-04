@@ -25,6 +25,7 @@ import {
 import type { StyleRegisterRow } from "@/lib/sales/service";
 import type { OpportunityRow } from "@/lib/sales/service";
 import type { Uom } from "@/lib/masters/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type FabricType = (typeof FABRIC_TYPES)[number];
 type FabricSubtype = (typeof FABRIC_SUBTYPES)[number];
@@ -271,7 +272,7 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
       </FilterBar>
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, filtered)}
         rows={filtered}
         getKey={(s) => s.id}
         empty="No styles defined yet. Add one against an enquiry to get started."

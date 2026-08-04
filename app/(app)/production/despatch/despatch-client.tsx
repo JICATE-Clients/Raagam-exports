@@ -21,6 +21,7 @@ import {
 } from "@/lib/production/extras-actions";
 import { DESPATCH_STATUS_LABELS, type DespatchStatus } from "@/lib/production/extras-types";
 import type { DespatchWithRefs, OrderOption } from "@/lib/production/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: DespatchStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "despatched" ? "success" : "danger";
@@ -139,7 +140,7 @@ export function DespatchClient({ rows, orders, canCreate, canEdit, canDelete }: 
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New despatch</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No despatches yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No despatches yet." />
     </div>
   );
 }

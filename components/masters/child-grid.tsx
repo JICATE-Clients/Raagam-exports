@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RequiredScope } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
@@ -26,13 +27,39 @@ import { cn } from "@/lib/utils";
  *
  * A **radio** does NOT: ↑/↓ natively move within a radio group, and stealing
  * that would make the group unusable.
+ *
+ * A **disabled** control is not a field either, and leaving it in was a dead key.
+ * `focusField` is `.focus()`, which a disabled element ignores, but `focusColIn`
+ * reported success anyway — so `gridKeyNav` claimed the key with `preventDefault`
+ * and the cursor went nowhere. It stayed invisible while no grid had a disabled
+ * cell; Material Attributes then gave every non-stepped row four (Start / End /
+ * Unit / Step are only live on a Value-In-Steps line), and ←/→ died on the first
+ * of them (client 2026-08-04). `FOCUSABLE_SELECTOR` in lib/focus.ts has excluded
+ * `[disabled]` all along — this selector was simply the one place that did not,
+ * which is the same disagreement described below arriving from a new direction.
+ * Ragged rows are already handled: `focusColIn` clamps to the last field.
+ *
+ * This is `isFieldLike` (lib/focus.ts) expressed as a selector, minus that radio.
+ * They are the same axis and must stay so — when they disagreed, Tab stopped on a
+ * row's Remove ✕ while the arrows stepped over it, on the same row of the same
+ * grid. The radio is the ONE difference, and it is a difference about ↑/↓ rather
+ * than about what a field is.
  */
 const ROW_FIELDS =
-  'input:not([type="button"]):not([type="hidden"]):not([type="radio"]), select, textarea, [data-field-trigger]';
+  'input:not([type="button"]):not([type="hidden"]):not([type="radio"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [data-field-trigger]:not([disabled])';
 
-/** Enter-on-last-row must not grow a grid that has its "+ Add" hidden (a
- *  Single-Yarn fabric is capped at exactly one component). */
-const NO_ADD = () => {};
+/**
+ * Enter-on-last-row must not grow a grid that has its "+ Add" hidden (a
+ * Single-Yarn fabric is capped at exactly one component).
+ *
+ * Returns `false`, which DECLINES the key rather than swallowing it: the grid
+ * cannot grow, so Enter belongs to whoever is next — the parent grid, or the
+ * provider's `enterAdvances`. Returning nothing meant a capped grid ate Enter on
+ * its last row and the cursor sat there with no feedback. Material Attributes
+ * relies on this: its rows appear by filling in the trailing blank one, never by
+ * a key or a click, so every "add" there is really a move.
+ */
+const NO_ADD = () => false;
 
 // `focusField` (lib/focus.ts) focuses a cell and puts the caret at the end, so
 // typing appends rather than overwrites — and so ←/→ can leave the cell on the
@@ -43,6 +70,154 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
   return Array.from(scope.querySelectorAll<HTMLElement>(selector)).filter(
     (el) => el.closest(boundary) === scope,
   );
+}
+
+/**
+ * A row's Remove control — the thing Ctrl+Del drives.
+ *
+ * `data-row-remove` is the marker, and the `aria-label` prefix is the
+ * compatibility half: ~22 screens hand-roll their own grid row rather than using
+ * `ChildGrid`, and every one of them labels the button "Remove row" / "Remove
+ * contact" / "Remove segment" / … . Matching the label is what gives all of them
+ * the key without 22 edits — the same reason this file finds rows by
+ * `data-grid-row` and not by `<tr>`. New code should carry the marker.
+ */
+const ROW_REMOVE = '[data-row-remove], [aria-label^="Remove" i]';
+
+/**
+ * CTRL+DEL REMOVES THE ROW THE CURSOR IS STANDING IN.
+ *
+ * The row's ✕ is not a field, so Tab does not stop on it and the arrows step over
+ * it (`ROW_FIELDS` above has always left it out). That is deliberate — Tab is the
+ * typing path, and an action button sitting in it is what "Tab keeps landing on
+ * the close icon" was (client 2026-08-01, again 2026-08-04). But "not on the Tab
+ * path" must never mean "not reachable": without this key a keyboard-only
+ * operator could add a row and never delete one.
+ *
+ * `Ctrl+Del` and not plain `Delete` because a grid cell is a text box the
+ * operator is typing into — the identical reasoning to the picker list, which has
+ * used Ctrl+Del for delete since it was written, so this is one key with one
+ * meaning rather than a second thing to learn.
+ *
+ * It drives the button with `.click()`, the path a mouse takes, so whatever
+ * confirmation or guard that button carries still runs. It never reimplements
+ * removal, and it therefore cannot get out of step with what the ✕ does.
+ *
+ * Returns true when it consumed the key.
+ */
+function removeRowKey(e: React.KeyboardEvent<HTMLElement>): boolean {
+  if (e.key !== "Delete" || !(e.ctrlKey || e.metaKey) || e.altKey) return false;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return false;
+  // The INNERMOST row, so Ctrl+Del inside a nested grid deletes the nested row.
+  const row = el.closest<HTMLElement>("[data-grid-row]");
+  if (!row) return false;
+  // …and its OWN body, so the cursor is put back among its siblings and not the
+  // outer grid's, whichever handler in the nest happens to have caught the key.
+  const body = row.closest<HTMLElement>("[data-grid-body]") ?? e.currentTarget;
+  const rows = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
+  const idx = rows.indexOf(row);
+  if (idx === -1) return false;
+  // The remove control of the CELL the cursor is standing in, falling back to
+  // the row's own.
+  //
+  // Nearly every row has exactly one ✕, and for those this finds the same button
+  // "the row's first" did. But a row is not always one removable thing — a grid
+  // that packs several records onto one `data-grid-row` has several, and "the
+  // row's first ✕" then deletes record #1 whichever cell the cursor was in
+  // (found on a four-across value grid, 2026-08-04; that grid has since gone
+  // back to one value per row, but the trap it exposed is general).
+  //
+  // Walking UP from the focused field lands on the nearest control that owns it:
+  // the value's own ✕ where cells carry one, the row's where they don't. The
+  // `closest(...) === row` filter is the same nested-grid boundary
+  // `ownDescendants` applies — a child grid's remove buttons are never ours.
+  const removeIn = (scope: HTMLElement): HTMLElement | undefined =>
+    Array.from(scope.querySelectorAll<HTMLElement>(ROW_REMOVE)).find(
+      (b) => b.closest("[data-grid-row]") === row,
+    );
+  let scope: HTMLElement | null = el;
+  let btn: HTMLElement | undefined;
+  while (scope) {
+    btn = removeIn(scope);
+    if (btn || scope === row) break;
+    scope = scope.parentElement;
+  }
+  if (!btn || (btn instanceof HTMLButtonElement && btn.disabled)) return false;
+
+  const col = ownDescendants(row, ROW_FIELDS, "[data-grid-row]").indexOf(el);
+  e.preventDefault();
+  e.stopPropagation();
+  btn.click();
+  // The node under the cursor is about to be unmounted, and Chrome drops focus to
+  // <body> without firing blur when that happens (see lib/focus.ts). Land on the
+  // same column of the row that takes its place — the last row when the one
+  // removed was last. `restoreFocusIfLost` is the net if this finds nothing.
+  window.setTimeout(() => {
+    const fresh = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
+    const target = fresh[Math.min(idx, fresh.length - 1)];
+    if (!target) return;
+    const fields = ownDescendants(target, ROW_FIELDS, "[data-grid-row]");
+    const next = fields[col] ?? fields[fields.length - 1];
+    if (next) focusField(next);
+  }, 30);
+  return true;
+}
+
+/**
+ * TAB WALKS THE ROW'S CELLS — and skips everything that is not one.
+ *
+ * The grid is the sanctioned exception to "Tab is delivered from one place": a
+ * key belongs to a control when it means something *inside* it, and inside a grid
+ * Tab means "the next cell". `cycleTab` (lib/focus.ts) reaches the same answer on
+ * every surface it owns, so this is not a second rule — it is the same rule
+ * expressed against the axis this file already declares, `ROW_FIELDS`.
+ *
+ * IT IS ALSO WHAT REACHES THE PAGE-LEVEL SCREENS. The provider claims Tab only on
+ * a surface that declares itself an editor (`isEditorScope`), which a hand-rolled
+ * page form does not — and Orders ▸ TA Plan / TA Style / TA Department Assign are
+ * exactly that: page screens with hand-rolled grids, three of the ~22 where "Tab
+ * lands on the Remove ✕" was reported. Every one of them already routes its keys
+ * through this function, so putting the rule here is what covers them.
+ *
+ * At the row's end it moves to the next row's first cell. At the LAST cell of the
+ * last row it **declines** — no `preventDefault` — and the layer above takes over
+ * (the provider inside an editor, native Tab on a page). A grid is a region of a
+ * form, not a trap of its own; trapping here would be the "cannot tab past a
+ * child grid" complaint, which is worse than the one being fixed.
+ *
+ * Returns true when it consumed the key.
+ */
+function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
+  if (e.key !== "Tab" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return false;
+  const el = e.target;
+  if (!(el instanceof HTMLElement)) return false;
+  const row = el.closest<HTMLElement>("[data-grid-row]");
+  if (!row) return false;
+  const body = row.closest<HTMLElement>("[data-grid-body]") ?? e.currentTarget;
+  const rows = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
+  const r = rows.indexOf(row);
+  if (r === -1) return false;
+  const fields = ownDescendants(row, ROW_FIELDS, "[data-grid-row]");
+  const c = fields.indexOf(el);
+  // -1 means the cursor is in a NESTED grid inside this row; that grid's own
+  // handler runs first and either consumed the key or declined it as its own
+  // boundary. Either way the cell is not ours to step from.
+  if (c === -1) return false;
+
+  const dir = e.shiftKey ? -1 : 1;
+  let target = fields[c + dir];
+  if (!target) {
+    const nextRow = rows[r + dir];
+    if (!nextRow) return false; // the grid's edge — hand the key upwards
+    const into = ownDescendants(nextRow, ROW_FIELDS, "[data-grid-row]");
+    target = dir === 1 ? into[0] : into[into.length - 1];
+    if (!target) return false; // a collapsed / summary-only row: let Tab pass
+  }
+  e.preventDefault();
+  e.stopPropagation();
+  focusField(target);
+  return true;
 }
 
 /**
@@ -62,7 +237,17 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
  * they passed `forceCards` when this was written). That is why arrow keys
  * appeared to work on some screens and not others (client 2026-07-24 #2).
  */
-export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => void) {
+export function gridKeyNav(
+  e: React.KeyboardEvent<HTMLElement>,
+  /**
+   * Add a row. **Return `false` to decline** — the grid then leaves the key
+   * alone so it reaches the parent grid (or the provider). Returning nothing
+   * means "handled", which is what every existing caller does.
+   */
+  addRow: () => boolean | void,
+) {
+  if (removeRowKey(e)) return;
+  if (tabAlongRow(e)) return;
   const vertical = e.key === "ArrowDown" || e.key === "ArrowUp";
   const horizontal = e.key === "ArrowLeft" || e.key === "ArrowRight";
   if (e.key !== "Enter" && !vertical && !horizontal) return;
@@ -202,9 +387,23 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>, addRow: () => vo
     // hand the runaway-blank-row bug straight back to the grids it came from.
     // Space still opens the picker either way.
     if (isTrigger && el.getAttribute("data-field-empty") !== "false") return;
+    // ASK FIRST, THEN CLAIM THE KEY. A grid that cannot grow right now must
+    // DECLINE, so Enter carries on up to the parent grid — the same
+    // decline-and-bubble hand-off the `e.currentTarget` note above exists for.
+    //
+    // This is what "Enter Enter starts the next attribute" is built on. The
+    // Material Attribute values list refuses to add after a blank value (there
+    // is nothing to add until the row already there has been typed into), but
+    // `preventDefault` used to fire BEFORE `addRow` was called — so the refusal
+    // was invisible and Enter simply died in the empty box. A keyboard operator
+    // inside a nested list had no key that meant "done here, next parent row"
+    // (client 2026-08-04).
+    //
+    // Order matters: `addRow()` runs before `preventDefault`, so a caller that
+    // returns nothing (every pre-existing one) behaves exactly as before.
+    if (addRow() === false) return;
     e.preventDefault();
     e.stopPropagation();
-    addRow();
     window.setTimeout(() => {
       const fresh = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
       focusColIn(fresh[fresh.length - 1]);
@@ -220,6 +419,19 @@ export interface ChildGridColumn<T> {
   /** Card-mode track width, e.g. "6rem" for a percentage or "auto" to hug.
    *  Omit to flex and take the remaining space (the picker/name column). */
   width?: string;
+  /**
+   * A cell that must be filled before the cursor may leave it (client
+   * 2026-08-04), the grid equivalent of `<Field required>` — the header draws a
+   * `*` and the control inside holds.
+   *
+   * Ctrl+Del still removes the row, and that is not incidental: a blank
+   * mandatory cell in a row the operator should not have added would otherwise
+   * be a trap they could neither fill, leave, nor delete.
+   *
+   * ~22 screens hand-roll a grid row instead of using this component, so their
+   * cells do not inherit it — wrap those in `<RequiredScope>` directly.
+   */
+  required?: boolean;
 }
 
 /**
@@ -254,7 +466,8 @@ export function ChildGrid<T extends { key: string }>({
   badge?: ReactNode;
   columns: ChildGridColumn<T>[];
   rows: T[];
-  onAdd: () => void;
+  /** Return `false` to decline — see `gridKeyNav`'s `addRow`. */
+  onAdd: () => boolean | void;
   onRemove: (row: T) => void;
   addLabel?: string;
   /** Custom mobile-card body per row; falls back to stacking every column's cell if omitted. */
@@ -326,9 +539,13 @@ export function ChildGrid<T extends { key: string }>({
   const offset = (pg.page - 1) * pg.pageSize;
   const view = pg.paged;
   // Add a row, then jump to the (new) last page so the fresh row is visible.
+  // Propagates `onAdd`'s answer — a caller that DECLINES (returns false) must
+  // reach `gridKeyNav`, or the decline-and-bubble hand-off dies here.
   const handleAdd = () => {
-    onAdd();
+    const added = onAdd();
+    if (added === false) return false;
     if (paginated) pg.setPage(Number.MAX_SAFE_INTEGER);
+    return true;
   };
   const addFn = hideAdd ? NO_ADD : handleAdd;
   /**
@@ -365,10 +582,15 @@ export function ChildGrid<T extends { key: string }>({
         !frameless && "rounded-lg border border-border p-2.5 @2xl/editor:p-2",
       )}
     >
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-        {badge}
-      </div>
+      {/* No caption row when there is nothing to put in it. A grid nested inside
+          a `DetailSection` that already names it would otherwise draw an empty
+          band above its first row. */}
+      {(label || badge) && (
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+          {badge}
+        </div>
+      )}
 
       {/* wide-container table — only in `responsive` mode. The inline layout is
           a REPLACEMENT for this, not a companion to it. */}
@@ -390,6 +612,7 @@ export function ChildGrid<T extends { key: string }>({
                   )}
                 >
                   {c.header}
+                  {c.required && <span className="ml-0.5 text-danger">*</span>}
                 </th>
               ))}
               <th className="w-8 border-l border-border" />
@@ -407,7 +630,9 @@ export function ChildGrid<T extends { key: string }>({
                 <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
                 {columns.map((c, ci) => (
                   <td key={ci} className={cn("border-l border-border px-2 py-1.5", align[c.align ?? "left"], c.className)}>
-                    {c.cell(row, i)}
+                    <RequiredScope required={c.required} label={c.header}>
+                      {c.cell(row, i)}
+                    </RequiredScope>
                   </td>
                 ))}
                 <td className="border-l border-border px-1 py-1.5 text-center">
@@ -415,22 +640,16 @@ export function ChildGrid<T extends { key: string }>({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    // Off the typing path, in all three layouts below too.
-                    // `ROW_FIELDS` above already leaves Remove out of a row's
-                    // navigable axis, so the arrows have always stepped over it
-                    // — but Tab is not handled here, it is handled globally by
-                    // cycleTab/FOCUSABLE_SELECTOR, which matches any <button>
-                    // that is not tabindex="-1". So Tab stopped on the ✕ while
-                    // the arrows did not, and tabbing along a row kept landing
-                    // on it (client 2026-08-01). This makes Tab agree with the
-                    // axis the grid already declares.
+                    // Reached by Ctrl+Del (see `removeRowKey`) and the mouse, not
+                    // by Tab — Tab is the typing path and this is an action.
                     //
-                    // The cost, accepted deliberately: the ✕ is now MOUSE-ONLY,
-                    // so a keyboard-only operator cannot delete a row. If that
-                    // bites, the answer is Ctrl+Del on the focused row — the key
-                    // the picker list already uses — NOT putting this back on
-                    // the Tab path.
-                    tabIndex={-1}
+                    // It carried `tabIndex={-1}` for three days to get that
+                    // (2026-08-01). That fixed this component and left the ~22
+                    // screens that hand-roll a grid row untouched, which is how
+                    // the same report came back. `cycleTab` now targets fields on
+                    // every surface, so the marker is all this needs — and being
+                    // focusable again keeps it in screen-reader order.
+                    data-row-remove
                     className="text-muted-foreground hover:text-danger"
                     onClick={() => onRemove(row)}
                     aria-label="Remove row"
@@ -470,6 +689,7 @@ export function ChildGrid<T extends { key: string }>({
                   style={c.width ? { width: c.width } : undefined}
                 >
                   {c.header}
+                  {c.required && <span className="ml-0.5 text-danger">*</span>}
                 </div>
               ))}
               <span className="w-8 shrink-0" />
@@ -490,14 +710,16 @@ export function ChildGrid<T extends { key: string }>({
                   className={cn("min-w-0", c.width ? "shrink-0" : "flex-1", c.className)}
                   style={c.width ? { width: c.width } : undefined}
                 >
-                  {c.cell(row, i)}
+                  <RequiredScope required={c.required} label={c.header}>
+                    {c.cell(row, i)}
+                  </RequiredScope>
                 </div>
               ))}
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                tabIndex={-1} // mouse-only — see the note on the table layout above
+                data-row-remove // Ctrl+Del / mouse — see the note on the table layout above
                 className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
                 onClick={() => onRemove(row)}
                 aria-label="Remove row"
@@ -545,19 +767,32 @@ export function ChildGrid<T extends { key: string }>({
                 {rowSummary && (
                   <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
                 )}
-                <Button type="button" variant="ghost" size="sm" tabIndex={-1} className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+                <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
                   <X className="h-4 w-4 shrink-0" />
                 </Button>
               </div>
             )}
-            {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => <div key={ci}>{c.cell(row, i)}</div>)}
+            {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (
+                    <div key={ci}>
+                      <RequiredScope required={c.required} label={c.header}>
+                        {c.cell(row, i)}
+                      </RequiredScope>
+                    </div>
+                  ))}
           </div>
           );
         })}
       </div>
       )}
 
-      {paginated && (
+      {/* `pageCount > 1`, not just `paginated`. doc/ui/LAYOUT.md §6 says the
+          pager "self-hides when everything fits", and it half did: PaginationBar
+          drops its NAV buttons at one page but still prints the count, so a grid
+          holding a single row rendered "1–1 of 1" — a line of chrome explaining
+          that the one visible row is the one visible row (client 2026-08-04).
+          Its own self-hide only fires at `total === 0`, which is the empty state
+          this never reaches. Makes the documented behaviour true. */}
+      {paginated && pg.pageCount > 1 && (
         <PaginationBar
           page={pg.page}
           pageCount={pg.pageCount}

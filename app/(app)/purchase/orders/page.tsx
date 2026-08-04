@@ -17,6 +17,7 @@ import { NewPoForm } from "./new-po-form";
 import type { PoWithVendor } from "@/lib/purchase/po-service";
 import type { PoStatus } from "@/lib/purchase/types";
 import { PO_STATUS_LABELS } from "@/lib/purchase/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 // StatusPill tones by PO status
 function poStatusTone(status: PoStatus): StatusTone {
@@ -113,7 +114,7 @@ export default async function PurchaseOrdersPage() {
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, orders)}
         rows={orders}
         getKey={(r) => r.id}
         empty="No purchase orders yet. Create one above."

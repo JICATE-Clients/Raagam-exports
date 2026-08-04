@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { GarmentPpmCancellation } from "@/lib/planning/ppm-types";
 import type { PpmStatus } from "@/lib/planning/ppm-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const PPM_STATUS_LABELS: Record<PpmStatus, string> = {
   draft: "Draft",
@@ -96,7 +97,7 @@ export default async function GarmentPpmCancelPage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, cancellations)}
         rows={cancellations}
         getKey={(r) => r.id}
         empty="No garment PPM cancellation records yet."

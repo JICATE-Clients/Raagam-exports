@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { CostCentreGroup, CostCentre } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export type CostCentreRow = CostCentre & {
   cost_centre_groups: { id: string; name: string } | null;
@@ -12,7 +13,7 @@ export async function getCostCentreGroups(): Promise<CostCentreGroup[]> {
     .from("cost_centre_groups")
     .select("*")
     .order("name");
-  return (data ?? []) as CostCentreGroup[];
+  return withCreators((data ?? []) as CostCentreGroup[]);
 }
 
 export async function getActiveGroups(): Promise<
@@ -33,5 +34,5 @@ export async function getCostCentres(): Promise<CostCentreRow[]> {
     .from("cost_centres")
     .select("*, cost_centre_groups(id, name)")
     .order("name");
-  return (data ?? []) as unknown as CostCentreRow[];
+  return withCreators((data ?? []) as unknown as CostCentreRow[]);
 }

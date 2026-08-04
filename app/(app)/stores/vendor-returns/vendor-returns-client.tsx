@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createVendorReturn } from "@/lib/stores/extras-actions";
 import { VENDOR_RETURN_STATUS_LABELS, type VendorReturnStatus } from "@/lib/stores/extras-types";
 import type { VendorReturnWithRefs, StoreOption, VendorOption } from "@/lib/stores/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: VendorReturnStatus): StatusTone {
   switch (s) {
@@ -138,7 +139,7 @@ export function VendorReturnsClient({ rows, stores, vendors, canCreate }: Props)
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New return</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No vendor returns yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No vendor returns yet." />
     </div>
   );
 }

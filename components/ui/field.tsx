@@ -1,6 +1,78 @@
-import { cloneElement, isValidElement, type ReactNode } from "react";
+import { cloneElement, createContext, isValidElement, useContext, type ReactNode } from "react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+
+/**
+ * What a `Field` tells the control inside it. Exactly one thing today, and it
+ * exists so that `required` is declared ONCE.
+ *
+ * The `*` is drawn by `Field`, but the cursor hold has to live on the focusable
+ * element — and `Field` cannot reach it: `children` is any ReactNode, and the
+ * `skipTab` clone below already documents why touching it is only safe for a
+ * single element. Two props (`<Field required>` for the star, `<Input required>`
+ * for the hold) would be two declarations free to disagree, and a `*` that does
+ * not hold — or a hold with no `*` — is the worst of both.
+ *
+ * So the control reads it from context. `<Field required>` alone is enough.
+ */
+type FieldMeta = {
+  required: boolean;
+  /** The field's label, when it is a plain string, for the hold's message.
+   *  A ReactNode label (an icon + text) has no sensible short form, so the
+   *  message falls back to "This field". */
+  label: string | null;
+};
+
+const FieldCtx = createContext<FieldMeta>({ required: false, label: null });
+
+/**
+ * Declare "the control inside here is mandatory" for something that is not a
+ * `Field` — a child-grid CELL, whose header is its only label and whose content
+ * is an arbitrary node the grid cannot reach into.
+ *
+ * Same context, so a grid cell and a form field hold the cursor by the same
+ * mechanism and there is only ever one of these to keep working.
+ */
+export function RequiredScope({
+  required,
+  label,
+  children,
+}: {
+  required?: boolean;
+  label?: string | null;
+  children: ReactNode;
+}) {
+  return (
+    <FieldCtx.Provider value={{ required: !!required, label: label ?? null }}>
+      {children}
+    </FieldCtx.Provider>
+  );
+}
+
+/**
+ * Read the enclosing `Field`'s declaration. Returns the marker props a control
+ * should spread when its value is empty — `{}` when there is nothing to say, so
+ * a control outside a `Field`, or one whose field is optional, is untouched.
+ *
+ * `empty` is the CALLER's judgement because only it knows what empty means: a
+ * `<Select>` is its value being "", a picker its id being null.
+ */
+export function useRequiredHold(
+  empty: boolean,
+  /**
+   * For controls that render their OWN label and therefore own a `required`
+   * prop of their own — `DataPicker`, `LookupDialogPicker`. ORed with the
+   * context rather than overriding it, so wrapping such a picker in a
+   * `<Field required>` cannot silently un-require it.
+   */
+  own?: { required?: boolean; label?: string | null },
+): { "data-required-empty"?: string } {
+  const ctx = useContext(FieldCtx);
+  const required = ctx.required || !!own?.required;
+  const label = own?.label ?? ctx.label;
+  if (!required || !empty) return {};
+  return { "data-required-empty": `${label ?? "This field"} is required.` };
+}
 
 /**
  * A labelled form field that owns its own WIDTH.
@@ -100,7 +172,11 @@ export function Field({
           {required && <span className="ml-0.5 text-danger">*</span>}
         </Label>
       )}
-      {control}
+      {/* The same `required` that draws the star above reaches the control
+          through here, so the two can never disagree. See FieldCtx. */}
+      <RequiredScope required={required} label={typeof label === "string" ? label : null}>
+        {control}
+      </RequiredScope>
       {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );

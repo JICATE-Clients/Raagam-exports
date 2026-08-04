@@ -24,6 +24,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   declarations: EpcgDeclaration[];
@@ -252,7 +253,7 @@ export function EpcgClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, declarations)}
         rows={declarations}
         getKey={(e) => e.id}
         empty="No EPCG declarations yet."

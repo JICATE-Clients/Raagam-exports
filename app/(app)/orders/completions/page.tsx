@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { NewCompletionForm } from "./new-completion-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<CompletionRow>[] = [
   {
@@ -84,7 +85,7 @@ export default async function OrderCompletionsPage() {
       <NewCompletionForm orders={orders} buyers={buyers} />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, completions)}
         rows={completions}
         getKey={(row) => row.id}
         empty="No completions yet."

@@ -15,6 +15,7 @@ import { fmtDate } from "@/lib/format";
 import { createExcessOrder, confirmExcessOrder, deleteExcessOrder } from "@/lib/orders/pack-ratio-actions";
 import type { ExcessOrderRow } from "@/lib/orders/pack-ratio-service";
 import type { StatusTone } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = { draft: "neutral", confirmed: "success", cancelled: "danger" };
 
@@ -69,7 +70,7 @@ export function ExcessOrdersClient({ rows }: { rows: ExcessOrderRow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Excess Order</Button></div>
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No excess orders yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No excess orders yet." />
       <Sheet open={open} onClose={() => setOpen(false)} title="New Excess Order" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Details">

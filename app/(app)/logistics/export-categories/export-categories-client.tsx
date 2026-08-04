@@ -19,6 +19,7 @@ import { Ban, CheckCircle2 } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   categories: ExportCategory[];
@@ -186,7 +187,7 @@ export function ExportCategoriesClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, categories)}
         rows={categories}
         getKey={(c) => c.id}
         empty="No export categories yet."

@@ -6,6 +6,8 @@ import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { DetailSection } from "@/components/masters/detail-section";
 import { describeConversion } from "@/lib/uom/convert";
+import { creatorName } from "@/components/ui/created-columns";
+import { fmtDate } from "@/lib/format";
 import { itemClassForm, isAccessoryClass, type Material } from "@/lib/masters/material-types";
 import type { ConfigLookup, Attribute, AttributeValue } from "@/lib/masters/extras-types";
 import type { MaterialAttribute } from "@/lib/masters/material-attribute-types";
@@ -127,9 +129,16 @@ export function MaterialViewSheet({
     ["Alternative UOM", singleUom ? null : r.has_alternate_uom ? "Yes" : "No"],
   ];
 
+  // `creatorName`, never `r.created_by` — that column is a profiles uuid on 132
+  // tables, so printing it put a 36-character hex string in front of an
+  // operator. The helper reads the resolved name, the legacy verbatim username
+  // (the 7 `text` tables, 0290) and the old embed, and refuses to return
+  // anything uuid-shaped. `fmtDate`, not `slice(0, 10)`: dates are DD/MM/YYYY
+  // app-wide and `created_at` is a timestamptz, so the slice was also the wrong
+  // ten characters near midnight.
   const status: [string, string | null][] = [
-    ["Created by", r.created_by],
-    ["Created on", r.created_at ? r.created_at.slice(0, 10) : null],
+    ["Created by", creatorName(r)],
+    ["Created on", r.created_at ? fmtDate(r.created_at) : null],
   ];
 
   const mixings = r.mixings ?? [];

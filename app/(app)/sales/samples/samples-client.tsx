@@ -29,6 +29,7 @@ import type {
   StyleRegisterRow,
 } from "@/lib/sales/service";
 import type { Uom } from "@/lib/masters/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<SampleStatus, StatusTone> = {
   requested: "neutral",
@@ -267,7 +268,7 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
       </FilterBar>
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, filtered)}
         rows={filtered}
         getKey={(s) => s.id}
         empty="No samples yet. Add one against an enquiry to get started."

@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
 import { cancelPurchaseOrder } from "@/lib/purchase/extras-actions";
 import type { PoCancellationWithRefs, PoOption } from "@/lib/purchase/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   rows: PoCancellationWithRefs[];
@@ -82,7 +83,7 @@ export function PoCancellationsClient({ rows, pos, canEdit }: Props) {
           </CardBody>
         </Card>
       )}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No cancellations logged yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No cancellations logged yet." />
     </div>
   );
 }

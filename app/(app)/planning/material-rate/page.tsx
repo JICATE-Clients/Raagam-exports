@@ -9,6 +9,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import type { MaterialRateRow } from "@/lib/planning/material-planning-types";
 import type { MpStatus } from "@/lib/planning/material-planning-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const MP_STATUS_LABELS: Record<MpStatus, string> = {
   draft: "Draft",
@@ -92,7 +93,7 @@ export default async function MaterialRatePage() {
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, rates)}
         rows={rates}
         getKey={(r) => r.id}
         empty="No material rate records yet."

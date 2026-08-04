@@ -240,10 +240,21 @@ export function ExchangeRateMasterScreen({
               <Input id="xr-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
             </div>
             <div>
-              <Label htmlFor="xr-date">Date</Label>
+              <Label htmlFor="xr-date">
+                Date <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="xr-date"
                 type="date"
+                // `.min(1)` in `exchangeRateInput`.
+                //
+                // required-hold: exempt -- `register`, the schema's other
+                // mandatory field, is supplied by the ROUTE and not the operator:
+                // this one screen backs three children (Quotes/Orders · Customs ·
+                // Imports) and each passes its own. There is no field for it, so
+                // there is nothing to declare and nothing to hold a cursor on.
+                // Date, the field that IS on screen, carries `required` here.
+                required
                 value={entryDate}
                 onChange={(e) => setEntryDate(e.target.value)}
                 className="text-base md:text-sm"

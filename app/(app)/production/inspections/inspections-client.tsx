@@ -25,6 +25,7 @@ import {
   type InspectionStatus,
 } from "@/lib/production/extras-types";
 import type { InspectionWithRefs, OrderOption } from "@/lib/production/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function resultTone(r: InspectionResult): StatusTone {
   switch (r) {
@@ -159,7 +160,7 @@ export function InspectionsClient({ rows, orders, canCreate, canEdit, canDelete 
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New inspection</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No inspections yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No inspections yet." />
     </div>
   );
 }

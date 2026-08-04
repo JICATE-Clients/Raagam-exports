@@ -13,6 +13,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { NewColorCardForm } from "../../new-color-card-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<ColorCardWithBuyer>[] = [
   {
@@ -94,7 +95,7 @@ export default async function CustomerColorCardsPage({
       />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, cards)}
         rows={cards}
         getKey={(row) => row.id}
         empty="No colour cards for this customer yet. Use 'New colour card' above to create the first."

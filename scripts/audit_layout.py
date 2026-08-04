@@ -234,7 +234,15 @@ def check_field_track(path: Path, code: str, slug: str):
     if slug in PRIMITIVES:
         return
     has_track = "cols={12}" in code or "<FieldGrid" in code
-    has_field = re.search(r"<Field\b", code) is not None
+    # A SIZED field, not merely a `<Field>`. An unsized one outside a track is the
+    # documented way to use `IdentityRow`, which owns its own track widths and
+    # says so ("wrap the children in plain <div>s, or <Field> without a size" --
+    # section-grid.tsx). Flagging those made a screen that had correctly moved its
+    # header onto an IdentityRow look like a regression, and the message already
+    # said "<Field size>" -- it just was not testing for one.
+    has_field = any(
+        "size=" in _jsx_open_tag(code, m.start()) for m in re.finditer(r"<Field\b", code)
+    )
     if has_track and not has_field:
         m = re.search(r"cols=\{12\}", code)
         yield Finding(
@@ -1074,8 +1082,409 @@ def check_truncate_reveal(path: Path, code: str, slug: str):
         )
 
 
+# The five primitives OWN the opt-out, so they are the one place these
+# attributes are written rather than inherited.
+AUTOFILL_OWNERS = {
+    "components/ui/input.tsx",
+    "components/ui/textarea.tsx",
+    "components/ui/select.tsx",
+    "components/ui/data-picker.tsx",
+    "components/ui/combobox.tsx",
+}
+
+# Input types that raise no suggestion list at all: a checkbox has nothing to
+# remember, and a date/time control opens its own OS picker instead.
+AUTOFILL_SAFE_TYPES = {
+    "checkbox", "radio", "file", "hidden", "range", "color",
+    "submit", "button", "image", "reset",
+    "date", "time", "datetime-local", "month", "week",
+}
+
+# Lowercase = the raw DOM element. `<Input>` / `<Select>` are the primitives.
+RAW_FIELD_TAG = re.compile(r"<(input|textarea|select)(?=[\s/>])")
+TYPE_ATTR = re.compile(r"""\btype\s*=\s*["']([a-z-]+)["']""")
+AUTOFILL_EXEMPT = re.compile(r"autofill:\s*exempt\s*--")
+
+
+def _jsx_open_tag(code: str, start: int) -> str:
+    """The full opening tag at `start`, brace- and string-aware.
+
+    `>` occurs constantly inside attribute expressions (`onChange={(e) => ...}`),
+    so the tag ends at the first `>` sitting at brace depth 0 outside a string.
+    A naive search for the next `>` stops inside the first arrow function and
+    reports every field as missing attributes that are three lines further down.
+    """
+    depth = 0
+    quote = None
+    i = start
+    while i < len(code):
+        c = code[i]
+        if quote:
+            if c == quote:
+                quote = None
+        elif c in "\"'`":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        elif c == ">" and depth == 0:
+            return code[start:i + 1]
+        i += 1
+    return code[start:start + 500]
+
+
+def check_autofill(path: Path, code: str, slug: str):
+    """AGENTS.md "Browser autofill": a raw field must turn Chrome's list off.
+
+    Chrome re-offers every value ever typed into a field as a plain white
+    dropdown. Beside a field whose real options come from a master table that
+    reads as a stored row and writes a value no master has; on a shared
+    shop-floor machine it hands the previous operator's customer names and
+    salary figures to the next one; and it EATS the ArrowDown the keyboard
+    contract gives to the field's own list.
+
+    `Input`, `Textarea`, `Select`, `DataPicker` and `Combobox` all set
+    `autoComplete="off"` plus the `data-1p-ignore` / `data-lpignore` /
+    `data-form-type` trio -- the password managers ignore `autocomplete` and
+    read only their own opt-outs -- so a screen built on them is covered. A RAW
+    lowercase `<input>` / `<textarea>` / `<select>` inherits none of it.
+
+    `<select>` is here for a different reason than the text fields: it has no
+    typing to remember, so there is no popup, but Chrome fills one from the
+    saved address profile and quietly rewrites a State or Country nobody
+    touched.
+
+    Runs on comment-stripped source, which matters more here than for most
+    checks: this codebase explains itself in prose, and half a dozen files
+    contain the words "an <input> just shows them on one line".
+
+    The one legitimate opt-in is a value belonging to the person rather than the
+    business -- the login screen's email / current-password, so password
+    managers still work. Mark those `autofill: exempt -- <reason>`.
+    """
+    if slug in AUTOFILL_OWNERS:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in AUTOFILL_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+    for m in RAW_FIELD_TAG.finditer(code):
+        name = m.group(1)
+        tag = _jsx_open_tag(code, m.start())
+        if name == "input":
+            t = TYPE_ATTR.search(tag)
+            if t and t.group(1).lower() in AUTOFILL_SAFE_TYPES:
+                continue
+        if "autoComplete" in tag:
+            continue
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        fix = "the <Select> primitive" if name == "select" else "the <Input> / <Textarea> primitive"
+        spread = " (it spreads props -- check the caller)" if "{..." in tag else ""
+        yield Finding(
+            "autofill", path, line,
+            f"raw <{name}> leaves Chrome's autofill on{spread}; use {fix}, or set "
+            "autoComplete=\"off\" plus data-1p-ignore / data-lpignore / "
+            "data-form-type, or add an `autofill: exempt -- <reason>` comment",
+        )
+
+
+# A table whose rows are LINES OF A DOCUMENT rather than records in their own
+# right. A PO line does not have its own creator worth a column -- the document
+# above it does, and the detail page already shows that. Matched on the path
+# because that is what actually distinguishes them: a `[id]` segment means the
+# page is about one record, so every table on it is that record's parts.
+LINE_TABLE_PATH = re.compile(r"/\[[A-Za-z]+\]/|[/-]tabs\.tsx$|/sections/|report-view|ioc-costing")
+
+
+def check_created_columns(path: Path, code: str, slug: str):
+    """LAYOUT.md: a record listing shows Created Date + Created User, one way.
+
+    Six screens grew their own before `components/ui/created-columns.tsx`
+    existed and no two agreed -- "Created Dt" vs "Created Date" vs plain
+    "Created", `created_by_name` vs raw `created_by` vs `creator.full_name`,
+    `fmtDate` on five and `fmtDateTime` on the sixth, and one that put the User
+    BEFORE the Date. Four printed `{r.created_by}`, i.e. a 36-character uuid, at
+    an operator.
+
+    `MasterListShell` and `SimpleMasterScreen` splice the pair in for the screens
+    built on them. A screen that renders a raw `<DataTable>` has to ask, and the
+    ask is one call: `columns={withCreatedColumns(columns, rows)}`. It is safe
+    everywhere -- `hasCreatedInfo` returns false when the rows carry no
+    `created_at`, so a list whose service does not select it is unchanged rather
+    than growing a column of dashes.
+
+    Two findings:
+
+      1. a raw <DataTable> on a record listing with no withCreatedColumns
+      2. a hand-rolled Created column -- it will be STRIPPED by the splice, so
+         this is how a vanished column is diagnosed in seconds
+
+    Line-item tables inside a document detail page are out of scope by path.
+    """
+    if slug in PRIMITIVES or "created-columns" in slug:
+        return
+    for m in re.finditer(r'header:\s*"[Cc]reated[^"]*"', code):
+        if "withCreatedColumns" in code:
+            continue
+        yield Finding(
+            "created-columns", path, line_of(code, m.start()),
+            "hand-rolled Created column; the wording is settled in "
+            "components/ui/created-columns.tsx -- use withCreatedColumns(columns, rows)",
+        )
+    if LINE_TABLE_PATH.search(slug) or "withCreatedColumns" in code:
+        return
+    m = re.search(r"<DataTable\b", code)
+    if m:
+        yield Finding(
+            "created-columns", path, line_of(code, m.start()),
+            "record listing with no Created Date / Created User; wrap the columns "
+            "in withCreatedColumns(columns, rows) -- it self-hides when the rows "
+            "carry no created_at",
+        )
+
+
+# --------------------------------------------------------------------------
+# required-hold
+# --------------------------------------------------------------------------
+
+# A JSX `required` prop: bare, or `required={expr}`. Not `required?:` (a type
+# declaration) and not `.required` (a property read).
+REQUIRED_PROP = re.compile(r"(?<![\w.?])required(?:=\{|\s|>|/>|$)", re.M)
+
+# `export const fooInput = z.object({` -- the write-side schema every master
+# parses its form through.
+# `\s*` between `z` and `.object(` — a schema long enough to need `.superRefine()`
+# is written `= z\n  .object({`, and matching only the one-line form reported
+# Vendor as demanding nothing while `vendor-types.ts:236` requires `name`. A check
+# that reports silence as health is worse than one that reports nothing at all.
+ZOD_INPUT = re.compile(r"\b(?:export\s+)?const\s+(\w*Input)\s*=\s*z\s*\.object\(\{")
+
+# A screen's own types module, e.g. `@/lib/masters/levy-types`.
+TYPES_IMPORT = re.compile(r"""from\s+["']@/lib/masters/([a-z0-9-]+)-types["']""")
+
+# Anything that makes a Zod entry non-mandatory.
+OPTIONAL_MARK = re.compile(r"\.(optional|nullable|default)\s*\(")
+
+
+def _brace_block(text: str, open_index: int) -> str:
+    """The contents of the `{` at `open_index`, balanced."""
+    depth = 0
+    for i in range(open_index, len(text)):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_index + 1:i]
+    return text[open_index + 1:]
+
+
+def _top_level_entries(body: str) -> list[tuple[str, str]]:
+    """`key: expr` pairs at depth 0 of a z.object body, in order."""
+    out: list[tuple[str, str]] = []
+    depth = 0
+    quote: str | None = None
+    key: str | None = None
+    start = 0
+    i = 0
+    while i < len(body):
+        c = body[i]
+        if quote:
+            if c == "\\":
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c in "\"'`":
+            quote = c
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0 and c == ":" and key is None:
+            j = i - 1
+            while j >= 0 and (body[j].isalnum() or body[j] in "_$ \n\t"):
+                j -= 1
+            key = body[j + 1:i].strip()
+            start = i + 1
+        elif depth == 0 and c == "," and key is not None:
+            out.append((key, body[start:i]))
+            key = None
+        i += 1
+    if key is not None:
+        out.append((key, body[start:]))
+    return [(k, v) for k, v in out if k and k.isidentifier()]
+
+
+def _format_helpers(root: Path) -> dict[str, bool]:
+    """`lib/validation/formats.ts` helper name → is it optional?
+
+    These schemas do not spell Zod out in full. A column reads `capsName()` or
+    `nullableKind("ifsc")`, and the answer to "is this mandatory" lives in the
+    helper's BODY, one file away. Reading only the schema file made every helper
+    look mandatory, which reported Our Bank's SWIFT and IFSC as required when
+    `nullableKind` says the opposite in its own name — a false positive that would
+    have had the sweep cage the operator on two optional fields.
+    """
+    path = root / "lib" / "validation" / "formats.ts"
+    try:
+        code = strip_comments(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return {}
+    out: dict[str, bool] = {}
+    for m in re.finditer(r"\bexport\s+function\s+(\w+)\s*\(", code):
+        brace = code.find("{", m.end())
+        if brace == -1:
+            continue
+        out[m.group(1)] = bool(OPTIONAL_MARK.search(_brace_block(code, brace)))
+    return out
+
+
+def _mandatory_fields(types_code: str, helpers: dict[str, bool], stem: str) -> list[str]:
+    """Field names the write-side schema insists on.
+
+    Mandatory = the entry carries no `.optional()`, `.nullable()` or `.default()`.
+    Single-token aliases (`pct`, `acHead`) are resolved against `const` bindings in
+    the same file, which is how these schemas keep their rate columns short; helper
+    CALLS are resolved against `formats.ts` (see `_format_helpers`).
+
+    An unresolvable helper is treated as OPTIONAL. A false positive here would put
+    a hold on a field the operator does not have to fill — a cage — while a false
+    negative only leaves the status quo.
+    """
+    aliases: dict[str, str] = {}
+    for m in re.finditer(r"\bconst\s+(\w+)\s*=\s*(z\.[^;]+);", types_code):
+        aliases[m.group(1)] = m.group(2)
+
+    # THE RECORD'S schema, not the first one in the file. A types module often
+    # declares its CHILD schemas above the record's — department-types.ts has
+    # `departmentLocationDivisionInput` and `departmentLocationInput` before
+    # `departmentInput` — so taking the first match reported a nested child's
+    # `division_id` as the screen's mandatory field and missed `short_name`, the
+    # one that actually is. Prefer the module's own name (`department-types.ts`
+    # → `departmentInput`), and otherwise the richest schema in the file, which is
+    # the record's: a child schema is a handful of columns, the record is not.
+    best = None
+    for m in ZOD_INPUT.finditer(types_code):
+        body = _brace_block(types_code, types_code.index("{", m.end() - 1))
+        entries = _top_level_entries(body)
+        exact = m.group(1) == f"{stem}Input"
+        if best is None or exact or (not best[0] and len(entries) > len(best[1])):
+            best = (exact, entries)
+            if exact:
+                break
+    if best is None:
+        return []
+    out = []
+    for key, expr in best[1]:
+        resolved = aliases.get(expr.strip(), expr).strip()
+        call = re.match(r"(\w+)\s*\(", resolved)
+        if call and not resolved.startswith("z."):
+            if helpers.get(call.group(1), True):
+                continue  # optional, or a helper we cannot read
+            out.append(key)
+            continue
+        if OPTIONAL_MARK.search(resolved):
+            continue
+        out.append(key)
+    return out
+
+
+def check_required_hold(path: Path, code: str, slug: str):
+    """A mandatory field must DECLARE itself, or the cursor never holds on it.
+
+    `data-required-empty` (client 2026-08-04) holds Tab / Enter / the arrows on a
+    blank mandatory field, the same way `data-dup-error` does for a duplicate. The
+    engine is global -- one window-capture listener, and `useRequiredHold()` is
+    called by all five control primitives -- so a field participates purely by
+    being declared `required`, which is the same prop that draws its `*`.
+
+    Undeclared, the hold can never fire: the operator tabs past a blank mandatory
+    field and meets the problem as a server error at Save instead. 30 of 58 master
+    screens were in that state when this check was written, which is what a rule
+    with no audit looks like after a few weeks.
+
+    The write-side Zod schema is the source of truth, not a list kept here -- it
+    is what `lib/data-io` and the server action already validate against, so a
+    field it insists on is mandatory by definition and the two cannot drift.
+
+    TWO SIGNALS, deliberately different in confidence:
+
+      * a screen with mandatory fields and NO `required` anywhere -- unambiguous,
+        and it names the fields so the fix is mechanical;
+      * a screen declaring FEWER than its schema requires -- a candidate only. One
+        `<Field required>` can legitimately cover a group, and a screen may not
+        render every column of its schema. Read it before changing it.
+
+    Exempt by construction and needing no comment: `readOnly` / composed fields
+    (`Input readOnly` opts out of the hold itself -- a field the operator cannot
+    type into is a cage with no exit), and a trailing star row in a grid, which is
+    blank by design.
+
+    A screen whose mandatory field HAS NO FIELD opts out per file with a
+    `required-hold: exempt -- <reason>` comment. Two real shapes: a value the
+    screen DERIVES rather than asks for (Department composes `short_name` from the
+    name, and its own comment says pointing an error at it "would name a column the
+    form never shows"), and one supplied by the ROUTE rather than the operator
+    (Exchange Rate backs three register children and each passes its own
+    `register`). Neither can hold a cursor, because neither is on screen.
+    """
+    if slug in PRIMITIVES or not slug.endswith("-master-screen.tsx"):
+        return
+    # From the RAW file: `code` has been comment-stripped, so the opt-out would be
+    # invisible in it — the same reason check_truncate_reveal re-reads the source.
+    try:
+        if re.search(r"required-hold:\s*exempt\s*--", path.read_text(encoding="utf-8", errors="replace")):
+            return
+    except OSError:
+        pass
+    if not is_editor_screen(code):
+        return
+
+    m = TYPES_IMPORT.search(code)
+    if not m:
+        return
+    types_path = path.parent.parent.parent / "lib" / "masters" / f"{m.group(1)}-types.ts"
+    if not types_path.is_file():
+        return
+    try:
+        types_code = strip_comments(types_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return
+
+    # `defect-detail` → `defectDetail`, so `defectDetailInput` can be matched by name.
+    stem = re.sub(r"-(\w)", lambda k: k.group(1).upper(), m.group(1))
+    fields = _mandatory_fields(types_code, _format_helpers(path.parent.parent.parent), stem)
+    if not fields:
+        return
+
+    declared = len(REQUIRED_PROP.findall(code))
+    if declared == 0:
+        yield Finding(
+            "required-hold", path, 1,
+            f"{len(fields)} mandatory field(s) in {m.group(1)}-types.ts "
+            f"({', '.join(fields[:6])}{'…' if len(fields) > 6 else ''}) and no "
+            "`required` on this screen -- a blank one will not hold the cursor",
+        )
+    elif declared < len(fields):
+        yield Finding(
+            "required-hold", path, 1,
+            f"declares {declared} `required` against {len(fields)} mandatory "
+            f"field(s) in {m.group(1)}-types.ts -- check which are missing",
+        )
+
+
 CHECKS = {
+    "created-columns": check_created_columns,
+    "required-hold": check_required_hold,
     "truncate-reveal": check_truncate_reveal,
+    "autofill": check_autofill,
     "dup-check": check_dup_check,
     "spell-suggest": check_spell_suggest,
     "picker-inactive": check_picker_inactive,

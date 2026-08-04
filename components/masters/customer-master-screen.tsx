@@ -56,6 +56,7 @@ import type { Applicant } from "@/lib/masters/applicant-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
 import { lookupLabel, type ConfigLookup } from "@/lib/masters/extras-types";
+import { createdSection } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -552,7 +553,7 @@ export function CustomerMasterScreen({
     // `editOrigin` means this row was PUBLISHED by another party master and its
     // Name is read-only here (see the field). Offering a correction for a value
     // that cannot be typed is noise pointing at the wrong screen.
-    enabled: open && !nameDupError && !editOrigin,
+    enabled: open && !editOrigin,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -1229,7 +1230,9 @@ export function CustomerMasterScreen({
                         <DuplicateError error={nameDupError} id="cu-name" />
                         <SpellSuggestHint
                           suggestions={nameSuggest.suggestions}
+                          existing={nameSuggest.existing}
                           activeIndex={nameSuggest.activeIndex}
+                          duplicate={!!nameDupError}
                           onApply={(v) => setForm((f) => ({ ...f, name: v }))}
                         />
                       </Field>
@@ -1681,7 +1684,7 @@ export function CustomerMasterScreen({
             </StatusPill>
           )
         }
-        sections={viewRow ? viewSectionsFor(viewRow) : []}
+        sections={viewRow ? [...viewSectionsFor(viewRow), ...createdSection(viewRow)] : []}
       />
     </div>
   );

@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { createJobOrder } from "@/lib/production/extras-actions";
 import { JOB_ORDER_STATUS_LABELS, type JobOrderStatus } from "@/lib/production/extras-types";
 import type { JobOrderWithRefs, OrderOption } from "@/lib/production/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: JobOrderStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "open" ? "info" : s === "completed" ? "success" : "danger";
@@ -118,7 +119,7 @@ export function JobOrdersClient({ rows, orders, canCreate }: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New job order</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No job orders yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No job orders yet." />
     </div>
   );
 }

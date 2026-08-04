@@ -6,6 +6,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { fmtNumber, fmtDate } from "@/lib/format";
 import type { CostSheetRow, QuoteRow, SampleRow } from "@/lib/sales/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function statusTone(s: string): StatusTone {
   const v = s.toLowerCase();
@@ -56,17 +57,17 @@ export function SalesRegistersClient({ costSheets, quotes, samples, initialTab }
     {
       key: "cost-sheets",
       label: `Cost Sheets (${costSheets.length})`,
-      content: <DataTable columns={csColumns} rows={costSheets} getKey={(r) => r.id} empty="No cost sheets yet." />,
+      content: <DataTable columns={withCreatedColumns(csColumns, costSheets)} rows={costSheets} getKey={(r) => r.id} empty="No cost sheets yet." />,
     },
     {
       key: "quotes",
       label: `Quotes (${quotes.length})`,
-      content: <DataTable columns={qColumns} rows={quotes} getKey={(r) => r.id} empty="No quotes yet." />,
+      content: <DataTable columns={withCreatedColumns(qColumns, quotes)} rows={quotes} getKey={(r) => r.id} empty="No quotes yet." />,
     },
     {
       key: "samples",
       label: `Samples (${samples.length})`,
-      content: <DataTable columns={sColumns} rows={samples} getKey={(r) => r.id} empty="No samples yet." />,
+      content: <DataTable columns={withCreatedColumns(sColumns, samples)} rows={samples} getKey={(r) => r.id} empty="No samples yet." />,
     },
   ];
 

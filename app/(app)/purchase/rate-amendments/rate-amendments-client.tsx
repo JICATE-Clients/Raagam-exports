@@ -24,6 +24,7 @@ import {
   type PurApprovalStatus,
 } from "@/lib/purchase/extras-types";
 import type { RateAmendmentWithRefs, PoWithLines } from "@/lib/purchase/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: PurApprovalStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "submitted" ? "info" : s === "approved" ? "success" : "danger";
@@ -113,7 +114,7 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
 
   const submitted = rows.filter((r) => r.status === "submitted");
   const Table = ({ data }: { data: RateAmendmentWithRefs[] }) => (
-    <DataTable columns={columns} rows={data} getKey={(r) => r.id} empty="Nothing here." />
+    <DataTable columns={withCreatedColumns(columns, data)} rows={data} getKey={(r) => r.id} empty="Nothing here." />
   );
 
   return (

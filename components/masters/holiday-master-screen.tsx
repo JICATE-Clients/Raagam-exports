@@ -193,10 +193,16 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
               <Input id="hd-entry" value={editEntryNo ?? "(auto)"} disabled className="text-base md:text-sm" />
             </div>
             <div>
-              <Label htmlFor="hd-date">Date</Label>
+              <Label htmlFor="hd-date">
+                Date <span className="text-danger">*</span>
+              </Label>
               <Input
                 id="hd-date"
                 type="date"
+                // `.min(1)` in `holidayInput`. Name already declared itself; these
+                // two did not, so the screen held on one of its three mandatory
+                // fields and waved the other two through.
+                required
                 value={form.entry_date}
                 onChange={(e) => set({ entry_date: e.target.value })}
                 className="text-base md:text-sm"
@@ -271,10 +277,16 @@ export function HolidayMasterScreen({ rows, perms }: { rows: Holiday[]; perms: P
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <Label htmlFor="hd-hdate">{form.is_date_range ? "From" : "Date"}</Label>
+                <Label htmlFor="hd-hdate">
+                  {form.is_date_range ? "From" : "Date"}{" "}
+                  <span className="text-danger">*</span>
+                </Label>
                 <Input
                   id="hd-hdate"
                   type="date"
+                  // `.min(1)` in `holidayInput`, and Save is already gated on it
+                  // — the screen knew, the field did not.
+                  required
                   value={form.holiday_date}
                   onChange={(e) => set({ holiday_date: e.target.value })}
                   className="text-base md:text-sm"

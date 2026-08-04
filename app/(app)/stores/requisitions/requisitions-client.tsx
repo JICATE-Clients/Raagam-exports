@@ -17,6 +17,7 @@ import { fmtDate } from "@/lib/format";
 import { createRequisition } from "@/lib/stores/extras-actions";
 import { MRS_STATUS_LABELS, type MrsStatus } from "@/lib/stores/extras-types";
 import type { MrsWithRefs, StoreOption } from "@/lib/stores/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: MrsStatus): StatusTone {
   switch (s) {
@@ -129,7 +130,7 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New requisition</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No requisitions yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No requisitions yet." />
     </div>
   );
 }

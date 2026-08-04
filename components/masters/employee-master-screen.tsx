@@ -41,6 +41,7 @@ import { fmtDate } from "@/lib/format";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
+import { createdMeta, createdSection, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -978,7 +979,7 @@ export function EmployeeMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No employees yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No employees yet." />
       </div>
 
       {/* mobile cards */}
@@ -1008,6 +1009,7 @@ export function EmployeeMasterScreen({
                     {r.code ?? "—"}
                     {r.designation_id ? ` · ${desigLabel.get(r.designation_id) ?? ""}` : ""}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.is_draft ? "warning" : r.inactive ? "danger" : "success"}>
                   {r.is_draft ? "Draft" : r.inactive ? "Inactive" : "Active"}
@@ -1693,7 +1695,7 @@ export function EmployeeMasterScreen({
             </StatusPill>
           )
         }
-        sections={viewRow ? viewSections(viewRow) : []}
+        sections={viewRow ? [...viewSections(viewRow), ...createdSection(viewRow)] : []}
       />
     </div>
   );

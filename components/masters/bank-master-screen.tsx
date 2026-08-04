@@ -30,6 +30,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { BANK_NAMES } from "@/lib/masters/name-vocabularies";
+import { createdSection } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 // isd_code comes along for the ride so a branch's WhatsApp chip can build a
@@ -157,7 +158,7 @@ export function BankMasterScreen({
     // The row being edited must not suggest its own name back at you.
     names: rows.filter((r) => r.id !== editId).map((r) => r.name ?? "").filter(Boolean),
     seed: BANK_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
   const codeLabel = codeLabelFor(form.bank_type);
@@ -484,7 +485,9 @@ export function BankMasterScreen({
               <DuplicateError error={dupError} id="bk-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupError}
                 onApply={(v) => setForm((f) => ({ ...f, name: v }))}
               />
             </Field>
@@ -726,6 +729,7 @@ export function BankMasterScreen({
                   </div>
                 ),
             },
+            ...createdSection(viewRow),
           ]}
         />
       )}

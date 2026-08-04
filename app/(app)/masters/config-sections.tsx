@@ -30,6 +30,7 @@ import {
   type GstRate,
 } from "@/lib/masters/extras-types";
 import type { Currency } from "@/lib/masters/types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Res = { ok: boolean; error?: string };
 
@@ -162,7 +163,7 @@ export function MaterialsConfigSection({ lookups }: { lookups: ConfigLookup[] })
         </CardBody>
       </Card>
 
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty={`No ${LOOKUP_KIND_LABELS[kind].toLowerCase()} yet.`} />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty={`No ${LOOKUP_KIND_LABELS[kind].toLowerCase()} yet.`} />
     </div>
   );
 }
@@ -214,7 +215,7 @@ export function TransportersSection({ transporters }: { transporters: Transporte
           </form>
         </CardBody>
       </Card>
-      <DataTable columns={columns} rows={transporters} getKey={(r) => r.id} empty="No transporters yet." />
+      <DataTable columns={withCreatedColumns(columns, transporters)} rows={transporters} getKey={(r) => r.id} empty="No transporters yet." />
     </div>
   );
 }
@@ -263,7 +264,7 @@ export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
           </form>
         </CardBody>
       </Card>
-      <DataTable columns={columns} rows={gstRates} getKey={(r) => r.id} empty="No GST rates yet." />
+      <DataTable columns={withCreatedColumns(columns, gstRates)} rows={gstRates} getKey={(r) => r.id} empty="No GST rates yet." />
     </div>
   );
 }
@@ -311,7 +312,7 @@ export function CurrenciesSection({ currencies }: { currencies: Currency[] }) {
           </form>
         </CardBody>
       </Card>
-      <DataTable columns={columns} rows={currencies} getKey={(r) => r.code} empty="No currencies yet." />
+      <DataTable columns={withCreatedColumns(columns, currencies)} rows={currencies} getKey={(r) => r.code} empty="No currencies yet." />
     </div>
   );
 }

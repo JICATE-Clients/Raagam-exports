@@ -13,6 +13,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { NewLcForm } from "./new-lc-form";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<LcWithBuyer>[] = [
   {
@@ -78,7 +79,7 @@ export default async function LcPage() {
       <NewLcForm buyers={buyers} currencies={currencies} />
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, lcs)}
         rows={lcs}
         getKey={(row) => row.id}
         empty="No LCs yet. Use 'New LC' above to create the first."

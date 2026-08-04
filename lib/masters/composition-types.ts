@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capsTextNullable } from "@/lib/validation/formats";
+import { capsName } from "@/lib/validation/formats";
 
 // ============================================================================
 // Compositions — master-detail (0225). Legacy EDP2 "Composition" form: header
@@ -45,7 +45,12 @@ export const compositionLineInput = z.object({
 export const compositionInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
   short_name: z.string().optional().nullable(),
-  name: capsTextNullable(),
+  // MANDATORY: `name` is what every picker shows and what the operator chooses a
+  // composition by — a nameless row is unusable wherever it appears. The screen
+  // has always declared `required` on it; this is the half that also holds for
+  // `lib/data-io` imports, which never reach the screen.
+  // `capsName`, not `capsTextNullable`: same CAPS transform, blank refused.
+  name: capsName("Name is required"),
   inactive: z.boolean().default(false),
   lines: z.array(compositionLineInput).default([]),
 });

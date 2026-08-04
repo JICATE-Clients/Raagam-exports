@@ -18,6 +18,7 @@ import {
   deleteSewingOperation,
 } from "@/lib/production/extras-actions";
 import type { WorkType, SewingOperation } from "@/lib/production/extras-types";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   workTypes: WorkType[];
@@ -116,7 +117,7 @@ export function MastersClient({ workTypes, operations, canCreate, canDelete }: P
           </CardBody>
         </Card>
       )}
-      <DataTable columns={wtColumns} rows={workTypes} getKey={(r) => r.id} empty="No work types yet." />
+      <DataTable columns={withCreatedColumns(wtColumns, workTypes)} rows={workTypes} getKey={(r) => r.id} empty="No work types yet." />
     </div>
   );
 
@@ -134,7 +135,7 @@ export function MastersClient({ workTypes, operations, canCreate, canDelete }: P
           </CardBody>
         </Card>
       )}
-      <DataTable columns={soColumns} rows={operations} getKey={(r) => r.id} empty="No sewing operations yet." />
+      <DataTable columns={withCreatedColumns(soColumns, operations)} rows={operations} getKey={(r) => r.id} empty="No sewing operations yet." />
     </div>
   );
 

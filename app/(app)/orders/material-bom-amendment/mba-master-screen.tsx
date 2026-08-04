@@ -35,6 +35,7 @@ import {
 } from "@/lib/orders/material-bom-amendment/types";
 import type { MbaFormData } from "@/lib/orders/material-bom-amendment/service";
 import { describeConversion, isUsableConversion, toPurchaseQty } from "@/lib/uom/convert";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type Tab = "items" | "processes" | "calc";
@@ -346,7 +347,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
           </div>
         )}
         <DataTable
-          columns={columns}
+          columns={withCreatedColumns(columns, rows)}
           rows={rows}
           getKey={(r) => r.id}
           empty="No material BOM amendments yet. Use 'New Amendment' to create the first."

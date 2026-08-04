@@ -307,6 +307,34 @@ export function nullableKind(kind: FormatKind) {
     });
 }
 
+/**
+ * `nullableKind`'s MANDATORY twin — same normalise-then-validate behaviour, but
+ * blank is refused. The pair mirrors `capsName` / `capsTextNullable` below, and
+ * exists for the same reason: which of the two a column takes is the one place
+ * "is this field mandatory" is written down for the server.
+ *
+ * Reach for it only where the record is meaningless without the value — an Our
+ * Bank row exists to be printed on a proforma invoice so a buyer can wire money
+ * to it, so it cannot not have an account number. Its SWIFT and IFSC stay
+ * `nullableKind` on purpose: a domestic account has no SWIFT and a foreign one
+ * may have no IFSC, so demanding either would make half the real accounts
+ * unsaveable.
+ *
+ * Order matters. `.min(1)` runs on the trimmed string BEFORE the transform, so a
+ * value of spaces is rejected rather than normalised into one that passes.
+ */
+export function requiredKind(kind: FormatKind, message = "This field is required") {
+  return z
+    .string()
+    .trim()
+    .min(1, message)
+    .transform((v) => normalizeForStore(kind, v))
+    .superRefine((v, ctx) => {
+      const err = validateFormat(kind, v);
+      if (err) ctx.addIssue({ code: z.ZodIssueCode.custom, message: err });
+    });
+}
+
 // ============================================================================
 // CAPS
 // ============================================================================

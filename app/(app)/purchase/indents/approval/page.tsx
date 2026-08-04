@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import Link from "next/link";
 import { IndentApprovalActions } from "./indent-approval-actions";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type IndentRow = {
   id: string;
@@ -123,7 +124,7 @@ export default async function IndentApprovalPage() {
         </CardHeader>
         <CardBody>
           <DataTable
-            columns={columns}
+            columns={withCreatedColumns(columns, indents)}
             rows={indents}
             getKey={(r) => r.id}
             empty="No pending indents to approve."

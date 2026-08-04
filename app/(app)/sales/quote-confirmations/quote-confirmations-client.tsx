@@ -18,6 +18,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   rows: QuoteConfirmRow[];
@@ -206,7 +207,7 @@ export function QuoteConfirmationsClient({ rows, canEdit }: Props) {
       </FilterBar>
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, filtered)}
         rows={filtered}
         getKey={(r) => r.id}
         empty="No quotes match. Prepare a quote on an opportunity first."

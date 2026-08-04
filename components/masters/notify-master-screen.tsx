@@ -35,6 +35,7 @@ import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-che
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import { createdSection } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -246,7 +247,7 @@ export function NotifyMasterScreen({
     // `editOrigin` means this row was PUBLISHED by another party master and its
     // Name is read-only here (see the field). Offering a correction for a value
     // that cannot be typed is noise pointing at the wrong screen.
-    enabled: open && !dupError && !editOrigin,
+    enabled: open && !editOrigin,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -693,7 +694,9 @@ export function NotifyMasterScreen({
                 <DuplicateError error={dupError} id="nt-name" />
                 <SpellSuggestHint
                   suggestions={nameSuggest.suggestions}
+                  existing={nameSuggest.existing}
                   activeIndex={nameSuggest.activeIndex}
+                  duplicate={!!dupError}
                   onApply={(v) => setForm((f) => ({ ...f, name: v }))}
                 />
               </Field>
@@ -965,7 +968,7 @@ export function NotifyMasterScreen({
             </StatusPill>
           )
         }
-        sections={viewRow ? viewSections(viewRow) : []}
+        sections={viewRow ? [...viewSections(viewRow), ...createdSection(viewRow)] : []}
       />
     </div>
   );

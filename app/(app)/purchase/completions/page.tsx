@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type CompletionRow = {
   id: string;
@@ -79,7 +80,7 @@ export default async function PoCompletionsPage() {
         </CardHeader>
         <CardBody>
           <DataTable
-            columns={columns}
+            columns={withCreatedColumns(columns, completions)}
             rows={completions}
             getKey={(r) => r.id}
             empty="No completion records yet."

@@ -25,6 +25,7 @@ import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
 import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
 import { COUNTRY_NAMES } from "@/lib/masters/geo-names";
+import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -91,7 +92,7 @@ export function DestinationMasterScreen({
       ...countries.map((c) => c.name),
     ],
     seed: COUNTRY_NAMES,
-    enabled: open && !dupError,
+    enabled: open,
     // Enter applies the highlighted chip; see the hook.
     onApply: (v) => set({ name: v }),
   });
@@ -131,7 +132,8 @@ export function DestinationMasterScreen({
         // record's original stored short name (held in state, never rendered).
         short_name: editId ? form.short_name.trim() || null : form.name.trim() || null,
         country_id: form.country_id,
-        name: form.name.trim() || null,
+        // Mandatory in the schema — see destination-types.ts.
+        name: form.name.trim(),
         inactive: form.inactive,
       };
       const res = editId ? await updateDestination(editId, payload) : await createDestination(payload);
@@ -201,7 +203,7 @@ export function DestinationMasterScreen({
 
       {/* desktop table */}
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id} empty="No destination records yet." />
+        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No destination records yet." />
       </div>
 
       {/* mobile cards */}
@@ -226,6 +228,7 @@ export function DestinationMasterScreen({
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {countryLabel.get(r.country_id) ?? "—"}
                   </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
                 </div>
                 <StatusPill tone={r.inactive ? "danger" : "success"}>
                   {r.inactive ? "Inactive" : "Active"}
@@ -272,7 +275,9 @@ export function DestinationMasterScreen({
             <DuplicateError error={dupError} id="de-name" />
             <SpellSuggestHint
               suggestions={nameSuggest.suggestions}
+              existing={nameSuggest.existing}
               activeIndex={nameSuggest.activeIndex}
+              duplicate={!!dupError}
               onApply={(v) => set({ name: v })}
             />
           </Field>
@@ -284,6 +289,13 @@ export function DestinationMasterScreen({
               onChange={(id) => set({ country_id: id })}
               canCreate={perms.canCreate}
               canEdit={perms.canEdit}
+              // `destinationInput.country_id` has ALWAYS been mandatory, and the
+              // file header has said "Country (required)" since it was written —
+              // the picker just never carried the prop, so nothing held. It hid
+              // behind the audit's count comparison too: one `required` declared
+              // against one mandatory field looked balanced, while the
+              // declaration sat on Name and the mandatory field was this one.
+              required
             />
           </Field>
           {editId && (

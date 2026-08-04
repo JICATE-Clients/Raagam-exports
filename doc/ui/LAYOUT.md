@@ -470,6 +470,32 @@ Checked by `python scripts/audit_layout.py . --check row-actions`.
 
 ---
 
+## 6b. Created Date / Created User (STANDING)
+
+**Every listing of records ends with who made the row and when** — `Created Date`, then
+`Created User`, immediately before Status and the row-actions column. Settled once in
+`components/ui/created-columns.tsx`; six screens had six different answers before it.
+
+- `MasterListShell` / `SimpleMasterScreen` → already spliced in, nothing to do.
+- Rendering `DataTable` directly → `columns={withCreatedColumns(columns, rows)}`.
+- Mobile card → `createdMeta(r)` as an extra muted line, **appended** to the screen's own
+  meta, never replacing it — the card has room for both, and the desktop table shows both.
+- `RecordViewSheet` → `...createdSection(viewRow)` last in `sections`.
+
+`withCreatedColumns` is safe to add anywhere: it self-hides when the rows carry no
+`created_at`, so a list whose service does not select the column is left exactly as it was.
+It also strips a hand-rolled Created column — deliberately, and the audit below is how a
+column that vanished gets diagnosed in seconds.
+
+Never print `{r.created_by}`: it is a uuid on 132 tables and a verbatim legacy username on
+7. `creatorName()` reads all the spellings and refuses to return anything uuid-shaped.
+
+**Line-item tables are exempt** — the creator belongs to the document, not to its lines,
+and the detail page above already shows it. Exempt by path (`[id]` routes, tab panels,
+report views). Checked by `python scripts/audit_layout.py . --check created-columns`.
+
+---
+
 ## 7. Labels, spacing, validation
 
 **Labels: top-aligned, `font-medium`, never bold.** Penzo's eye-tracking: label above = ~50ms
@@ -507,10 +533,14 @@ The contract lives in `.claude/skills/raagam-keyboard-contract` and is implement
 `lib/focus.ts`, wired globally by `components/shell/keyboard-nav-provider.tsx`. Screens do **not**
 bind their own `onKeyDown` for field navigation.
 
-- Tab → next field, and nothing else — it never opens a list. On a `MasterFullScreen` rail
-  editor the "next field" after a section's last one is **the next section**, which opens with
-  the cursor in its first field (Shift+Tab goes back, landing on the previous section's last
-  field); on the last section Tab carries on to the footer's Cancel/Save
+- Tab → the next **FIELD**, and nothing else. It never opens a list, and it never stops on a
+  button: not a ✕, not Save or Cancel, not a child row's Remove. It does not leave the surface
+  either — off the last field it wraps. On a `MasterFullScreen` rail editor the "next field"
+  after a section's last one is **the next section**, which opens with the cursor in its first
+  field (Shift+Tab goes back, landing on the previous section's last field).
+  Save is Enter off the last field or Ctrl+S, close is Esc, and **Ctrl+Del** removes the child
+  row the cursor is on — those keys are what pay for the buttons leaving the Tab path, and the
+  shortcuts sheet names all of them
 - ↓ on a picker/dropdown → open its list · ↓/↑ otherwise → the field below / above, **spatially**
 - ←/→ → the field left / right, once the text caret is at the edge
 - Enter → pick the highlighted row if a list is open, tick a focused checkbox/radio, else
@@ -526,18 +556,20 @@ bind their own `onKeyDown` for field navigation.
   `document`, the same node). This is load-bearing for Escape: a layer that closes without
   claiming the key also navigates the page away.
 - Auto-generated / derived fields carry `tabIndex={-1}` so Tab skips them — write it as
-  `<Field skipTab>` (or `SimpleField.skipTab` in the descriptor tier), not by hand. It has to be a
-  real `tabIndex` on the control: on a plain page form Tab is **native**, so no `data-` attribute
-  and nothing in `lib/focus.ts` can take a control out of the Tab order.
+  `<Field skipTab>` (or `SimpleField.skipTab` in the descriptor tier), not by hand. It also takes
+  them out of the ↑↓←→ walk and the focus trap, which a Tab-only mechanism would not.
+  **Do not reach for it to keep an ACTION off the Tab path** — Tab targets fields everywhere, so
+  a ✕ or a row's Remove is already skipped, and `tabIndex={-1}` there only removes the control
+  from the focus order for everyone. That mistake shipped twice.
 - **`data-focus-optional` — an opt-in control, off the default typing path.** Tab and Enter step
   over it; ↑ ↓ ← → and the mouse still reach it, and Space/Enter on it then works normally. For the
   escape-hatch toggle an operator should reach for deliberately rather than trip over —
   Material ▸ Fabric ▸ **Direct Purchase**, which sat between Fabric Type and Using and, because
   Enter *ticks* a checkbox instead of advancing, was one habitual Enter away from clearing the
   mixing rows the operator had just typed. Not `tabIndex={-1}`, which would take it out of the
-  arrow contract too and leave it mouse-only. Only works inside a focus-trapped surface
-  (`Sheet` / `MasterFullScreen`), where `cycleTab` owns Tab; and prefer to drop the marker once the
-  operator has opted *in*, so the control that undoes the mode stays on the path.
+  arrow contract too and leave it mouse-only. Needs a surface `cycleTab` owns — a dialog, a
+  `data-focus-scope` pane, or one with a footer region (`isEditorScope`) — and prefer to drop the
+  marker once the operator has opted *in*, so the control that undoes the mode stays on the path.
 
 ---
 
@@ -550,6 +582,7 @@ bind their own `onKeyDown` for field navigation.
 - [ ] Child grids: mode chosen by fields-per-row (§6)
 - [ ] List uses `MasterListShell` + `DataTable`, not a hand-rolled table + pagination
 - [ ] Row actions via `actions` / `rowActionsColumn`, never a hand-written `header: ""` cell (§6a)
+- [ ] Created Date / Created User via `withCreatedColumns` + `createdMeta` + `createdSection` (§6b)
 - [ ] Pickers via `record-picker` / `lookup-picker`, never a bespoke dialog
 - [ ] Tested at 375px: one column, no horizontal page scroll
 - [ ] Derived / auto-generated fields carry `<Field skipTab>` (§8)
@@ -933,22 +966,52 @@ every Customer pointing at it is split across two records that mean one thing. �
 about a disabled row never being offered is worth nothing if the operator can simply create
 a second, spelled differently.
 
-So a master with a duplicate check also **offers the close names it knows**.
+So a master with a duplicate check also **offers the close names it knows** — and offers
+only the ones it can actually let you keep.
 
-### The two lines under an input are one slot
+### A chip is a name that saves; a taken name is only ever text
+
+`useSpellSuggest` returns two lists, and everything below follows from the split.
+
+| | `suggestions` | `existing` |
+|---|---|---|
+| what it is | a name that is **not** a row yet | a name that already **is** a row |
+| rendered as | chip (`<button role="option">`) | plain muted text |
+| reachable with ↓ | **yes** | no — nothing focusable |
+| clicking it | applies the name | nothing to click |
+| why it is there | the operator can use it | it is the only warning a twin gets |
+
+`names` is scoped exactly as the duplicate check is scoped, so a candidate that is already
+a row is one the guard is about to reject. Offering it as a chip is offering a click that
+cannot succeed — and on a screen with no `seed` that was *every* chip the strip could
+produce: `COT` under Item Class YARN offered COTTON and POLYCOTTON, both already there
+(client 2026-08-04).
+
+The taken ones are still named, because that is the original job of the whole feature. The
+guard fires on an exact match, so `INTARLOCK` typed beside an existing `INTERLOCK` is
+invisible to it — and both of those are in the categories table right now.
+
+### The error and the chips share the slot, two lines deep
 
 | | Duplicate error | Suggestion chip |
 |---|---|---|
-| fires on | exact match | near miss / partial |
+| fires on | exact match | a free name near what was typed |
 | component | `<DuplicateError>` | `<SpellSuggestHint>` |
 | wired by | `dupFieldProps(error, id)` | `onKeyDown={nameSuggest.onKeyDown}` |
 | blocks Save | **yes** | no |
 | holds the cursor | **yes** (`data-dup-error`) | no |
 | changes the text | no | only if a chip is accepted |
 
-They never show together — `enabled: open && !dupError` on the hook. The chip is the
-*softer* of the two and the error is the more urgent, so the error wins the line, and the
-name that was collided with is the one name it would be useless to suggest.
+**They now show together, and `enabled` must not gate on `!dupError`.** The old rule
+suppressed the strip during a duplicate because "the name it was collided with is the one
+name it would be useless to suggest" — which is true, and is an argument for dropping *that
+name*, not the strip. The two were the same statement only while every seed was empty. Once
+a screen has a vocabulary they come apart: COTTON is useless, COTTON SLUB is exactly what
+was wanted, and the duplicate is the moment it is wanted most. The error holds the cursor
+in the field, so the chips beneath it are the way out of the hold.
+
+Never three lines: the `existing` half stands down while the red error shows, since the red
+line already says a name is taken and naming a second, different one there is noise.
 
 **The chip must never become a hold.** SEWING ACCESSORY and SEWING ACCESSORIES can both be
 correct rows. Wiring an advisory through `dupFieldProps` would pin the cursor on a value
@@ -977,9 +1040,18 @@ defaulted to a fibre word list reachable from every screen; a Packing Accessorie
 "corrected" to COTTON (client 2026-07-28) and the client had the feature removed outright
 two days later. A list named in an import cannot reach a screen that did not name it.
 
+**The FALLBACK was the bug, not the map.** Category is the one screen whose field changes
+meaning with another field — "which fibre" under YARN, "which packing item" under PACK — so
+its seed is keyed by Item Class through `categoryNameSeed(code)`. It is safe for precisely
+the reason gen 1 was not: an unlisted or missing code resolves to `[]`, never to whichever
+list is first, so a Packing category cannot reach a fibre word. Read the map through that
+function; never index it.
+
 Where no real-world standard exists — Bin, Count, Gauge, Knitting Dia, and every party
-master, whose names are real trading parties — pass `seed: []` and offer rows only. That is
-a correct answer, not a gap.
+master, whose names are real trading parties — pass `seed: []` and offer rows only. Note
+what that now means: every candidate is a row, so nothing reaches the chips and the strip
+becomes a pure "already exists" warning. That is the honest behaviour of a screen with no
+vocabulary, not a gap to be filled by inventing one.
 
 ### Exempt
 

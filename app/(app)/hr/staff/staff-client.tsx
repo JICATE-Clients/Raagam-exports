@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const DEFAULTS: StaffInput = {
   name: "",
@@ -264,7 +265,7 @@ export default function StaffClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, staff)}
         rows={staff}
         getKey={(r) => r.id}
         empty="No staff yet. Add one above."

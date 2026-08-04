@@ -43,6 +43,8 @@ import {
   resolveUomId,
   itemClassForm,
   isAccessoryClass,
+  isMaterialFieldRequired,
+  missingRequiredMaterialFields,
   usesNumbersUom,
   type Material,
   type MaterialInput,
@@ -73,6 +75,38 @@ type ConvRow = { key: string; alt_qty: string; alt_uom_id: string; base_qty: str
 type UsingItemRow = { key: string; used_item_id: string; description: string; shade: string; uom_id: string };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
+
+/**
+ * A mixing share as it should READ in a composed name.
+ *
+ * The grid holds the raw string an `<input type="number">` produced, and that is
+ * not a number that has been through anything: a typed "050" stays "050", and a
+ * legacy row's "45.00" stays "45.00". Straight into the name, that showed the
+ * operator `050% 16'S OE COTTON` (client 2026-08-04). Legacy prints `45%`.
+ *
+ * `Number()` then `String()` is the whole normalisation — it drops leading zeros
+ * and trailing zero decimals while leaving a real fraction alone (33.33 stays
+ * 33.33). Falls back to the trimmed text if the cell somehow holds a non-number,
+ * so a name is never silently emptied by a value the composer could not read.
+ */
+function pctText(raw: string): string {
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(n) : raw.trim();
+}
+
+/**
+ * THE MIXING PARENTHETICAL, exactly as legacy RP prints it:
+ * `(COTTON 45%, POLYSTER 55%)` — each component named first, its share after,
+ * comma-separated, wrapped in one pair of brackets.
+ *
+ * Shared by the Yarn and Fabric branches of `suggestedName`. Fabric has had this
+ * shape since 2026-07-23 and Yarn had a different one (`45% COTTON / 55% ...`)
+ * until 2026-08-04, which is the drift this helper exists to prevent: two
+ * branches of one function composing the same idea two different ways.
+ */
+function mixingParens(rows: readonly { pct: string; label: string }[]): string {
+  return `(${rows.map((m) => `${m.label} ${pctText(m.pct)}%`).join(", ")})`;
+}
 
 const BLANK = {
   code: "",
@@ -216,6 +250,12 @@ export function MaterialMasterScreen({
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const selectedClassCode = itemClasses.find((c) => c.id === form.item_class_id)?.code ?? null;
   const formKey: MaterialFormKey = itemClassForm(selectedClassCode);
+  /** Mandatory fields still blank, by label. Drives the Save button; the same
+   *  declaration drives each field's `*` and its cursor hold via
+   *  `isMaterialFieldRequired` below. */
+  const missingRequired = missingRequiredMaterialFields(form, selectedClassCode);
+  /** Shorthand for the `required` prop on a field of this class. */
+  const req = (f: keyof MaterialInput) => isMaterialFieldRequired(f, selectedClassCode);
   const formDef = formKey === "A" || formKey === "GEN" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
   const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
   /** The units this fabric MUST use, from its structure (client 2026-08-01):
@@ -256,13 +296,21 @@ export function MaterialMasterScreen({
   /** A unit's code for display in the read-only boxes the fabric rule renders
    *  ("KGS", "NOS", "MTR") — same text `uomSelect` puts in its options. */
   const unitCode = (id: string) => units.find((u) => u.id === id)?.code ?? "—";
-  /** The unit an existing fabric is CURRENTLY stored in, when the rule is about
-   *  to move it somewhere else — Flat Knit is the case that exists (KGS → NOS).
-   *  Read off the row rather than snapshotted into state, so it clears by itself
-   *  once the save lands and `rows` refreshes. */
+  /** The unit an existing record is CURRENTLY stored in, when the form is about
+   *  to move it somewhere else. Read off the row rather than snapshotted into
+   *  state, so it clears by itself once the save lands and `rows` refreshes.
+   *
+   *  Compared against `form.base_uom_id`, not against the structure's derived
+   *  unit: since 2026-08-04 Base is editable on fabric too, so the operator's own
+   *  change is now a way for the stored quantities and the label above them to
+   *  disagree — and it deserves the same warning the structure prefill gets.
+   *  Any class, not just fabric; the notice was only ever fabric-shaped because
+   *  fabric was the only thing that could move a unit on its own. */
   const storedBaseUomId = editId ? rows.find((r) => r.id === editId)?.base_uom_id ?? null : null;
   const fabricUomChanged =
-    fabricBaseUomId && storedBaseUomId && storedBaseUomId !== fabricBaseUomId ? storedBaseUomId : null;
+    storedBaseUomId && form.base_uom_id && storedBaseUomId !== form.base_uom_id
+      ? storedBaseUomId
+      : null;
   // Sub-categories created from this form's own "+ Add" row, keyed by category.
   // The server action revalidates, but the refreshed `categories` prop only
   // arrives after router.refresh() resolves — until then the option the user
@@ -347,30 +395,58 @@ export function MaterialMasterScreen({
     });
   }, [selectedClassCode, numbersUnitId]);
 
-  // Fabric UOMs are DERIVED, not defaulted (client 2026-08-01). Unlike the two
-  // effects above — which backfill blanks and leave a manual override alone —
-  // this one OVERWRITES, because for fabric there is no such thing as a manual
-  // override any more: the structure decides, and the fields that would let a
-  // user disagree are rendered read-only below.
+  /** The structure `applyFabricStructureUom` below last wrote a unit for.
+   *
+   *  Primed by `openAdd` / `openEdit`, which is the half that makes the rule a
+   *  PREFILL rather than the overwrite it used to be: without it, opening a
+   *  saved fabric would look like a structure change and stamp the derived unit
+   *  over whatever is stored — silently reverting the override the field now
+   *  exists to allow, on a record nobody had even edited. */
+  const appliedStructureRef = useRef<string | null>(null);
+
+  // A FABRIC'S BASE UNIT IS PREFILLED FROM ITS STRUCTURE, AND STAYS EDITABLE
+  // (client 2026-08-04). Circular Knit starts on KGS, Flat Knit on NOS, Woven on
+  // MTR — the pairing `doc/recording/business logic.md` records, where a collar
+  // is counted in pieces and costed by weight.
   //
-  // It writes the alternative unit onto the conversion row too, so ticking
-  // nothing produces "? NOS = ? KGS" ready for the two quantities. Only the
-  // units; the quantities are per-material and stay the operator's.
+  // It used to OVERWRITE, every render, with the field rendered read-only beside
+  // it: "for fabric there is no such thing as a manual override any more"
+  // (2026-08-01). That is what changed. The unit now follows the STRUCTURE and
+  // nothing else, so:
   //
-  // Every branch is a no-op when nothing actually changes (`f` / `xs` returned
-  // unchanged), which is what keeps an effect that depends on `conversions`
-  // from re-running itself forever.
+  //   - picking a structure, or changing it, moves the unit — which is the only
+  //     thing "the structure decides it" can mean once the field is editable;
+  //   - a hand override afterwards survives every re-render, every unrelated
+  //     field, and reopening the record;
+  //   - and it is deliberately NOT the fill-blanks-only shape the Yarn and
+  //     Numbers effects above use. Blanks-only would leave a fabric switched
+  //     from Circular to Woven still showing KGS, i.e. the previous structure's
+  //     answer, which is worse than either rule on its own.
+  //
+  // The four downstream slots are NOT written here any more: `uomSlots()`
+  // (lib/masters/material-actions.ts) already points stock/billing/planning/
+  // purchase at the base whenever `has_alternate_uom` is off, server-side, for
+  // every class. Writing them here too was a second copy of one rule.
+  //
+  // `has_alternate_uom` and the conversion row's UNITS still follow the
+  // structure — that pairing is the thing being preserved, and its UI is hidden
+  // on a `singleUomClass` so nothing else can set it. The QUANTITIES stay the
+  // operator's: how many kilos a knitted panel weighs is per-material. The
+  // server reconciles the row's base against whatever base actually saved.
   useEffect(() => {
+    if (formKey !== "FABRIC") return;
+    const structureId = form.fabric_structure_id || null;
+    if (structureId === appliedStructureRef.current) return;
+    // A structure whose unit the shop's UOM master does not stock resolves to
+    // null. Leave everything alone rather than blanking a saved unit — and do
+    // NOT record it as applied, so the prefill still lands if the unit is added.
     const baseId = fabricBaseUomId;
-    const altId = fabricAltUomId;
     if (!baseId) return;
+    appliedStructureRef.current = structureId;
+    const altId = fabricAltUomId;
     setForm((f) => {
       const patch: Partial<Form> = {};
       if (f.base_uom_id !== baseId) patch.base_uom_id = baseId;
-      if (f.stock_uom_id !== baseId) patch.stock_uom_id = baseId;
-      if (f.billing_uom_id !== baseId) patch.billing_uom_id = baseId;
-      if (f.planning_uom_id !== baseId) patch.planning_uom_id = baseId;
-      if (f.purchase_uom_id !== baseId) patch.purchase_uom_id = baseId;
       if (f.has_alternate_uom !== !!altId) patch.has_alternate_uom = !!altId;
       return Object.keys(patch).length ? { ...f, ...patch } : f;
     });
@@ -385,7 +461,7 @@ export function MaterialMasterScreen({
       if (xs.length === 1 && first.alt_uom_id === altId && first.base_uom_id === baseId) return xs;
       return [{ ...first, alt_uom_id: altId, base_uom_id: baseId }];
     });
-  }, [fabricBaseUomId, fabricAltUomId]);
+  }, [formKey, form.fabric_structure_id, fabricBaseUomId, fabricAltUomId]);
 
   // ── Attribute-driven questions (SEW/PACK, 0341) ────────────────────────────
   // Every attribute_value across all item classes, by id (a line points at one).
@@ -534,6 +610,9 @@ export function MaterialMasterScreen({
   function openAdd() {
     setEditId(null);
     setEditName("");
+    // A blank form has no structure yet, so the prefill effect is armed: the
+    // first structure the operator picks writes its unit.
+    appliedStructureRef.current = null;
     setForm(BLANK);
     setMixings([]);
     setConversions([]);
@@ -544,6 +623,10 @@ export function MaterialMasterScreen({
   function openEdit(r: Material) {
     setEditId(r.id);
     setEditName(r.name);
+    // The stored record already answers for this structure — whether by the
+    // prefill or by a hand override — so the effect must not re-derive on open.
+    // It re-arms the moment the operator changes the structure.
+    appliedStructureRef.current = r.fabric_structure_id ?? null;
     setForm({
       code: r.code,
       name: r.name,
@@ -751,10 +834,23 @@ export function MaterialMasterScreen({
         direct_purchase: form.direct_purchase,
         has_alternate_uom: form.has_alternate_uom,
         base_uom_id: form.base_uom_id || null,
-        stock_uom_id: form.stock_uom_id || null,
-        billing_uom_id: form.billing_uom_id || null,
-        planning_uom_id: form.planning_uom_id || null,
-        purchase_uom_id: form.purchase_uom_id || null,
+        // ON A `singleUomClass` THE FOUR SLOTS ARE SENT AS NULL, so `uomSlots`
+        // (lib/masters/material-actions.ts) derives them from the base. Yarn and
+        // Fabric render no UI for them, so any value the form still holds is a
+        // stale load, not an answer — and on a Flat Knit or Woven fabric, where
+        // `has_alternate_uom` is on, `uomSlots` would have HONOURED that stale
+        // value: overriding a saved fabric's Base from NOS to KGS would move the
+        // base and leave stock/billing/planning/purchase on NOS. That is only
+        // reachable since Base became editable (2026-08-04), which is why the
+        // old code did not need this.
+        ...(singleUomClass
+          ? { stock_uom_id: null, billing_uom_id: null, planning_uom_id: null, purchase_uom_id: null }
+          : {
+              stock_uom_id: form.stock_uom_id || null,
+              billing_uom_id: form.billing_uom_id || null,
+              planning_uom_id: form.planning_uom_id || null,
+              purchase_uom_id: form.purchase_uom_id || null,
+            }),
         // Budget + Cost Rate are no longer edited on this screen (0279 #19).
         // Sent as null to satisfy the input type; the server drops them from
         // the written row so existing values on the record are preserved.
@@ -1069,7 +1165,7 @@ export function MaterialMasterScreen({
     }
   }
 
-  // Live auto-name generator (0279) — Yarn: Count + Purity + Category/Mixing%;
+  // Live auto-name generator (0279) — Yarn: Count + Purity + Category (MIXING);
   // Fabric: FABRICTYPE STRUCTURE (COMPONENTS) 100% (client 2026-07-23 #10/#12).
   // Returns null for other classes (General etc.), which stay manual. For
   // Yarn/Fabric it is written straight into the Name field via the effect below.
@@ -1092,7 +1188,26 @@ export function MaterialMasterScreen({
             label: m.component_item_id ? yarnItemName.get(m.component_item_id) ?? "" : m.description.trim(),
           }))
           .filter((m) => m.pct && m.label);
-        if (filled.length) parts.push(filled.map((m) => `${m.pct}% ${m.label}`).join(" / "));
+        // THE MIXING READS AS LEGACY RP DOES (client 2026-08-04, screenshots of
+        // both side by side): a parenthetical, each component NAMED FIRST and
+        // its share after, comma-separated —
+        //   legacy   24'S POLYCOTTON (COTTON 45%, POLYSTER 55%)
+        //   ours was 30'S GASED LINEN 050% 16'S OE COTTON / 50% 20'S COTTON COMBED
+        // Four things were wrong at once: no parens, the % led instead of
+        // trailed, " / " instead of ", ", and the raw input string reached the
+        // name so a typed "050" showed as "050%".
+        //
+        // `mixingParens` is shared with the Fabric branch below, which had the
+        // legacy shape from the start (2026-07-23) — the two were composing the
+        // same idea two different ways in one file, which is how this drifted
+        // unnoticed. One helper, so they cannot disagree again.
+        //
+        // Deliberately NOT copied from legacy: the component keeps its FULL
+        // name. Legacy prints the short fibre ("COTTON") and can, because its
+        // two components were different fibres; a blend of 16'S OE COTTON and
+        // 20'S COTTON COMBED would collapse to "COTTON 50%, COTTON 50%" and
+        // stop identifying anything (client asked, 2026-08-04).
+        if (filled.length) parts.push(mixingParens(filled));
       }
       // Generated names come out in CAPS (client 2026-07-23).
       return parts.join(" ").toUpperCase() || null;
@@ -1119,10 +1234,14 @@ export function MaterialMasterScreen({
         }))
         .filter((m) => m.label && (isYarnDyedFabric || isSingleYarnFabric || m.pct));
       if (filled.length) {
+        // Single Yarn is one label and no share; Yarn Dyed lists labels only.
+        // Everything else is the same parenthetical the Yarn branch builds.
         const comps = isSingleYarnFabric
-          ? filled[0].label
-          : filled.map((m) => (isYarnDyedFabric ? m.label : `${m.label} ${m.pct}%`)).join(", ");
-        return `${head}${head ? " " : ""}(${comps}) 100%`.toUpperCase();
+          ? `(${filled[0].label})`
+          : isYarnDyedFabric
+            ? `(${filled.map((m) => m.label).join(", ")})`
+            : mixingParens(filled);
+        return `${head}${head ? " " : ""}${comps} 100%`.toUpperCase();
       }
       return head.toUpperCase() || null;
     }
@@ -1243,7 +1362,7 @@ export function MaterialMasterScreen({
       .map((r) => r.name ?? "")
       .filter(Boolean),
     seed: [],
-    enabled: !!form.item_class_id && !nameIsComposed && !dupMessage,
+    enabled: !!form.item_class_id && !nameIsComposed,
     onApply: (v) => set({ name: v }),
   });
 
@@ -1516,6 +1635,7 @@ export function MaterialMasterScreen({
               <LookupDialogPicker
                 kind="yarn_type"
                 label="Yarn Type"
+                required={req("yarn_type_id")}
                 options={yarnTypes}
                 value={form.yarn_type_id}
                 onChange={handleYarnTypeChange}
@@ -1549,6 +1669,7 @@ export function MaterialMasterScreen({
               <LookupDialogPicker
                 kind="yarn_count"
                 label="Count"
+                required={req("count_id")}
                 options={counts}
                 value={form.count_id}
                 onChange={(v) => set({ count_id: v })}
@@ -1560,6 +1681,7 @@ export function MaterialMasterScreen({
             <Field size="md">
               <CategoryPicker
                 label="Category"
+                required={req("category_id")}
                 categories={scopedCategories}
                 value={form.category_id}
                 onChange={(v) => set({ category_id: v })}
@@ -1793,8 +1915,12 @@ export function MaterialMasterScreen({
               disabled={
                 isPending ||
                 !form.name.trim() ||
-                (formKey === "FABRIC" && !form.fabric_type_id) ||
-                (!!form.item_class_id && !form.base_uom_id) ||
+                // ONE list of mandatory fields, shared with the `*`s beside them,
+                // with the cursor hold that stops the operator leaving one blank,
+                // and with the action that also serves spreadsheet imports. This
+                // used to be a hand-written expression here — two lists on one
+                // screen is exactly how the button and the fields drift apart.
+                missingRequired.length > 0 ||
                 singleYarnOverflow ||
                 mixPctSumInvalid ||
                 fabricCompositionMissing ||
@@ -1825,7 +1951,12 @@ export function MaterialMasterScreen({
                   added from here would open a form that does not exist. Item
                   Class is maintained from its own master, where the code and
                   its form are decided together. */}
-              <Label htmlFor="mt-item-class">Item Class</Label>
+              {/* A `Field` rather than a bare Label + Select so the `*` and the
+                  mandatory-field cursor hold come from ONE declaration. Its
+                  column spans only resolve inside `@container/section`, and this
+                  sits in `@container/identity`, so the IdentityRow tracks above
+                  still decide the width. */}
+              <Field label="Item Class" required={req("item_class_id")} htmlFor="mt-item-class">
               <Select
                 id="mt-item-class"
                 value={form.item_class_id}
@@ -1841,6 +1972,7 @@ export function MaterialMasterScreen({
                     </option>
                   ))}
               </Select>
+              </Field>
             </div>
             <div>
               <Label htmlFor="mt-name">
@@ -1883,7 +2015,9 @@ export function MaterialMasterScreen({
               <DuplicateError error={dupMessage} id="mt-name" />
               <SpellSuggestHint
                 suggestions={nameSuggest.suggestions}
+                existing={nameSuggest.existing}
                 activeIndex={nameSuggest.activeIndex}
+                duplicate={!!dupMessage}
                 onApply={(v) => set({ name: v })}
               />
             </div>
@@ -2050,74 +2184,68 @@ export function MaterialMasterScreen({
                     so it takes the standard `sm` width instead: `xs` exists to
                     line up with a slot row those classes no longer have, and a
                     lone 2-of-12 box is just a stranded tiny field. */}
-                {/* Fabric answers Base from its structure and does not offer it
-                    for editing (client 2026-08-01) — same read-only treatment,
-                    and the same `bg-surface-muted` box, as the Type field the
-                    structure itself is shown in. The Alternative box that used to
-                    sit beside it is gone with the rest of the alternate UOM UI;
-                    its tooltip moved here, because a field that refuses to be
-                    edited still has to say who decided it. */}
-                {fabricBaseUomId ? (
-                  <Field
-                    label={
+                {/* ONE Base field for every class, editable everywhere (client
+                    2026-08-04). Fabric had a read-only `bg-surface-muted` box
+                    here for three days, because 2026-08-01 made its unit derived
+                    rather than defaulted. "Default" is the word the request came
+                    back with, and a default is something you can change — so the
+                    structure now PREFILLS this (see the effect above) and the
+                    operator has the last word. The ⓘ stays: a field that fills
+                    itself still has to say who filled it. */}
+                <Field
+                  label={
+                    formKey === "FABRIC" ? (
                       <span className="flex items-center gap-1">
                         Base
                         <span
-                          title="Set by the fabric structure and not editable — Circular Knit is KGS, Flat Knit is NOS, Woven is MTR."
+                          title="Prefilled from the fabric structure — Circular Knit KGS, Flat Knit NOS, Woven MTR. Change it if this material is stocked differently."
                           className="cursor-help text-muted-foreground"
                         >
                           <Info className="h-3.5 w-3.5" />
                         </span>
                       </span>
-                    }
-                    size="sm"
-                  >
-                    {/* No `truncate` here, unlike the Type box this copies: the
-                        value is a unit code ("KGS", "NOS", "MTR"), so an ellipsis
-                        could never fire and would only be a promise of hidden
-                        text there is none of. */}
-                    <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-                      {unitCode(fabricBaseUomId)}
-                    </div>
+                    ) : (
+                      "Base"
+                    )
+                  }
+                  required={req("base_uom_id")}
+                  size={singleUomClass ? "sm" : "xs"}
+                >
+                  {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), uomLimit)}
+                </Field>
+                {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
+                    <Label> only when `label != null`, so an unlabelled cell
+                    starts a label's height higher than the labelled Base beside
+                    it. `h-9 @2xl/editor:h-8` tracks the Combobox's own height —
+                    hard-coding h-9 left the checkbox 4px taller than the select
+                    on the wide editor surface.
+                    Not offered on Yarn or Fabric — `singleUomClass` covers both. */}
+                {!singleUomClass && (
+                  <Field label={<>&nbsp;</>} size="md">
+                    <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                        checked={form.has_alternate_uom}
+                        onChange={(e) => toggleAltUom(e.target.checked)}
+                      />
+                      <span className="text-sm text-foreground">Alternative UOM</span>
+                    </label>
                   </Field>
-                ) : (
-                  <>
-                    <Field label="Base" size={singleUomClass ? "sm" : "xs"}>
-                      {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), uomLimit)}
-                    </Field>
-                    {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
-                        <Label> only when `label != null`, so an unlabelled cell
-                        starts a label's height higher than the labelled Base beside
-                        it. `h-9 @2xl/editor:h-8` tracks the Combobox's own height —
-                        hard-coding h-9 left the checkbox 4px taller than the select
-                        on the wide editor surface.
-                        Not offered on Yarn, nor on a Fabric still missing its
-                        structure — `singleUomClass` covers both. */}
-                    {!singleUomClass && (
-                      <Field label={<>&nbsp;</>} size="md">
-                        <label className="flex h-9 @2xl/editor:h-8 cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 cursor-pointer accent-primary"
-                            checked={form.has_alternate_uom}
-                            onChange={(e) => toggleAltUom(e.target.checked)}
-                          />
-                          <span className="text-sm text-foreground">Alternative UOM</span>
-                        </label>
-                      </Field>
-                    )}
-                  </>
                 )}
-                {/* An existing Flat Knit fabric was stocked in KGS before this
-                    rule; its base is NOS now. Say so rather than letting the unit
-                    on screen quietly disagree with every quantity already booked
-                    against the record. */}
-                {fabricBaseUomId && fabricUomChanged && (
+                {/* THE UNIT ON SCREEN DISAGREES WITH THE ONE THE STORED
+                    QUANTITIES WERE ENTERED IN. Say so — a number does not change
+                    meaning quietly just because the label above it did.
+                    It began as a fabric-only notice (an existing Flat Knit was
+                    stocked in KGS when the structure rule moved it to NOS), and
+                    is now for any class and any cause: the structure prefill on a
+                    re-picked structure, or the operator changing Base by hand,
+                    which is newly possible on fabric. */}
+                {fabricUomChanged && (
                   <Field size="full">
                     <p className="text-xs text-warning">
-                      Base UOM changes from {unitCode(fabricUomChanged)} to {unitCode(fabricBaseUomId)} on save — the
-                      fabric structure now decides it. Quantities already recorded against this material were entered in{" "}
-                      {unitCode(fabricUomChanged)}.
+                      Base UOM changes from {unitCode(fabricUomChanged)} to {unitCode(form.base_uom_id)} on save.
+                      Quantities already recorded against this material were entered in {unitCode(fabricUomChanged)}.
                     </p>
                   </Field>
                 )}

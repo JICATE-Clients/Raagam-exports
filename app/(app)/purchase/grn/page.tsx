@@ -7,6 +7,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { GrnWithVendor } from "@/lib/purchase/grn-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const columns: Column<GrnWithVendor>[] = [
   {
@@ -55,7 +56,7 @@ export default async function GrnListPage() {
         }
       />
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, grns)}
         rows={grns}
         getKey={(r) => r.id}
         empty="No GRNs yet. Create a GRN to start receiving goods against purchase orders."

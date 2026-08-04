@@ -21,6 +21,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { fmtMoney, fmtDate } from "@/lib/format";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 interface Props {
   journals: BankJournal[];
@@ -193,7 +194,7 @@ export function BankJournalsClient({ journals, currencies, canCreate, canDelete 
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, journals)}
         rows={journals}
         getKey={(j) => j.id}
         empty="No bank journal entries yet."

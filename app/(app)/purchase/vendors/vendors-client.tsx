@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const VENDOR_TYPE_LABELS: Record<VendorType, string> = {
   yarn: "Yarn",
@@ -320,7 +321,7 @@ export function VendorsClient({
       )}
 
       <DataTable
-        columns={columns}
+        columns={withCreatedColumns(columns, vendors)}
         rows={vendors}
         getKey={(r) => r.id}
         empty="No vendors yet. Add one above."

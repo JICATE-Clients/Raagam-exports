@@ -17,6 +17,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { createAsset } from "@/lib/admin/extras-actions";
 import { ASSET_STATUS_LABELS, type AssetStatus } from "@/lib/admin/extras-types";
 import type { AssetItemOption, AssetWithRefs, LocationOption } from "@/lib/admin/extras-service";
+import { withCreatedColumns } from "@/components/ui/created-columns";
 
 function tone(s: AssetStatus): StatusTone {
   switch (s) {
@@ -215,7 +216,7 @@ export function AssetsClient({ rows, locations, items, canCreate }: Props) {
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New asset</Button></div>
         ))}
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No assets yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No assets yet." />
     </div>
   );
 }
