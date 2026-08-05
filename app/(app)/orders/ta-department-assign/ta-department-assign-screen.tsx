@@ -170,7 +170,7 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
         title={editId ? "Edit Assignment" : "New Assignment"}
         description="Pick a Location & Department, then assign activities. Blank rows are ignored."
         actions={
-          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+          <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
           </Button>
         }

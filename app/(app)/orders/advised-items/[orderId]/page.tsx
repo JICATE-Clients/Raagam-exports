@@ -32,7 +32,7 @@ export default async function OrderAdvisedItemsPage({
         description={`${order.order_number ?? "—"} · ${order.buyers?.name ?? "Unknown customer"}`}
         actions={
           <Link href="/orders/advised-items">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Prepare Advised Items
             </Button>
           </Link>

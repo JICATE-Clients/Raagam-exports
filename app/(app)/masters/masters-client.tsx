@@ -159,7 +159,7 @@ function BuyersSection({
           canImport={io.canCreate}
           canExport={io.canExport}
         />
-        <Button variant="primary" size="sm" onClick={openAdd}>
+        <Button variant="primary" size="md" onClick={openAdd}>
           + Add Buyer
         </Button>
       </div>
@@ -427,7 +427,7 @@ function ItemsSection({
           canImport={io.canCreate}
           canExport={io.canExport}
         />
-        <Button variant="primary" size="sm" onClick={openAdd}>
+        <Button variant="primary" size="md" onClick={openAdd}>
           + Add Item
         </Button>
       </div>
@@ -619,7 +619,7 @@ function UomsSection({ uoms, io }: { uoms: Uom[]; io: IoPerms }) {
           canImport={io.canCreate}
           canExport={io.canExport}
         />
-        <Button variant="primary" size="sm" onClick={openAdd}>
+        <Button variant="primary" size="md" onClick={openAdd}>
           + Add UOM
         </Button>
       </div>

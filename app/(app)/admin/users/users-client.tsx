@@ -394,7 +394,7 @@ export default function UsersClient({
       <div className="flex justify-end">
         <Button
           variant="primary"
-          size="sm"
+          size="md"
           onClick={() => {
             setShowCreate((v) => !v);
             setManagingUserId(null);

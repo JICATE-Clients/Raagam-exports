@@ -75,7 +75,7 @@ export default async function OrderCompletionsPage() {
         description="Mark a garment order complete and closed."
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Garment Orders
             </Button>
           </Link>

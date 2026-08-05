@@ -15,6 +15,11 @@ import { exportEntity } from "@/lib/data-io/export";
  * Export just the selected rows to Excel. Generalizes `BulkDeleteBar`. Render
  * only for an entity that has a data-io descriptor; pass the currently-selected
  * row objects (already permission-scoped by the list) for export.
+ *
+ * toolbar-size: exempt -- this is not the header row. It appears below it, only
+ * while rows are selected, and every button in it is `sm` together; `h-8` is
+ * already the compact size. The header row is `md` because it sits beside an
+ * `h-9` search Input (LAYOUT.md §10) and there is no Input in here.
  */
 export function BulkActionsBar<Row extends Record<string, unknown>>({
   entityKey,

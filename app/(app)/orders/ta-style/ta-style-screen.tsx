@@ -207,11 +207,11 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
         actions={
           <div className="flex gap-2">
             {editId && (
-              <Button variant="outline" size="sm" onClick={() => loadForm(rows.find((r) => r.id === editId) ?? null, { asCopy: true })}>
+              <Button variant="outline" size="md" onClick={() => loadForm(rows.find((r) => r.id === editId) ?? null, { asCopy: true })}>
                 <Copy className="mr-1 h-3.5 w-3.5" /> Copy
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+            <Button variant="outline" size="md" onClick={() => setMode("list")}>
               ← Back to list
             </Button>
           </div>

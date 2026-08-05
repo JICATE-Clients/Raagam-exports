@@ -22,7 +22,7 @@ export default async function BankJournalsPage() {
         description="Bank transaction log — deposits, withdrawals, charges & interest"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

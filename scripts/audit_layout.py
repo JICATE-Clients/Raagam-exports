@@ -1480,9 +1480,129 @@ def check_required_hold(path: Path, code: str, slug: str):
         )
 
 
+# The header row's own components: every `<Button>` in them is a header-row
+# button, so the whole FILE is the span. They are not exempt -- they are where
+# the bug was. `data-io-toolbar.tsx` hardcoding `size="sm"` is what put a short
+# Download beside a tall Add on 28 screens, and a check that skipped the
+# declaring file would have passed happily throughout.
+TOOLBAR_OWNERS = {
+    "components/data-io/data-io-toolbar.tsx",
+    "components/ui/filter-bar.tsx",
+}
+
+TOOLBAR_EXEMPT = re.compile(r"toolbar-size:\s*exempt\s*--")
+BUTTON_TAG = re.compile(r"<Button(?=[\s/>])")
+SIZE_ATTR = re.compile(r"""\bsize\s*=\s*["'](\w+)["']""")
+# A height baked into the call site's className -- `h-7`, `h-9`. `h-full` and
+# `h-auto` are not heights on this scale and do not match.
+CLASS_HEIGHT = re.compile(r"""\bclassName\s*=\s*["'][^"']*\bh-(\d+)""")
+
+
+def _header_row_spans(code: str) -> list[tuple[int, int]]:
+    """Character spans of the file's header rows.
+
+    Two shapes are recognised, and both are unambiguous:
+
+      1. the innermost `<div>` around a `<DataIoToolbar>` -- that div IS the
+         header row, by construction: the toolbar is never nested anywhere else;
+      2. a `PageHeader` `actions={...}` expression.
+
+    Deliberately NOT recognised: a bare `<div className="flex justify-end">`
+    holding a single button. That shape is a header row on `accounts-client.tsx`
+    and a form footer three files away, and nothing in the source separates
+    them -- so it is left to the eye rather than guessed at here. Adding a third
+    predicate is the way to widen this; widening rule 1 or 2 is not.
+    """
+    spans: list[tuple[int, int]] = []
+
+    for m in re.finditer(r"<DataIoToolbar(?=[\s/>])", code):
+        stack: list[int] = []
+        best: tuple[int, int] | None = None
+        for d in re.finditer(r"</?div\b", code):
+            if d.group(0) == "<div":
+                stack.append(d.start())
+            elif stack:
+                start = stack.pop()
+                end = d.end()
+                # Innermost enclosing div wins -- the later it opens, the tighter.
+                if start < m.start() < end and (best is None or start > best[0]):
+                    best = (start, end)
+        if best:
+            spans.append(best)
+
+    for m in re.finditer(r"\bactions\s*=\s*\{", code):
+        depth = 0
+        for i in range(m.end() - 1, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    spans.append((m.start(), i + 1))
+                    break
+
+    return spans
+
+
+def check_toolbar_size(path: Path, code: str, slug: str):
+    """LAYOUT.md §10 "The header row": one size across the row, and it is `md`.
+
+    The row's fixed element is the search `Input` at `h-9`, so a `size="sm"`
+    button beside it is 4px short, a font size down and 2px tighter on its icon
+    gap. That is how `Download` (sm, inside DataIoToolbar) came to sit next to
+    `+ Add Category` (md) on 28 list screens (client 2026-08-05).
+
+    A height in the call site's `className` is the same bug wearing a fix:
+    `size="sm" className="h-9"` matched the row's height and nothing else, which
+    is why FilterBar's Filters button looked deliberate and read wrong. Same
+    shape as --check text-size-noop, one property along.
+
+    Scoped to header rows only (see `_header_row_spans`). A `+ Add line` inside a
+    ChildGrid is `sm` on purpose and must stay -- `sm` is already the compact
+    size, which is why grid rows never showed this. Contextual bars that are not
+    the header row (bulk-selection, report toolbar) opt out per line with a
+    `toolbar-size: exempt -- <reason>` comment.
+    """
+    if not slug.endswith(".tsx"):
+        return
+    spans = [(0, len(code))] if slug in TOOLBAR_OWNERS else _header_row_spans(code)
+    if not spans:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in TOOLBAR_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+
+    for m in BUTTON_TAG.finditer(code):
+        if not any(s <= m.start() < e for s, e in spans):
+            continue
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        tag = _jsx_open_tag(code, m.start())
+        size = SIZE_ATTR.search(tag)
+        height = CLASS_HEIGHT.search(tag)
+        if height:
+            yield Finding(
+                "toolbar-size", path, line,
+                f"`h-{height.group(1)}` in className on a header-row Button; the "
+                "height belongs to `size=`, not the call site",
+            )
+        elif size and size.group(1) != "md":
+            yield Finding(
+                "toolbar-size", path, line,
+                f'header-row Button is `size="{size.group(1)}"`; the row is '
+                '`md` (LAYOUT.md §10) so it lines up with the search Input and '
+                "the Add button beside it",
+            )
+
+
 CHECKS = {
     "created-columns": check_created_columns,
     "required-hold": check_required_hold,
+    "toolbar-size": check_toolbar_size,
     "truncate-reveal": check_truncate_reveal,
     "autofill": check_autofill,
     "dup-check": check_dup_check,

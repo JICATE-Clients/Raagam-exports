@@ -28,7 +28,7 @@ export default async function OrderCategoriesPage() {
         description="Assign export categories to orders"
         actions={
           <Link href="/logistics">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Logistics
             </Button>
           </Link>

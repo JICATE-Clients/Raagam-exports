@@ -1406,7 +1406,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         title={editId ? "Edit Amendment" : "New Amendment"}
         description="Pick an SCNo to load the order, then amend across the tabs. Wire each ⓘ field from stored data."
         actions={
-          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+          <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
           </Button>
         }

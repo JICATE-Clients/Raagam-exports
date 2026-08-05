@@ -170,7 +170,7 @@ export function VendorsClient({
           canExport={canExport}
         />
         {canCreate && (
-          <Button size="sm" onClick={openAdd}>
+          <Button size="md" onClick={openAdd}>
             + New vendor
           </Button>
         )}

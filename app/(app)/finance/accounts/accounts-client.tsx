@@ -135,7 +135,7 @@ export function AccountsClient({
     <div className="space-y-4">
       {canCreate && (
         <div className="flex justify-end">
-          <Button variant="primary" size="sm" onClick={openAdd}>
+          <Button variant="primary" size="md" onClick={openAdd}>
             + New Account
           </Button>
         </div>

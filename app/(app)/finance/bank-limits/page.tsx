@@ -22,7 +22,7 @@ export default async function BankLimitsPage() {
         description="Bank credit facilities — limits & interest rates"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

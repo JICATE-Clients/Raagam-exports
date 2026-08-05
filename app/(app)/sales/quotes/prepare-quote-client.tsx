@@ -284,12 +284,12 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
         actions={
           <div className="flex items-center gap-2">
             <Link href="/sales">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="md">
                 ← Sales Pipeline
               </Button>
             </Link>
             {perms.canCreate && (
-              <Button size="sm" onClick={() => (open ? setOpen(false) : openAdd())}>
+              <Button size="md" onClick={() => (open ? setOpen(false) : openAdd())}>
                 {open ? "Cancel" : "Prepare Quote"}
               </Button>
             )}

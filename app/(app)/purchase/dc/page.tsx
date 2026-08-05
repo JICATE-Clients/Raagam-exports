@@ -66,7 +66,7 @@ export default async function DcListPage() {
         description="Track materials sent to processors and record returns."
         actions={
           <Link href="/purchase/dc/new">
-            <Button size="sm">New DC</Button>
+            <Button size="md">New DC</Button>
           </Link>
         }
       />

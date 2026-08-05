@@ -22,7 +22,7 @@ export default async function ExportCategoriesPage() {
         description="Commodity category master for export documentation"
         actions={
           <Link href="/logistics">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Logistics
             </Button>
           </Link>

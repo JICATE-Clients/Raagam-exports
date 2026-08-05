@@ -33,7 +33,7 @@ export default async function IwoDetailPage({
         description={iwo.title ?? iwo.customer?.name ?? "Trial / internal work order"}
         actions={
           <Link href="/orders/internal-work-orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← All work orders
             </Button>
           </Link>

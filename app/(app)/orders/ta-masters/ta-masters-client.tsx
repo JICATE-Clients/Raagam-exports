@@ -213,7 +213,7 @@ export function TaMastersClient({
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (
-            <Button variant="outline" size="sm" onClick={closeForm}>
+            <Button variant="outline" size="md" onClick={closeForm}>
               Cancel
             </Button>
           ) : (

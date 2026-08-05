@@ -24,7 +24,7 @@ export default async function EpcgPage() {
         description="Export Promotion Capital Goods licences & export-obligation tracking"
         actions={
           <Link href="/logistics">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Logistics
             </Button>
           </Link>

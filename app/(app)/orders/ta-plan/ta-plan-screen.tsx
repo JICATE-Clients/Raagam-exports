@@ -292,7 +292,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
         title={editId ? "Edit TA Plan" : "New TA Plan"}
         description="Schedule activities against the order. End Dt = Start Dt + Days Required."
         actions={
-          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+          <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
           </Button>
         }

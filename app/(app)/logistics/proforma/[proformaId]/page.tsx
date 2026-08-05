@@ -33,7 +33,7 @@ export default async function ProformaDetailPage({
         description={proforma.buyers?.name ?? "Buyer"}
         actions={
           <Link href="/logistics/proforma">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← All proformas
             </Button>
           </Link>

@@ -31,7 +31,7 @@ export default async function FinanceNotesPage() {
         description="Adjustment notes against vendors (payables) and buyers (receivables)"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

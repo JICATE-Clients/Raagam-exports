@@ -204,11 +204,11 @@ export default function PieceRecordsClient({
             ))}
           </Select>
         </div>
-        <Button variant="outline" size="sm" onClick={navigate}>
+        <Button variant="outline" size="md" onClick={navigate}>
           Load
         </Button>
         <div className="ml-auto">
-          <Button variant="primary" size="sm" onClick={openAdd}>
+          <Button variant="primary" size="md" onClick={openAdd}>
             + Record Pieces
           </Button>
         </div>

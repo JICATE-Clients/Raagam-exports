@@ -75,7 +75,7 @@ export default async function TaCompletionPage() {
         description="Record the completion of an order's Time & Action schedule."
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Orders
             </Button>
           </Link>

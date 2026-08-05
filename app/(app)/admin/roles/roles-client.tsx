@@ -248,7 +248,7 @@ export default function RolesClient({
       <div className="flex justify-end">
         <Button
           variant="primary"
-          size="sm"
+          size="md"
           onClick={() => setShowCreate((v) => !v)}
         >
           + New Role

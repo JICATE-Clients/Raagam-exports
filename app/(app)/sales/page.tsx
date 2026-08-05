@@ -106,7 +106,7 @@ export default async function SalesPipelinePage() {
         description="Track opportunities from enquiry to win"
         actions={
           <Link href="/sales/create">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               Create Opportunities
             </Button>
           </Link>

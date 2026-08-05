@@ -14,6 +14,11 @@ export type ReportView = "table" | "chart";
 /**
  * Actions bar for a report: PDF / Excel export (gated by `reports:export`), Print,
  * and a Table/Chart toggle. Hidden from print output via `print:hidden`.
+ *
+ * toolbar-size: exempt -- a report has no search Input, so there is nothing here
+ * for `md` to line up with. All five buttons are `sm` together and two of them
+ * are a segmented Table/Chart toggle, which reads as one control only while they
+ * stay tight. LAYOUT.md §10 "The header row".
  */
 export function ReportToolbar<T>({
   config,

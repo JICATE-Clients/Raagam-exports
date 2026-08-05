@@ -29,7 +29,7 @@ export default async function CostHeadsPage() {
         description="Cost-head catalogue and granular cost items"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

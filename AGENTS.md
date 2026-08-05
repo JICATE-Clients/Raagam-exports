@@ -464,6 +464,41 @@ scrolls). Anything else opts out per line with a `truncate-reveal: exempt -- <re
 comment. Full rules in `doc/ui/LAYOUT.md` §14; checked by
 `python scripts/audit_layout.py . --check truncate-reveal`.
 
+## The header row (STANDING)
+
+**Every control in the band above a list is `md` (`h-9`)** — search box, `Filters`,
+`Download`, `+ Add <Entity>`, a `← Back` link. Not a preference: the row's fixed element is
+the search `<Input>`, and an `<Input>` is `h-9`. `DataIoToolbar` has no `size` prop to
+choose with, deliberately — the row's size is the row's, not the caller's.
+
+It drifted three ways at once before this was written down (client 2026-08-05), and each
+one is a different lesson:
+
+- **`data-io-toolbar.tsx` hardcoded `size="sm"`**, so Download stood 4px shorter than the
+  Add button beside it — plus a font size smaller and 2px tighter on its icon gap — on 28
+  screens. One component, so one edit fixed all 28; the Add side was copy-pasted into 21
+  files, so **the fan-out is always on the hand-rolled half**.
+- **`FilterBar` hit it first and patched it**: `size="sm" className="h-9"`. The height came
+  out right and nothing else did, which is exactly why it read as deliberate for months.
+  **A call site patching one property of a control's size is the bug `--check
+  text-size-noop` exists to catch**, one property along.
+- **Seven `app/(app)/**` clients went the other way** and made their Add button `sm`.
+  Self-consistent, 4px short of the identical row elsewhere — so there was no single right
+  answer to copy, and a new screen inherited whichever neighbour it was cloned from.
+
+**`sm` is still correct where the row is not a header** — a `ChildGrid` `+ Add line`, the
+bulk-selection bar, the report toolbar. Those are dense on purpose and internally
+consistent, and `h-8` is already the compact size, which is why grid rows never showed
+this. Each opts out per line with a `toolbar-size: exempt -- <reason>` comment.
+
+Checked by `python scripts/audit_layout.py . --check toolbar-size`. It recognises a header
+row exactly two ways — the innermost `<div>` around a `<DataIoToolbar>`, and a `PageHeader`
+`actions={…}` expression — and **deliberately does not guess at a bare
+`<div className="flex justify-end">`**, which is a header row on one screen and a form
+footer on the next. It also does not exempt the two declaring components: skipping
+`data-io-toolbar.tsx` would have made the check pass while the actual cause sat untouched.
+`doc/ui/LAYOUT.md` §10.
+
 ## Browser autofill (STANDING)
 
 **The browser's memory is not a master list.** Chrome remembers every value ever typed

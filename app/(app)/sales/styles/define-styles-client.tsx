@@ -201,12 +201,12 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
         actions={
           <div className="flex items-center gap-2">
             <Link href="/sales">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="md">
                 ← Sales Pipeline
               </Button>
             </Link>
             {perms.canCreate && (
-              <Button size="sm" onClick={openCreate}>
+              <Button size="md" onClick={openCreate}>
                 Add Style
               </Button>
             )}

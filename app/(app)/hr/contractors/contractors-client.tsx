@@ -121,7 +121,7 @@ export default function ContractorsClient({
           canImport={canCreate}
           canExport={canExport}
         />
-        <Button variant="primary" size="sm" onClick={openAdd}>
+        <Button variant="primary" size="md" onClick={openAdd}>
           + Add Contractor
         </Button>
       </div>

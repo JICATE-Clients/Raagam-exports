@@ -86,7 +86,7 @@ export default async function AdvisedItemsPage({
         description="Select an accepted order to prepare its advised items"
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Garment Orders
             </Button>
           </Link>

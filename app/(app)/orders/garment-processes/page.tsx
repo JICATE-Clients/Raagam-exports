@@ -93,7 +93,7 @@ export default async function GarmentProcessesSelectorPage({
         description="Select an accepted order to define its garment process plan"
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Garment Orders
             </Button>
           </Link>

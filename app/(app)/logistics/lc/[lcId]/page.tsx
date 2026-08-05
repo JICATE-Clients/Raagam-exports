@@ -35,7 +35,7 @@ export default async function LcDetailPage({
         description={lc.lc_number ?? lc.buyers?.name ?? "Letter of Credit"}
         actions={
           <Link href="/logistics/lc">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← All LCs
             </Button>
           </Link>

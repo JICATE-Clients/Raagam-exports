@@ -11,6 +11,9 @@ import { bulkDelete } from "@/lib/data-io/actions";
  * Contextual action bar shown when ≥1 row is selected. "Deactivate" soft-deletes
  * the selected records (sets is_active=false) via the generic `bulkDelete`
  * action. Render it only when the user holds `<module>:delete`.
+ *
+ * toolbar-size: exempt -- not the header row; see the same note on
+ * `bulk-actions-bar.tsx` and LAYOUT.md §10.
  */
 export function BulkDeleteBar({
   entityKey,

@@ -149,7 +149,7 @@ export function PartyOpeningsClient({
       {canCreate && (
         <div className="flex justify-end">
           {formOpen ? (
-            <Button variant="outline" size="sm" onClick={resetForm}>
+            <Button variant="outline" size="md" onClick={resetForm}>
               Cancel
             </Button>
           ) : (

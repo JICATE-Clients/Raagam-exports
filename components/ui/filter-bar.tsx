@@ -77,15 +77,25 @@ export function FilterBar({
         />
 
         {hasFilters && (
+          /* `size="md"` (h-9), matching the search Input beside it and the
+             screen's Add button — LAYOUT.md §10 "The header row". This was
+             `size="sm" className="h-9"` for a while: the height was right and
+             nothing else was, so the button kept `sm`'s 12px text and 6px icon
+             gap. A call site patching one property of a control's size is the
+             shape --check text-size-noop exists to catch; --check toolbar-size
+             catches this one.
+
+             A plain block comment, not a braced JSX one: inside `cond && ( … )`
+             the braces open a second expression beside the element, which is a
+             parse error. */
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="h-9"
+            size="md"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
           >
-            <SlidersHorizontal className="mr-1.5 h-4 w-4" />
+            <SlidersHorizontal />
             Filters
             {activeCount > 0 && (
               <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
