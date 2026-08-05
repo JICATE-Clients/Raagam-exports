@@ -23,13 +23,18 @@ export interface MaterialHsnRow {
   category_id: string | null; // public.categories
   hsn_id: string | null; // config_lookups 'hsn_code'
   created_at: string;
+  /** Both halves of the Created pair, or the User column is a row of dashes:
+   *  `withCreators()` resolves the uuid, and a hand-written select has to FETCH
+   *  it first. `items.created_by` is one of the four legacy TEXT columns (0388),
+   *  so it may hold a verbatim username — the resolver handles both. */
+  created_by: string | null;
 }
 
 export async function listMaterialHsn(): Promise<MaterialHsnRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("items")
-    .select("id, code, name, is_active, item_class_id, category_id, hsn_id, created_at")
+    .select("id, code, name, is_active, item_class_id, category_id, hsn_id, created_at, created_by")
     .order("name");
   return withCreators((data ?? []) as MaterialHsnRow[]);
 }

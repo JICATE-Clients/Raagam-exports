@@ -11,6 +11,7 @@ import type {
   BudgetHead,
   BudgetStyle,
 } from "./budget-types";
+import { withCreators } from "@/lib/created-by";
 
 // ============================================================================
 // List budgets
@@ -28,7 +29,7 @@ export async function listBudgets(): Promise<BudgetRow[]> {
     .select("*, customers(name), sales_orders(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
     const order = row.sales_orders as { code: string } | null;
     const { customers: _c, sales_orders: _o, ...rest } = row;
@@ -39,7 +40,7 @@ export async function listBudgets(): Promise<BudgetRow[]> {
       customer_name: customer?.name ?? null,
       order_code: order?.code ?? null,
     };
-  });
+  }));
 }
 
 // ============================================================================

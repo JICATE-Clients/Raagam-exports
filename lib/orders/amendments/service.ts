@@ -10,6 +10,7 @@ import type { Currency } from "@/lib/masters/types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { GarmentOrderAmendment } from "./types";
 import type { Deactivatable } from "@/lib/masters/inactive";
+import { withCreators } from "@/lib/created-by";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
 /**
@@ -59,7 +60,7 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
   const bySno = <T extends { sno: number }>(rows: T[] | undefined): T[] =>
     [...(rows ?? [])].sort((a, b) => a.sno - b.sno);
 
-  return ((data ?? []) as unknown as GarmentOrderAmendment[]).map((r) => ({
+  return withCreators(((data ?? []) as unknown as GarmentOrderAmendment[]).map((r) => ({
     ...r,
     charges: bySno(r.charges),
     style_prices: bySno(r.style_prices),
@@ -71,7 +72,7 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     price_details: bySno(r.price_details),
     approval_qtys: bySno(r.approval_qtys),
     country_sizes: bySno(r.country_sizes),
-  }));
+  })));
 }
 
 /** Confirmed sales orders for the SCNo picker (+ context for auto-load). */

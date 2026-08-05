@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { ExportIncentiveFile } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export async function getIncentiveFiles(): Promise<ExportIncentiveFile[]> {
   const supabase = await createClient();
@@ -8,7 +9,7 @@ export async function getIncentiveFiles(): Promise<ExportIncentiveFile[]> {
     .from("export_incentive_files")
     .select("*")
     .order("created_at", { ascending: false });
-  return (data ?? []) as ExportIncentiveFile[];
+  return withCreators((data ?? []) as ExportIncentiveFile[]);
 }
 
 export { getCurrencyOptions } from "@/lib/logistics/proforma/service";

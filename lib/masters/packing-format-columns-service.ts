@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { PackingFormatColumn } from "./packing-format-columns-types";
+import { withCreators } from "@/lib/created-by";
 
 // Client-safe type + DEFAULT_COLUMNS now live in packing-format-columns-types.ts
 // so client components can import them without pulling in this server-only module.
@@ -14,5 +15,5 @@ export async function listPackingFormatColumns(formatId: string): Promise<Packin
     .select("*")
     .eq("packing_list_format_id", formatId)
     .order("display_order");
-  return (data ?? []) as PackingFormatColumn[];
+  return withCreators((data ?? []) as PackingFormatColumn[]);
 }

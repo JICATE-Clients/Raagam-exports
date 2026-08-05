@@ -23,13 +23,18 @@ export interface ProcessHsnRow {
   hsn_code: string | null; // TEXT — the HSN code we assign
   inactive: boolean; // Status = Inactive when true
   created_at: string;
+  /** Both halves of the Created pair, or the User column is a row of dashes:
+   *  `withCreators()` resolves the uuid, and a hand-written select has to FETCH
+   *  it first. `processes.created_by` is one of the four legacy TEXT columns
+   *  (0388), so it may hold a verbatim username — the resolver handles both. */
+  created_by: string | null;
 }
 
 export async function listProcessHsn(): Promise<ProcessHsnRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("processes")
-    .select("id, name, hsn_code, inactive, created_at")
+    .select("id, name, hsn_code, inactive, created_at, created_by")
     .order("name");
   return withCreators((data ?? []) as ProcessHsnRow[]);
 }

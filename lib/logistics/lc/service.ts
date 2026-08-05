@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { LcDetail } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export type LcWithBuyer = LcDetail & {
   buyers: { id: string; name: string } | null;
@@ -12,7 +13,7 @@ export async function getLcDetails(): Promise<LcWithBuyer[]> {
     .from("lc_details")
     .select("*, buyers(id, name)")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as LcWithBuyer[];
+  return withCreators((data ?? []) as unknown as LcWithBuyer[]);
 }
 
 export async function getLcDetail(id: string): Promise<LcWithBuyer | null> {

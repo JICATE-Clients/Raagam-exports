@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { PayrollRun, PayrollLine, ContractorPayrollRow, Worker, Staff, PayrollSettings } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 // ---------- shaped rows returned to the UI ----------
 
@@ -43,7 +44,7 @@ export async function listRuns(): Promise<RunRow[]> {
 
   if (error) throw new Error(error.message);
 
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => {
     const loc = r.locations as { name: string } | null;
     return {
       ...(r as unknown as PayrollRun),
@@ -55,7 +56,7 @@ export async function listRuns(): Promise<RunRow[]> {
       total_extra_wage: 0,
       total_net: 0,
     };
-  });
+  }));
 }
 
 export async function getRun(runId: string): Promise<(PayrollRun & { location_name: string | null }) | null> {

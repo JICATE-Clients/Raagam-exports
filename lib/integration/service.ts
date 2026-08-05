@@ -8,6 +8,7 @@ import type {
   PurchaseOrderRow,
   SupplierPaymentRow,
 } from "@/lib/integration/tally";
+import { withCreators } from "@/lib/created-by";
 
 // ---------- Local DB result shapes (not exported) ----------
 
@@ -172,12 +173,11 @@ export async function getPendingApprovals(): Promise<ApprovalItem[]> {
     })
   );
 
-  return [
-    ...amendmentItems,
-    ...costSheetItems,
-    ...poItems,
-    ...payrollItems,
-  ];
+  // created-by: exempt -- a work QUEUE, not a record listing. These four kinds
+  // of row are rebuilt into one `ApprovalItem` shape from four different tables,
+  // so there is no `created_by` on them to resolve and the screen shows type /
+  // amount / age rather than the Created pair.
+  return [...amendmentItems, ...costSheetItems, ...poItems, ...payrollItems];
 }
 
 // ---------- Crisis ----------
@@ -259,6 +259,8 @@ export async function getCrisisItems(): Promise<CrisisItem[]> {
     })
   );
 
+  // created-by: exempt -- same shape as `getPendingApprovals` above: one
+  // CrisisItem built from four unrelated tables, with no creator to resolve.
   return [...milestoneItems, ...overduePoItems, ...amendmentItems, ...stockItems];
 }
 
@@ -271,7 +273,7 @@ export async function listExports(): Promise<TallyExport[]> {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(50);
-  return (data ?? []) as TallyExport[];
+  return withCreators((data ?? []) as TallyExport[]);
 }
 
 export async function getExport(

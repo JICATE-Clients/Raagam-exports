@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Payable, PayablePayment } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 // ---------- derived types ----------
 
@@ -92,7 +93,7 @@ export async function listPayables(): Promise<PayableWithVendor[]> {
     .select("*, vendors(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const vendor = row.vendors as { name: string } | null;
     const { vendors: _v, ...rest } = row;
     void _v;
@@ -100,7 +101,7 @@ export async function listPayables(): Promise<PayableWithVendor[]> {
       ...(rest as unknown as Payable),
       vendor_name: vendor?.name ?? null,
     };
-  });
+  }));
 }
 
 export async function getPayable(id: string): Promise<PayableWithDetails | null> {

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { EpcgDeclaration } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export async function getEpcgDeclarations(): Promise<EpcgDeclaration[]> {
   const supabase = await createClient();
@@ -8,7 +9,7 @@ export async function getEpcgDeclarations(): Promise<EpcgDeclaration[]> {
     .from("epcg_declarations")
     .select("*")
     .order("created_at", { ascending: false });
-  return (data ?? []) as EpcgDeclaration[];
+  return withCreators((data ?? []) as EpcgDeclaration[]);
 }
 
 export { getCurrencyOptions } from "@/lib/logistics/proforma/service";

@@ -7,6 +7,7 @@ import {
 } from "@/lib/finance/calc";
 import type { Receivable, ReceivableReceipt } from "@/lib/finance/types";
 import type { AgingBucket } from "@/lib/finance/calc";
+import { withCreators } from "@/lib/created-by";
 
 export type ReceivableWithBuyer = Receivable & {
   buyers: { id: string; name: string; currency_code: string | null } | null;
@@ -23,7 +24,7 @@ export async function listReceivables(): Promise<ReceivableWithBuyer[]> {
     .from("receivables")
     .select("*, buyers(id, name, currency_code), shipments(id, code)")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as ReceivableWithBuyer[];
+  return withCreators((data ?? []) as unknown as ReceivableWithBuyer[]);
 }
 
 export async function getReceivable(id: string): Promise<ReceivableDetail | null> {

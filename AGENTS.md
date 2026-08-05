@@ -181,6 +181,31 @@ profile row, so `creator:profiles!created_by(full_name)` resolves to null for ev
 made by anyone else — it looked right only while `created_by` was NULL everywhere.
 `creator_names()` is `SECURITY DEFINER` and returns nothing but id + name.
 
+**THE COLUMN CHECK PASSING MEANS NOTHING ON ITS OWN.** `creatorName()` refuses to print
+anything uuid-shaped, so a service that hands back a raw `created_by` gives you the right
+column, correctly wired, with a dash in every row — not an error, not a missing column,
+just empty (client 2026-08-05). It was true of **143 list functions across 74 files**: the
+column half was swept app-wide on 2026-08-04 and the data half only in `masters`. Two ways
+to be wrong, and the second is the one that hides:
+
+- the list return is not wrapped in `withCreators()`;
+- a **hand-written `select()` names `created_at` but not `created_by`** — the call is there,
+  the code reads as correct, and `withCreators` has nothing to resolve. Five services were
+  in exactly that state (Material HSN, Process HSN, TCS, Customer GST, Vendor GST), and the
+  sales registers were worse: they **rebuild** each row field by field, so the column has to
+  be selected *and* copied across. A re-mapped row drops a column as silently as a select
+  that never asked for it.
+
+Both are checked by `python scripts/audit_layout.py . --check created-by-data`, over `list*`
+functions in a server service. A `get*` that returns ONE record has no array to resolve; an
+options feeder, a work queue and the audit log itself are genuinely exempt and say so with a
+`// created-by: exempt -- <reason>` comment.
+
+**Nothing recovers a row created before the column existed.** 154 tables carry `created_by`
+and every one now defaults to `auth.uid()` (0383 · 0388), but only 5 tables hold any values —
+everything else predates the default and reads "—" for as long as those rows exist. That is
+0383's stated rule, not a bug to chase: inventing a creator is a lie in an audit column.
+
 `created_by` holds three different things and all three must keep working: a `profiles`
 uuid (106 tables), a uuid that is always NULL (26 tables from 0333/0334, declared with no
 default), and a **verbatim legacy username** on the 7 `text` tables — "SELVARAJ", "admin"

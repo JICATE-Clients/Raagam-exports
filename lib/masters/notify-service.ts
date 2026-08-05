@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Notify } from "./notify-types";
+import { withCreators } from "@/lib/created-by";
 
 export async function listNotifies(): Promise<Notify[]> {
   const s = await createClient();
@@ -13,8 +14,8 @@ export async function listNotifies(): Promise<Notify[]> {
         "contacts:notify_contacts(*)",
     )
     .order("name");
-  return ((data ?? []) as unknown as Notify[]).map((n) => ({
+  return withCreators(((data ?? []) as unknown as Notify[]).map((n) => ({
     ...n,
     contacts: [...(n.contacts ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

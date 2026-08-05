@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { SqDetail, SqGroup, SqDetailNote, SqCancellation, SqPack, SqQuantity } from "./sq-types";
+import { withCreators } from "@/lib/created-by";
 
 export type SqDetailRow = SqDetail & {
   buyer_name: string | null;
@@ -13,14 +14,14 @@ export async function listSqDetails(): Promise<SqDetailRow[]> {
     .from("sq_details")
     .select("*, buyers:customer_id(name), opportunities(code)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as unknown[]).map((r: unknown) => {
+  return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       buyer_name: (row.buyers as { name: string } | null)?.name ?? null,
       opportunity_code: (row.opportunities as { code: string } | null)?.code ?? null,
     } as unknown as SqDetailRow;
-  });
+  }));
 }
 
 export async function getSqDetail(id: string): Promise<SqDetail | null> {
@@ -44,17 +45,17 @@ export async function getSqQuantities(sqDetailId: string): Promise<SqQuantity[]>
 export async function listSqGroups(): Promise<SqGroup[]> {
   const s = await createClient();
   const { data } = await s.from("sq_groups").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as SqGroup[];
+  return withCreators((data ?? []) as SqGroup[]);
 }
 
 export async function listSqDetailNotes(sqDetailId: string): Promise<SqDetailNote[]> {
   const s = await createClient();
   const { data } = await s.from("sq_detail_notes").select("*").eq("sq_detail_id", sqDetailId).order("entry_date", { ascending: false });
-  return (data ?? []) as SqDetailNote[];
+  return withCreators((data ?? []) as SqDetailNote[]);
 }
 
 export async function listSqCancellations(): Promise<SqCancellation[]> {
   const s = await createClient();
   const { data } = await s.from("sq_cancellations").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as SqCancellation[];
+  return withCreators((data ?? []) as SqCancellation[]);
 }

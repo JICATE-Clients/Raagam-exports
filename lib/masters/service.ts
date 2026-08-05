@@ -1,11 +1,12 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Buyer, Item, Uom, Currency } from "@/lib/masters/types";
+import { withCreators } from "@/lib/created-by";
 
 export async function listBuyers(): Promise<Buyer[]> {
   const supabase = await createClient();
   const { data } = await supabase.from("buyers").select("*").order("name");
-  return (data ?? []) as Buyer[];
+  return withCreators((data ?? []) as Buyer[]);
 }
 
 /**
@@ -31,17 +32,17 @@ export async function listCustomersForPicker(): Promise<
 export async function listItems(): Promise<Item[]> {
   const supabase = await createClient();
   const { data } = await supabase.from("items").select("*").order("name");
-  return (data ?? []) as Item[];
+  return withCreators((data ?? []) as Item[]);
 }
 
 export async function listUoms(): Promise<Uom[]> {
   const supabase = await createClient();
   const { data } = await supabase.from("uoms").select("*").order("name");
-  return (data ?? []) as Uom[];
+  return withCreators((data ?? []) as Uom[]);
 }
 
 export async function listCurrencies(): Promise<Currency[]> {
   const supabase = await createClient();
   const { data } = await supabase.from("currencies").select("*").order("name");
-  return (data ?? []) as Currency[];
+  return withCreators((data ?? []) as Currency[]);
 }

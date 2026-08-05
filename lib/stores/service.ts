@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import type { Store, StockBalance, StockLedgerEntry, StoreAccessRow } from "./types";
 import type { Item } from "@/lib/masters/types";
 
@@ -55,11 +56,13 @@ export async function listAccessibleStores(): Promise<StoreWithStats[]> {
     s.total_qty += b.quantity;
   }
 
-  return stores.map((s) => ({
-    ...s,
-    item_count: statsMap[s.id]?.item_count ?? 0,
-    total_qty: statsMap[s.id]?.total_qty ?? 0,
-  }));
+  return withCreators(
+    stores.map((s) => ({
+      ...s,
+      item_count: statsMap[s.id]?.item_count ?? 0,
+      total_qty: statsMap[s.id]?.total_qty ?? 0,
+    })),
+  );
 }
 
 /** Minimal active-store list for sidebar navigation (id + code + name only). */

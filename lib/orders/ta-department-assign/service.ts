@@ -5,6 +5,7 @@ import type { EmployeeLocation } from "@/lib/masters/employee-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { PickerItem } from "@/components/masters/record-picker";
 import type { TaDepartmentAssign } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export async function getTaDepartmentAssigns(): Promise<TaDepartmentAssign[]> {
   const s = await createClient();
@@ -16,10 +17,10 @@ export async function getTaDepartmentAssigns(): Promise<TaDepartmentAssign[]> {
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as TaDepartmentAssign[]).map((d) => ({
+  return withCreators(((data ?? []) as unknown as TaDepartmentAssign[]).map((d) => ({
     ...d,
     lines: [...(d.lines ?? [])].sort((a, b) => a.sno - b.sno),
-  }));
+  })));
 }
 
 export type TaDeptAssignFormData = {

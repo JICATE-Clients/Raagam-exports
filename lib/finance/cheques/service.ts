@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Cheque } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export async function getCheques(): Promise<Cheque[]> {
   const supabase = await createClient();
@@ -8,7 +9,7 @@ export async function getCheques(): Promise<Cheque[]> {
     .from("cheques")
     .select("*")
     .order("created_at", { ascending: false });
-  return (data ?? []) as Cheque[];
+  return withCreators((data ?? []) as Cheque[]);
 }
 
 export { getCurrencyOptions } from "@/lib/logistics/proforma/service";

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Asset, AssetAssignment, Courier, CourierDespatch } from "./extras-types";
+import { withCreators } from "@/lib/created-by";
 
 export type LocationOption = { id: string; code: string; name: string };
 /** A Capital Goods material offered as an asset name (0350). `category` is the
@@ -33,11 +34,11 @@ export async function listAssets(): Promise<AssetWithRefs[]> {
     .from("assets")
     .select("*, locations(code), items(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as Asset),
     location_code: joined(r, "locations", "code"),
     item_name: joined(r, "items", "name"),
-  }));
+  })));
 }
 export async function getAsset(id: string): Promise<AssetWithRefs | null> {
   const s = await createClient();
@@ -68,7 +69,7 @@ export async function getAssetAssignments(assetId: string): Promise<AssetAssignm
 export async function listCouriers(): Promise<Courier[]> {
   const s = await createClient();
   const { data } = await s.from("couriers").select("*").order("name");
-  return (data ?? []) as Courier[];
+  return withCreators((data ?? []) as Courier[]);
 }
 export async function getCourierOptions(): Promise<CourierOption[]> {
   const s = await createClient();
@@ -86,8 +87,8 @@ export async function listCourierDespatches(): Promise<CourierDespatchWithRefs[]
     .from("courier_despatches")
     .select("*, couriers(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as CourierDespatch),
     courier_name: joined(r, "couriers", "name"),
-  }));
+  })));
 }

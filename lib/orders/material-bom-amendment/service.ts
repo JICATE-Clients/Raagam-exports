@@ -8,6 +8,7 @@ import type { Customer } from "@/lib/masters/customer-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { MaterialBomAmendment } from "./types";
 import { isInactive } from "@/lib/masters/inactive";
+import { withCreators } from "@/lib/created-by";
 
 /** Accepted order for the BOM amendment picker. */
 export type AcceptedOrderRow = {
@@ -85,11 +86,11 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as MaterialBomAmendment[]).map((r) => ({
+  return withCreators(((data ?? []) as unknown as MaterialBomAmendment[]).map((r) => ({
     ...r,
     items: [...(r.items ?? [])].sort((a, b) => a.sno - b.sno),
     processes: [...(r.processes ?? [])].sort((a, b) => a.sno - b.sno),
-  }));
+  })));
 }
 
 async function pickerRows(table: string): Promise<PickerRow[]> {

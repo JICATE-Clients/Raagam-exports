@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { PickerItem } from "@/components/masters/record-picker";
 import type { TaUserRight } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export type ActivityRow = { id: string; short_name: string; name: string };
 
@@ -49,7 +50,7 @@ export async function getTaUserRightsFormData(): Promise<TaUserRightsFormData> {
 export async function getAllTaUserRights(): Promise<TaUserRight[]> {
   const s = await createClient();
   const { data } = await s.from("ta_user_rights").select("*");
-  return (data ?? []) as TaUserRight[];
+  return withCreators((data ?? []) as TaUserRight[]);
 }
 
 export type TaUserRightsSummaryRow = {

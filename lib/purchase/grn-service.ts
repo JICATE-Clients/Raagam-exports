@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Grn, GrnLineItem, DeliveryChallan, DcLineItem, Vendor } from "./types";
 import { poLineOpenBalance } from "./types";
 import type { Item, Uom } from "@/lib/masters/types";
+import { withCreators } from "@/lib/created-by";
 
 // ---------- enriched types ----------
 
@@ -64,7 +65,7 @@ export async function listGrns(): Promise<GrnWithVendor[]> {
     countMap[lc.grn_id] = (countMap[lc.grn_id] ?? 0) + 1;
   }
 
-  return rows.map((r) => ({ ...r, line_count: countMap[r.id] ?? 0 }));
+  return withCreators(rows.map((r) => ({ ...r, line_count: countMap[r.id] ?? 0 })));
 }
 
 export async function getGrn(id: string): Promise<GrnWithVendor | null> {
@@ -196,7 +197,7 @@ export async function listDcs(): Promise<DcWithVendor[]> {
     outMap[l.delivery_challan_id] = (outMap[l.delivery_challan_id] ?? 0) + bal;
   }
 
-  return rows.map((r) => ({ ...r, outstanding_qty: outMap[r.id] ?? 0 }));
+  return withCreators(rows.map((r) => ({ ...r, outstanding_qty: outMap[r.id] ?? 0 })));
 }
 
 export async function getDc(id: string): Promise<DcDetail | null> {

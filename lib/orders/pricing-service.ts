@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderPrice, PriceConfirmation, PcPurchaseItem, PcProcess, PcCmtOperation } from "./pricing-types";
+import { withCreators } from "@/lib/created-by";
 
 export async function getOrderPrices(salesOrderId: string): Promise<OrderPrice[]> {
   const s = await createClient();
@@ -13,10 +14,10 @@ export type PriceConfirmationRow = PriceConfirmation & { order_code: string | nu
 export async function listPriceConfirmations(): Promise<PriceConfirmationRow[]> {
   const s = await createClient();
   const { data } = await s.from("price_confirmations").select("*, sales_orders(order_number)").order("created_at", { ascending: false });
-  return ((data ?? []) as unknown[]).map((r: unknown) => {
+  return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return { ...row, order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null } as unknown as PriceConfirmationRow;
-  });
+  }));
 }
 
 export async function getPcPurchaseItems(priceConfId: string): Promise<PcPurchaseItem[]> {

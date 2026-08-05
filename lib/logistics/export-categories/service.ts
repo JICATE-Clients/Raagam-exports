@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { ExportCategory, OrderCategoryAssignment } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export type AssignmentRow = OrderCategoryAssignment & {
   sales_orders: {
@@ -23,7 +24,7 @@ export async function getExportCategories(): Promise<ExportCategory[]> {
     .from("export_categories")
     .select("*")
     .order("name");
-  return (data ?? []) as ExportCategory[];
+  return withCreators((data ?? []) as ExportCategory[]);
 }
 
 export async function getActiveCategories(): Promise<
@@ -46,7 +47,7 @@ export async function getOrderCategoryAssignments(): Promise<AssignmentRow[]> {
       "*, sales_orders(id, order_number, buyers(name)), export_categories(id, name)",
     )
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as AssignmentRow[];
+  return withCreators((data ?? []) as unknown as AssignmentRow[]);
 }
 
 export async function getOrderOptions(): Promise<OrderOption[]> {

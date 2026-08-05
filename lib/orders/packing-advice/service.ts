@@ -6,6 +6,7 @@ import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { PackingAdvice } from "./types";
 import type { Deactivatable } from "@/lib/masters/inactive";
+import { withCreators } from "@/lib/created-by";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
 /** The disable flag rides along in whichever of the three spellings the source
@@ -27,10 +28,10 @@ export async function getPackingAdvices(): Promise<PackingAdvice[]> {
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as PackingAdvice[]).map((r) => ({
+  return withCreators(((data ?? []) as unknown as PackingAdvice[]).map((r) => ({
     ...r,
     lines: [...(r.lines ?? [])].sort((a, b) => a.sort_order - b.sort_order),
-  }));
+  })));
 }
 
 /** Confirmed sales orders for the SC No picker. */

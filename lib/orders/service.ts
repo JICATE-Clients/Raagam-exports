@@ -11,6 +11,7 @@ import {
 } from "./types";
 import type { Buyer } from "@/lib/masters/types";
 import type { Quote } from "@/lib/sales/types";
+import { withCreators } from "@/lib/created-by";
 
 /** Sales order enriched with buyer for list / detail views. */
 export type OrderWithBuyer = SalesOrder & {
@@ -64,7 +65,7 @@ export async function getOrders(): Promise<OrderWithBuyer[]> {
     .from("sales_orders")
     .select("*, buyers(id, name, country)")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as OrderWithBuyer[];
+  return withCreators((data ?? []) as unknown as OrderWithBuyer[]);
 }
 
 export async function getOrder(id: string): Promise<OrderWithBuyer | null> {
@@ -146,7 +147,7 @@ export async function getAcceptedQuotes(): Promise<QuoteWithContext[]> {
     .select("*, buyers(id, name, currency_code), opportunities(id, title)")
     .eq("status", "accepted")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as QuoteWithContext[];
+  return withCreators((data ?? []) as unknown as QuoteWithContext[]);
 }
 
 export async function getBuyers(): Promise<Pick<Buyer, "id" | "name" | "code" | "currency_code">[]> {

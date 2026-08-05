@@ -11,6 +11,7 @@ import type {
   Inspection,
   Despatch,
 } from "./extras-types";
+import { withCreators } from "@/lib/created-by";
 
 export type OrderOption = { id: string; order_number: string | null };
 export type ContractorOption = { id: string; code: string | null; name: string };
@@ -42,12 +43,12 @@ export async function getWorkTypeOptions(): Promise<WorkTypeOption[]> {
 export async function listWorkTypes(): Promise<WorkType[]> {
   const s = await createClient();
   const { data } = await s.from("work_types").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as WorkType[];
+  return withCreators((data ?? []) as WorkType[]);
 }
 export async function listSewingOperations(): Promise<SewingOperation[]> {
   const s = await createClient();
   const { data } = await s.from("sewing_operations").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as SewingOperation[];
+  return withCreators((data ?? []) as SewingOperation[]);
 }
 
 // ---------- job orders ----------
@@ -60,10 +61,10 @@ export async function listJobOrders(): Promise<JobOrderWithRefs[]> {
     .from("production_job_orders")
     .select("*, sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as ProductionJobOrder),
     order_number: joined(r, "sales_orders", "order_number"),
-  }));
+  })));
 }
 export async function getJobOrder(id: string): Promise<ProductionJobOrder | null> {
   const s = await createClient();
@@ -91,11 +92,11 @@ export async function listPieceRates(): Promise<PieceRateWithRefs[]> {
     .from("contractor_piece_rates")
     .select("*, contractors(name), work_types(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as ContractorPieceRate),
     contractor_name: joined(r, "contractors", "name"),
     work_type_name: joined(r, "work_types", "name"),
-  }));
+  })));
 }
 
 // ---------- packing lists ----------
@@ -108,10 +109,10 @@ export async function listPackingLists(): Promise<PackingListWithRefs[]> {
     .from("packing_lists")
     .select("*, sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as PackingList),
     order_number: joined(r, "sales_orders", "order_number"),
-  }));
+  })));
 }
 export async function getPackingList(id: string): Promise<PackingList | null> {
   const s = await createClient();
@@ -138,10 +139,10 @@ export async function listInspections(): Promise<InspectionWithRefs[]> {
     .from("inspections")
     .select("*, sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as Inspection),
     order_number: joined(r, "sales_orders", "order_number"),
-  }));
+  })));
 }
 
 // ---------- despatches ----------
@@ -154,8 +155,8 @@ export async function listDespatches(): Promise<DespatchWithRefs[]> {
     .from("despatches")
     .select("*, sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as Despatch),
     order_number: joined(r, "sales_orders", "order_number"),
-  }));
+  })));
 }

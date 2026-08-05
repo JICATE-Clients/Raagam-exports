@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { GarmentProcessAmendment } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** Buyer option for the Customer picker. */
 export type BuyerRow = { id: string; code: string | null; name: string };
@@ -28,10 +29,10 @@ export async function getProcessAmendments(): Promise<GarmentProcessAmendment[]>
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as GarmentProcessAmendment[]).map((d) => ({
+  return withCreators(((data ?? []) as unknown as GarmentProcessAmendment[]).map((d) => ({
     ...d,
     lines: [...(d.lines ?? [])].sort((a, b) => a.sno - b.sno),
-  }));
+  })));
 }
 
 export type GpaFormData = {

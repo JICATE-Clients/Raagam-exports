@@ -7,6 +7,7 @@ import type { Customer } from "@/lib/masters/customer-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { GarmentStyle } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
 export type PickerRow = { id: string; code: string | null; name: string };
@@ -24,12 +25,12 @@ export async function getGarmentStyles(): Promise<GarmentStyle[]> {
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as GarmentStyle[]).map((r) => ({
+  return withCreators(((data ?? []) as unknown as GarmentStyle[]).map((r) => ({
     ...r,
     coordinates: [...(r.coordinates ?? [])].sort((a, b) => a.sno - b.sno),
     components: [...(r.components ?? [])].sort((a, b) => a.sno - b.sno),
     sizes: [...(r.sizes ?? [])].sort((a, b) => a.sno - b.sno),
-  }));
+  })));
 }
 
 /** UOMs normalized for the Unit RecordPicker. */

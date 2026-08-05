@@ -6,6 +6,7 @@ import type {
   ProcessMaterialIssue,
   ProcessMaterialReceipt,
 } from "./process-types";
+import { withCreators } from "@/lib/created-by";
 
 export type ProcWithVendor = ProcessOrder & { vendor_name: string | null };
 export type ProcWithDetails = ProcWithVendor & { lines: ProcessOrderLine[] };
@@ -17,7 +18,7 @@ export async function listProcessOrders(): Promise<ProcWithVendor[]> {
     .select("*, vendors(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const vendor = row.vendors as { name: string } | null;
     const { vendors: _v, ...rest } = row;
     void _v;
@@ -25,7 +26,7 @@ export async function listProcessOrders(): Promise<ProcWithVendor[]> {
       ...(rest as unknown as ProcessOrder),
       vendor_name: vendor?.name ?? null,
     };
-  });
+  }));
 }
 
 export async function getProcessOrder(
@@ -72,7 +73,7 @@ export async function listProcessIssues(
   }
 
   const { data } = await query;
-  return (data ?? []) as ProcessMaterialIssue[];
+  return withCreators((data ?? []) as ProcessMaterialIssue[]);
 }
 
 export async function listProcessReceipts(
@@ -89,5 +90,5 @@ export async function listProcessReceipts(
   }
 
   const { data } = await query;
-  return (data ?? []) as ProcessMaterialReceipt[];
+  return withCreators((data ?? []) as ProcessMaterialReceipt[]);
 }

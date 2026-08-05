@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { shipmentPnl, money } from "@/lib/finance/calc";
 import type { ShipmentCost } from "@/lib/finance/types";
 import type { ShipmentPnl } from "@/lib/finance/calc";
+import { withCreators } from "@/lib/created-by";
 
 export type ShipmentRow = {
   id: string;
@@ -60,13 +61,13 @@ export async function listShipmentPnl(): Promise<ShipmentPnlRow[]> {
     costsByShipment.set(c.shipment_id, list);
   }
 
-  return ((shipments ?? []) as unknown as ShipmentRow[]).map((s) => {
+  return withCreators(((shipments ?? []) as unknown as ShipmentRow[]).map((s) => {
     const rawRev = revByShipment.get(s.id);
     // Use receivable amount_inr when invoiced; else fall back to shipment total_value (FOB baseline)
     const revenue = rawRev != null ? money(rawRev) : s.total_value;
     const costs = costsByShipment.get(s.id) ?? [];
     return { shipment: s, revenue, costs, pnl: shipmentPnl(revenue, costs) };
-  });
+  }));
 }
 
 // ---------- detail ----------

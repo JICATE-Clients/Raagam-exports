@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderCompletion } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** A selectable order for the SC No picker (carries buyer for auto-fill). */
 export type OrderOption = {
@@ -28,7 +29,7 @@ export async function getCompletions(): Promise<CompletionRow[]> {
     .from("order_completions")
     .select("*, sales_orders(order_number, buyers(name))")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as CompletionRow[];
+  return withCreators((data ?? []) as unknown as CompletionRow[]);
 }
 
 /** Orders that can still be completed (not cancelled and not already closed). */

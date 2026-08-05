@@ -4,6 +4,7 @@ import type {
   PriceConfirmation,
   PriceConfirmationItem,
 } from "./price-confirmation-types";
+import { withCreators } from "@/lib/created-by";
 
 export type PcWithVendor = PriceConfirmation & { vendor_name: string | null };
 
@@ -14,7 +15,7 @@ export async function listPriceConfirmations(): Promise<PcWithVendor[]> {
     .select("*, vendors(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const vendor = row.vendors as { name: string } | null;
     const { vendors: _v, ...rest } = row;
     void _v;
@@ -22,7 +23,7 @@ export async function listPriceConfirmations(): Promise<PcWithVendor[]> {
       ...(rest as unknown as PriceConfirmation),
       vendor_name: vendor?.name ?? null,
     };
-  });
+  }));
 }
 
 export async function getPriceConfirmation(

@@ -32,7 +32,7 @@ export async function getAdvisedItemsByOrder(
     .eq("sales_order_id", orderId)
     .order("sort_order")
     .order("created_at");
-  return (data ?? []) as OrderAdvisedItem[];
+  return withCreators((data ?? []) as OrderAdvisedItem[]);
 }
 
 /** An accepted order plus its count of already-prepared advised items. */
@@ -61,10 +61,10 @@ export async function getAcceptedOrdersWithAdvisedCount(filters?: {
 
   const { data } = await query.order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as (OrderWithBuyer & {
+  return withCreators(((data ?? []) as unknown as (OrderWithBuyer & {
     order_advised_items: { count: number }[];
   })[]).map((o) => ({
     ...o,
     item_count: o.order_advised_items?.[0]?.count ?? 0,
-  }));
+  })));
 }

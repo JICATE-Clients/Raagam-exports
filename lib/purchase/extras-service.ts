@@ -9,6 +9,7 @@ import type {
   LabTestStandard,
   LabTest,
 } from "./extras-types";
+import { withCreators } from "@/lib/created-by";
 
 // reuse existing purchase pickers
 export { getVendorsForPicker, getItems, getUoms, listPurchaseOrders } from "./po-service";
@@ -107,10 +108,10 @@ export async function listPurchaseIndents(): Promise<PurchaseIndentWithRefs[]> {
     .from("purchase_indents")
     .select("*, sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as PurchaseIndent),
     order_number: joined(r, "sales_orders", "order_number"),
-  }));
+  })));
 }
 export async function getPurchaseIndent(id: string): Promise<PurchaseIndent | null> {
   const s = await createClient();
@@ -139,10 +140,10 @@ export async function listOverBudget(): Promise<OverBudgetWithRefs[]> {
     .from("over_budget_confirmations")
     .select("*, purchase_orders(code)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as OverBudgetConfirmation),
     po_code: joined(r, "purchase_orders", "code"),
-  }));
+  })));
 }
 
 // ============================================================================
@@ -157,10 +158,10 @@ export async function listRateAmendments(): Promise<RateAmendmentWithRefs[]> {
     .from("po_rate_amendments")
     .select("*, purchase_orders(code)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as PoRateAmendment),
     po_code: joined(r, "purchase_orders", "code"),
-  }));
+  })));
 }
 
 // ============================================================================
@@ -176,7 +177,7 @@ export async function listPoCancellations(): Promise<PoCancellationWithRefs[]> {
     .from("po_cancellations")
     .select("*, purchase_orders(code, vendors(name))")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => {
     const po = r.purchase_orders as Record<string, unknown> | null;
     const vendor = po?.vendors as Record<string, unknown> | null;
     return {
@@ -184,7 +185,7 @@ export async function listPoCancellations(): Promise<PoCancellationWithRefs[]> {
       po_code: (po?.code as string | null) ?? null,
       vendor_name: (vendor?.name as string | null) ?? null,
     };
-  });
+  }));
 }
 
 // ============================================================================
@@ -196,7 +197,7 @@ export async function listLabStandards(): Promise<LabTestStandard[]> {
     .from("lab_test_standards")
     .select("*")
     .order("created_at", { ascending: false });
-  return (data ?? []) as LabTestStandard[];
+  return withCreators((data ?? []) as LabTestStandard[]);
 }
 export interface LabTestWithRefs extends LabTest {
   standard_name: string | null;
@@ -207,10 +208,10 @@ export async function listLabTests(): Promise<LabTestWithRefs[]> {
     .from("lab_tests")
     .select("*, lab_test_standards(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as LabTest),
     standard_name: joined(r, "lab_test_standards", "name"),
-  }));
+  })));
 }
 export async function getLabStandardOptions(): Promise<{ id: string; code: string | null; name: string }[]> {
   const s = await createClient();

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { PipelineOrder, SeasonalOrder } from "./pipeline-types";
+import { withCreators } from "@/lib/created-by";
 
 export type PipelineOrderRow = PipelineOrder & { buyer_name: string | null };
 
@@ -10,13 +11,13 @@ export async function listPipelineOrders(): Promise<PipelineOrderRow[]> {
     .from("pipeline_orders")
     .select("*, buyers:customer_id(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as unknown[]).map((r: unknown) => {
+  return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       buyer_name: (row.buyers as { name: string } | null)?.name ?? null,
     } as unknown as PipelineOrderRow;
-  });
+  }));
 }
 
 export type SeasonalOrderRow = SeasonalOrder & { vendor_name: string | null };
@@ -27,11 +28,11 @@ export async function listSeasonalOrders(): Promise<SeasonalOrderRow[]> {
     .from("seasonal_orders")
     .select("*, vendors:vendor_id(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as unknown[]).map((r: unknown) => {
+  return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       vendor_name: (row.vendors as { name: string } | null)?.name ?? null,
     } as unknown as SeasonalOrderRow;
-  });
+  }));
 }

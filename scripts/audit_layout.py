@@ -1249,6 +1249,93 @@ def check_created_columns(path: Path, code: str, slug: str):
 
 
 # --------------------------------------------------------------------------
+# created-by-data
+# --------------------------------------------------------------------------
+
+# An exported service function, and the whole of its body up to the next
+# top-level `export` (services in this repo are flat modules of them).
+SERVICE_FN = re.compile(r"^export (?:async )?function (\w+)", re.M)
+
+# A `.select("...")` argument, string literals only -- a `+`-joined embed list
+# still matches piece by piece, which is all this needs.
+SELECT_ARG = re.compile(r"\.select\(\s*((?:\s*\"[^\"]*\"\s*\+?)+)", re.S)
+
+CREATED_BY_EXEMPT = re.compile(r"created-by:\s*exempt\b")
+
+
+def check_created_by_data(path: Path, code: str, slug: str):
+    """AGENTS.md: the Created pair needs a DATA half, and it is `withCreators()`.
+
+    The column half is `withCreatedColumns` and is checked above. It renders
+    `creatorName(row)`, which REFUSES to print anything uuid-shaped -- so a
+    listing whose service hands back a raw `created_by` uuid shows a column of
+    dashes. Not a missing column, not an error: the right column, wired up, with
+    nothing in it. That is exactly how it was reported (client 2026-08-05), and
+    why the column check passing means nothing on its own.
+
+    `withCreators()` (lib/created-by.ts) resolves the uuids through
+    `creator_names()` in one round trip. It is not a PostgREST embed on purpose
+    -- `profiles_read_own` resolves an embed to null for every record made by
+    anyone else -- and it costs nothing when there is nothing to resolve: no
+    uuid-shaped `created_by` in the rows means no query at all.
+
+    Two findings, and the second is the one that hides:
+
+      1. a list function that fetches `created_at` and never resolves the name;
+      2. a HAND-WRITTEN select that names `created_at` but not `created_by`.
+         `withCreators` can only resolve a column the query actually fetched, so
+         the call is there, the code reads as correct, and the cell is a dash.
+         Five services were in that state -- Material HSN, Process HSN, TCS,
+         Customer GST and the sales registers.
+
+    Scoped to `list*` functions in a server service. A `get*` that returns one
+    record has no array to resolve, and a line-item fetcher has no creator worth
+    showing (the document above it does). Opt out per function with a
+    `created-by: exempt -- <reason>` comment.
+    """
+    if not slug.startswith("lib/") or not slug.endswith(".ts"):
+        return
+    if "created-by.ts" in slug or "@/lib/supabase/server" not in code:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in CREATED_BY_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+
+    bounds = [m.start() for m in SERVICE_FN.finditer(code)] + [len(code)]
+    for i, m in enumerate(SERVICE_FN.finditer(code)):
+        name = m.group(1)
+        if not name.startswith("list"):
+            continue
+        body = code[bounds[i]:bounds[i + 1]]
+        if ".from(" not in body:
+            continue
+        selects = " ".join(s.group(1) for s in SELECT_ARG.finditer(body))
+        star = '"*' in selects.replace(" ", "")
+        if not star and "created_at" not in selects:
+            continue  # the rows carry no creation info; the pair self-hides
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        if not star and "created_by" not in selects:
+            yield Finding(
+                "created-by-data", path, line,
+                f"{name}() selects created_at but not created_by, so the Created "
+                "User column is a run of dashes -- withCreators() can only "
+                "resolve a uuid the query fetched",
+            )
+        elif "withCreators(" not in body:
+            yield Finding(
+                "created-by-data", path, line,
+                f"{name}() returns rows with created_at and no resolved creator; "
+                "wrap the return in withCreators() (lib/created-by.ts) or add a "
+                "`created-by: exempt -- <reason>` comment",
+            )
+
+
+# --------------------------------------------------------------------------
 # required-hold
 # --------------------------------------------------------------------------
 
@@ -1601,6 +1688,7 @@ def check_toolbar_size(path: Path, code: str, slug: str):
 
 CHECKS = {
     "created-columns": check_created_columns,
+    "created-by-data": check_created_by_data,
     "required-hold": check_required_hold,
     "toolbar-size": check_toolbar_size,
     "truncate-reveal": check_truncate_reveal,

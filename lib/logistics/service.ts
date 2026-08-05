@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Shipment, ShipmentLine, ShipmentDocument, DocType } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** Shipment enriched with buyer for list / detail views. */
 export type ShipmentWithBuyer = Shipment & {
@@ -39,7 +40,7 @@ export async function listShipments(): Promise<ShipmentWithBuyer[]> {
     .from("shipments")
     .select("*, buyers(id, name, country)")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as ShipmentWithBuyer[];
+  return withCreators((data ?? []) as unknown as ShipmentWithBuyer[]);
 }
 
 export async function getShipment(id: string): Promise<ShipmentWithBuyer | null> {

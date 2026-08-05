@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { PartyOpening } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export type PartyOpeningRow = PartyOpening & {
   vendors: { id: string; name: string } | null;
@@ -13,7 +14,7 @@ export async function getPartyOpenings(): Promise<PartyOpeningRow[]> {
     .from("party_openings")
     .select("*, vendors(id, name), buyers(id, name)")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as PartyOpeningRow[];
+  return withCreators((data ?? []) as unknown as PartyOpeningRow[]);
 }
 
 export {
