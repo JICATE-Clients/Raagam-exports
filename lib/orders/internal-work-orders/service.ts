@@ -5,6 +5,7 @@ import { listConfigLookups } from "@/lib/masters/extras-service";
 import type { Customer } from "@/lib/masters/customer-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { InternalWorkOrder, IwoLine } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 type OrderRef = { id: string; order_number: string | null; buyers: { name: string } | null };
 type LocationRef = { id: string; code: string; name: string };
@@ -36,7 +37,7 @@ export async function getInternalWorkOrders(): Promise<IwoWithOrder[]> {
         "customer:customers(id, name), style:garment_styles(id, code, style_name)",
     )
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as IwoWithOrder[];
+  return withCreators((data ?? []) as unknown as IwoWithOrder[]);
 }
 
 /** Picker option lists for the legacy IWO form. */

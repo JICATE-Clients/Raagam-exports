@@ -22,7 +22,7 @@ export async function listTransporters(): Promise<Transporter[]> {
 export async function listGstRates(): Promise<GstRate[]> {
   const s = await createClient();
   const { data } = await s.from("gst_rates").select("*").order("rate_pct");
-  return (data ?? []) as GstRate[];
+  return withCreators((data ?? []) as GstRate[]);
 }
 
 export async function listItemClasses(): Promise<ConfigLookup[]> {

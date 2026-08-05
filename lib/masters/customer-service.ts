@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Customer } from "./customer-types";
+import { withCreators } from "@/lib/created-by";
 
 export async function listCustomers(): Promise<Customer[]> {
   const s = await createClient();
@@ -17,7 +18,7 @@ export async function listCustomers(): Promise<Customer[]> {
         "markings:customer_markings(*)",
     )
     .order("name");
-  return ((data ?? []) as unknown as Customer[]).map((c) => ({
+  return withCreators(((data ?? []) as unknown as Customer[]).map((c) => ({
     ...c,
     contacts: [...(c.contacts ?? [])].sort((x, y) => x.sno - y.sno),
     applicants: [...(c.applicants ?? [])].sort((x, y) => x.sno - y.sno),
@@ -25,5 +26,5 @@ export async function listCustomers(): Promise<Customer[]> {
     supplied_items: [...(c.supplied_items ?? [])].sort((x, y) => x.sno - y.sno),
     nominated_vendors: [...(c.nominated_vendors ?? [])].sort((x, y) => x.sno - y.sno),
     markings: [...(c.markings ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

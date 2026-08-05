@@ -63,10 +63,28 @@ Three things that look like details:
   "any form with a submit button" branch would cage the operator inside a search form
   (98 of the 99 unmarked forms in this repo have one).
 - **Inside a child grid the GRID owns Tab** (`tabAlongRow`, `child-grid.tsx`): along the
-  row's `ROW_FIELDS`, on to the next row, declining at the last cell so Tab can still leave.
+  row's fields, on to the next row, declining at the last cell so Tab can still leave.
   That is the same exception the grid already has for ↑↓←→ and Enter, and it is what covers
   the **page-level** screens the gate above excludes — TA Plan / TA Style / TA Department
   Assign are page forms with hand-rolled grids, and they were three of the ~22.
+- **A ROW'S NESTED GRID IS PART OF THE ROW**, and this is the one place Tab and the arrows
+  read different axes on purpose. The arrows use `ownDescendants` — scoped to the nearest
+  `data-grid-row`, because a nested panel's fields counting as columns of the outer row is
+  what made ↓ from "End Value" land on the 2nd value of the *next* line (2026-07-25). Tab
+  fell out of that same query and so **skipped the panel entirely**: on Material Attributes
+  the values under a row were reachable only with the mouse (client 2026-08-05). Tab now
+  walks `tabFieldsIn` — every field in the row in DOM order, its own cells then the panel
+  beneath — and ↑/↓ still cross the boundary the way they always did, through
+  `gridKeyNav`'s `fromChildGrid` hand-off.
+- **An empty nested grid is entered by OPENING its first row** (`enterNestedGrid`). Its only
+  affordance is an "+ Add" button, and Tab lands on fields, so there was nothing to tab into
+  and nothing to stand on and press Enter — the FIRST value of a Material Attribute was
+  mouse-only. Tab stepping off the row's last cell clicks the grid's `data-row-add` control
+  and lands in the box it opens. Mark that button, the same way a row's ✕ carries
+  `data-row-remove` for Ctrl+Del; forward only, and only while the nested grid holds no
+  fields at all, so it can never stack blanks. The lesson underneath it: **replacing a
+  grid's permanently-open blank row with a button removes the keyboard's only way in** —
+  "Enter off the last value opens the next box" needs the operator to already be inside.
 
 **Known remainder, enumerated not guessed:** a page-level editor that declares no marker
 keeps native Tab *outside* its grids (~51 screens: the `planning/*-detail` family, the
@@ -162,6 +180,31 @@ service. Not a PostgREST embed: `profiles_read_own` lets a user select only thei
 profile row, so `creator:profiles!created_by(full_name)` resolves to null for every record
 made by anyone else — it looked right only while `created_by` was NULL everywhere.
 `creator_names()` is `SECURITY DEFINER` and returns nothing but id + name.
+
+**THE COLUMN CHECK PASSING MEANS NOTHING ON ITS OWN.** `creatorName()` refuses to print
+anything uuid-shaped, so a service that hands back a raw `created_by` gives you the right
+column, correctly wired, with a dash in every row — not an error, not a missing column,
+just empty (client 2026-08-05). It was true of **143 list functions across 74 files**: the
+column half was swept app-wide on 2026-08-04 and the data half only in `masters`. Two ways
+to be wrong, and the second is the one that hides:
+
+- the list return is not wrapped in `withCreators()`;
+- a **hand-written `select()` names `created_at` but not `created_by`** — the call is there,
+  the code reads as correct, and `withCreators` has nothing to resolve. Five services were
+  in exactly that state (Material HSN, Process HSN, TCS, Customer GST, Vendor GST), and the
+  sales registers were worse: they **rebuild** each row field by field, so the column has to
+  be selected *and* copied across. A re-mapped row drops a column as silently as a select
+  that never asked for it.
+
+Both are checked by `python scripts/audit_layout.py . --check created-by-data`, over `list*`
+functions in a server service. A `get*` that returns ONE record has no array to resolve; an
+options feeder, a work queue and the audit log itself are genuinely exempt and say so with a
+`// created-by: exempt -- <reason>` comment.
+
+**Nothing recovers a row created before the column existed.** 154 tables carry `created_by`
+and every one now defaults to `auth.uid()` (0383 · 0388), but only 5 tables hold any values —
+everything else predates the default and reads "—" for as long as those rows exist. That is
+0383's stated rule, not a bug to chase: inventing a creator is a lie in an audit column.
 
 `created_by` holds three different things and all three must keep working: a `profiles`
 uuid (106 tables), a uuid that is always NULL (26 tables from 0333/0334, declared with no

@@ -10,6 +10,7 @@ import type {
   CspReceipt,
   CspReceiptLine,
 } from "./extras-types";
+import { withCreators } from "@/lib/created-by";
 
 // `is_active` rides on every option row: the picker hides a disabled store /
 // material / vendor / buyer, and keeps the one a document already names so
@@ -62,10 +63,10 @@ export async function listOpeningStocks(): Promise<OpeningStockWithRefs[]> {
     .from("opening_stocks")
     .select("*, stores(code)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as OpeningStock),
     store_code: joined(r, "stores", "code"),
-  }));
+  })));
 }
 export async function getOpeningStock(id: string): Promise<OpeningStock | null> {
   const s = await createClient();
@@ -94,10 +95,10 @@ export async function listRequisitions(): Promise<MrsWithRefs[]> {
     .from("material_requisitions")
     .select("*, stores(code)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as MaterialRequisition),
     store_code: joined(r, "stores", "code"),
-  }));
+  })));
 }
 export async function getRequisition(id: string): Promise<MaterialRequisition | null> {
   const s = await createClient();
@@ -127,11 +128,11 @@ export async function listVendorReturns(): Promise<VendorReturnWithRefs[]> {
     .from("vendor_returns")
     .select("*, stores(code), vendors(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as VendorReturn),
     store_code: joined(r, "stores", "code"),
     vendor_name: joined(r, "vendors", "name"),
-  }));
+  })));
 }
 export async function getVendorReturn(id: string): Promise<VendorReturn | null> {
   const s = await createClient();
@@ -161,11 +162,11 @@ export async function listCspReceipts(): Promise<CspReceiptWithRefs[]> {
     .from("csp_receipts")
     .select("*, stores(code), buyers(name)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as CspReceipt),
     store_code: joined(r, "stores", "code"),
     buyer_name: joined(r, "buyers", "name"),
-  }));
+  })));
 }
 export async function getCspReceipt(id: string): Promise<CspReceipt | null> {
   const s = await createClient();

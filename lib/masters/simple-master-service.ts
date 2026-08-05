@@ -1,24 +1,37 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 
 // ============================================================================
 // Simple master list functions — one per table.
 // These match the actions in simple-master-actions.ts.
 //
-// `created_at` is selected on every one of them and shown by no column. It
-// feeds the Created Date filter, which `useMasterFilter` offers only when the
-// rows actually carry the value (lib/date-filter.ts) — so dropping it from a
-// select here does not break a build or a type, it just silently removes the
-// filter from that screen. Keep it in the list.
+// `created_at` AND `created_by` are selected on every one of them, and the pair
+// is spliced in by `SimpleMasterScreen` itself. Neither is shown by a column
+// declared here, which is exactly why they are easy to drop: removing either
+// breaks no build and no type, it just silently empties something on screen —
+// `created_at` takes the Created Date filter with it (`useMasterFilter` offers
+// the facet only when the rows carry the value), and `created_by` leaves the
+// Created User column a run of dashes, because `withCreators()` can only
+// resolve a uuid the query actually fetched. Keep both in the list.
 // ============================================================================
 
 export async function listDefectGroupsSimple() {
   const s = await createClient();
   const { data } = await s
     .from("defect_groups")
-    .select("id, code, name, is_active, created_at")
+    .select("id, code, name, is_active, created_at, created_by")
     .order("code");
-  return (data ?? []) as { id: string; code: string; name: string; is_active: boolean; created_at: string }[];
+  return withCreators(
+    (data ?? []) as {
+      id: string;
+      code: string;
+      name: string;
+      is_active: boolean;
+      created_at: string;
+      created_by: string | null;
+    }[],
+  );
 }
 
 // The seven other list functions that stood here — StyleStockCategory,

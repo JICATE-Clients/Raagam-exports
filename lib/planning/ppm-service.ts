@@ -35,6 +35,7 @@ import type {
   GarmentPpmCancelCombo,
   GarmentPpmCancelSize,
 } from "./ppm-types";
+import { withCreators } from "@/lib/created-by";
 
 // Helper to flatten Supabase join
 function flattenRow<T>(
@@ -64,12 +65,12 @@ export async function listGarmentPpms(): Promise<GarmentPpmRow[]> {
     .select("*, customers(name), sales_orders(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<GarmentPpmRow>(row, {
       customers: "customer_name",
       sales_orders: "order_code",
     }),
-  );
+  ));
 }
 
 export async function getGarmentPpm(id: string) {
@@ -228,12 +229,12 @@ export async function listProcessingPpms(): Promise<ProcessingPpmRow[]> {
     .select("*, customers(name), sales_orders(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<ProcessingPpmRow>(row, {
       customers: "customer_name",
       sales_orders: "order_code",
     }),
-  );
+  ));
 }
 
 export async function getProcessingPpm(id: string) {
@@ -297,12 +298,12 @@ export async function listPurchasePpms(): Promise<PurchasePpmRow[]> {
     .select("*, customers(name), sales_orders(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<PurchasePpmRow>(row, {
       customers: "customer_name",
       sales_orders: "order_code",
     }),
-  );
+  ));
 }
 
 export async function getPurchasePpm(id: string) {
@@ -357,9 +358,9 @@ export async function listPpmCancels(): Promise<PpmCancelRow[]> {
     .select("*, customers(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<PpmCancelRow>(row, { customers: "customer_name" }),
-  );
+  ));
 }
 
 export async function getPpmCancel(id: string) {
@@ -414,9 +415,9 @@ export async function listPpmCompletions(): Promise<PpmCompletionRow[]> {
     .select("*, customers(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<PpmCompletionRow>(row, { customers: "customer_name" }),
-  );
+  ));
 }
 
 export async function getPpmCompletion(id: string) {
@@ -445,7 +446,7 @@ export async function listGarmentPpmCancellations(): Promise<GarmentPpmCancellat
     .select("*")
     .order("created_at", { ascending: false });
 
-  return (data ?? []) as GarmentPpmCancellation[];
+  return withCreators((data ?? []) as GarmentPpmCancellation[]);
 }
 
 export async function getGarmentPpmCancellation(id: string) {

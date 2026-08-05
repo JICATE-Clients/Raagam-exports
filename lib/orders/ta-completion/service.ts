@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { TaCompletion } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** A selectable order for the SC No picker (carries buyer for auto-fill). */
 export type OrderOption = {
@@ -28,7 +29,7 @@ export async function getTaCompletions(): Promise<TaCompletionRow[]> {
     .from("ta_completions")
     .select("*, sales_orders(order_number, buyers(name))")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as TaCompletionRow[];
+  return withCreators((data ?? []) as unknown as TaCompletionRow[]);
 }
 
 /** Orders eligible for a TA completion (anything not cancelled). */

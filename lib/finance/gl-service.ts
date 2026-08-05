@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { GlAccount, JournalEntry, JournalLine } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 // ---------- derived types ----------
 
@@ -25,7 +26,7 @@ export async function listAccounts(): Promise<GlAccount[]> {
     .from("gl_accounts")
     .select("*")
     .order("code");
-  return (data ?? []) as GlAccount[];
+  return withCreators((data ?? []) as GlAccount[]);
 }
 
 /**
@@ -54,7 +55,7 @@ export async function listJournals(): Promise<JournalEntry[]> {
     .from("journal_entries")
     .select("*")
     .order("entry_date", { ascending: false });
-  return (data ?? []) as JournalEntry[];
+  return withCreators((data ?? []) as JournalEntry[]);
 }
 
 export async function getJournal(id: string): Promise<JournalWithLines | null> {

@@ -26,6 +26,10 @@ export interface VendorGstRow {
   is_service_provider: boolean;
   is_sub_contractor: boolean;
   created_at: string;
+  /** Both halves of the Created pair, or the User column is a run of dashes:
+   *  `withCreators()` resolves the uuid, and a hand-written select has to FETCH
+   *  it first. See components/ui/created-columns.tsx. */
+  created_by: string | null;
 }
 
 export async function listVendorGst(): Promise<VendorGstRow[]> {
@@ -33,7 +37,7 @@ export async function listVendorGst(): Promise<VendorGstRow[]> {
   const { data } = await s
     .from("master_vendors")
     .select(
-      "id, code, name, vendor_type, status, gst_reg_status, gst_no, is_bought_items_vendor, is_processor, is_service_provider, is_sub_contractor, created_at",
+      "id, code, name, vendor_type, status, gst_reg_status, gst_no, is_bought_items_vendor, is_processor, is_service_provider, is_sub_contractor, created_at, created_by",
     )
     .order("name");
   return withCreators((data ?? []) as VendorGstRow[]);

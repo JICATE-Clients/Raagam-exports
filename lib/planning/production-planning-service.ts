@@ -8,6 +8,7 @@ import type {
   ProductionPlanOrder,
   ProductionPlanDetail,
 } from "./production-planning-types";
+import { withCreators } from "@/lib/created-by";
 
 // ============================================================================
 // 1. CAPACITY PLANNING
@@ -20,7 +21,7 @@ export async function listCapacityPlans(): Promise<CapacityPlan[]> {
     .select("*")
     .order("created_at", { ascending: false });
 
-  return (data ?? []) as CapacityPlan[];
+  return withCreators((data ?? []) as CapacityPlan[]);
 }
 
 export async function getCapacityPlan(id: string) {
@@ -72,7 +73,7 @@ export async function listProductionPlans(): Promise<ProductionPlan[]> {
     .select("*")
     .order("created_at", { ascending: false });
 
-  return (data ?? []) as ProductionPlan[];
+  return withCreators((data ?? []) as ProductionPlan[]);
 }
 
 export async function getProductionPlan(id: string) {

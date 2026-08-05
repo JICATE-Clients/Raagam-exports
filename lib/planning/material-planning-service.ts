@@ -53,9 +53,9 @@ export async function listMaterialExcessPlans(): Promise<MaterialExcessPlanRow[]
     .select("*, customers(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<MaterialExcessPlanRow>(row, { customers: "customer_name" }),
-  );
+  ));
 }
 
 export async function getMaterialExcessPlan(id: string) {
@@ -110,9 +110,9 @@ export async function listMaterialRates(): Promise<MaterialRateRow[]> {
     .select("*, customers(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<MaterialRateRow>(row, { customers: "customer_name" }),
-  );
+  ));
 }
 
 export async function getMaterialRate(id: string) {
@@ -153,9 +153,9 @@ export async function listFabricOrders(): Promise<FabricOrderRow[]> {
     .select("*, customers(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) =>
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) =>
     flattenRow<FabricOrderRow>(row, { customers: "customer_name" }),
-  );
+  ));
 }
 
 export async function getFabricOrder(id: string) {
@@ -362,7 +362,7 @@ export async function listExcessOrders(): Promise<ExcessOrder[]> {
     .select("*")
     .order("created_at", { ascending: false });
 
-  return (data ?? []) as ExcessOrder[];
+  return withCreators((data ?? []) as ExcessOrder[]);
 }
 
 export async function getExcessOrder(id: string) {

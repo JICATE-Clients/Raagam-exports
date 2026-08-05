@@ -16,13 +16,17 @@ export interface CustomerTcsRow {
   country_id: string | null;
   tcs_applicable: boolean;
   created_at: string;
+  /** Both halves of the Created pair, or the User column is a row of dashes:
+   *  `withCreators()` resolves the uuid, and a hand-written select has to FETCH
+   *  it first. See components/ui/created-columns.tsx. */
+  created_by: string | null;
 }
 
 export async function listCustomerTcs(): Promise<CustomerTcsRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("customers")
-    .select("id, code, name, doc_id, country_id, tcs_applicable, created_at")
+    .select("id, code, name, doc_id, country_id, tcs_applicable, created_at, created_by")
     .order("name");
   return withCreators((data ?? []) as CustomerTcsRow[]);
 }

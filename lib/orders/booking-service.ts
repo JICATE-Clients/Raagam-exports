@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderBooking, DueDateConfirmation, ContractReview } from "./booking-types";
+import { withCreators } from "@/lib/created-by";
 
 export type OrderBookingRow = Omit<OrderBooking, "certifications"> & { buyer_name: string | null; order_code: string | null };
 
@@ -10,14 +11,14 @@ export async function listOrderBookings(): Promise<OrderBookingRow[]> {
     .from("order_bookings")
     .select("*, buyers:customer_id(name), sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as unknown[]).map((r: unknown) => {
+  return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       buyer_name: (row.buyers as { name: string } | null)?.name ?? null,
       order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null,
     } as unknown as OrderBookingRow;
-  });
+  }));
 }
 
 export async function getOrderBooking(id: string): Promise<OrderBooking | null> {
@@ -43,13 +44,13 @@ export async function listDueDateConfirmations(): Promise<DueDateConfirmationRow
     .from("due_date_confirmations")
     .select("*, sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as unknown[]).map((r: unknown) => {
+  return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null,
     } as unknown as DueDateConfirmationRow;
-  });
+  }));
 }
 
 export type ContractReviewRow = Omit<ContractReview, "styles"> & { buyer_name: string | null; order_code: string | null };
@@ -60,14 +61,14 @@ export async function listContractReviews(): Promise<ContractReviewRow[]> {
     .from("contract_reviews")
     .select("*, buyers:customer_id(name), sales_orders(order_number)")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as unknown[]).map((r: unknown) => {
+  return withCreators(((data ?? []) as unknown[]).map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       ...row,
       buyer_name: (row.buyers as { name: string } | null)?.name ?? null,
       order_code: (row.sales_orders as { order_number: string } | null)?.order_number ?? null,
     } as unknown as ContractReviewRow;
-  });
+  }));
 }
 
 export async function getContractReview(id: string): Promise<ContractReview | null> {

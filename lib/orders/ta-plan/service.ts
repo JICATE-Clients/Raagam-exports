@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { PickerItem } from "@/components/masters/record-picker";
 import type { TaPlanDoc } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** Sales-order option for SC No picker (drives Customer/Order No/Qty/Deliv auto-fill). */
 export type OrderRow = {
@@ -25,10 +26,10 @@ export async function getTaPlans(): Promise<TaPlanDoc[]> {
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as TaPlanDoc[]).map((d) => ({
+  return withCreators(((data ?? []) as unknown as TaPlanDoc[]).map((d) => ({
     ...d,
     activities: [...(d.activities ?? [])].sort((a, b) => a.sno - b.sno),
-  }));
+  })));
 }
 
 export type TaPlanFormData = {

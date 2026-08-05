@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listCurrencies } from "@/lib/masters/service";
 import type { Currency } from "@/lib/masters/types";
 import type { QuoteCosting } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
 export type PickerRow = { id: string; code: string | null; name: string };
@@ -26,7 +27,7 @@ export async function getQuoteCostings(): Promise<QuoteCosting[]> {
         "style:garment_styles(id,code,style_name)",
     )
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as QuoteCosting[];
+  return withCreators((data ?? []) as unknown as QuoteCosting[]);
 }
 
 /** Opportunities for the "Enquiry No" picker (+ currency for prefill). */

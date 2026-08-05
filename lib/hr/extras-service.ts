@@ -9,6 +9,7 @@ import type {
   HrLifecycleEvent,
   HrStatutoryDoc,
 } from "./extras-types";
+import { withCreators } from "@/lib/created-by";
 
 /** A pickable employee across the three employee tables. */
 export type EmployeeOption = {
@@ -43,30 +44,30 @@ export async function getEmployees(): Promise<EmployeeOption[]> {
 export async function listAdvances(): Promise<HrAdvance[]> {
   const s = await createClient();
   const { data } = await s.from("hr_advances").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as HrAdvance[];
+  return withCreators((data ?? []) as HrAdvance[]);
 }
 export async function listAdjustments(): Promise<HrAdjustment[]> {
   const s = await createClient();
   const { data } = await s.from("hr_adjustments").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as HrAdjustment[];
+  return withCreators((data ?? []) as HrAdjustment[]);
 }
 export async function listCompEvents(): Promise<HrCompEvent[]> {
   const s = await createClient();
   const { data } = await s.from("hr_comp_events").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as HrCompEvent[];
+  return withCreators((data ?? []) as HrCompEvent[]);
 }
 export async function listLeaves(): Promise<HrLeave[]> {
   const s = await createClient();
   const { data } = await s.from("hr_leaves").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as HrLeave[];
+  return withCreators((data ?? []) as HrLeave[]);
 }
 export async function listLifecycleEvents(): Promise<HrLifecycleEvent[]> {
   const s = await createClient();
   const { data } = await s.from("hr_lifecycle_events").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as HrLifecycleEvent[];
+  return withCreators((data ?? []) as HrLifecycleEvent[]);
 }
 export async function listStatutoryDocs(): Promise<HrStatutoryDoc[]> {
   const s = await createClient();
   const { data } = await s.from("hr_statutory_docs").select("*").order("created_at", { ascending: false });
-  return (data ?? []) as HrStatutoryDoc[];
+  return withCreators((data ?? []) as HrStatutoryDoc[]);
 }

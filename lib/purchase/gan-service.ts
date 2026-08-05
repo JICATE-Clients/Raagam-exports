@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { GanQualityCheck, GanQualityParameter } from "./gan-types";
+import { withCreators } from "@/lib/created-by";
 
 export type GanWithParams = GanQualityCheck & {
   parameters: GanQualityParameter[];
@@ -13,7 +14,7 @@ export async function listGanChecks(grnId: string): Promise<GanQualityCheck[]> {
     .select("*")
     .eq("grn_id", grnId)
     .order("created_at");
-  return (data ?? []) as GanQualityCheck[];
+  return withCreators((data ?? []) as GanQualityCheck[]);
 }
 
 export async function getGanCheck(id: string): Promise<GanWithParams | null> {

@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Vendor } from "./vendor-types";
 import type { VendorNomination } from "./vendor-nominations";
+import { withCreators } from "@/lib/created-by";
 
 /** id · code · name for a Vendor picker — no child grids, no joins. */
 export type VendorPickerRow = { id: string; code: string | null; name: string; inactive: boolean };
@@ -71,12 +72,12 @@ export async function listVendors(): Promise<Vendor[]> {
       "*, country:countries!master_vendors_country_id_fkey(id,code,name), addresses:master_vendor_addresses(*), item_categories:master_vendor_item_categories(*), processes:master_vendor_processes(*), services:master_vendor_services(*), subcontracts:master_vendor_subcontracts(*)",
     )
     .order("name");
-  return ((data ?? []) as unknown as Vendor[]).map((v) => ({
+  return withCreators(((data ?? []) as unknown as Vendor[]).map((v) => ({
     ...v,
     addresses: [...(v.addresses ?? [])].sort((a, b) => a.sno - b.sno),
     item_categories: [...(v.item_categories ?? [])].sort((a, b) => a.sno - b.sno),
     processes: [...(v.processes ?? [])].sort((a, b) => a.sno - b.sno),
     services: [...(v.services ?? [])].sort((a, b) => a.sno - b.sno),
     subcontracts: [...(v.subcontracts ?? [])].sort((a, b) => a.sno - b.sno),
-  }));
+  })));
 }

@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderGarmentProcess } from "./types";
 import type { OrderWithBuyer } from "@/lib/orders/service";
+import { withCreators } from "@/lib/created-by";
 
 export async function getOrderProcesses(
   orderId: string,
@@ -47,10 +48,10 @@ export async function getAcceptedOrders(filters?: {
 
   const { data } = await query.order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as (OrderWithBuyer & {
+  return withCreators(((data ?? []) as unknown as (OrderWithBuyer & {
     order_garment_processes: { count: number }[];
   })[]).map((o) => ({
     ...o,
     process_count: o.order_garment_processes?.[0]?.count ?? 0,
-  }));
+  })));
 }

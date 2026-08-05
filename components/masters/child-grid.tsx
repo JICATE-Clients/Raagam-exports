@@ -85,6 +85,91 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
 const ROW_REMOVE = '[data-row-remove], [aria-label^="Remove" i]';
 
 /**
+ * A grid's Add control — what Tab drives when it steps into a nested grid that
+ * has no rows yet (see `enterNestedGrid`).
+ *
+ * The marker only, with no `aria-label` compatibility half: unlike Remove, this
+ * one CREATES something, and "+ Add" / "+ Size" / "+ Add value" are a far looser
+ * family of labels than "Remove …". A grid opts in by saying so.
+ */
+const ROW_ADD = "[data-row-add]";
+
+/**
+ * A ROW'S TAB AXIS INCLUDES ITS NESTED GRIDS — every field inside the row, in DOM
+ * order, which on screen is: the row's own cells, then the panel underneath it.
+ *
+ * This is where Tab and the arrows deliberately part company. `ownDescendants`
+ * scopes by the nearest `data-grid-row`, which keeps a nested grid's fields OUT
+ * of the outer row's arrow axis — without that, ↓ from "End Value" landed on the
+ * 2nd value of the next attribute line (client 2026-07-25). Tab fell out of that
+ * same query and so skipped the nested panel entirely, which is a different bug
+ * wearing the fix's clothes: Tab's whole job is to visit every field, and the
+ * values list under a Material Attribute row was reachable only with the mouse
+ * (client 2026-08-05, screenshot 2172).
+ *
+ * Nothing else may use this. `gridKeyNav`'s `fieldsIn` stays scoped, and its
+ * `fromChildGrid` hand-off is what carries ↑/↓ across the boundary instead.
+ */
+function tabFieldsIn(row: HTMLElement): HTMLElement[] {
+  return Array.from(row.querySelectorAll<HTMLElement>(ROW_FIELDS));
+}
+
+/**
+ * TAB INTO A NESTED GRID THAT HAS NO ROWS YET OPENS ITS FIRST ONE.
+ *
+ * A nested list starts empty and its only affordance is a button — and Tab lands
+ * on fields, never on buttons (`cycleTab`, lib/focus.ts). So the FIRST value of a
+ * Material Attribute was mouse-only: nothing to tab into, and nothing to stand on
+ * and press Enter. The list used to carry a permanently-open blank box, which is
+ * what made the keyboard work; when that was replaced by "+ Add value" the note
+ * said the keyboard was unaffected because "Enter off the last value still opens
+ * the next box" (2026-08-04) — true only once the list already holds a value.
+ *
+ * Drives the button with `.click()`, the path a mouse takes, for the same reason
+ * `removeRowKey` does: whatever guard that button carries still runs, and this can
+ * never get out of step with what the button does.
+ *
+ * FORWARD ONLY. Shift+Tab skips an empty panel instead — moving backwards out of a
+ * row is not the operator asking for one. And it fires only when the nested grid
+ * has NO fields at all, so it cannot stack blank rows: one empty box is enough to
+ * stop it firing again.
+ *
+ * Returns true when it consumed the key.
+ */
+function enterNestedGrid(row: HTMLElement, e: React.KeyboardEvent<HTMLElement>): boolean {
+  // Nested bodies only — `row.closest` would find the grid this row belongs to —
+  // and LAID OUT ones only: a `responsive` ChildGrid mounts its table and its
+  // cards together and hides one by CSS, so the empty half of a nested grid that
+  // is not even on screen must not be what Tab opens. Same `offsetParent` test
+  // `focusablesIn` (lib/focus.ts) uses.
+  const empty = Array.from(row.querySelectorAll<HTMLElement>("[data-grid-body]")).filter(
+    (body) => body.offsetParent !== null && body.querySelector(ROW_FIELDS) === null,
+  );
+  for (const nested of empty) {
+    // The Add control sits inside the body (material-attribute's "+ Add value")
+    // or beside it in the grid's own wrapper (ChildGrid's "+ Add row",
+    // opportunity-tabs' "+ Size"). Never the ROW itself, and so never outside it:
+    // the row's own Add button — or a sibling panel's — is not this panel's way in.
+    const wrapper = nested.parentElement;
+    const scope =
+      wrapper && wrapper !== row && wrapper.closest("[data-grid-row]") === row ? wrapper : nested;
+    const add = scope.querySelector<HTMLElement>(ROW_ADD);
+    if (!add || (add instanceof HTMLButtonElement && add.disabled)) continue;
+    e.preventDefault();
+    e.stopPropagation();
+    add.click();
+    // The field does not exist until React has re-rendered — same 30ms hand-off
+    // `gridKeyNav` uses after Enter adds a row.
+    window.setTimeout(() => {
+      const first = nested.querySelector<HTMLElement>(ROW_FIELDS);
+      if (first) focusField(first);
+    }, 30);
+    return true;
+  }
+  return false;
+}
+
+/**
  * CTRL+DEL REMOVES THE ROW THE CURSOR IS STANDING IN.
  *
  * The row's ✕ is not a field, so Tab does not stop on it and the arrows step over
@@ -173,6 +258,13 @@ function removeRowKey(e: React.KeyboardEvent<HTMLElement>): boolean {
  * every surface it owns, so this is not a second rule — it is the same rule
  * expressed against the axis this file already declares, `ROW_FIELDS`.
  *
+ * THE ROW INCLUDES ITS NESTED GRIDS — `tabFieldsIn`, not `ownDescendants`. A panel
+ * under a row (a Material Attribute's values, an Opportunity combo's sizes) is
+ * part of that row on screen, so it is part of it on the Tab path: the row's own
+ * cells first, then the panel, then the next row. See `tabFieldsIn` for why the
+ * arrows keep the scoped axis and Tab does not, and `enterNestedGrid` for the
+ * panel that has no rows yet.
+ *
  * IT IS ALSO WHAT REACHES THE PAGE-LEVEL SCREENS. The provider claims Tab only on
  * a surface that declares itself an editor (`isEditorScope`), which a hand-rolled
  * page form does not — and Orders ▸ TA Plan / TA Style / TA Department Assign are
@@ -198,19 +290,24 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
   const rows = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
   const r = rows.indexOf(row);
   if (r === -1) return false;
-  const fields = ownDescendants(row, ROW_FIELDS, "[data-grid-row]");
+  const fields = tabFieldsIn(row);
   const c = fields.indexOf(el);
-  // -1 means the cursor is in a NESTED grid inside this row; that grid's own
-  // handler runs first and either consumed the key or declined it as its own
-  // boundary. Either way the cell is not ours to step from.
+  // Not in this row's axis at all — a control that is focusable but not field-like.
+  // Nothing to step from; let the key go up.
   if (c === -1) return false;
 
   const dir = e.shiftKey ? -1 : 1;
   let target = fields[c + dir];
   if (!target) {
+    // Off the end of the row's OWN fields, forward: a nested panel with no rows
+    // yet is entered by opening its first one. Tab is otherwise the key that
+    // cannot reach it, since its only affordance is a button.
+    if (dir === 1 && enterNestedGrid(row, e)) return true;
     const nextRow = rows[r + dir];
     if (!nextRow) return false; // the grid's edge — hand the key upwards
-    const into = ownDescendants(nextRow, ROW_FIELDS, "[data-grid-row]");
+    // The SAME flattened axis, so Shift+Tab arrives on the previous row's last
+    // nested field rather than skipping the panel it just walked past.
+    const into = tabFieldsIn(nextRow);
     target = dir === 1 ? into[0] : into[into.length - 1];
     if (!target) return false; // a collapsed / summary-only row: let Tab pass
   }
@@ -891,7 +988,10 @@ export function ChildGrid<T extends { key: string }>({
       )}
 
       {!hideAdd && (
-        <Button type="button" variant="outline" size="sm" onClick={handleAdd}>
+        // `data-row-add` is what Tab drives when this grid is NESTED in another
+        // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
+        // LANDS on it; a button is not a field.
+        <Button type="button" variant="outline" size="sm" data-row-add onClick={handleAdd}>
           {addLabel}
         </Button>
       )}

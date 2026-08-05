@@ -16,7 +16,13 @@ export interface PieceRecordRow extends WorkerPieceRecord {
 
 // ---------- attendance ----------
 
-/** Active workers, optionally filtered by location, ordered by name. */
+/** Active workers, optionally filtered by location, ordered by name.
+ *
+ *  created-by: exempt -- an OPTIONS list, not a record listing. These rows are
+ *  the left-hand column of the attendance entry grid and the worker picker on
+ *  Piece Records; neither renders the Created pair, so resolving the creator of
+ *  each worker row would be a round trip nothing displays. The Worker MASTER
+ *  listing is a different screen with a different service. */
 export async function listActiveWorkers(locationId?: string | null): Promise<Worker[]> {
   const supabase = await createClient();
   let q = supabase.from("workers").select("*").eq("is_active", true);

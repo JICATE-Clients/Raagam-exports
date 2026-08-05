@@ -15,6 +15,7 @@ import type {
   PoAdditionalCharge,
 } from "@/lib/purchase/types";
 import type { Currency, Item, Uom } from "@/lib/masters/types";
+import { withCreators } from "@/lib/created-by";
 
 // ---------- derived types ----------
 
@@ -53,7 +54,7 @@ export async function listVendors(): Promise<Vendor[]> {
     .from("vendors")
     .select("*")
     .order("name");
-  return (data ?? []) as Vendor[];
+  return withCreators((data ?? []) as Vendor[]);
 }
 
 export async function getVendor(id: string): Promise<Vendor | null> {
@@ -84,7 +85,7 @@ export async function listRfqs(): Promise<Rfq[]> {
     .from("rfqs")
     .select("*")
     .order("created_at", { ascending: false });
-  return (data ?? []) as Rfq[];
+  return withCreators((data ?? []) as Rfq[]);
 }
 
 export async function getRfq(id: string): Promise<RfqWithDetails | null> {
@@ -227,7 +228,7 @@ export async function listPurchaseOrders(): Promise<PoWithVendor[]> {
     .select("*, vendors(name)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const vendor = row.vendors as { name: string } | null;
     const { vendors: _v, ...rest } = row;
     void _v;
@@ -235,7 +236,7 @@ export async function listPurchaseOrders(): Promise<PoWithVendor[]> {
       ...(rest as unknown as PurchaseOrder),
       vendor_name: vendor?.name ?? null,
     };
-  });
+  }));
 }
 
 export async function getPurchaseOrder(

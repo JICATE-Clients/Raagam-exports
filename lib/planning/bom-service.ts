@@ -13,6 +13,7 @@ import type {
   BomTransfer,
   BomTransferItem,
 } from "./bom-types";
+import { withCreators } from "@/lib/created-by";
 
 // ============================================================================
 // Material BOM (FrmProd_BOM)
@@ -30,7 +31,7 @@ export async function listMaterialBoms(): Promise<MaterialBomRow[]> {
     .select("*, customers(name), sales_orders(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
     const order = row.sales_orders as { code: string } | null;
     const { customers: _c, sales_orders: _o, ...rest } = row;
@@ -41,7 +42,7 @@ export async function listMaterialBoms(): Promise<MaterialBomRow[]> {
       customer_name: customer?.name ?? null,
       order_code: order?.code ?? null,
     };
-  });
+  }));
 }
 
 export async function getMaterialBom(id: string): Promise<
@@ -117,7 +118,7 @@ export async function listFabricBoms(): Promise<FabricBomRow[]> {
     .select("*, customers(name), styles(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
     const style = row.styles as { code: string } | null;
     const { customers: _c, styles: _s, ...rest } = row;
@@ -128,7 +129,7 @@ export async function listFabricBoms(): Promise<FabricBomRow[]> {
       customer_name: customer?.name ?? null,
       style_code: style?.code ?? null,
     };
-  });
+  }));
 }
 
 // ============================================================================
@@ -147,7 +148,7 @@ export async function listGarmentBoms(): Promise<GarmentBomRow[]> {
     .select("*, customers(name), styles(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
     const style = row.styles as { code: string } | null;
     const { customers: _c, styles: _s, ...rest } = row;
@@ -158,7 +159,7 @@ export async function listGarmentBoms(): Promise<GarmentBomRow[]> {
       customer_name: customer?.name ?? null,
       style_code: style?.code ?? null,
     };
-  });
+  }));
 }
 
 // ============================================================================
@@ -177,7 +178,7 @@ export async function listAccessoryBoms(): Promise<AccessoryBomRow[]> {
     .select("*, customers(name), styles(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
     const style = row.styles as { code: string } | null;
     const { customers: _c, styles: _s, ...rest } = row;
@@ -188,7 +189,7 @@ export async function listAccessoryBoms(): Promise<AccessoryBomRow[]> {
       customer_name: customer?.name ?? null,
       style_code: style?.code ?? null,
     };
-  });
+  }));
 }
 
 // ============================================================================
@@ -207,7 +208,7 @@ export async function listBomShortages(): Promise<BomShortageRow[]> {
     .select("*, customers(name), sales_orders(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
     const order = row.sales_orders as { code: string } | null;
     const { customers: _c, sales_orders: _o, ...rest } = row;
@@ -218,7 +219,7 @@ export async function listBomShortages(): Promise<BomShortageRow[]> {
       customer_name: customer?.name ?? null,
       order_code: order?.code ?? null,
     };
-  });
+  }));
 }
 
 export async function getBomShortage(
@@ -275,7 +276,7 @@ export async function listBomTransfers(): Promise<BomTransferRow[]> {
     .select("*, customers(name), sales_orders(code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const customer = row.customers as { name: string } | null;
     const order = row.sales_orders as { code: string } | null;
     const { customers: _c, sales_orders: _o, ...rest } = row;
@@ -286,7 +287,7 @@ export async function listBomTransfers(): Promise<BomTransferRow[]> {
       customer_name: customer?.name ?? null,
       order_code: order?.code ?? null,
     };
-  });
+  }));
 }
 
 export async function getBomTransfer(

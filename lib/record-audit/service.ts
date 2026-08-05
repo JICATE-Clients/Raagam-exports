@@ -16,7 +16,11 @@ function flatten(raw: RawRow[]): RecordAuditRow[] {
   }));
 }
 
-/** Paginated, filterable change log (RLS-gated to system_admin readers). */
+/** Paginated, filterable change log (RLS-gated to system_admin readers).
+ *
+ *  created-by: exempt -- this screen IS the creator column. Every row already
+ *  names its actor (`actor_name` / `actor_email`, resolved above) beside the
+ *  action and the timestamp; a second "Created User" would restate it. */
 export async function listRecordAudit(filters: AuditFilters = {}): Promise<{
   rows: RecordAuditRow[];
   page: number;

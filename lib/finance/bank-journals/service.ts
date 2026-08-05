@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { BankJournal } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export async function getBankJournals(): Promise<BankJournal[]> {
   const supabase = await createClient();
@@ -8,7 +9,7 @@ export async function getBankJournals(): Promise<BankJournal[]> {
     .from("bank_journals")
     .select("*")
     .order("created_at", { ascending: false });
-  return (data ?? []) as BankJournal[];
+  return withCreators((data ?? []) as BankJournal[]);
 }
 
 export { getCurrencyOptions } from "@/lib/logistics/proforma/service";

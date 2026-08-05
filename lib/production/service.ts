@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import {
   summariseProgress,
   type ProductionLine,
@@ -53,7 +54,7 @@ export async function listLines(): Promise<ProductionLine[]> {
     .select("*")
     .eq("is_active", true)
     .order("code");
-  return (data ?? []) as ProductionLine[];
+  return withCreators((data ?? []) as ProductionLine[]);
 }
 
 export async function getEntries(

@@ -17,6 +17,7 @@ import type {
   IocCostingData,
 } from "@/lib/sales/types";
 import type { Buyer, Uom } from "@/lib/masters/types";
+import { withCreators } from "@/lib/created-by";
 
 // ---------------------------------------------------------------------------
 // Extended types returned by service helpers
@@ -49,13 +50,13 @@ export async function getOpportunities(): Promise<OpportunityRow[]> {
     .select("*, buyers!buyer_id(name, code)")
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as OpportunityJoinRow[]).map(
+  return withCreators(((data ?? []) as OpportunityJoinRow[]).map(
     ({ buyers, ...opp }) => ({
       ...opp,
       buyer_name: buyers?.name ?? null,
       buyer_code: buyers?.code ?? null,
     }),
-  );
+  ));
 }
 
 export async function getOpportunity(
@@ -88,7 +89,7 @@ export async function getStyles(opportunityId: string): Promise<Style[]> {
     .select("*")
     .eq("opportunity_id", opportunityId)
     .order("created_at", { ascending: false });
-  return (data ?? []) as Style[];
+  return withCreators((data ?? []) as Style[]);
 }
 
 /** A style row enriched with its enquiry (opportunity), customer and unit —
@@ -120,7 +121,7 @@ export async function listAllStyles(): Promise<StyleRegisterRow[]> {
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as StyleJoinRow[]).map(
+  return withCreators(((data ?? []) as StyleJoinRow[]).map(
     ({ opportunities, uoms, ...style }) => ({
       ...style,
       enquiry_code: opportunities?.code ?? null,
@@ -130,7 +131,7 @@ export async function listAllStyles(): Promise<StyleRegisterRow[]> {
       buyer_code: opportunities?.buyers?.code ?? null,
       unit_code: uoms?.code ?? null,
     }),
-  );
+  ));
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ export async function listAllCostSheetsForRegister(): Promise<
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as CostSheetJoinRow[]).map(
+  return withCreators(((data ?? []) as CostSheetJoinRow[]).map(
     ({ opportunities, styles, ...cs }) => ({
       ...cs,
       enquiry_code: opportunities?.code ?? null,
@@ -178,7 +179,7 @@ export async function listAllCostSheetsForRegister(): Promise<
       style_name: styles?.name ?? null,
       style_code: styles?.style_code ?? null,
     }),
-  );
+  ));
 }
 
 export async function getCostSheets(
@@ -191,12 +192,12 @@ export async function getCostSheets(
     .eq("opportunity_id", opportunityId)
     .order("version", { ascending: true });
 
-  return ((data ?? []) as (CostSheet & { cost_sheet_items: CostSheetItem[] })[]).map(
+  return withCreators(((data ?? []) as (CostSheet & { cost_sheet_items: CostSheetItem[] })[]).map(
     ({ cost_sheet_items, ...sheet }) => ({
       ...sheet,
       items: cost_sheet_items ?? [],
     }),
-  );
+  ));
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +211,7 @@ export async function getQuotes(opportunityId: string): Promise<Quote[]> {
     .select("*")
     .eq("opportunity_id", opportunityId)
     .order("created_at", { ascending: false });
-  return (data ?? []) as Quote[];
+  return withCreators((data ?? []) as Quote[]);
 }
 
 /** A quote enriched for the "Confirm Quotes" grid (buyer + style + costing). */
@@ -230,7 +231,7 @@ export async function listQuotesForConfirmation(): Promise<QuoteConfirmRow[]> {
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as (Quote & {
+  return withCreators(((data ?? []) as unknown as (Quote & {
     buyers: { name: string | null } | null;
     cost_sheets: { version: number | null; styles: { style_code: string | null } | null } | null;
   })[]).map((q) => ({
@@ -238,7 +239,7 @@ export async function listQuotesForConfirmation(): Promise<QuoteConfirmRow[]> {
     buyer_name: q.buyers?.name ?? null,
     style_code: q.cost_sheets?.styles?.style_code ?? null,
     cost_version: q.cost_sheets?.version ?? null,
-  }));
+  })));
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +253,7 @@ export async function getSamples(opportunityId: string): Promise<Sample[]> {
     .select("*")
     .eq("opportunity_id", opportunityId)
     .order("created_at", { ascending: false });
-  return (data ?? []) as Sample[];
+  return withCreators((data ?? []) as Sample[]);
 }
 
 /** A sample enriched with its enquiry (opportunity), customer, style and unit —
@@ -283,7 +284,7 @@ export async function listAllSamplesForRegister(): Promise<SampleRegisterRow[]> 
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as SampleJoinRow[]).map(
+  return withCreators(((data ?? []) as SampleJoinRow[]).map(
     ({ opportunities, styles, uoms, ...sample }) => ({
       ...sample,
       enquiry_code: opportunities?.code ?? null,
@@ -293,7 +294,7 @@ export async function listAllSamplesForRegister(): Promise<SampleRegisterRow[]> 
       style_code: styles?.style_code ?? null,
       unit_code: uoms?.code ?? null,
     }),
-  );
+  ));
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +308,7 @@ export async function getBuyers(): Promise<Buyer[]> {
     .select("*")
     .eq("is_active", true)
     .order("name");
-  return (data ?? []) as Buyer[];
+  return withCreators((data ?? []) as Buyer[]);
 }
 
 export async function getUoms(): Promise<Uom[]> {

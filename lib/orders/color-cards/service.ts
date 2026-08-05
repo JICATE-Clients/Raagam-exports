@@ -39,13 +39,13 @@ export async function getColorCardsForBuyer(
     .eq("buyer_id", buyerId)
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as (ColorCard & {
+  return withCreators(((data ?? []) as unknown as (ColorCard & {
     buyers: Pick<Buyer, "id" | "name"> | null;
     color_card_colors: { count: number }[];
   })[]).map((c) => ({
     ...c,
     color_count: c.color_card_colors?.[0]?.count ?? 0,
-  }));
+  })));
 }
 
 /** One customer (buyer) summary row for the "By Customer" landing grid. */

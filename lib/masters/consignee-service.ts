@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Consignee } from "./consignee-types";
+import { withCreators } from "@/lib/created-by";
 
 export async function listConsignees(): Promise<Consignee[]> {
   const s = await createClient();
@@ -15,10 +16,10 @@ export async function listConsignees(): Promise<Consignee[]> {
     )
     .order("name");
   // `as unknown as` — Supabase's TS parser can't infer the 3-level notify embed.
-  return ((data ?? []) as unknown as Consignee[]).map((c) => ({
+  return withCreators(((data ?? []) as unknown as Consignee[]).map((c) => ({
     ...c,
     contacts: [...(c.contacts ?? [])].sort((x, y) => x.sno - y.sno),
     markings: [...(c.markings ?? [])].sort((x, y) => x.sno - y.sno),
     notify_refs: [...(c.notify_refs ?? [])].sort((x, y) => x.sno - y.sno),
-  }));
+  })));
 }

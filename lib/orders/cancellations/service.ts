@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderCancellation } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 /** A selectable order for the SC No picker (carries buyer for auto-fill). */
 export type OrderOption = {
@@ -28,7 +29,7 @@ export async function getCancellations(): Promise<CancellationRow[]> {
     .from("order_cancellations")
     .select("*, sales_orders(order_number, buyers(name))")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as CancellationRow[];
+  return withCreators((data ?? []) as unknown as CancellationRow[]);
 }
 
 /** Orders that can still be cancelled (anything not already cancelled). */

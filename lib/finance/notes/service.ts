@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { FinanceNote } from "./types";
+import { withCreators } from "@/lib/created-by";
 
 export type FinanceNoteRow = FinanceNote & {
   vendors: { id: string; name: string } | null;
@@ -15,7 +16,7 @@ export async function getFinanceNotes(): Promise<FinanceNoteRow[]> {
     .from("finance_notes")
     .select("*, vendors(id, name), buyers(id, name)")
     .order("created_at", { ascending: false });
-  return (data ?? []) as unknown as FinanceNoteRow[];
+  return withCreators((data ?? []) as unknown as FinanceNoteRow[]);
 }
 
 export async function getVendorOptions(): Promise<PartyOption[]> {

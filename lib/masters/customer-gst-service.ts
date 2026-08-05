@@ -23,13 +23,17 @@ export interface CustomerGstRow {
   city_id: string | null; // legacy center "City" grid (config_lookups 'city')
   gst_no: string | null;
   created_at: string;
+  /** Both halves of the Created pair, or the User column is a row of dashes:
+   *  `withCreators()` resolves the uuid, and a hand-written select has to FETCH
+   *  it first. See components/ui/created-columns.tsx. */
+  created_by: string | null;
 }
 
 export async function listCustomerGst(): Promise<CustomerGstRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("customers")
-    .select("id, code, name, inactive, is_draft, city_id, gst_no, created_at")
+    .select("id, code, name, inactive, is_draft, city_id, gst_no, created_at, created_by")
     .order("name");
   return withCreators((data ?? []) as CustomerGstRow[]);
 }
