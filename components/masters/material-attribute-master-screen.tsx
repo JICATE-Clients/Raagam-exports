@@ -1126,16 +1126,28 @@ export function MaterialAttributeMasterScreen({
                             as clutter rather than as an invitation, and the
                             client asked for the button back (2026-08-04).
 
-                            The keyboard is unaffected, because the button was
-                            never its path: Enter off the last value still opens
-                            the next box, and Enter on that box while it is still
-                            empty declines and moves the operator to the next
-                            attribute. The difference is only that the box now
-                            appears when it is asked for. */}
+                            "The keyboard is unaffected, because the button was
+                            never its path" was said here and was HALF TRUE: Enter
+                            off the last value still opens the next box, and Enter
+                            on that box while it is still empty declines and moves
+                            the operator to the next attribute — but all of that
+                            needs the operator to already be INSIDE the list, and
+                            with no values there was nothing to stand on. Tab
+                            skipped the panel and never lands on a button, so the
+                            FIRST value was mouse-only (client 2026-08-05,
+                            screenshot 2172).
+
+                            `data-row-add` is the fix, and it is not a local
+                            handler: Tab stepping off the row's last column into an
+                            empty nested grid clicks the marked button and lands in
+                            the box it opens (`enterNestedGrid`, child-grid.tsx).
+                            The button keeps its own click, and the box still
+                            appears only when it is asked for. */}
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
+                          data-row-add
                           className="mt-0.5"
                           onClick={() => addOption(l.key)}
                         >

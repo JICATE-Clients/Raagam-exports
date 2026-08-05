@@ -63,10 +63,28 @@ Three things that look like details:
   "any form with a submit button" branch would cage the operator inside a search form
   (98 of the 99 unmarked forms in this repo have one).
 - **Inside a child grid the GRID owns Tab** (`tabAlongRow`, `child-grid.tsx`): along the
-  row's `ROW_FIELDS`, on to the next row, declining at the last cell so Tab can still leave.
+  row's fields, on to the next row, declining at the last cell so Tab can still leave.
   That is the same exception the grid already has for ↑↓←→ and Enter, and it is what covers
   the **page-level** screens the gate above excludes — TA Plan / TA Style / TA Department
   Assign are page forms with hand-rolled grids, and they were three of the ~22.
+- **A ROW'S NESTED GRID IS PART OF THE ROW**, and this is the one place Tab and the arrows
+  read different axes on purpose. The arrows use `ownDescendants` — scoped to the nearest
+  `data-grid-row`, because a nested panel's fields counting as columns of the outer row is
+  what made ↓ from "End Value" land on the 2nd value of the *next* line (2026-07-25). Tab
+  fell out of that same query and so **skipped the panel entirely**: on Material Attributes
+  the values under a row were reachable only with the mouse (client 2026-08-05). Tab now
+  walks `tabFieldsIn` — every field in the row in DOM order, its own cells then the panel
+  beneath — and ↑/↓ still cross the boundary the way they always did, through
+  `gridKeyNav`'s `fromChildGrid` hand-off.
+- **An empty nested grid is entered by OPENING its first row** (`enterNestedGrid`). Its only
+  affordance is an "+ Add" button, and Tab lands on fields, so there was nothing to tab into
+  and nothing to stand on and press Enter — the FIRST value of a Material Attribute was
+  mouse-only. Tab stepping off the row's last cell clicks the grid's `data-row-add` control
+  and lands in the box it opens. Mark that button, the same way a row's ✕ carries
+  `data-row-remove` for Ctrl+Del; forward only, and only while the nested grid holds no
+  fields at all, so it can never stack blanks. The lesson underneath it: **replacing a
+  grid's permanently-open blank row with a button removes the keyboard's only way in** —
+  "Enter off the last value opens the next box" needs the operator to already be inside.
 
 **Known remainder, enumerated not guessed:** a page-level editor that declares no marker
 keeps native Tab *outside* its grids (~51 screens: the `planning/*-detail` family, the

@@ -453,7 +453,12 @@ function StylesTab({
                     <div className="ml-4">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-muted-foreground">Sizes</span>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => addComboSize(ci)}>+ Size</Button>
+                        {/* `data-row-add`: Tab off the combo's last cell steps into
+                            the Sizes grid, opening the first size row when there
+                            is none (`enterNestedGrid`, child-grid.tsx). Without the
+                            marker an empty nested list has no keyboard way in — Tab
+                            lands on fields, and this is a button. */}
+                        <Button type="button" variant="ghost" size="sm" data-row-add onClick={() => addComboSize(ci)}>+ Size</Button>
                       </div>
                       {/* Inner grid — own markers, so ↓/↑ walk the SIZES. */}
                       <div data-grid-body onKeyDown={(e) => gridKeyNav(e, () => addComboSize(ci))}>
