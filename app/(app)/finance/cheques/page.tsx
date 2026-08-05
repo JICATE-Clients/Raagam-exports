@@ -23,7 +23,7 @@ export default async function ChequesPage() {
         description="Cheque lifecycle — issued → deposited → cleared / cancelled / bounced"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

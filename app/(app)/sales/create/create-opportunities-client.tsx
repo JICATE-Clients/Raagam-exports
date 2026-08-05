@@ -100,7 +100,7 @@ export function CreateOpportunitiesClient({
         description="Select customers and create one opportunity for each."
         actions={
           <Link href="/sales">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Sales Pipeline
             </Button>
           </Link>

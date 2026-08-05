@@ -75,7 +75,7 @@ export default async function OrderCancellationsPage() {
         description="Cancel a confirmed order — pick the SC No, and the order's status is flipped to Cancelled."
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Garment Orders
             </Button>
           </Link>

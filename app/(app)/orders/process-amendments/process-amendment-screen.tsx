@@ -208,7 +208,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
         title={editId ? "Edit Amendment" : "New Amendment"}
         description="Pick styles on the Component / Garment process tabs. Blank rows are ignored."
         actions={
-          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+          <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
           </Button>
         }

@@ -119,7 +119,7 @@ adopter across 92 screens — nobody could migrate without silently shredding th
 |---|---|---|---|
 | `xs` | 2 | 6 | — *retired on the masters; see below* |
 | `sm` | 3 | **4** | **every field, on a full-width section** |
-| `md` | 4 | 3 | — *retired on the masters* |
+| `md` | 4 | 3 | — *retired on the masters, with one named exception below* |
 | `lg` | 6 | 2 | **every field, inside a `SectionColumn`** |
 | `full` | 12 | 1 | the things that are **not fields** — child grids, textareas, fact strips |
 
@@ -141,6 +141,18 @@ Getting this wrong is the commonest layout bug on these screens: `sm` inside a
 `SectionColumn` is ~132px, *half* the reference, and the fields look starved rather than
 compact. If a screen wants four genuinely-flush fields on one row, stack its sections full
 width (`applicant`, `bank`, `courier-delivery`, `notify`) rather than splitting the sheet.
+
+**The one named exception: Material ▸ Fabric ▸ Classification uses `md`** — three fields
+(Structure, Type, Fabric Type) on one row inside a `SectionColumn`, asked for three times
+(client 2026-08-04). In that ~584px column the 12-col track runs ~36.3px per unit, so `md`
+renders at **181px** — narrower than the ~280px reference, but 36% wider than the `sm`
+attempt that produced the starved-field bug above, and wider than the signed-off mockup's
+own three-across row (`doc/ui/New Material Fabric - Organized Layout.html` lays Units of
+Measure out as `repeat(3,1fr)` at ~175px in a column of the same width). Stacking the
+sections was tried first and reverted the same day, because the client wants the
+two-column page split kept. Recorded here because a screen quietly using a retired size is
+how the next reader "fixes" it back — that already happened once. The arithmetic is in the
+comment beside the fields (`material-master-screen.tsx`, `fabricDetails`).
 
 **What stays wide.** `full` is for things that are not fields: a `ChildGrid`, a GSTIN fact
 strip, a multi-line `Textarea`. A textarea in particular must never share a row — every
@@ -643,6 +655,40 @@ gutter is what stops two adjacent controls on a 12-col row reading as one contro
 
 Type sizes do **not** compact: controls stay `text-base md:text-sm`, labels `text-xs`. 11px was
 tried and rejected as below a readable floor for all-day data entry.
+
+### The header row
+
+Density is about the inside of an editor. **The band above a list is the opposite case, and
+it has one size: `md`.** Search box, `Filters`, `Download`, `+ Add <Entity>`, a `← Back`
+link — every control in that row is `h-9`, because the row's fixed element is the search
+`<Input>` and an `<Input>` is `h-9`. No screen chooses; there is no `size` prop on
+`DataIoToolbar` to choose with.
+
+This is written down because it drifted three ways at once (client 2026-08-05):
+
+- `data-io-toolbar.tsx` hardcoded `size="sm"`, so **Download** sat 4px shorter than the
+  **+ Add** button beside it — and a font size smaller, and 2px tighter on its icon gap.
+  One component, 28 screens.
+- `FilterBar` hit the same thing earlier and patched it with `size="sm" className="h-9"`.
+  That fixed the height and nothing else, which is why it survived review looking
+  deliberate. **A call site patching one property of a control's size is the shape §7's
+  `text-base md:text-sm` no-op has** — same bug, one property along.
+- Seven `app/(app)/**` clients went the other way and made their Add button `sm`. Matched
+  within the screen, 4px short of the identical row on the other 21 — so a new screen
+  copied from either neighbour inherited a different answer.
+
+**`sm` is still right where the row is not a header.** A `+ Add line` inside a `ChildGrid`,
+the bulk-selection bar, the report toolbar's view/export cluster: those are dense on
+purpose and internally consistent, and `sm` at `h-8` is already the compact size — which is
+why grid rows never showed this bug. They opt out per line with a
+`toolbar-size: exempt -- <reason>` comment.
+
+Checked by `python scripts/audit_layout.py . --check toolbar-size`, which recognises a
+header row two ways — the innermost `<div>` around a `<DataIoToolbar>`, and a `PageHeader`
+`actions={…}` expression — and reads the `<Button>` tag with the brace-aware `_jsx_open_tag`
+rather than a regex. That is not fussiness: a naive `<Button[^>]*>` stops at the `>` inside
+`onClick={() => …}`, and the first sweep of this rule missed 12 real header buttons for
+exactly that reason.
 
 ---
 

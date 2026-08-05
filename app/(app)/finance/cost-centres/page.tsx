@@ -29,7 +29,7 @@ export default async function CostCentresPage() {
         description="Cost-centre groups & centres for department-wise cost tracking"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

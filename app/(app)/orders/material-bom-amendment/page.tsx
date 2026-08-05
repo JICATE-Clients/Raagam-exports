@@ -29,7 +29,7 @@ export default async function MaterialBomAmendmentPage() {
         description="Amend an accepted order's material BOM — items, processes & calculated quantities."
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Garment Orders
             </Button>
           </Link>

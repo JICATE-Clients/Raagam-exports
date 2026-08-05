@@ -359,7 +359,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         title={editId ? "Edit Style" : "New Style"}
         description="Wire each ⓘ field from stored data. Blank grid rows are ignored."
         actions={
-          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+          <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
           </Button>
         }

@@ -87,7 +87,7 @@ export default async function InternalWorkOrdersPage() {
         description="Trial / internal work orders — order-related or non-order-related."
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Orders
             </Button>
           </Link>

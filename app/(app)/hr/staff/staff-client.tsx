@@ -134,7 +134,7 @@ export default function StaffClient({
           canImport={canCreate}
           canExport={canExport}
         />
-        <Button variant="primary" size="sm" onClick={openAdd}>
+        <Button variant="primary" size="md" onClick={openAdd}>
           + Add Staff
         </Button>
       </div>

@@ -23,7 +23,7 @@ export default async function IncentivesPage() {
         description="Government export-incentive claims (RoDTEP / Drawback / RoSCTL)"
         actions={
           <Link href="/logistics">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Logistics
             </Button>
           </Link>

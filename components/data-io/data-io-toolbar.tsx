@@ -12,6 +12,13 @@ import { ImportDialog } from "./import-dialog";
  * Import / Export / Template action bar for a list page. Drop it above a
  * `DataTable`, pass the entity key + the currently displayed rows. Export &
  * template are gated by `canExport`, import by `canImport`.
+ *
+ * `size="md"` is the header-row size and is not a free choice — see
+ * LAYOUT.md §10 "The header row". These buttons sit in the same band as the
+ * search `Input` (`h-9`) and the screen's `+ Add <Entity>` button, and they were
+ * `sm` for long enough that Download read as 4px shorter and a font size smaller
+ * than the Add button beside it on 28 screens (client 2026-08-05). There is
+ * deliberately no `size` prop: the row's size is the row's, not the caller's.
  */
 export function DataIoToolbar({
   entityKey,
@@ -51,17 +58,17 @@ export function DataIoToolbar({
     <div className="flex flex-wrap items-center gap-2">
       {canImport && (
         <>
-          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-            <Upload className="h-4 w-4" />
+          <Button variant="outline" size="md" onClick={() => setImportOpen(true)}>
+            <Upload />
             Import
           </Button>
           <Button
             variant="ghost"
-            size="sm"
+            size="md"
             disabled={busy}
             onClick={() => run(() => downloadTemplate(entity), "download the template")}
           >
-            <FileSpreadsheet className="h-4 w-4" />
+            <FileSpreadsheet />
             Template
           </Button>
         </>
@@ -71,11 +78,11 @@ export function DataIoToolbar({
         <div className="relative">
           <Button
             variant="outline"
-            size="sm"
+            size="md"
             disabled={busy}
             onClick={() => setDownloadOpen((o) => !o)}
           >
-            <Download className="h-4 w-4" />
+            <Download />
             Download
           </Button>
           {downloadOpen && (

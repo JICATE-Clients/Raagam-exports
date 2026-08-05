@@ -20,7 +20,7 @@ export default async function SalesQuoteConfirmationsPage() {
         description="Set each quote's approval status — accepted quotes win the opportunity and feed Orders."
         actions={
           <Link href="/sales">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Sales
             </Button>
           </Link>

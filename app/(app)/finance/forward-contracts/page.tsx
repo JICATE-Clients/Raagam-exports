@@ -27,7 +27,7 @@ export default async function ForwardContractsPage() {
         description="Forex forward-cover register (booking → utilised / cancelled)"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

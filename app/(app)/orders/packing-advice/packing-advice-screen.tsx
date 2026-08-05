@@ -321,7 +321,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
         title={editId ? `Edit Packing Advice ${editCode ?? ""}` : "New Packing Advice"}
         description="Fill the header, then add carton/assortment lines. Every ⓘ / ⊕ field is a picker over stored data."
         actions={
-          <Button variant="outline" size="sm" onClick={() => setMode("list")}>
+          <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
           </Button>
         }

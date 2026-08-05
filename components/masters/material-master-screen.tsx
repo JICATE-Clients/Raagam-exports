@@ -299,20 +299,26 @@ export function MaterialMasterScreen({
    *
    * It stacked its sections full width for part of 2026-08-04 — "make it three
    * fields per row" — which put Structure · Type · Fabric Type on one line at
-   * `sm`. The client reverted it the same day and asked for the split screen
-   * back, and the signed-off mockup agrees: `doc/ui/New Material Fabric -
-   * Organized Layout.html` is `grid-template-columns:1fr 1fr` at the top level,
-   * with Classification's own `.grid2` also `1fr 1fr` — TWO fields per row, so
-   * Structure | Type share the first and Fabric Type takes the second.
+   * `sm`, 133px each. The client reverted it the same day and asked for the
+   * split screen back, and the signed-off mockup agrees at the PAGE level:
+   * `doc/ui/New Material Fabric - Organized Layout.html` is
+   * `grid-template-columns:1fr 1fr` at the top.
    *
-   * That is the whole reason the flag is gone rather than flipped to `false`: a
-   * boolean sitting at `false` invites the next reader to try `true` again. The
-   * layout doc is the authority, and it has said two columns since 2026-07-23.
+   * That is the whole reason the stacking flag is gone rather than flipped to
+   * `false`: a boolean sitting at `false` invites the next reader to try `true`
+   * again. The page split is the authority and has been since 2026-07-23.
    *
-   * The coupling still holds and is why this note stays: sections in a
-   * `SectionColumn` (~566px) need `lg` fields, sections across the sheet
-   * (~1150px) need `sm`. Change one without the other and you get either two
-   * enormous fields or the starved-field bug LAYOUT.md §3 names.
+   * WHAT THAT DOES NOT DECIDE is how many fields sit on a row INSIDE a column.
+   * The three fields per row the client asked for are here — Classification's
+   * fields are `md` (181px), three across, without stacking anything. The
+   * mockup does the same thing in its own right column, where Units of Measure
+   * is `repeat(3,1fr)` at ~175px. Full reasoning and the measured widths sit
+   * with the fields themselves, in `fabricDetails`.
+   *
+   * The coupling still holds for every OTHER section on this screen: in a
+   * `SectionColumn` (~566px) a field is `lg`, across the sheet (~1150px) it is
+   * `sm`. Change one without the other and you get either two enormous fields
+   * or the starved-field bug LAYOUT.md §3 names.
    */
   /** A unit's code for display in the read-only boxes the fabric rule renders
    *  ("KGS", "NOS", "MTR") — same text `uomSelect` puts in its options. */
@@ -415,6 +421,33 @@ export function MaterialMasterScreen({
       return Object.keys(patch).length ? { ...f, ...patch } : f;
     });
   }, [selectedClassCode, numbersUnitId]);
+
+  /**
+   * A FABRIC WITH NO STRUCTURE YET STARTS ON KGS (client 2026-08-04).
+   *
+   * The structure rule below owns this field the moment a Structure is picked —
+   * Circular Knit KGS, Flat Knit NOS, Woven MTR — but until then it derives
+   * nothing (`fabricBaseUomId` is null with no structure), so the effect bailed
+   * and Base sat on "— None —" on every new fabric. Base is mandatory, so the
+   * operator met a blank required field before they had touched anything.
+   *
+   * KGS is the right starting point rather than an arbitrary one: fabric is
+   * bought and stocked by weight, and it is what two of the three structures
+   * resolve to as base or alternative.
+   *
+   * BLANKS-ONLY, deliberately, and the opposite of the structure rule below —
+   * which overwrites, because a fabric switched from Circular to Woven must not
+   * keep the previous structure's answer. This one only ever fills an empty box,
+   * so a hand-picked unit survives; and picking a Structure afterwards hands the
+   * field to that rule, which corrects KGS to NOS or MTR as needed.
+   */
+  useEffect(() => {
+    if (formKey !== "FABRIC") return;
+    if (form.fabric_structure_id) return; // the structure rule owns it from here
+    const kgId = kgUnitId;
+    if (!kgId) return;
+    setForm((f) => (f.base_uom_id ? f : { ...f, base_uom_id: kgId }));
+  }, [formKey, form.fabric_structure_id, kgUnitId]);
 
   /** The structure `applyFabricStructureUom` below last wrote a unit for.
    *
@@ -1528,13 +1561,20 @@ export function MaterialMasterScreen({
             its data, with the long hints tucked into ⓘ tooltips; Mixing nests
             INSIDE Composition (it IS the composition), never in the right
             column. The section sits in the LEFT column of the two-column split,
-            exactly as the mockup draws it, and its fields are `lg` — the
-            mockup's Classification is a `.grid2` of `1fr 1fr`, so Structure and
-            Type share the first row and Fabric Type takes the second. */}
+            exactly as the mockup draws it; its three fields are `md`, so all
+            three share ONE row (client 2026-08-04, asked three times). See the
+            note on the sizes below — the mockup's own Units of Measure does the
+            same thing at the same column width. */}
         <DetailSection label="Classification" cols={12}>
-            <Field size="lg">
+            <Field size="md">
               <CategoryPicker
                 label="Structure"
+                // `DataPicker` would otherwise draw "— Select Structure —"
+                // (~182px) inside a 181px field, so the noun clips off the end.
+                // LAYOUT.md §5a already prescribes the short form for a blank
+                // option, and the label above this box says "Structure" — the
+                // noun in the placeholder was redundant at any width.
+                placeholder="— Select —"
                 // MANDATORY, and it always was — `category_id` has been in
                 // FABRIC's `REQUIRED_BY_FORM` set from the start, so Save was
                 // already blocked without it. The picker just never carried the
@@ -1560,19 +1600,33 @@ export function MaterialMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-            {/* `lg`, because this section sits in a `SectionColumn` (~566px)
-                where LAYOUT.md §3's ~280px reference field is 6 of 12. `sm` here
-                is ~132px — half the reference, and the commonest layout bug on
-                these screens: it showed as Type and Fabric Type starved to
-                ~165px with neither "— Pick a Structure —" nor "— Select —"
-                fitting (client 2026-08-04).
+            {/* `md` — THREE FIELDS ON ONE ROW (client 2026-08-04, asked three
+                times). Do not "restore" this to `lg`; read why first, because it
+                has already been reverted once on a premise that does not hold.
 
-                The two are coupled and must move together: `sm` is correct only
-                across the full sheet (3 of 12 of ~1150px IS the 280px reference).
-                Stacking the sections to get three fields on one row was tried and
-                reverted the same day — the signed-off mockup is a two-column
-                split with two fields per row, and it is the authority. */}
-            <Field size="lg">
+                MEASURED, not estimated. The 12-col track in this ~584px column,
+                after `DetailSection`'s `p-2` and its `gap-x-3` gutters, is
+                ~36.3px per unit:
+
+                  lg  6 units → 278px → 2 per row   (the ~280px reference)
+                  md  4 units → 181px → 3 per row   ← here
+                  sm  3 units → 133px → 4 per row
+
+                The failure everyone remembers — Type and Fabric Type starved,
+                neither placeholder fitting — was `sm` at 133px. `md` is 36%
+                wider, which is why it is not the same change.
+
+                AND THE MOCKUP ALLOWS IT. The revert cited
+                `doc/ui/New Material Fabric - Organized Layout.html` as mandating
+                two per row. It draws Classification as a `.grid2`, true — but in
+                the RIGHT column, at the same ~583px, it lays Units of Measure out
+                as `repeat(3,1fr)`: three fields at ~175px. Three-across in a
+                half-width column is the mockup's own idiom, and `md` at 181px is
+                wider than the row it signed off.
+
+                `md` is marked retired in LAYOUT.md §3 (one width, ~280px, client
+                2026-07-29). This is the one named exception, recorded there. */}
+            <Field size="md">
               {/* Fabric "Type" — Circular Knit/Flat Knit/Woven. Derived from the
                   picked Structure/category (which already carries its structure,
                   set in the Category child) and shown read-only — no separate
@@ -1585,7 +1639,7 @@ export function MaterialMasterScreen({
               </Label>
               {/* `truncate` used to sit on THIS div, which is `flex` — so it
                   clipped the flex ITEM, never the text, and the placeholder
-                  "— Pick a Structure —" ran straight out of the box and over
+                  "— Select —" ran straight out of the box and over
                   Fabric Type beside it (client 2026-08-04). `min-w-0` is the
                   other half: a flex child will not shrink below its content
                   width without it, so even a correct `truncate` inside would
@@ -1601,15 +1655,14 @@ export function MaterialMasterScreen({
                 <Truncated
                   text={
                     fabricStructures.find((s) => s.id === form.fabric_structure_id)?.name ??
-                    "— Pick a Structure —"
+                    "— Select —"
                   }
                   className="min-w-0"
                 />
               </div>
             </Field>
-            {/* `lg`, same reason as Type above — and it takes the second row on
-                its own, which is exactly what the mockup's `.grid2` draws. */}
-            <Field size="lg">
+            {/* `md`, the third of the row — see the note above Type. */}
+            <Field size="md">
               {/* Fixed 3-value classification (Solid/Yarn Dyed/Melange) — plain
                   dropdown, no Add/Modify/Delete (client 2026-07-23, Screenshot
                   2070): users must pick, never grow this list.
@@ -2137,20 +2190,12 @@ export function MaterialMasterScreen({
               Details/UOM tabs: both are always visible (planned layout), so the
               duplicate-name error simply gates Save.
 
-              EXCEPT ON FABRIC, where both columns claim the full row and the
-              sections simply stack (client 2026-08-04). Fabric's Classification
-              holds three fields — Structure, Type, Fabric Type — and only two fit
-              a half-width column: LAYOUT.md §3 fixes the field at ~280px, which
-              in a `SectionColumn` is `lg`, 6 of 12. Shrinking them inside the
-              column is not the way out and was tried and reverted the same day
-              (see the note on Structure in `fabricDetails`). §3's own answer is
-              to stack: across the sheet the reference width is `sm`, 3 of 12, and
-              four fit — so three sit on one row at full size rather than a
-              squeezed one. `applicant`, `bank`, `courier-delivery` and `notify`
-              already do this.
-
-              The LEFT/RIGHT rule below still governs the other classes; on
-              Fabric the same order simply reads top-to-bottom instead. */}
+              EVERY class uses this split, Fabric included. Fabric's
+              Classification fits its three fields — Structure, Type, Fabric
+              Type — on one row by sizing them `md` inside the column, not by
+              claiming the whole row: see the measured widths in
+              `fabricDetails`. Stacking was tried for part of 2026-08-04 and the
+              client reverted it the same day. */}
           <SectionGrid>
             <SectionColumn>
               {formKey === "FABRIC" ? (

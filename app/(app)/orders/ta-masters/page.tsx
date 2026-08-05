@@ -26,7 +26,7 @@ export default async function TaActivityPage() {
         description="Time & Action activity catalogue — Short Name, Name, Type, sub-activities & delivery-date flags."
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Orders
             </Button>
           </Link>

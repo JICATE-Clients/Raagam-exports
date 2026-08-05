@@ -29,7 +29,7 @@ export default async function ProvisionalInvoicesPage() {
         description="Preliminary export invoices raised before the final invoice"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

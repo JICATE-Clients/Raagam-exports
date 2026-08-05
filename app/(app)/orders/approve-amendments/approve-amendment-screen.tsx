@@ -198,7 +198,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
         description="Review and approve or reject raised garment order amendments."
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Garment Orders
             </Button>
           </Link>

@@ -93,7 +93,7 @@ export default async function OrderDetailPage({
         actions={
           <>
             <Link href={`/orders/${orderId}/processes`}>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="md">
                 Garment Processes
               </Button>
             </Link>

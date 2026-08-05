@@ -36,7 +36,7 @@ export default async function OrderProcessesPage({
         description={`${order.order_number ?? "Order"} · ${order.buyers?.name ?? ""}`}
         actions={
           <Link href={`/orders/${orderId}`}>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Order
             </Button>
           </Link>

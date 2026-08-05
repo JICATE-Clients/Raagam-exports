@@ -22,7 +22,7 @@ export default async function ExchangeRatesPage() {
         description="Booked vs actual realised forex rate — gain / loss tracking"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

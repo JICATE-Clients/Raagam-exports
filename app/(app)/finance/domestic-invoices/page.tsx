@@ -26,7 +26,7 @@ export default async function DomesticInvoicesPage() {
         description="Domestic (INR / GST) garment sales invoices"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

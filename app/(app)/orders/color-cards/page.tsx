@@ -65,7 +65,7 @@ export default async function ColorCardsPage() {
         description="Select a customer to define their buyer-approved colour palettes"
         actions={
           <Link href="/orders">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Orders
             </Button>
           </Link>

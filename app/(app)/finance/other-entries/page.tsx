@@ -22,7 +22,7 @@ export default async function OtherEntriesPage() {
         description="Misc income / expense entries not tied to a bill or invoice"
         actions={
           <Link href="/finance">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Finance
             </Button>
           </Link>

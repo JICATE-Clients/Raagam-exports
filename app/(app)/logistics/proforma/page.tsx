@@ -71,7 +71,7 @@ export default async function ProformaPage() {
         description="Pre-shipment proforma invoices to buyers"
         actions={
           <Link href="/logistics">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Logistics
             </Button>
           </Link>

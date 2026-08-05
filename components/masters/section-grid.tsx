@@ -74,36 +74,21 @@ export function SectionGrid({
  */
 export function SectionColumn({
   children,
-  span = 1,
   className,
 }: {
   children: ReactNode;
-  /**
-   * How many of the grid's two columns this one occupies.
-   *
-   * `2` makes the column claim the WHOLE row, so its sections stack full width
-   * — which is the layout LAYOUT.md §3 prescribes for a screen that wants more
-   * than two fields on a row: in a half-width column the ~280px reference field
-   * is `lg` (6 of 12) and only two fit, while across the sheet it is `sm` (3 of
-   * 12) and four do. Material ▸ Fabric uses it for exactly that (client
-   * 2026-08-04, three Classification fields that were wrapping to two rows).
-   *
-   * Mirrors `DetailSection`'s own `span`, deliberately: a screen that needs a
-   * full-width column must not reach for `col-span-2` itself. LAYOUT.md §1 —
-   * "if you need a layout the primitives can't express, change the primitive" —
-   * and the `screen-grid` audit enforces it.
-   */
-  span?: 1 | 2;
   className?: string;
 }) {
-  return (
-    // Static strings, never interpolated: Tailwind v4 scans source text, so a
-    // computed `@4xl/sections:col-span-${n}` would emit no CSS at all. Same
-    // constraint DetailSection documents for its own spans.
-    <div className={cn("space-y-3", span === 2 && "@4xl/sections:col-span-2", className)}>
-      {children}
-    </div>
-  );
+  // A column is always ONE cell. There was briefly a `span?: 1 | 2` here, so a
+  // column could claim the whole row and stack its sections full width — added
+  // for Material ▸ Fabric, whose Classification holds three fields that would
+  // not fit two-per-row. Fabric got the three on one row by sizing its fields
+  // `md` inside the column instead (client 2026-08-04), no call site ever
+  // passed the prop, and a prop nothing uses reads as a sanctioned option — it
+  // would invite exactly the stacking that was tried and reverted. A screen
+  // that genuinely wants full-width sections uses `SectionGrid` without
+  // columns, the way `applicant` / `bank` / `courier-delivery` / `notify` do.
+  return <div className={cn("space-y-3", className)}>{children}</div>;
 }
 
 /**

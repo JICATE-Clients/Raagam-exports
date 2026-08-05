@@ -51,7 +51,7 @@ export default async function GrnListPage() {
         description="Receive goods against purchase orders — partial receipts, QC accept/reject."
         actions={
           <Link href="/purchase/grn/new">
-            <Button size="sm">New GRN</Button>
+            <Button size="md">New GRN</Button>
           </Link>
         }
       />

@@ -200,12 +200,12 @@ export function ItemPicker({
       <DataPicker
         label={label}
         title={title}
+        placeholder={placeholder}
         rows={rows}
         value={value}
         onChange={(v) => onChange(v ?? "")}
         usedIds={usedIds}
         clearable={clearable}
-        placeholder={placeholder}
         compact={compact}
         manage={manage}
         onAddOverride={
@@ -253,6 +253,7 @@ export function ItemPicker({
 export function CategoryPicker({
   label,
   title,
+  placeholder,
   categories,
   value,
   onChange,
@@ -268,6 +269,13 @@ export function CategoryPicker({
   fabricStructures,
 }: {
   label: string;
+  /**
+   * The empty-state text. `DataPicker` defaults to `— Select {noun} —`, which
+   * LAYOUT.md's own convention (§5a: "a field select's blank first option reads
+   * `— Select —` / `— None —`") is shorter than — and on a narrow field the
+   * noun is what pushes it past the box, with the label above already naming it.
+   */
+  placeholder?: string;
   /** Overrides `label` for the panel title and toasts — for a grid cell, whose
    *  column header already names the field and so passes `label=""`. Same prop
    *  and same reason as `ItemPicker` above. */
@@ -456,6 +464,7 @@ export function CategoryPicker({
       <DataPicker
         label={label}
         title={title}
+        placeholder={placeholder}
         rows={rows}
         value={value}
         onChange={(v) => onChange(v ?? "")}

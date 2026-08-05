@@ -82,7 +82,7 @@ export default async function CustomerColorCardsPage({
         } · Colour cards`}
         actions={
           <Link href="/orders/color-cards">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="md">
               ← Customers
             </Button>
           </Link>
