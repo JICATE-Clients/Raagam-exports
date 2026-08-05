@@ -100,7 +100,7 @@ export function useRequiredHold(
  * The classes are a static lookup, never interpolated — Tailwind v4 scans source
  * text, so a computed `@lg/section:col-span-${n}` would produce no CSS at all.
  */
-export type FieldSize = "xs" | "sm" | "md" | "lg" | "full";
+export type FieldSize = "xs" | "sm" | "md" | "lg" | "xl" | "full";
 
 /**
  * The 12-col track that the spans below query. Exported so `DetailSection` and
@@ -117,6 +117,23 @@ const SPAN: Record<FieldSize, string> = {
   sm: "@lg/section:col-span-3", // short codes — HSN, count, shade
   md: "@lg/section:col-span-4", // the default — most pickers and lookups
   lg: "@lg/section:col-span-6", // long free text — names, addresses
+  /**
+   * NOT a field width — the same category as `full` below, for the case where
+   * the wide thing SHARES its row instead of standing alone.
+   *
+   * `full` covers a child grid or textarea that takes the row; there was
+   * nothing for a child grid sitting BESIDE a field, because the map jumped
+   * 6 → 12. Material ▸ Fabric ▸ Composition is the case that asked for it: a
+   * stacked Using / Direct Purchase cell at `md` (181px) with the mixing grid
+   * next to it. At `lg` the grid got 278px and its Yarn picker ~150px, which
+   * the client read as squeezed (2026-08-05); 4 + 8 gives it 374px and the
+   * picker ~250px, and still sums to 12.
+   *
+   * Do not reach for this to make a FIELD wider. LAYOUT.md §3 fixes a field at
+   * ~280px and the sizes above are how you hit it; this one exists because a
+   * table is not a field.
+   */
+  xl: "@lg/section:col-span-8",
   full: "@lg/section:col-span-12", // stands alone on its row — grids, textareas
 };
 
