@@ -817,6 +817,59 @@ export function MaterialMasterScreen({
   // which is exactly the "Fabric and not Direct Purchase" test — a grid that
   // isn't on screen must never be what blocks Save.
   const fabricCompositionMissing = fabricAttributesVisible && !mixings.some((m) => m.component_item_id);
+  // Gated on a row carrying DATA, not on a row existing: picking "Using" now
+  // seeds row 1 (handleFabricUsingChange), and a bare `mixings.length > 0`
+  // would flash a red "0% of 100%" the instant they pick it, before they have
+  // done anything wrong. Save is unaffected either way — mixPctSumInvalid
+  // already requires a non-null blend_pct.
+  //
+  // Lives out here rather than inside `mixingGrid` because Fabric renders it in
+  // the COMPOSITION section header while Yarn renders it on the grid's own
+  // caption. One expression, two homes — a second copy would be free to drift
+  // from the "required outranks the %" precedence below.
+  const pctBadge = mixings.some((m) => m.component_item_id || numOrNull(m.blend_pct) != null) && (
+    <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
+      {mixPctSum}% of 100%
+    </span>
+  );
+  /**
+   * The Composition section's header-right slot: the mixing grid's caption and
+   * its status, LIFTED OUT of the grid and onto the "COMPOSITION" line (client
+   * 2026-08-05, screenshot 2168).
+   *
+   * It read as misaligned because the caption cost the right-hand cell a band
+   * the left-hand cell did not have: "ATTRIBUTES (MIXING)" sat level with the
+   * "Using" LABEL, which pushed the grid's column headers level with the Using
+   * SELECT and the first yarn row a whole band below it. Nothing lined up
+   * across the two cells. With the caption on the section's own header line,
+   * the column headers meet the label and row 1 meets the select.
+   *
+   * `DetailSection`'s `action` is where this belongs — its doc names the
+   * "83% of 100%" badge from the Material mockup as the example. And
+   * `ChildGrid` drops its caption band by itself once `label` and `badge` are
+   * both absent, for exactly this case: "a grid nested inside a DetailSection
+   * that already names it would otherwise draw an empty band above its rows".
+   *
+   * THE RUNNING TOTAL, AND NOTHING ELSE. Two things have been through here and
+   * both moved on, for the same reason — this is the SECTION's title line, so
+   * anything parked at the far right of it reads as belonging to COMPOSITION
+   * rather than to the grid underneath:
+   *
+   * - "Required — name at least one yarn" (screenshot 2169) left a red sentence
+   *   on a title line that CLASSIFICATION and UNITS OF MEASURE keep bare. It is
+   *   now `required` on the grid's Yarn column — the standard `*` plus the
+   *   cursor hold, from one declaration. Save still reads
+   *   `fabricCompositionMissing`.
+   * - "ATTRIBUTES (MIXING)" (screenshot 2170) is now the grid's own `label`,
+   *   shown above "+ Add row" while the grid is empty.
+   *
+   * The badge stays because it genuinely summarises the section, and it is what
+   * `DetailSection`'s `action` doc names as the example ("83% of 100%", from the
+   * Material mockup). It is gated on a row carrying a yarn or a %, so an
+   * untouched form shows nothing at all here.
+   */
+  const fabricMixHeader =
+    fabricAttributesVisible && !(isYarnDyedFabric || isSingleYarnFabric) ? pctBadge : null;
   const delMix = (key: string) => setMixings((xs) => xs.filter((r) => r.key !== key));
   const addConv = () => setConversions((xs) => [...xs, { key: newKey(), alt_qty: "", alt_uom_id: "", base_qty: "", base_uom_id: "" }]);
   const setConv = (key: string, patch: Partial<ConvRow>) => setConversions((xs) => xs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -1450,16 +1503,6 @@ export function MaterialMasterScreen({
    *  `description`/`uom_id` stay in the row data for legacy rows, just not
    *  editable here. */
   function mixingGrid(variant: "fabric" | "yarn" = "yarn") {
-    // Gated on a row carrying DATA, not on a row existing: picking "Using" now
-    // seeds row 1 (handleFabricUsingChange), and a bare `mixings.length > 0`
-    // would flash a red "0% of 100%" the instant they pick it, before they have
-    // done anything wrong. Save is unaffected either way — mixPctSumInvalid
-    // already requires a non-null blend_pct.
-    const pctBadge = mixings.some((m) => m.component_item_id || numOrNull(m.blend_pct) != null) && (
-      <span className={cn("text-xs font-medium", Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger")}>
-        {mixPctSum}% of 100%
-      </span>
-    );
     /**
      * PICK ONCE. The same component yarn on two blend lines is not a blend, it
      * is one yarn whose two percentages should have been added together — and it
@@ -1493,24 +1536,51 @@ export function MaterialMasterScreen({
       // the grid at one row — once a row exists the "+ Add" button is hidden
       // entirely, so only the single row shows (client 2026-07-24).
       const hidePct = isYarnDyedFabric || isSingleYarnFabric;
-      // The "required" hint OUTRANKS the % badge: a row with 100% typed into it
-      // but no yarn picked would otherwise show a green "100% of 100%" next to a
-      // Save button that refuses to work.
-      const requiredHint = fabricCompositionMissing ? (
-        <span className="text-xs font-medium text-danger">Required — name at least one yarn</span>
-      ) : null;
+      // NO `label` and NO `badge`. Both moved to the COMPOSITION section header
+      // (`fabricMixHeader`, with the reasoning) so the caption stops costing
+      // this cell a band the cell beside it does not have — that stagger is
+      // what read as misaligned (client 2026-08-05, screenshot 2168).
+      // `ChildGrid` drops the whole caption row by itself when neither is set.
       return (
         <ChildGrid<MixRow>
-          label="Attributes (Mixing)"
-          badge={requiredHint ?? (hidePct ? undefined : pctBadge)}
           inlineCards
           frameless
+          // This grid SHARES its row with the Using field beside it, so its rows
+          // have to line up with that field's control rather than sit in cards
+          // 17px lower. See `flushRows` in child-grid.tsx for the arithmetic.
+          flushRows
+          // Shown ONLY while the grid is empty, in the slot the column headers
+          // take once a row exists — `flushRows` allows one band and no more.
+          // So the caption sits directly above "+ Add row" where the operator
+          // first looks (client 2026-08-05, screenshot 2170), and hands the slot
+          // to "Yarn * / Mixing %" the moment those become the better label.
+          // It is NOT the section's title line: a caption parked at the far
+          // right of "COMPOSITION" read as belonging to the section, not to the
+          // grid under it.
+          label="Attributes (Mixing)"
           rows={mixings}
           onAdd={addMix}
           hideAdd={isSingleYarnFabric && mixings.length >= 1}
           onRemove={(m) => delMix(m.key)}
           columns={[
-            { header: "Yarn", cell: compCell },
+            {
+              header: "Yarn",
+              // A Fabric IS its yarn composition, so this is the mandatory field
+              // — declared ONCE and drawing both halves: the red `*` on the
+              // column header and the cursor hold on an empty cell. It replaces
+              // a hand-written "Required — name at least one yarn" sentence that
+              // rode on the section header and unbalanced it (client
+              // 2026-08-05, screenshot 2169). Save still reads the same fact
+              // through `fabricCompositionMissing`.
+              //
+              // The hold has an exit and it is the one the contract already
+              // defines: Ctrl+Del removes the row. That matters for a SECOND row
+              // added by mistake — the operator cannot fill it or Tab out of it,
+              // and Tab has not landed on the row's ✕ since it began visiting
+              // fields only.
+              required: true,
+              cell: compCell,
+            },
             ...(hidePct
               ? []
               : [
@@ -1713,47 +1783,100 @@ export function MaterialMasterScreen({
               </Field>
             )}
         </DetailSection>
-        <DetailSection label="Composition" cols={12}>
+        <DetailSection label="Composition" cols={12} action={fabricMixHeader}>
             {/* Using comes FIRST, and Direct Purchase is off the Tab path while it is
                 unticked (client 2026-08-01). Ticking it wipes the mixing rows, and Enter
                 TICKS a checkbox rather than moving past it — so on the default typing
                 path the operator was one habitual Enter away from silently discarding a
                 typed composition. Reach it with ↓ / → or the mouse. Once ticked it
                 rejoins the path, because it is then the only way back. */}
-            {!form.direct_purchase && (
-              <Field label="Using" size="sm">
-                <Select value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
-                  <option value="">— None —</option>
-                  {FABRIC_USING.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
-                  ))}
-                </Select>
+            {/* ONE CELL, the two stacked (client 2026-08-05): Direct Purchase
+                sits UNDER Using rather than beside it, so the pair occupies half
+                the row and the mixing grid takes the other half.
+
+                Nested `Field`s on purpose. The inner spans are inert — their
+                parent is `space-y-2`, not a grid — but each inner `Field` keeps
+                its own `RequiredScope`, so if Using is ever marked `required`
+                the `*` and the cursor hold still come from that one declaration.
+                Flattening these to plain divs would quietly put both controls
+                under the OUTER cell's scope instead. `size="full"` reads as
+                "fill the cell", which is what a block child does anyway.
+
+                DOM order is untouched — Using, checkbox, grid — so the Tab path
+                and the `data-focus-optional` rule above still hold. */}
+            <Field size="md" className="space-y-2">
+              {!form.direct_purchase && (
+                // The 6px under the label is what makes this field and the grid
+                // beside it read as one row (client 2026-08-05, screenshot
+                // 2171): the grid puts 6px under its own top band, so without a
+                // match here the select sat 6px higher than the "+ Add row"
+                // button next to it. The arbitrary variant rather than a `Field`
+                // prop because this is one screen's alignment against one
+                // neighbour, not a new rule about labels — `Label`'s own
+                // spacing is deliberately tight everywhere else.
+                <Field label="Using" size="full" className="[&>label]:mb-1.5">
+                  <Select value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
+                    <option value="">— None —</option>
+                    {FABRIC_USING.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+              <Field size="full">
+                <label className="flex h-9 cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                    data-focus-optional={form.direct_purchase ? undefined : ""}
+                    checked={form.direct_purchase}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      set({ direct_purchase: checked });
+                      if (checked) setMixings([]);
+                    }}
+                  />
+                  <span className="text-sm text-foreground">Direct Purchase</span>
+                </label>
               </Field>
-            )}
-            <Field size="sm">
-              <label className="flex h-9 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  data-focus-optional={form.direct_purchase ? undefined : ""}
-                  checked={form.direct_purchase}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    set({ direct_purchase: checked });
-                    if (checked) setMixings([]);
-                  }}
-                />
-                <span className="text-sm text-foreground">Direct Purchase</span>
-              </label>
             </Field>
-            {fabricAttributesVisible && (
-              <div className="space-y-2 @lg/section:col-span-12">
-                <div className="h-px bg-border" />
-                {mixingGrid("fabric")}
-              </div>
-            )}
+            {/* THE MIXING GRID SHARES THE ROW with the pair beside it (client
+                2026-08-05, the same request Classification above answered). It
+                used to take a full row of its own beneath them, leaving most of
+                theirs empty.
+
+                4 + 8 = 12: the stacked Using/Direct Purchase cell at `md`
+                (181px, the same width as Classification's fields directly
+                above, so the two rows share a left edge), and this at `xl`
+                (374px).
+
+                THE 8 IS WHY `xl` EXISTS. It was 6/6 for an hour and the client
+                read the grid as squeezed (2026-08-05): at 278px the Yarn picker
+                inside it sits at ~150px. `Field`'s map went 6 → 12 with nothing
+                between, so there was no way to give a table more than half a row
+                without taking the whole one — the gap `xl` fills. At 374px the
+                picker lands at ~250px, and wider still on a Yarn Dyed or Single
+                Yarn fabric where `hidePct` drops the % column.
+
+                Going the other way is what does not work: at Classification's
+                `md` the picker would collapse to ~55px, narrower than
+                "40'S COMBED COTTON".
+
+                `Field` with no label rather than a hand-written `col-span-6`:
+                it is the documented shape for "an unlabelled cell that still
+                participates in the span grid", it keeps a `col-span-*` off the
+                screen (LAYOUT.md §1), and it brings `min-w-0` — without which a
+                grid child refuses to shrink below its content width and the
+                table would push out of its half. Same half of the fix as Type
+                beside Fabric Type above.
+
+                The `h-px` divider went with it: it separated the grid from the
+                fields ABOVE it, and side by side there is nothing above to
+                separate — a rule across half a column just reads as a stray
+                line. `FIELD_TRACK`'s `gap-x-3` is the separation now. */}
+            {fabricAttributesVisible && <Field size="xl">{mixingGrid("fabric")}</Field>}
         </DetailSection>
       </>
     );
@@ -1771,11 +1894,27 @@ export function MaterialMasterScreen({
     const ytName = yarnTypes.find((y) => y.id === form.yarn_type_id)?.name?.toLowerCase() ?? null;
     return (
       <>
-        {/* Yarn Type and its optional Shade are both single words — they share
-            one row instead of taking a stacked column each (client 2026-07-24
-            #3). */}
-        <DetailSection label="Yarn Type" cols={12}>
-            <Field size="md">
+        {/* ONE section, and the four class fields are ONE ROW: Yarn Type ·
+            Count · Category · Purity, `sm` (span 3) each = 12 (user
+            2026-08-05). Yarn Type had a section of its own above this one; the
+            header bought nothing — "Yarn Type" and "Classification" are the
+            same subject — and it cost the row its fourth field.
+
+            Order here IS the layout. The grid auto-places, so the two
+            conditionals sit AFTER Purity deliberately: written where they
+            belong semantically (Shade beside Yarn Type, Nature beside the
+            Category it derives from) either one appearing would push Purity
+            onto row 2 and break the four up. They wrap below instead, which is
+            the trade the user took when the row was chosen.
+
+            ~132px per field, not the ~280px reference of LAYOUT.md §3 — that
+            is what four across a `SectionColumn` costs, and it was chosen with
+            the arithmetic in hand. The alternative is stacking this section
+            full width, which is the thing the client reverted on 2026-08-04;
+            see the note above `SectionGrid` at the render root. Category is the
+            one long value, so it leans on `<Truncated>` inside the picker. */}
+        <DetailSection label="Classification" cols={12}>
+            <Field size="sm">
               <LookupDialogPicker
                 kind="yarn_type"
                 label="Yarn Type"
@@ -1788,21 +1927,6 @@ export function MaterialMasterScreen({
                 canDelete={perms.canDelete}
               />
             </Field>
-            {/* Melange yarn carries its shade (client 2026-07-23) */}
-            {ytName === "melange" && (
-              <Field label="Shade" size="sm" htmlFor="mt-yarn-shade">
-                <Input
-                  uppercase
-                  id="mt-yarn-shade"
-                  value={form.shade}
-                  onChange={(e) => set({ shade: e.target.value })}
-                />
-              </Field>
-            )}
-        </DetailSection>
-        {/* Count ("40'S/2"), Nature and Purity are all short values; only
-            Category carries a long name. Four fields now fit one row. */}
-        <DetailSection label="Classification" cols={12}>
             <Field size="sm">
               {/* Was a plain dropdown with no Add/Modify/Delete (client
                   2026-07-23 #4, "counts are a fixed list that never grows
@@ -1822,7 +1946,7 @@ export function MaterialMasterScreen({
                 canDelete={perms.canDelete}
               />
             </Field>
-            <Field size="md">
+            <Field size="sm">
               <CategoryPicker
                 label="Category"
                 required={req("category_id")}
@@ -1838,11 +1962,6 @@ export function MaterialMasterScreen({
                 fabricStructures={fabricStructures}
               />
             </Field>
-            {nature && (
-              <Field label="Nature" size="xs">
-                <div className="flex h-9 items-center truncate rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
-              </Field>
-            )}
             <Field size="sm">
               <LookupDialogPicker
                 kind="yarn_purity"
@@ -1855,6 +1974,24 @@ export function MaterialMasterScreen({
                 canDelete={perms.canDelete}
               />
             </Field>
+            {/* Row 2 — both conditional, both placed last on purpose (see the
+                section note). Melange yarn carries its shade (client
+                2026-07-23); Nature is read-only, derived from the Category. */}
+            {ytName === "melange" && (
+              <Field label="Shade" size="sm" htmlFor="mt-yarn-shade">
+                <Input
+                  uppercase
+                  id="mt-yarn-shade"
+                  value={form.shade}
+                  onChange={(e) => set({ shade: e.target.value })}
+                />
+              </Field>
+            )}
+            {nature && (
+              <Field label="Nature" size="xs">
+                <div className="flex h-9 items-center truncate rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">{nature}</div>
+              </Field>
+            )}
         </DetailSection>
         {/* Mixing grid renders full-width below the two-column body — see
             yarnMixingVisible at the render root (Screenshot 2079). */}
@@ -2190,12 +2327,14 @@ export function MaterialMasterScreen({
               Details/UOM tabs: both are always visible (planned layout), so the
               duplicate-name error simply gates Save.
 
-              EVERY class uses this split, Fabric included. Fabric's
-              Classification fits its three fields — Structure, Type, Fabric
-              Type — on one row by sizing them `md` inside the column, not by
-              claiming the whole row: see the measured widths in
-              `fabricDetails`. Stacking was tried for part of 2026-08-04 and the
-              client reverted it the same day. */}
+              EVERY class uses this split, Fabric and Yarn included. Neither
+              buys its one-row Classification by claiming the whole row — they
+              buy it with the span. Fabric fits three fields (Structure, Type,
+              Fabric Type) at `md`; Yarn fits four (Yarn Type, Count, Category,
+              Purity) at `sm`, which is why Yarn no longer has a "Yarn Type"
+              section of its own. Measured widths in `fabricDetails`, the trade
+              in `yarnDetails`. Stacking was tried for part of 2026-08-04 and
+              the client reverted it the same day. */}
           <SectionGrid>
             <SectionColumn>
               {formKey === "FABRIC" ? (

@@ -121,6 +121,7 @@ adopter across 92 screens — nobody could migrate without silently shredding th
 | `sm` | 3 | **4** | **every field, on a full-width section** |
 | `md` | 4 | 3 | — *retired on the masters, with one named exception below* |
 | `lg` | 6 | 2 | **every field, inside a `SectionColumn`** |
+| `xl` | 8 | 1 + a field | a **not-field** that shares its row — see below |
 | `full` | 12 | 1 | the things that are **not fields** — child grids, textareas, fact strips |
 
 **ONE WIDTH, EVERY FIELD (client 2026-07-29).** The rule used to be "size to the data":
@@ -158,6 +159,16 @@ comment beside the fields (`material-master-screen.tsx`, `fabricDetails`).
 strip, a multi-line `Textarea`. A textarea in particular must never share a row — every
 grid row is as tall as its tallest item, so the fields beside it end up floating above a
 band of dead space. Address "Street" is a single-line `Input` for exactly this reason.
+
+**`xl` (8) is the same category as `full`, for a not-field that SHARES its row.** A
+`ChildGrid` beside a field, where `full` would push it onto a row of its own. The map used
+to jump 6 → 12, so the only way to give a table more than half a row was to give it the
+whole one — and half a row is not enough: Material ▸ Fabric ▸ Composition put its mixing
+grid at `lg` (278px) and the Yarn picker inside it came out at ~150px, which the client
+read as squeezed (2026-08-05). At `xl` the grid is 374px and the picker ~250px, beside a
+`md` cell holding Using and Direct Purchase stacked. **Never use `xl` to make a FIELD
+wider** — a field is ~280px and the sizes above are how you hit it. This exists because a
+table is not a field.
 
 **What this trades away.** E-Mail, Web site and long entity names now scroll inside a
 ~280px box instead of showing whole. That was the client's call, made with the trade-off
@@ -390,6 +401,20 @@ Pick by **fields per row**, not by row count — a row runs out of width past ~5
 | 2 – 5 | inline editable table | default |
 | 6 – 8 | collapsible / stacked card per row | `forceCards` |
 | > 8 | stop inlining — open a row editor | — |
+
+**A grid that SHARES its row with a field adds `flushRows`.** An inline grid puts its first
+control 31px down — an 18px header band, a 6px gap, and the row's own 7px card inset — while
+a `Field` beside it puts its control at 14px, so the two read as misaligned (Material ▸
+Fabric ▸ Composition, client 2026-08-05). `flushRows` takes all three out: the header band
+gets `Label`'s exact metrics, the gap goes, and rows separate with a rule instead of a
+border each. Opt-in — a grid that owns its whole row wants the cards.
+
+**Such a grid gets exactly ONE band**, or the first row falls 14px below the field it is
+meant to match. So `flushRows` drops the usual caption row and renders `label` *inside* that
+single band while the grid is empty, handing the slot to the column headers as soon as a row
+exists. That also fixes the state the operator sees first: column headers are gated on
+`rows.length > 0`, so an empty inline grid used to start its "+ Add" button flush at 0 while
+the field beside it started at 14.
 
 Source: [Ant Design](https://ant.design/docs/spec/research-form/); SAP agrees at ~8 — inline
 creation only for tables "without a large number of columns"

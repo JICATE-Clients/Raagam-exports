@@ -457,11 +457,28 @@ export function ChildGrid<T extends { key: string }>({
   keyboardNav = true,
   hideAdd = false,
   inlineCards = false,
+  flushRows = false,
   listRows = false,
   rowSummary,
   startIndex = 0,
 }: {
-  label: ReactNode;
+  /**
+   * The grid's caption. OPTIONAL — omit it when the surrounding
+   * `DetailSection` already names the grid, and the caption row disappears
+   * with it (see the `label || badge` guard below, which has always handled
+   * this; the prop was simply typed required, so the one screen that wanted it
+   * could not say so).
+   *
+   * Omitting it is a LAYOUT decision, not just tidiness: a caption costs the
+   * grid a band, so a grid sharing a row with fields sits one band lower than
+   * they do and nothing lines up across the two cells (Material ▸ Fabric ▸
+   * Composition, client 2026-08-05). That screen moved both the caption and
+   * the badge to `DetailSection`'s `action` slot.
+   *
+   * `addLabel` is independent and still defaults to "+ Add row", so a grid
+   * with no caption keeps a usable Add button.
+   */
+  label?: ReactNode;
   /** Optional trailing status next to the label, e.g. a "83% of 100%" running-total badge. */
   badge?: ReactNode;
   columns: ChildGridColumn<T>[];
@@ -492,6 +509,30 @@ export function ChildGrid<T extends { key: string }>({
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
   inlineCards?: boolean;
+  /**
+   * Inline rows that read as FIELDS rather than as cards — for a grid sharing a
+   * row with a plain `Field`, where the two must line up.
+   *
+   * They did not, and the offset was structural rather than one stray margin.
+   * A `Field` puts its control 14px down (`Label` is `leading-[14px]`, `mb-0`
+   * under compact density). An inline grid put its first control 31px down, from
+   * three separate places: an 18px header band (`text-xs` 16px + `pb-0.5`), the
+   * 6px `space-y-1.5` under it, and the row's own 7px `border` + `p-1.5`. So
+   * Material ▸ Fabric ▸ Composition drew a Using select and a Yarn picker side
+   * by side, 17px out of step (client 2026-08-05, screenshot 2169).
+   *
+   * This drops all three: the header band takes `Label`'s exact metrics, the gap
+   * goes, and rows lose their card inset — separated by a rule instead, so a
+   * multi-row grid still reads as rows. First control lands at 14px, level with
+   * the field beside it.
+   *
+   * OPT-IN, because eight call sites across five screens use `inlineCards` and
+   * only this one shares its row. It is the same argument `listRows` below makes
+   * ("a card inside a card"), for the case where the neighbour is a field.
+   *
+   * No effect outside inline mode.
+   */
+  flushRows?: boolean;
   /**
    * Cards mode, but the rows are flat list items divided by a rule instead of
    * boxes, and `renderMobileRow` owns the whole row INCLUDING its header — no
@@ -584,8 +625,13 @@ export function ChildGrid<T extends { key: string }>({
     >
       {/* No caption row when there is nothing to put in it. A grid nested inside
           a `DetailSection` that already names it would otherwise draw an empty
-          band above its first row. */}
-      {(label || badge) && (
+          band above its first row.
+
+          `flushRows` suppresses it outright: that mode allows the grid EXACTLY
+          ONE band, because a second one puts the first row 14px below the field
+          it is supposed to line up with. The `label` is rendered inside that one
+          band instead — see the empty-state branch below. */}
+      {!flushRows && (label || badge) && (
         <div className="flex items-center justify-between">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
           {badge}
@@ -672,11 +718,43 @@ export function ChildGrid<T extends { key: string }>({
       {mode === "inline" ? (
         <div
           data-grid-body
-          className="space-y-1.5"
+          // `flushRows` removes the gap under the header band as well, so the
+          // first row starts where a `Field`'s control does. See the prop.
+          className={cn(!flushRows && "space-y-1.5")}
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
         >
+          {/* THE ONE BAND, when the grid has no rows to head.
+              `view.length > 0` gates the column headers, so an empty inline grid
+              used to start with its "+ Add" button flush at 0 while the field
+              beside it started at 14 — the same misalignment as a filled grid,
+              in the state the operator sees FIRST (client 2026-08-05,
+              screenshot 2170). The label fills the slot the headers will take,
+              at identical metrics, so the two cells line up before and after the
+              first row exists and nothing has to move when it appears. */}
+          {flushRows && label && view.length === 0 && (
+            <div className="flex items-center leading-[14px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {label}
+            </div>
+          )}
           {view.length > 0 && (
-            <div className="flex items-center gap-2 px-2 pb-0.5">
+            <div
+              className={cn(
+                "flex items-center gap-2",
+                // `leading-[14px]` matches `Label` exactly (label.tsx) — the
+                // whole point of flush rows. `px-2 pb-0.5` would put the band at
+                // 18px and shift the headers 2px right of their own cells.
+                //
+                // `mb-1.5` is the GAP under the band, and it is not decoration:
+                // it matches the 6px the grid root's own `space-y-1.5` already
+                // puts under the empty-state band, and the 6px the field beside
+                // this grid carries under its label. All three states then put
+                // their first control at 20px (client 2026-08-05, screenshot
+                // 2171 — the empty grid had the gap and the field did not).
+                // Lives here rather than on the body's `space-y`, which would
+                // also push every row apart from its neighbour.
+                flushRows ? "leading-[14px] mb-1.5" : "px-2 pb-0.5",
+              )}
+            >
               <span className="w-4 shrink-0" />
               {columns.map((c, ci) => (
                 <div
@@ -701,7 +779,17 @@ export function ChildGrid<T extends { key: string }>({
             <div
               key={row.key}
               data-grid-row
-              className="flex items-center gap-2 rounded-md border border-border p-1.5"
+              className={cn(
+                "flex items-center gap-2",
+                flushRows
+                  ? // No card inset: the row's own controls draw the boxes, so
+                    // the first one sits level with a `Field` beside it. Rows
+                    // stay separable by a rule rather than by a border each.
+                    // `localI === 0` rather than `first:` — the header band is a
+                    // sibling in this container, so `first:` would match IT.
+                    cn("border-b border-border pb-1.5 last:border-b-0", localI > 0 && "pt-1.5")
+                  : "rounded-md border border-border p-1.5",
+              )}
             >
               <span className="w-4 shrink-0 text-center text-xs text-muted-foreground">{startIndex + i + 1}</span>
               {columns.map((c, ci) => (
