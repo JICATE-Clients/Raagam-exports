@@ -210,7 +210,11 @@ export function YarnQuickCreateSheet({
       onClose={onClose}
       title="New Yarn"
       size="sm"
-      zIndexBase={120} // stacks above the picker dialog (100)
+      // Above MasterFullScreen (80), and deliberately NOT above the picker
+      // panel (150) that opened us: this sheet holds pickers of its own, and
+      // they portal at 150 too. DataPicker.startAdd closes its list before
+      // handing over, which is what keeps the two off screen together.
+      zIndexBase={120}
       footer={
         <>
           <Button variant="outline" size="md" onClick={onClose}>

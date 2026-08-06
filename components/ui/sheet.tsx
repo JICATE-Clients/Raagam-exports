@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { RequiredScope } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import { focusFirstField, focusField } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
@@ -213,12 +214,30 @@ export function Sheet({
   if (!mounted) return null;
 
   return createPortal(
-    // `inert` (not just aria-hidden) while closed: the closed state is only
-    // opacity-0 + pointer-events-none, and `focusablesIn`'s `offsetParent`
-    // check does NOT exclude an opacity-0 element — so every field of every
-    // closed Sheet stayed in the page's tab order. Tabbing off the last control
-    // of a page walked into an invisible form.
-    <div aria-hidden={!open} inert={!open}>
+    /**
+     * A SHEET STARTS WITH A CLEAN REQUIRED SCOPE.
+     *
+     * `RequiredScope` is React context, so it follows the RENDER tree, not the
+     * DOM — and a quick-create sheet is rendered by the picker that opened it.
+     * Put that picker in a mandatory child-grid cell (`ChildGrid` wraps every
+     * cell in a `RequiredScope`) and every empty field INSIDE the sheet
+     * inherited "required", stamped `data-required-empty`, and held the cursor:
+     * on New Yarn, opened from Fabric ▸ Composition ▸ Yarn *, the optional
+     * Purity refused to let Tab past and announced "Yarn is required."
+     * (client 2026-08-06).
+     *
+     * Resetting here rather than in each sheet is the point — the leak is a
+     * property of nesting a surface inside a field, not of any one sheet. A
+     * sheet's own `<Field required>` / `RequiredScope` still work normally:
+     * they provide their own context below this one.
+     */
+    <RequiredScope required={false} label={null}>
+      {/* `inert` (not just aria-hidden) while closed: the closed state is only
+          opacity-0 + pointer-events-none, and `focusablesIn`'s `offsetParent`
+          check does NOT exclude an opacity-0 element — so every field of every
+          closed Sheet stayed in the page's tab order. Tabbing off the last
+          control of a page walked into an invisible form. */}
+      <div aria-hidden={!open} inert={!open}>
       {/* scrim */}
       <div
         onClick={onClose}
@@ -399,7 +418,8 @@ export function Sheet({
           )}
         </div>
       )}
-    </div>,
+      </div>
+    </RequiredScope>,
     document.body,
   );
 }

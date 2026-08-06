@@ -15,7 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRequiredHold } from "@/components/ui/field";
+import { RequiredScope, useRequiredHold } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
@@ -462,8 +462,29 @@ export function DataPicker({
     close();
   }
 
+  /**
+   * A HAND-OFF CLOSES THIS PANEL FIRST, and that cannot be solved with z-index.
+   *
+   * `onAddOverride` / `onEditOverride` open a Sheet, and this panel outranks
+   * every Sheet on purpose (zIndex 150 below, against a Sheet's 90/91) — because
+   * a sheet holds pickers of ITS own, and `CategoryQuickCreateSheet` really does:
+   * its Fabric Structure field is a `LookupDialogPicker`. Raise the sheet over
+   * the list and that inner list disappears behind it instead. So the sheet can
+   * never out-stack the list; the list has to go. Left open, it painted straight
+   * over the "New Category" box it had just opened, hiding the title and both
+   * labels (client 2026-08-06).
+   *
+   * Closing also unsubscribes the outside-mousedown dismiss above, so the first
+   * click inside the sheet no longer half-closes a picker behind it — and it is
+   * what puts the cursor back on the field when the sheet is cancelled: `Sheet`
+   * restores focus to its opener, which is this trigger, still focused because
+   * the "+ Add" row commits on `onMouseDown` + `preventDefault`.
+   */
   function startAdd() {
-    if (onAddOverride) return onAddOverride((newId) => commit(newId));
+    if (onAddOverride) {
+      close();
+      return onAddOverride((newId) => commit(newId));
+    }
     setDraftCode("");
     setDraftName("");
     setDraftType("");
@@ -473,7 +494,11 @@ export function DataPicker({
     const targetId = rowId ?? highlight;
     const row = rows.find((r) => r.id === targetId);
     if (!row || !manage?.canEdit) return;
-    if (onEditOverride) return onEditOverride(row, (editedId) => commit(editedId));
+    // Closes the list first, for the reason spelled out over `startAdd`.
+    if (onEditOverride) {
+      close();
+      return onEditOverride(row, (editedId) => commit(editedId));
+    }
     setHighlight(row.id);
     const d = manage.draftOf(row);
     setDraftCode(d.code);
@@ -1036,7 +1061,12 @@ export function DataPicker({
         open &&
         rect &&
         createPortal(
-          <>
+          // Clean required scope, exactly as `Sheet` does and for the same
+          // reason: this panel is a surface of its own, but React context
+          // reaches it from wherever the picker was rendered. In a mandatory
+          // ChildGrid cell the inline Add form's Name box inherited that cell's
+          // `RequiredScope` and held the cursor quoting the CELL's label.
+          <RequiredScope required={false} label={null}>
             {/* Form mode is modal — the scrim is what stops a stray click
                 discarding a half-typed value. List mode has none: a dropdown
                 that greys the page is a dialog wearing a disguise. */}
@@ -1054,7 +1084,7 @@ export function DataPicker({
             >
               {body}
             </div>
-          </>,
+          </RequiredScope>,
           document.body,
         )}
     </div>

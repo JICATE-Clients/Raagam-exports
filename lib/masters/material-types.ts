@@ -226,14 +226,41 @@ export const MATERIAL_FIELD_LABELS: Partial<Record<keyof MaterialInput, string>>
   base_uom_id: "Base UOM",
   fabric_type_id: "Fabric Type",
   item_type_name: "Item Type",
+  fabric_using: "Using",
 };
+
+/**
+ * Mandatory only in a particular STATE of the record — the class alone does not
+ * settle it, so these cannot live in `REQUIRED_BY_FORM` above.
+ *
+ * `fabric_using` is the one so far (client 2026-08-06): a Fabric must say what
+ * it is made of — Single or Multiple Yarn — because that answer is what opens
+ * the Composition grid beneath it. UNLESS **Direct Purchase** is ticked, which
+ * is the operator saying the fabric is bought ready-made: the screen then hides
+ * Using and wipes the composition rows, and requiring a hidden field is a record
+ * that cannot be saved with nothing on screen to explain why.
+ *
+ * With no `input` (the bare `isMaterialFieldRequired` call that only wants to
+ * know whether to draw a `*`) the answer is the default state — required. The
+ * screen passes its form, so its `*` and its hold follow Direct Purchase live.
+ */
+function stateRequired(
+  form: MaterialFormKey,
+  input?: Partial<MaterialInput>,
+): readonly (keyof MaterialInput)[] {
+  if (form === "FABRIC" && !input?.direct_purchase) return ["fabric_using"];
+  return [];
+}
 
 /** Is this field mandatory for this class? Drives the `*` and the cursor hold. */
 export function isMaterialFieldRequired(
   field: keyof MaterialInput,
   classCode: string | null | undefined,
+  /** The record as it stands, for the fields whose requiredness depends on it. */
+  input?: Partial<MaterialInput>,
 ): boolean {
-  return REQUIRED_BY_FORM[itemClassForm(classCode)].includes(field);
+  const form = itemClassForm(classCode);
+  return REQUIRED_BY_FORM[form].includes(field) || stateRequired(form, input).includes(field);
 }
 
 /**
@@ -247,7 +274,8 @@ export function missingRequiredMaterialFields(
   input: Partial<MaterialInput>,
   classCode: string | null | undefined,
 ): string[] {
-  return REQUIRED_BY_FORM[itemClassForm(classCode)]
+  const form = itemClassForm(classCode);
+  return [...REQUIRED_BY_FORM[form], ...stateRequired(form, input)]
     .filter((f) => {
       const v = input[f];
       return v == null || (typeof v === "string" && v.trim() === "");
