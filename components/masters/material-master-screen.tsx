@@ -240,11 +240,38 @@ export function MaterialMasterScreen({
     filters: {
       status: (r, v) => (v === "active" ? r.is_active : v === "inactive" ? !r.is_active : true),
       itemClass: (r, v) => r.item_class_id === v,
-      materialType: (r, v) => r.material_type === v,
+      // No Material Type facet (client 2026-08-06): Purchased / Converted /
+      // Production is a costing detail of the record, not a way anyone looks a
+      // material up — Item Class and Category are.
       category: (r, v) => r.category_id === v,
     },
-    initialFilters: { status: "", itemClass: "", materialType: "", category: "" },
+    initialFilters: { status: "", itemClass: "", category: "" },
   });
+
+  /**
+   * THE CATEGORY FACET FOLLOWS THE ITEM CLASS FACET BESIDE IT — the same
+   * cascading rule the form obeys through `scopedCategories` above, which the
+   * filter bar was quietly breaking: it mapped the FULL category list, so under
+   * Item Class = YARN the dropdown still offered SINGLE JERSEY and picking it
+   * emptied the table with nothing on screen to say why.
+   *
+   * With no class chosen every category is still offered, prefixed by its class
+   * — category names repeat across classes (COTTON is a Yarn and a Fabric), and
+   * two identical options the operator has to guess between is the other half of
+   * the same bug.
+   */
+  const filterCategories = useMemo(() => {
+    const cls = filterValues.itemClass;
+    const list = cls ? categories.filter((c) => c.item_class_id === cls) : categories;
+    return list
+      .map((c) => ({
+        id: c.id,
+        label: cls
+          ? c.name ?? "—"
+          : `${classLabel.get(c.item_class_id ?? "") ?? "—"} · ${c.name ?? "—"}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [categories, classLabel, filterValues.itemClass]);
 
   const pg = usePagination(filtered, 10);
 
@@ -256,7 +283,10 @@ export function MaterialMasterScreen({
    *  `isMaterialFieldRequired` below. */
   const missingRequired = missingRequiredMaterialFields(form, selectedClassCode);
   /** Shorthand for the `required` prop on a field of this class. */
-  const req = (f: keyof MaterialInput) => isMaterialFieldRequired(f, selectedClassCode);
+  // `form` is passed because requiredness is not always a property of the class
+  // alone — Fabric's Using is mandatory unless Direct Purchase is ticked, and
+  // the `*` has to follow that tick live (see `stateRequired` in material-types).
+  const req = (f: keyof MaterialInput) => isMaterialFieldRequired(f, selectedClassCode, form);
   const formDef = formKey === "A" || formKey === "GEN" || formKey === "C" ? MATERIAL_FORMS[formKey] : null;
   const selectedCategory = categories.find((c) => c.id === form.category_id) ?? null;
   /** The units this fabric MUST use, from its structure (client 2026-08-01):
@@ -1814,9 +1844,9 @@ export function MaterialMasterScreen({
                 // prop because this is one screen's alignment against one
                 // neighbour, not a new rule about labels — `Label`'s own
                 // spacing is deliberately tight everywhere else.
-                <Field label="Using" size="full" className="[&>label]:mb-1.5">
+                <Field label="Using" size="full" required={req("fabric_using")} className="[&>label]:mb-1.5">
                   <Select value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
-                    <option value="">— None —</option>
+                    <option value="">— Select —</option>
                     {FABRIC_USING.map((u) => (
                       <option key={u} value={u}>
                         {u}
@@ -2085,7 +2115,15 @@ export function MaterialMasterScreen({
               id="material-filter-class"
               value={filterValues.itemClass}
               onChange={(e) => {
-                setFilter("itemClass", e.target.value);
+                const v = e.target.value;
+                setFilter("itemClass", v);
+                // A category belonging to the class just left matches no row —
+                // drop it rather than leave an empty table and an invisible
+                // reason. Cleared only when it really is out of scope, so
+                // narrowing Item Class around the category you already picked
+                // keeps it.
+                const held = categories.find((c) => c.id === filterValues.category);
+                if (v && held && held.item_class_id !== v) setFilter("category", "");
                 pg.setPage(1);
               }}
               className="text-base md:text-sm"
@@ -2098,25 +2136,7 @@ export function MaterialMasterScreen({
               ))}
             </Select>
           </div>
-          <div>
-            <Label htmlFor="material-filter-type">Material Type</Label>
-            <Select
-              id="material-filter-type"
-              value={filterValues.materialType}
-              onChange={(e) => {
-                setFilter("materialType", e.target.value);
-                pg.setPage(1);
-              }}
-              className="text-base md:text-sm"
-            >
-              <option value="">All</option>
-              {MATERIAL_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-          </div>
+          {/* No Material Type facet — see the filter config above. */}
           <div>
             <Label htmlFor="material-filter-category">Category</Label>
             <Select
@@ -2129,9 +2149,9 @@ export function MaterialMasterScreen({
               className="text-base md:text-sm"
             >
               <option value="">All</option>
-              {categories.map((c) => (
+              {filterCategories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {catLabel.get(c.id) ?? "—"}
+                  {c.label}
                 </option>
               ))}
             </Select>

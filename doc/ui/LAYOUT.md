@@ -276,6 +276,13 @@ fields *do* something, it does not get a name-only add.
 record references comes back deactivated with the referencing table named in the toast
 (`deletedToast`). That guard is the reason Delete is safe to expose on a dropdown at all.
 
+**A quick-create sheet and the list that opened it are never on screen together.** `startAdd` /
+`startEdit` (`data-picker.tsx`) close the panel before calling the override. Do NOT reach for
+z-index here: the panel sits at 150 and outranks every `Sheet` on purpose, because a sheet holds
+pickers of its own — `CategoryQuickCreateSheet`'s Fabric Structure field is one — so raising the
+sheet above the list only hides the list *inside* it. Left open, the category list painted over
+the "New Category" box it had just opened (client 2026-08-06).
+
 ### Enums are not this
 
 `<Select>` / `Combobox` over a fixed code list (AIR · SEA · ROAD, Yes/No) stays as it is. There

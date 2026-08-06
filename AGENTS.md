@@ -116,7 +116,21 @@ value they are getting right.
 mandatory on a Yarn and meaningless on a General, so it cannot live in the Zod field types
 — and the schema only sees `item_class_id`, a uuid, not the class code that decides it.
 `missingRequiredMaterialFields(input, classCode)` in `material-types.ts` is the shape:
-one exported function the screen, the Save button and both actions call.
+one exported function the screen, the Save button and both actions call. It can also be a
+property of the field FOR A STATE — Fabric's Using is mandatory until Direct Purchase is
+ticked, at which point the screen hides it, and **requiring a hidden field is a record that
+cannot be saved with nothing on screen to say why**. That lives in the same function
+(`stateRequired`), never in a second rule beside it.
+
+**A PORTALED SURFACE STARTS WITH A CLEAN REQUIRED SCOPE.** `RequiredScope` is React
+context, so it follows the RENDER tree — and a quick-create sheet is rendered by the picker
+that opened it. Put that picker in a mandatory `ChildGrid` cell (the grid wraps every cell
+in a scope) and every empty field *inside the sheet* inherited "required", stamped
+`data-required-empty`, and held the cursor: on New Yarn, opened from Fabric ▸ Composition ▸
+Yarn \*, the **optional** Purity refused to let Tab past and announced "Yarn is required"
+(client 2026-08-06). `Sheet` and the `DataPicker` panel each reset the scope at their
+portal boundary, so this is fixed for every sheet at once — never per screen, and never by
+marking the inner field optional, which is not a thing the context can express.
 
 **A HOLD REFUSES MOVEMENT AND NEVER REFUSES CHOOSING.** This is the half that is easy to
 get wrong and fatal when you do: refusing a key the control uses to *pick a value* does not
