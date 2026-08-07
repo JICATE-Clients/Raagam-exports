@@ -1,446 +1,99 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { PaginationBar } from "@/components/ui/pagination";
-import { StatusPill } from "@/components/ui/status-pill";
-import { Sheet } from "@/components/ui/sheet";
-import { useToast } from "@/components/ui/toast";
-import { usePagination } from "@/lib/use-pagination";
-import { useMasterFilter } from "@/lib/masters/use-master-filter";
-import { FilterBar } from "@/components/ui/filter-bar";
-import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
+import {
+  SimpleMasterScreen,
+  type SimpleMasterDescriptor,
+} from "@/components/masters/simple-master-screen";
 import {
   createComponent,
   updateComponent,
   deleteComponent,
 } from "@/lib/masters/component-actions";
-import type { Component, ComponentInput } from "@/lib/masters/component-types";
-import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
-import { DuplicateError } from "@/components/ui/duplicate-error";
-import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
-import { SpellSuggestHint } from "@/components/masters/spell-suggest-hint";
+import type { Component } from "@/lib/masters/component-types";
 import { GARMENT_COMPONENT_NAMES } from "@/lib/masters/name-vocabularies";
-import { DetailSection } from "@/components/masters/detail-section";
-import { ChildGrid } from "@/components/masters/child-grid";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
-type CoordinateRow = { key: string; coordinate: string };
-
-const BLANK = { short_name: "", description: "", all_coordinates: true, inactive: false };
 
 /**
- * Master-detail CRUD for the legacy "Component" master: a header (Short Name
- * req · Description · All Coordinates · Inactive) plus a "Coordinates" grid of
- * free-text coordinate labels. Dense table on desktop, cards on mobile, shared
- * <Sheet> editor.
+ * Legacy "Component" master — the physical parts of a garment (COLLAR, CUFF,
+ * POCKET). ONE FIELD: the name.
+ *
+ * It was a 450-line hand-written screen with a full-screen Sheet, and the client
+ * asked for "the Count kind of UI" (2026-08-05, screenshots 2173/2174): no
+ * dialog at all, the row itself becomes editable, "+ Add" opens a row at the top
+ * of the list. That is `SimpleMasterScreen`, which 16 masters already use — so
+ * the fix is to JOIN that tier, not to re-lay-out a bespoke editor. What the
+ * screenshot showed is what a bespoke editor costs: a naked "All Coordinates"
+ * checkbox rendered outside the Details card with nothing aligning it, and a
+ * two-column body whose right half was empty in the default state.
+ *
+ * THREE COLUMNS LEFT THE FORM AND STAYED IN THE DATABASE — Description, All
+ * Coordinates, and the Coordinates child list ("remove the description field and
+ * maintain only name instead of short name label and that check box"). That is
+ * the minimal-forms rule, not a schema change: `componentInput` marks all three
+ * OPTIONAL and the actions patch only what is sent, so a rename here cannot
+ * blank a description or delete a coordinate list it can no longer see. They
+ * stay reachable through `lib/data-io` import/export, which is the documented
+ * door for a legacy column the screen does not ask for.
+ *
+ * `short_name` is the DB column and the label is "Name", deliberately: the
+ * record has exactly one name now, so calling it "Short" invites the question
+ * "short for what?". Renaming the column would be a migration and 4 files for a
+ * caption.
  */
-export function ComponentMasterScreen({
-  rows,
-  perms,
-}: {
-  rows: Component[];
-  perms: Perms;
-}) {
-  const router = useRouter();
-  const { success, error } = useToast();
-  const [isPending, startTransition] = useTransition();
-  const [open, setOpen] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState(BLANK);
-  const [coordinates, setCoordinates] = useState<CoordinateRow[]>([]);
-  const keySeq = useRef(0);
-  const newKey = () => `c${keySeq.current++}`;
-
-  // Real-time duplicate check on Short Name (mirrors the on-save guard in component-actions).
-  const dupError = useDuplicateName({
-    table: "components",
-    name: form.short_name ?? "",
-    nameColumn: "short_name",
-    excludeId: editId ?? undefined,
-    enabled: !!form.short_name.trim(),
-    rows,
-    rowId: (r) => r.id,
-    rowValue: (r) => r.short_name,
-  });
-
+const descriptor: SimpleMasterDescriptor<Component> = {
+  entityLabel: "Component",
+  ioEntityKey: "components",
+  status: "active",
+  fields: [{ key: "name", label: "Name", required: true }],
+  fromRow: (r) => ({ name: r.short_name }),
+  searchText: (r) => [r.short_name, r.description].filter(Boolean).join(" "),
+  statusOf: (r) => (r.inactive ? "inactive" : "active"),
   /**
-   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
-   * one-character miss sails past it and becomes a second row meaning the same
-   * thing as the first. Advisory only: the typed text saves as typed unless the
-   * operator accepts a chip. Suppressed while the red error shows — one line
-   * under the input, and the name it collided with is the one that is no use.
+   * THE EYE STILL SHOWS WHAT THE RECORD HOLDS, including the three columns the
+   * form stopped asking for. Dropping a field from a form is not the same as
+   * pretending the value is not there — a component imported with a description,
+   * or restricted to TOP before this change, must still be readable by the
+   * operator looking at it.
+   *
+   * Declared rather than left to `pairsFromRow`, which would label this "Short
+   * Name" (its own override list) while the column above says "Name" — the same
+   * field, two words, on one screen.
    */
-  const nameSuggest = useSpellSuggest({
-    name: form.short_name ?? "",
-    // The row being edited must not suggest its own name back at you.
-    names: rows.filter((r) => r.id !== editId).map((r) => r.short_name ?? "").filter(Boolean),
-    seed: GARMENT_COMPONENT_NAMES,
-    enabled: open,
-    onApply: (v) => setForm((f) => ({ ...f, short_name: v })),
-  });
-
-  const { query, setQuery, filtered, filterValues, setFilter, activeCount, reset, dateFilter } = useMasterFilter(rows, {
-    search: (r, q) =>
-      [r.short_name, r.description, ...r.coordinates.map((c) => c.coordinate)]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    filters: {
-      status: (r, v) => (v === "active" ? !r.inactive : v === "inactive" ? !!r.inactive : true),
-      allCoordinates: (r, v) =>
-        v === "yes" ? r.all_coordinates : v === "no" ? !r.all_coordinates : true,
-    },
-    initialFilters: { status: "", allCoordinates: "" },
-  });
-
-  const pg = usePagination(filtered, 10);
-
-  function openAdd() {
-    setEditId(null);
-    setForm(BLANK);
-    setCoordinates([{ key: newKey(), coordinate: "" }]);
-    setOpen(true);
-  }
-  function openEdit(r: Component) {
-    setEditId(r.id);
-    setForm({
-      short_name: r.short_name,
-      description: r.description ?? "",
-      all_coordinates: r.all_coordinates,
-      inactive: r.inactive,
-    });
-    setCoordinates(r.coordinates.map((c) => ({ key: newKey(), coordinate: c.coordinate })));
-    setOpen(true);
-  }
-
-  function addCoordinate() {
-    setCoordinates((cs) => [...cs, { key: newKey(), coordinate: "" }]);
-  }
-  function setCoordinateAt(key: string, coordinate: string) {
-    setCoordinates((cs) => cs.map((c) => (c.key === key ? { ...c, coordinate } : c)));
-  }
-  function removeCoordinate(key: string) {
-    setCoordinates((cs) => cs.filter((c) => c.key !== key));
-  }
-
-  function submit() {
-    startTransition(async () => {
-      // "All Coordinates" means this component applies to every coordinate,
-      // which makes a specific list meaningless — and the list column never
-      // shows it either way (`r.all_coordinates ? "All" : ...`). Clear it on
-      // save so the DB doesn't carry a stale list nobody can see or edit.
-      const payload: ComponentInput = {
-        short_name: form.short_name.trim(),
-        description: form.description.trim() || null,
-        all_coordinates: form.all_coordinates,
-        inactive: form.inactive,
-        coordinates: form.all_coordinates
-          ? []
-          : coordinates.filter((c) => c.coordinate.trim()).map((c, i) => ({ sno: i + 1, coordinate: c.coordinate.trim() })),
-      };
-      const res = editId ? await updateComponent(editId, payload) : await createComponent(payload);
-      if (res.ok) {
-        success(editId ? "Component updated." : "Component added.");
-        setOpen(false);
-        router.refresh();
-      } else {
-        error(res.error);
-      }
-    });
-  }
-
-  function remove(r: Component) {
-    startTransition(async () => {
-      const res = await deleteComponent(r.id);
-      if (res.ok) {
-        success("Component deleted.");
-        router.refresh();
-      } else {
-        error(res.error);
-      }
-    });
-  }
-
-  const columns: Column<Component>[] = [
-    { header: "Short Name", cell: (r) => <span className="text-sm font-medium">{r.short_name}</span> },
+  view: (r) => [
     {
-      header: "Description",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.description ?? "—"}</span>,
-    },
-    {
-      header: "Coordinates",
-      cell: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {r.all_coordinates
+      label: "Component",
+      pairs: [
+        ["Name", r.short_name],
+        ["Description", r.description],
+        [
+          "Coordinates",
+          r.all_coordinates
             ? "All"
             : r.coordinates.length
               ? r.coordinates.map((c) => c.coordinate).join(", ")
-              : "—"}
-        </span>
-      ),
+              : null,
+        ],
+      ],
     },
-    {
-      header: "Status",
-      cell: (r) => (
-        <StatusPill tone={r.inactive ? "danger" : "success"}>
-          {r.inactive ? "Inactive" : "Active"}
-        </StatusPill>
-      ),
-    },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.short_name}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
-  ];
+  ],
+  /**
+   * The name and the status, and nothing else. Every key left out is a key the
+   * update action will not touch — see the "not sent = not changed" note in
+   * component-actions.ts. On a NEW row the table's own defaults apply
+   * (`all_coordinates` true, `description` null), which is the legacy default.
+   */
+  toPayload: (v, s) => ({ short_name: String(v.name), inactive: !s.active }),
+  /**
+   * A real trade vocabulary, so the strip has something to offer on an empty
+   * table — COLLAR beside a typed COLLER. Named at the call site because a seed
+   * belongs to ONE master (AGENTS.md, "Near misses").
+   */
+  spellSuggest: { seed: GARMENT_COMPONENT_NAMES },
+  dupCheck: { table: "components", fieldKey: "name", nameColumn: "short_name" },
+  actions: { create: createComponent, update: updateComponent, remove: deleteComponent },
+};
 
-  return (
-    <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <FilterBar
-          search={query}
-          onSearch={(v) => {
-            setQuery(v);
-            pg.setPage(1);
-          }}
-          searchPlaceholder="Search component…"
-          activeCount={activeCount}
-          dateFilter={{
-            ...dateFilter,
-            onChange: (v) => {
-              dateFilter.onChange(v);
-              pg.setPage(1);
-            },
-          }}
-          onReset={() => {
-            reset();
-            pg.setPage(1);
-          }}
-        >
-          <div>
-            <Label htmlFor="component-filter-status">Status</Label>
-            <Select
-              id="component-filter-status"
-              value={filterValues.status}
-              onChange={(e) => {
-                setFilter("status", e.target.value);
-                pg.setPage(1);
-              }}
-              className="text-base md:text-sm"
-            >
-              <option value="">All</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="component-filter-allcoords">All Coordinates</Label>
-            <Select
-              id="component-filter-allcoords"
-              value={filterValues.allCoordinates}
-              onChange={(e) => {
-                setFilter("allCoordinates", e.target.value);
-                pg.setPage(1);
-              }}
-              className="text-base md:text-sm"
-            >
-              <option value="">All</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </Select>
-          </div>
-        </FilterBar>
-        <div className="flex flex-1 items-center justify-end gap-2">
-          <DataIoToolbar entityKey="components" rows={filtered} canExport={perms.canExport} />
-          {perms.canCreate && (
-            <Button size="md" onClick={openAdd}>
-              + Add Component
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, pg.paged)} rows={pg.paged} getKey={(r) => r.id} empty="No component records yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {pg.paged.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No component records yet.
-          </div>
-        ) : (
-          pg.paged.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">
-                    {r.short_name}
-                  </div>
-                  {r.description && (
-                    <div className="mt-0.5 text-xs text-muted-foreground">{r.description}</div>
-                  )}
-                  {/* Outside the conditional above: a record with no description
-                      still has a creator, and the desktop table shows it either
-                      way. */}
-                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
-                </div>
-                <StatusPill tone={r.inactive ? "danger" : "success"}>
-                  {r.inactive ? "Inactive" : "Active"}
-                </StatusPill>
-              </div>
-              <div className="mt-2 text-[13px] text-muted-foreground">
-                {r.all_coordinates
-                  ? "All coordinates"
-                  : r.coordinates.length
-                    ? r.coordinates.map((c) => c.coordinate).join(", ")
-                    : "No coordinates"}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-
-      <PaginationBar
-        page={pg.page}
-        pageCount={pg.pageCount}
-        total={pg.total}
-        pageSize={pg.pageSize}
-        onPageChange={pg.setPage}
-        onPageSizeChange={pg.setPageSize}
-      />
-
-      {/* editor */}
-      <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editId ? "Edit Component" : "New Component"}
-        footer={
-          <>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button size="md" disabled={isPending || !form.short_name.trim() || !!dupError} onClick={submit}>
-              {isPending ? "Saving…" : "Save"}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {/* Two-column body — header fields LEFT, line-item grid RIGHT (Material
-              form design). Stacks on mobile via grid-cols-1. */}
-          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-            {/* LEFT: header fields + flags + status */}
-            <div className="space-y-4">
-              <DetailSection label="Details" cols={2}>
-                <div>
-                  <Label htmlFor="cmp-short">
-                    Short Name <span className="text-danger">*</span>
-                  </Label>
-                  <Input
-                    id="cmp-short"
-                    uppercase
-                    // `.min(1)` in `componentInput`. The `*` above was drawn by
-                    // hand with nothing behind it — see useRequiredHold.
-                    required
-                    value={form.short_name}
-                    onChange={(e) => setForm({ ...form, short_name: e.target.value })}
-                    className="text-base md:text-sm"
-                    // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-                    onKeyDown={nameSuggest.onKeyDown}
-                    {...dupFieldProps(dupError, "cmp-short")}
-                  />
-                  <DuplicateError error={dupError} id="cmp-short" />
-                  <SpellSuggestHint
-                    suggestions={nameSuggest.suggestions}
-                    existing={nameSuggest.existing}
-                    activeIndex={nameSuggest.activeIndex}
-                    duplicate={!!dupError}
-                    onApply={(v) => setForm((f) => ({ ...f, short_name: v }))}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="cmp-desc">Description</Label>
-                  <Input
-                    id="cmp-desc"
-                    uppercase
-                    value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-              </DetailSection>
-
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                  checked={form.all_coordinates}
-                  onChange={(e) => setForm({ ...form, all_coordinates: e.target.checked })}
-                />
-                <span className="text-sm text-foreground">All Coordinates</span>
-              </label>
-
-              {editId && (
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.inactive}
-                    onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              )}
-            </div>
-
-            {/* RIGHT: coordinates grid — hidden while "All Coordinates" is ticked */}
-            <div className="space-y-4">
-              {!form.all_coordinates && (
-                <ChildGrid<CoordinateRow>
-                  label="Coordinates"
-                  pageSize={10}
-                  forceCards
-                  rows={coordinates}
-                  onAdd={addCoordinate}
-                  onRemove={(c) => removeCoordinate(c.key)}
-                  addLabel="+ Add line"
-                  columns={[
-                    {
-                      header: "Coordinate",
-                      cell: (c) => (
-                        <Input uppercase value={c.coordinate} onChange={(e) => setCoordinateAt(c.key, e.target.value)} placeholder="Coordinate" className="text-base md:text-sm" />
-                      ),
-                    },
-                  ]}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      </Sheet>
-    </div>
-  );
+export function ComponentMasterScreen({ rows, perms }: { rows: Component[]; perms: Perms }) {
+  return <SimpleMasterScreen rows={rows} perms={perms} descriptor={descriptor} />;
 }

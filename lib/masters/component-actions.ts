@@ -22,7 +22,7 @@ function rev(): void {
 
 /** Drop blank coordinate rows and renumber sno 1..n. */
 function normalizeCoordinates(data: ComponentInput): { sno: number; coordinate: string }[] {
-  return data.coordinates
+  return (data.coordinates ?? [])
     .map((c) => ({ ...c, coordinate: c.coordinate.trim() }))
     .filter((c) => c.coordinate.length > 0)
     .map((c, i) => ({ sno: i + 1, coordinate: c.coordinate }));
@@ -68,15 +68,22 @@ export async function updateComponent(id: string, data: ComponentInput): Promise
   if (!dup.ok) return fail(dup.error);
   const { error } = await s.from("components").update(header).eq("id", id);
   if (error) return fail(error.message);
-  // Replace the coordinates grid wholesale (small, fully-loaded set).
-  const { error: delErr } = await s.from("component_coordinates").delete().eq("component_id", id);
-  if (delErr) return fail(delErr.message);
-  const rows = normalizeCoordinates(p.data);
-  if (rows.length) {
-    const { error: cErr } = await s
-      .from("component_coordinates")
-      .insert(rows.map((r) => ({ ...r, component_id: id })));
-    if (cErr) return fail(cErr.message);
+  // NOT SENT = NOT CHANGED. The screen asks for the Name alone now, so a rename
+  // must not touch a component's coordinate list — and this replaces that list
+  // WHOLESALE, so an absent `coordinates` reaching here as `[]` would delete it
+  // rather than leave it. `[]` still clears, deliberately: that is a caller
+  // saying "no coordinates", which is a different statement from not saying
+  // anything. Same rule for the header keys, which Zod simply omits.
+  if (p.data.coordinates !== undefined) {
+    const { error: delErr } = await s.from("component_coordinates").delete().eq("component_id", id);
+    if (delErr) return fail(delErr.message);
+    const rows = normalizeCoordinates(p.data);
+    if (rows.length) {
+      const { error: cErr } = await s
+        .from("component_coordinates")
+        .insert(rows.map((r) => ({ ...r, component_id: id })));
+      if (cErr) return fail(cErr.message);
+    }
   }
   rev();
   return { ok: true };
@@ -85,7 +92,11 @@ export async function updateComponent(id: string, data: ComponentInput): Promise
 export async function deleteComponent(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const res = await deleteOrDeactivate(s, "components", id, "blocked"); // coordinates cascade
+  // `inactive`, not "blocked": `components` has no `blocked` column (0228), so
+  // the soft-disable patch would have failed on the day a component was first
+  // in use — the one path that never ran, because `component_coordinates` is its
+  // only referrer and that FK cascades (0344 ignores CASCADE by design).
+  const res = await deleteOrDeactivate(s, "components", id, "inactive"); // coordinates cascade
   if (!res.ok) return fail(res.error);
   rev();
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
