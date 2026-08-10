@@ -200,13 +200,38 @@ the client can review and correct intent after seeing the software.
   only. The PRD wanted SMS for critical + email for reports; no provider is wired.
 
 ## Bug Reporter (JKKN Bug Boundary) integration
-- `@boobalan_jkkn/bug-reporter-sdk` @1.3.2 mounted **app-wide** via
+- `@boobalan_jkkn/bug-reporter-sdk` @1.4.0 — pinned to the git tag
+  `github:Jicate-Solutions/bug-reporter-sdk#v1.4.0` (commit `6e09ccb`), and
+  **locally patched** (see below) — mounted **app-wide** via
   `components/bug-reporter-wrapper.tsx` in the root `app/layout.tsx`, with the
   signed-in Supabase user passed as report context; `react-hot-toast` `<Toaster/>`
   added for the SDK's notifications (coexists with our own `components/ui/toast`).
 - Installed with **`--legacy-peer-deps`**: the SDK's peer range wants
   `lucide-react` 0.4x–0.5x but the app uses `lucide-react@1.x` everywhere; the icon
   API is stable so 1.x works. Revisit if the SDK errors on a renamed icon.
+- **THE SDK IS PATCHED, and the patch is the whole fix for "the screenshot takes
+  another screen"** (client 2026-08-10 — it reproduced on the client's machine and
+  not on ours). `patches/@boobalan_jkkn+bug-reporter-sdk+1.4.0.patch`, re-applied
+  by the `postinstall` script (`patch-package`). Two edits, both inside
+  `captureScreenshot()`:
+  - Its `ignoreElements` predicate deleted **every element carrying
+    `role="dialog"`**, plus anything whose class merely CONTAINED `modal`,
+    `overlay`, `dialog`, `popover`, `dropdown` or `tooltip`. In this app that is
+    `Sheet` (all three variants), the `DataPicker` panel, the import dialog, the
+    search palette and the mobile nav sheet — so a capture taken while an editor
+    was open rendered **the list page underneath it**. The guessing is removed;
+    anything that genuinely must not appear opts out explicitly with
+    `data-html2canvas-ignore`, which the predicate already honoured.
+  - `foreignObjectRendering` **`true` → `false`**. `true` is not html2canvas's
+    default, and that path (`inlineImages` + `copyStyles`) renders differently
+    across browsers — the likeliest reason the fault was machine-specific.
+  **It cannot be fixed from app code**, which is why a vendor file is patched at
+  all: `role="dialog"` is load-bearing three ways — `lib/reload-guard.ts` finds
+  modals by it, `keyboard-nav-provider.tsx`'s `SCOPE_SELECTOR` resolves focus
+  scope by it, and it is the accessibility contract. Drop the patch only when a
+  vendor release makes the ignore rule configurable (raised with the author,
+  `boobalan@jkkn.ac.in` / `Jicate-Solutions/bug-reporter-sdk`); **re-check it
+  whenever the pinned tag moves**, since patch-package matches on version 1.4.0.
 - The wrapper **only mounts the provider when real credentials are set** (key
   starts with `app_`, not the `REPLACE_ME` placeholder) — the app runs untouched
   until the client registers the app on the Bug Reporter platform and fills

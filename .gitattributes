@@ -1,0 +1,9 @@
+# patch-package patch files must reach the working tree with LF endings.
+#
+# This repo runs with core.autocrlf=true on Windows, so a text file is converted
+# to CRLF on checkout. A .patch file converted that way no longer matches the LF
+# source in node_modules, `patch-package` fails to apply it during postinstall,
+# and the fix it carries silently does not ship -- which for
+# patches/@boobalan_jkkn+bug-reporter-sdk+1.4.0.patch means the bug reporter goes
+# back to screenshotting the wrong screen, with a passing install to say so.
+patches/*.patch text eol=lf

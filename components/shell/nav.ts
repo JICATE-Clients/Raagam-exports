@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
 import { MASTERS_SECTION_ACTIONS } from "@/lib/masters/masters-nav";
+import { moduleNavChildren } from "@/lib/nav/module-groups";
 import { REPORTS, reportHref } from "@/lib/reports/catalog";
 
 /** A sub-module link nested under a module. Inherits the parent's `module` permission. */
@@ -38,6 +39,19 @@ export interface NavItem {
  * Primary navigation. Items are filtered by `<module>:view` permission.
  * `children` are sub-modules of the same module (permission inherited) and only
  * ever point at real, navigable routes.
+ *
+ * **A module lists GROUPS, never a screen that lives under another screen in
+ * the same list.** Master Data set the shape — five sub-modules, their entities
+ * on the hub pages — and `lib/nav/module-groups.ts` now applies it everywhere
+ * else, so `children` here is derived rather than hand-listed. Before that,
+ * Purchase showed "Indents" beside "Indent Approval" (a route *under* it),
+ * Planning listed 20 screens that are really two families plus strays, and
+ * Production / Logistics / Reports each repeated their own module root as their
+ * first child — two rows for one page (client 2026-08-07).
+ *
+ * A module absent from that registry keeps a literal list here, and only two
+ * are: Sales already listed five sub-modules, and Reports is derived from the
+ * report catalog.
  */
 export const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", module: "dashboard", icon: LayoutDashboard },
@@ -59,98 +73,35 @@ export const NAV: NavItem[] = [
     label: "Orders",
     module: "orders",
     icon: ClipboardList,
-    children: [
-      { href: "/orders/garment-orders", label: "Garment Orders" },
-      { href: "/orders/order-booking", label: "Order Booking" },
-      { href: "/orders/due-date-confirmations", label: "Due Date Confirmations" },
-      { href: "/orders/contract-review", label: "Contract Review" },
-      { href: "/orders/pack-ratios", label: "Pack Ratios" },
-      { href: "/orders/excess-orders", label: "Excess Orders" },
-      { href: "/orders/price-confirmation", label: "Price Confirmation" },
-      { href: "/orders/ta", label: "Time & Action (TA)" },
-    ],
+    children: moduleNavChildren("/orders"),
   },
   {
     href: "/planning",
     label: "Planning",
     module: "planning",
     icon: LineChart,
-    children: [
-      { href: "/planning/fabric-bom", label: "Fabric BOM" },
-      { href: "/planning/garment-bom", label: "Garment BOM" },
-      { href: "/planning/material-bom", label: "Material BOM" },
-      { href: "/planning/accessory-bom", label: "Accessories BOM" },
-      { href: "/planning/bom-shortage", label: "BOM Shortage" },
-      { href: "/planning/bom-transfer", label: "BOM Transfer" },
-      { href: "/planning/budgets", label: "Budgets" },
-      { href: "/planning/garment-ppm", label: "Garment PPM" },
-      { href: "/planning/processing-ppm", label: "Processing PPM" },
-      { href: "/planning/purchase-ppm", label: "Purchase PPM" },
-      { href: "/planning/ppm-cancel", label: "PPM Cancel" },
-      { href: "/planning/ppm-completion", label: "PPM Completion" },
-      { href: "/planning/garment-ppm-cancel", label: "Garment PPM Cancel" },
-      { href: "/planning/material-excess-plan", label: "Material Excess Plan" },
-      { href: "/planning/material-rate", label: "Material Rate" },
-      { href: "/planning/fabric-order", label: "Fabric Order" },
-      { href: "/planning/fabric-consumption", label: "Fabric Consumption" },
-      { href: "/planning/excess-order", label: "Excess Order" },
-      { href: "/planning/capacity-planning", label: "Capacity Planning" },
-      { href: "/planning/production-planning", label: "Production Planning" },
-    ],
+    children: moduleNavChildren("/planning"),
   },
   {
     href: "/purchase",
     label: "Purchase",
     module: "materials_purchase",
     icon: Package,
-    children: [
-      { href: "/purchase/orders", label: "Purchase Orders" },
-      { href: "/purchase/rfq", label: "RFQ" },
-      { href: "/purchase/grn", label: "Goods Receipts" },
-      { href: "/purchase/dc", label: "Delivery Challans" },
-      { href: "/purchase/vendors", label: "Vendors" },
-      { href: "/purchase/indents", label: "Indents" },
-      { href: "/purchase/indents/approval", label: "Indent Approval" },
-      { href: "/purchase/over-budget", label: "Over-budget Confirmation" },
-      { href: "/purchase/rate-amendments", label: "Rate Amendments" },
-      { href: "/purchase/po-cancellations", label: "Cancel PO" },
-      { href: "/purchase/price-confirmations", label: "Price Confirmation" },
-      { href: "/purchase/completions", label: "PO Completions" },
-      { href: "/purchase/lab", label: "Lab / QC" },
-    ],
+    children: moduleNavChildren("/purchase"),
   },
   {
     href: "/stores",
     label: "Stores",
     module: "stores",
     icon: Warehouse,
-    children: [
-      { href: "/stores/opening-stock", label: "Opening Stock" },
-      { href: "/stores/requisitions", label: "Requisitions" },
-      { href: "/stores/vendor-returns", label: "Vendor Returns" },
-      { href: "/stores/csp-receipts", label: "CSP Receipts" },
-      { href: "/stores/process-orders", label: "Process Orders" },
-      { href: "/stores/process-issues", label: "Process Issues" },
-      { href: "/stores/process-receipts", label: "Process Receipts" },
-      { href: "/stores/transfers", label: "Transfers" },
-      { href: "/stores/adjustments", label: "Adjustments" },
-      { href: "/stores/interdept", label: "Inter-dept Delivery" },
-    ],
+    children: moduleNavChildren("/stores"),
   },
   {
     href: "/production",
     label: "Production",
     module: "production",
     icon: Factory,
-    children: [
-      { href: "/production", label: "Production Board" },
-      { href: "/production/job-orders", label: "Job Orders" },
-      { href: "/production/masters", label: "Planning Masters" },
-      { href: "/production/piece-rates", label: "Piece Rates" },
-      { href: "/production/packing-lists", label: "Packing Lists" },
-      { href: "/production/inspections", label: "Inspections" },
-      { href: "/production/despatch", label: "Despatch" },
-    ],
+    children: moduleNavChildren("/production"),
   },
   // Process Planning module removed — depends on Planning tables, pending rebuild
   {
@@ -158,62 +109,21 @@ export const NAV: NavItem[] = [
     label: "HR & Payroll",
     module: "hr_payroll",
     icon: Users,
-    children: [
-      { href: "/hr/workers", label: "Workers" },
-      { href: "/hr/staff", label: "Staff" },
-      { href: "/hr/contractors", label: "Contractors" },
-      { href: "/hr/attendance", label: "Attendance" },
-      { href: "/hr/piece-records", label: "Piece Records" },
-      { href: "/hr/payroll", label: "Payroll Runs" },
-      { href: "/hr/payslip", label: "Payslips" },
-      { href: "/hr/settings", label: "Settings" },
-      { href: "/hr/advances", label: "Advances" },
-      { href: "/hr/adjustments", label: "Allowances & Deductions" },
-      { href: "/hr/comp-events", label: "Bonus & Increments" },
-      { href: "/hr/leave", label: "Leave & Encashment" },
-      { href: "/hr/lifecycle", label: "Lifecycle" },
-      { href: "/hr/statutory", label: "Statutory Docs" },
-    ],
+    children: moduleNavChildren("/hr"),
   },
   {
     href: "/logistics",
     label: "Logistics",
     module: "logistics",
     icon: Ship,
-    children: [
-      { href: "/logistics", label: "Shipments" },
-      { href: "/logistics/proforma", label: "Proforma Invoices" },
-      { href: "/logistics/lc", label: "Letters of Credit" },
-      { href: "/logistics/epcg", label: "EPCG Declarations" },
-      { href: "/logistics/export-categories", label: "Export Categories" },
-      { href: "/logistics/order-categories", label: "Order Category Assign" },
-      { href: "/logistics/incentives", label: "Export Incentives" },
-    ],
+    children: moduleNavChildren("/logistics"),
   },
   {
     href: "/finance",
     label: "Finance",
     module: "finance",
     icon: Landmark,
-    children: [
-      { href: "/finance/accounts", label: "Chart of Accounts" },
-      { href: "/finance/cost-centres", label: "Cost Centres" },
-      { href: "/finance/cost-heads", label: "Cost Heads & Items" },
-      { href: "/finance/bank-limits", label: "Bank Limits" },
-      { href: "/finance/payables", label: "Payables" },
-      { href: "/finance/receivables", label: "Receivables" },
-      { href: "/finance/ledger", label: "General Ledger" },
-      { href: "/finance/notes", label: "Debit / Credit Notes" },
-      { href: "/finance/cheques", label: "Cheque Register" },
-      { href: "/finance/forward-contracts", label: "Forward Contracts" },
-      { href: "/finance/other-entries", label: "Other Income / Expense" },
-      { href: "/finance/party-openings", label: "Party Openings" },
-      { href: "/finance/exchange-rates", label: "Exchange Rates" },
-      { href: "/finance/provisional-invoices", label: "Provisional Invoices" },
-      { href: "/finance/bank-journals", label: "Bank Journals" },
-      { href: "/finance/domestic-invoices", label: "Domestic Invoices" },
-      { href: "/finance/pnl", label: "Shipment P&L" },
-    ],
+    children: moduleNavChildren("/finance"),
   },
   {
     href: "/integration",
@@ -229,10 +139,9 @@ export const NAV: NavItem[] = [
     icon: BarChart3,
     // Derived from the catalog so a new report can never appear in the landing
     // grid but go missing from the nav (they used to be two hand-edited lists).
-    children: [
-      { href: "/reports", label: "All Reports" },
-      ...REPORTS.map((r) => ({ href: reportHref(r), label: r.label })),
-    ],
+    // No "All Reports" child: the module label already navigates to /reports,
+    // so it was a second sidebar row pointing at the page the first one opens.
+    children: REPORTS.map((r) => ({ href: reportHref(r), label: r.label })),
   },
   {
     href: "/analytics",
@@ -258,16 +167,7 @@ export const NAV: NavItem[] = [
     label: "Administration",
     module: "system_admin",
     icon: Shield,
-    children: [
-      { href: "/admin/company", label: "Company Profile" },
-      { href: "/admin/users", label: "Users" },
-      { href: "/admin/roles", label: "Roles & Permissions" },
-      { href: "/admin/audit", label: "Audit Log" },
-      { href: "/admin/divisions", label: "Divisions" },
-      { href: "/admin/document-no-formats", label: "Document No Format" },
-      { href: "/admin/assets", label: "Assets" },
-      { href: "/admin/couriers", label: "Courier" },
-    ],
+    children: moduleNavChildren("/admin"),
   },
 ];
 

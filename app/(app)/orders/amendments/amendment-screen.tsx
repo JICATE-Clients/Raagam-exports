@@ -2,7 +2,22 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus } from "lucide-react";
+import {
+  Trash2,
+  Plus,
+  Shirt,
+  Palette,
+  Layers,
+  Banknote,
+  Package,
+  Hash,
+  CheckCheck,
+  Globe,
+  Truck,
+  FileText,
+  ClipboardList,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -13,7 +28,17 @@ import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Tabs, type TabItem } from "@/components/ui/tabs";
+// `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
+// MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
+// {key,label,content} items and `sections` maps them, so the shape a tab
+// declares is unchanged and only the chrome around it moved.
+import { type TabItem } from "@/components/ui/tabs";
+import {
+  MasterFullScreen,
+  SectionBody,
+  type FullScreenSection,
+} from "@/components/masters/master-full-screen";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate } from "@/lib/format";
@@ -27,7 +52,9 @@ import {
   createAmendment,
   updateAmendment,
   deleteAmendment,
+  loadOrderSeed,
 } from "@/lib/orders/amendments/actions";
+import type { SeededAmendmentChildren } from "@/lib/orders/amendments/order-seed";
 import {
   INITIATED_OPTIONS,
   AMEND_TYPE_OPTIONS,
@@ -124,6 +151,71 @@ type CountrySizeRow = {
   article_no: string;
   countrywise: boolean;
 };
+
+/**
+ * DB shapes → the editable row shapes above: a client-only `key`, numbers as
+ * strings (an `<Input>` holds text), nulls as "".
+ *
+ * ONE mapping, two callers — `openEdit` loading a saved amendment, and
+ * `onSelectOrder` seeding a new one from the order. They were the same twenty
+ * lines written twice, which is how a column gets mapped in one path and
+ * forgotten in the other.
+ *
+ * `newKey` is passed in rather than closed over: it is a `useRef` counter that
+ * lives inside the component, and two rows sharing a React key is a swapped-row
+ * bug that only shows up once the operator starts editing.
+ */
+function toRows(src: SeededAmendmentChildren, newKey: () => string) {
+  const num = (v: number | null | undefined) => (v ? String(v) : "");
+  const txt = (v: string | null | undefined) => v ?? "";
+  /** The three text columns every style-keyed tab repeats. */
+  const styleCols = (x: { style_ref_no: string | null; style: string | null; article_no: string | null }) => ({
+    style_ref_no: txt(x.style_ref_no),
+    style: txt(x.style),
+    article_no: txt(x.article_no),
+  });
+
+  return {
+    styles: src.styles.map((x): StyleRow => ({
+      key: newKey(),
+      style_ref_no: txt(x.style_ref_no),
+      style_id: x.style_id,
+      article_no: txt(x.article_no),
+      style_category: txt(x.style_category),
+      style_description: txt(x.style_description),
+      order_unit_id: x.order_unit_id,
+      plan_unit_id: x.plan_unit_id,
+      po_qty: num(x.po_qty),
+      description: txt(x.description),
+    })),
+    dyeings: src.dyeings.map((x): DyeingRow => ({
+      key: newKey(),
+      section: x.section,
+      dye_type: txt(x.dye_type),
+      color_id: x.color_id,
+    })),
+    prints: src.prints.map((x): PrintRow => ({ key: newKey(), print_id: x.print_id })),
+    structures: src.structures.map((x): StructureRow => ({ key: newKey(), structure_id: x.structure_id })),
+    combos: src.combos.map((x): ComboRow => ({ key: newKey(), ...styleCols(x) })),
+    priceDetails: src.priceDetails.map((x): PriceDetailRow => ({
+      key: newKey(),
+      ...styleCols(x),
+      price_type: txt(x.price_type),
+      unit: txt(x.unit),
+      price: num(x.price),
+    })),
+    approvalQtys: src.approvalQtys.map((x): ApprovalQtyRow => ({
+      key: newKey(),
+      ...styleCols(x),
+      approval_qty: num(x.approval_qty),
+    })),
+    countrySizes: src.countrySizes.map((x): CountrySizeRow => ({
+      key: newKey(),
+      ...styleCols(x),
+      countrywise: x.countrywise,
+    })),
+  };
+}
 
 // Fixed "Less" rows on the legacy Logistic tab (label read-only).
 const LESS_FIXED = [
@@ -248,6 +340,43 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
+  /**
+   * An SCNo the operator picked whose data is waiting on their answer, because
+   * replacing the tabs would discard rows they had already entered. Null when
+   * there is nothing to ask about — which is the common case.
+   */
+  const [pendingSeed, setPendingSeed] = useState<{
+    orderId: string;
+    orderNo: string;
+    seed: SeededAmendmentChildren;
+  } | null>(null);
+  /** True once a seed has come back, so an empty tab can say WHY it is empty. */
+  const [seeded, setSeeded] = useState(false);
+
+  /** Push a set of child rows into the eight grids. One call, one mapping. */
+  const applyRows = (src: SeededAmendmentChildren) => {
+    const r = toRows(src, newKey);
+    setStyles(r.styles);
+    setDyeings(r.dyeings);
+    setPrints(r.prints);
+    setStructures(r.structures);
+    setCombos(r.combos);
+    setPriceDetails(r.priceDetails);
+    setApprovalQtys(r.approvalQtys);
+    setCountrySizes(r.countrySizes);
+  };
+
+  /** Has the operator put anything in the eight data tabs worth protecting? */
+  const tabsHaveRows =
+    styles.length > 0 ||
+    dyeings.length > 0 ||
+    prints.length > 0 ||
+    structures.length > 0 ||
+    combos.length > 0 ||
+    priceDetails.length > 0 ||
+    approvalQtys.length > 0 ||
+    countrySizes.length > 0;
+
   // Inline editor, not a Sheet / MasterFullScreen, so nothing registers it with
   // the reload guard automatically — see mba-master-screen.tsx for the full
   // reasoning. The stakes are highest here: this form carries a header plus
@@ -303,10 +432,17 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
 
   const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
 
-  /** Confirmed behaviour: picking an SCNo auto-loads the order's context. */
+  /**
+   * Confirmed behaviour: picking an SCNo auto-loads the order's context — the
+   * header fields, and (since the seeding pass) the eight data tabs, so the
+   * amendment starts as the order STANDS and the operator edits the deltas.
+   * A document that starts blank cannot be compared to anything.
+   */
   function onSelectOrder(orderId: string | null) {
+    setPendingSeed(null);
     if (!orderId) {
       set({ sales_order_id: null });
+      setSeeded(false);
       return;
     }
     const o = data.orders.find((x) => x.id === orderId);
@@ -316,6 +452,38 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       currency_code: o?.currency_code ?? form.currency_code,
       delivery_date: o?.ship_date ?? form.delivery_date,
     });
+
+    // A SAVED amendment's rows are never replaced by the order's current state:
+    // they record what was decided, and the order has moved on since.
+    if (editId) return;
+
+    start(async () => {
+      const res = await loadOrderSeed(orderId);
+      if (!res.ok) {
+        // Leave the tabs exactly as they were — a half-filled set of grids is
+        // worse than none, because nothing on screen says which half is real.
+        toastError(res.error);
+        return;
+      }
+      if (tabsHaveRows) {
+        setPendingSeed({
+          orderId,
+          orderNo: o?.order_number ?? "this order",
+          seed: res.seed,
+        });
+        return;
+      }
+      applyRows(res.seed);
+      setSeeded(true);
+    });
+  }
+
+  /** The operator chose to replace their rows with the pending order's. */
+  function acceptPendingSeed() {
+    if (!pendingSeed) return;
+    applyRows(pendingSeed.seed);
+    setSeeded(true);
+    setPendingSeed(null);
   }
 
   function seedCharges(): ChargeRow[] {
@@ -350,10 +518,14 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     setPriceDetails([]);
     setApprovalQtys([]);
     setCountrySizes([]);
+    setPendingSeed(null);
+    setSeeded(false);
     setMode("edit");
   }
 
   function openEdit(r: GarmentOrderAmendment) {
+    setPendingSeed(null);
+    setSeeded(false);
     setEditId(r.id);
     setForm({
       sales_order_id: r.sales_order_id,
@@ -421,67 +593,19 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         fob_selling_price: p.fob_selling_price ? String(p.fob_selling_price) : "",
       })),
     );
-    setStyles(
-      r.styles.map((x) => ({
-        key: newKey(),
-        style_ref_no: x.style_ref_no ?? "",
-        style_id: x.style_id,
-        article_no: x.article_no ?? "",
-        style_category: x.style_category ?? "",
-        style_description: x.style_description ?? "",
-        order_unit_id: x.order_unit_id,
-        plan_unit_id: x.plan_unit_id,
-        po_qty: x.po_qty ? String(x.po_qty) : "",
-        description: x.description ?? "",
-      })),
-    );
-    setDyeings(
-      r.dyeings.map((x) => ({
-        key: newKey(),
-        section: x.section,
-        dye_type: x.dye_type ?? "",
-        color_id: x.color_id,
-      })),
-    );
-    setPrints(r.prints.map((x) => ({ key: newKey(), print_id: x.print_id })));
-    setStructures(r.structures.map((x) => ({ key: newKey(), structure_id: x.structure_id })));
-    setCombos(
-      r.combos.map((x) => ({
-        key: newKey(),
-        style_ref_no: x.style_ref_no ?? "",
-        style: x.style ?? "",
-        article_no: x.article_no ?? "",
-      })),
-    );
-    setPriceDetails(
-      r.price_details.map((x) => ({
-        key: newKey(),
-        style_ref_no: x.style_ref_no ?? "",
-        style: x.style ?? "",
-        article_no: x.article_no ?? "",
-        price_type: x.price_type ?? "",
-        unit: x.unit ?? "",
-        price: x.price ? String(x.price) : "",
-      })),
-    );
-    setApprovalQtys(
-      r.approval_qtys.map((x) => ({
-        key: newKey(),
-        style_ref_no: x.style_ref_no ?? "",
-        style: x.style ?? "",
-        article_no: x.article_no ?? "",
-        approval_qty: x.approval_qty ? String(x.approval_qty) : "",
-      })),
-    );
-    setCountrySizes(
-      r.country_sizes.map((x) => ({
-        key: newKey(),
-        style_ref_no: x.style_ref_no ?? "",
-        style: x.style ?? "",
-        article_no: x.article_no ?? "",
-        countrywise: x.countrywise,
-      })),
-    );
+    // The saved rows, through the same mapping the order seed uses. A saved
+    // amendment always wins over the order: it records what was decided, and
+    // the order has moved on since.
+    applyRows({
+      styles: r.styles,
+      dyeings: r.dyeings,
+      prints: r.prints,
+      structures: r.structures,
+      combos: r.combos,
+      priceDetails: r.price_details,
+      approvalQtys: r.approval_qtys,
+      countrySizes: r.country_sizes,
+    });
     setMode("edit");
   }
 
@@ -749,6 +873,27 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       { key: newKey(), style_ref_no: "", style: "", article_no: "", countrywise: false },
     ]);
 
+  /**
+   * Rail completion dots — "this section has data".
+   *
+   * Free here, and worth having: the reason ten items became a rail is that a
+   * strip could not tell the operator where anything was. It reads the SAME
+   * state `tabsHaveRows` above reads, so the two cannot drift.
+   *
+   * `packtypes` / `quantities` are the two placeholder sections and are
+   * deliberately absent — a dot claiming a not-yet-wired tab holds data would
+   * lie about the one thing the operator most needs to know is missing.
+   */
+  const sectionDone: Record<string, boolean> = {
+    styles: styles.length > 0,
+    colors: dyeings.length > 0 || prints.length > 0 || structures.length > 0,
+    combos: combos.length > 0,
+    prices: priceDetails.length > 0,
+    approvalqty: approvalQtys.length > 0,
+    countrysize: countrySizes.length > 0,
+    logistic: charges.length > 0,
+  };
+
   const tabs: TabItem[] = [
     // ---------------- Style(s) ----------------
     {
@@ -805,7 +950,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     </td>
                   </tr>
                 ))}
-                {styles.length === 0 && <EmptyRow cols={10} label="styles" />}
+                {styles.length === 0 && <EmptyRow cols={10} label="styles" seeded={seeded} />}
               </tbody>
             </table>
           </div>
@@ -857,7 +1002,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                 </div>
               ))}
               {prints.length === 0 && (
-                <p className="py-4 text-center text-xs text-muted-foreground">No prints. Use “Add row”.</p>
+                <p className="py-4 text-center text-xs text-muted-foreground">{seeded ? "This order records no prints." : "No prints."} Use “Add row”.</p>
               )}
             </div>
           </GridCard>
@@ -882,7 +1027,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                 </div>
               ))}
               {structures.length === 0 && (
-                <p className="py-4 text-center text-xs text-muted-foreground">No structures. Use “Add row”.</p>
+                <p className="py-4 text-center text-xs text-muted-foreground">{seeded ? "This order records no structures." : "No structures."} Use “Add row”.</p>
               )}
             </div>
           </GridCard>
@@ -918,7 +1063,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     </tr>
                   );
                 })}
-                {combos.length === 0 && <EmptyRow cols={4} label="combos" />}
+                {combos.length === 0 && <EmptyRow cols={4} label="combos" seeded={seeded} />}
               </tbody>
             </table>
           </div>
@@ -960,7 +1105,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     </tr>
                   );
                 })}
-                {priceDetails.length === 0 && <EmptyRow cols={7} label="prices" />}
+                {priceDetails.length === 0 && <EmptyRow cols={7} label="prices" seeded={seeded} />}
               </tbody>
             </table>
           </div>
@@ -1000,7 +1145,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     </tr>
                   );
                 })}
-                {approvalQtys.length === 0 && <EmptyRow cols={5} label="approval quantities" />}
+                {approvalQtys.length === 0 && <EmptyRow cols={5} label="approval quantities" seeded={seeded} />}
               </tbody>
             </table>
           </div>
@@ -1045,7 +1190,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     </tr>
                   );
                 })}
-                {countrySizes.length === 0 && <EmptyRow cols={5} label="country / size rows" />}
+                {countrySizes.length === 0 && <EmptyRow cols={5} label="country / size rows" seeded={seeded} />}
               </tbody>
             </table>
           </div>
@@ -1400,8 +1545,146 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     },
   ];
 
+  /**
+   * The document header, as the FIRST rail section.
+   *
+   * Every field is `size="sm"` — the standing "ONE SIZE, EVERY FIELD" rule
+   * (3 of 12, four per row, ~280px). Nothing here is sized to its own data, so
+   * a Yr box and an SCNo picker line up down the page.
+   *
+   * `Field required` on Date replaces a literally typed `"Date *"`: one
+   * declaration now draws the red star AND holds the cursor while the box is
+   * blank, which is what `canSave = !!form.amend_date` has always meant but had
+   * no way to say. Every picker takes `compact` so it does not draw a second
+   * label inside the one `Field` already provides.
+   */
+  const orderInfoSection: FullScreenSection = {
+    key: "orderinfo",
+    label: "Order Info",
+    icon: ClipboardList,
+    done: !!form.sales_order_id,
+    content: (
+      <SectionBody
+        title="Order Info"
+        hint="Which order is being amended, and this amendment's own details."
+      >
+        {/* ONE FieldGrid for the whole section — SectionBody has no grid of its
+            own, and two stacked grids agree on the left edge but not the row gap. */}
+        <FieldGrid>
+          <Field label="SCNo" size="sm">
+            <RecordPicker
+              label="SCNo"
+              compact
+              items={orderItems}
+              value={form.sales_order_id}
+              onChange={onSelectOrder}
+            />
+          </Field>
+          <Field label="Date" required size="sm" htmlFor="hd-date">
+            <Input id="hd-date" type="date" value={form.amend_date} onChange={(e) => set({ amend_date: e.target.value })} />
+          </Field>
+          <Field label="Initiated" size="sm" htmlFor="hd-initiated">
+            <Select id="hd-initiated" value={form.initiated} onChange={(e) => set({ initiated: e.target.value })}>
+              <option value="">—</option>
+              {INITIATED_OPTIONS.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Type" size="sm" htmlFor="hd-type">
+            <Select id="hd-type" value={form.amend_type} onChange={(e) => set({ amend_type: e.target.value })}>
+              <option value="">—</option>
+              {AMEND_TYPE_OPTIONS.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Customer" size="sm">
+            <RecordPicker
+              label="Customer"
+              compact
+              items={data.buyers}
+              value={form.buyer_id}
+              onChange={(id) => set({ buyer_id: id })}
+            />
+          </Field>
+          <Field label="PO No" size="sm" htmlFor="hd-pono">
+            <Input id="hd-pono" value={form.po_no} onChange={(e) => set({ po_no: e.target.value })} />
+          </Field>
+          <Field label="Merchand." size="sm">
+            <RecordPicker
+              label="Merchand."
+              compact
+              items={data.merchandisers}
+              value={form.merchandiser_id}
+              onChange={(id) => set({ merchandiser_id: id })}
+            />
+          </Field>
+          <Field label="Season" size="sm" htmlFor="hd-season">
+            <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
+              <option value="">—</option>
+              {SEASON_OPTIONS.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Yr" size="sm" htmlFor="hd-year">
+            <Input id="hd-year" type="number" value={form.amend_year} onChange={(e) => set({ amend_year: e.target.value })} placeholder="2026" />
+          </Field>
+          <Field label="Deli.Dt" size="sm" htmlFor="hd-deli">
+            <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
+          </Field>
+          <Field label="Excess %" size="sm" htmlFor="hd-excess">
+            <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
+          </Field>
+          {/* The tick's word moves up into the field label and the cell gets
+              `min-h-9 items-center`, so it centres on the same 36px control
+              height as the Select beside it instead of floating at the top of
+              its row. Same shape as Customer ▸ Also Notify. */}
+          <Field label="Pack" size="sm" htmlFor="hd-pack">
+            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
+              <input id="hd-pack" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.pack} onChange={(e) => set({ pack: e.target.checked })} />
+              <span className="text-sm text-foreground">Yes</span>
+            </label>
+          </Field>
+          <Field label="Mult. Ord" size="sm" htmlFor="hd-multord">
+            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
+              <input id="hd-multord" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.mult_ord} onChange={(e) => set({ mult_ord: e.target.checked })} />
+              <span className="text-sm text-foreground">Yes</span>
+            </label>
+          </Field>
+        </FieldGrid>
+      </SectionBody>
+    ),
+  };
+
+  /**
+   * The ten tabs, as rail sections, behind the header.
+   *
+   * A `map` rather than ten rewritten literals: the tab bodies are ~650 lines
+   * of working JSX and this change is about the SHELL around them, not their
+   * contents. Rewriting both at once would make a layout change and a behaviour
+   * change indistinguishable in review.
+   */
+  const sections: FullScreenSection[] = [
+    orderInfoSection,
+    ...tabs.map((t) => ({
+      key: t.key,
+      label: t.label,
+      icon: SECTION_ICONS[t.key] ?? FileText,
+      done: sectionDone[t.key],
+      content: t.content,
+    })),
+  ];
+
   return (
-    <div className="space-y-4">
+    // `flex h-full flex-col` is what a page-mounted MasterFullScreen requires:
+    // it takes `flex-1 min-h-0` and needs a definite height to divide. `h-full`
+    // resolves against `<main className="flex-1 overflow-y-auto">` in
+    // app/(app)/layout.tsx, which is a flex item of a `h-screen` column. Leave
+    // this as `space-y-4` and the editor sizes to its content instead, stranding
+    // the footer above a strip of empty page.
+    <div className="flex h-full flex-col gap-4">
       <PageHeader
         title={editId ? "Edit Amendment" : "New Amendment"}
         description="Pick an SCNo to load the order, then amend across the tabs. Wire each ⓘ field from stored data."
@@ -1412,111 +1695,115 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         }
       />
 
-      {/* Header band (always visible above the tabs) */}
-      <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <RecordPicker
-            label="SCNo"
-            items={orderItems}
-            value={form.sales_order_id}
-            onChange={onSelectOrder}
-          />
-          <div>
-            <Label htmlFor="hd-date">Date *</Label>
-            <Input id="hd-date" type="date" value={form.amend_date} onChange={(e) => set({ amend_date: e.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="hd-initiated">Initiated</Label>
-            <Select id="hd-initiated" value={form.initiated} onChange={(e) => set({ initiated: e.target.value })}>
-              <option value="">—</option>
-              {INITIATED_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="hd-type">Type</Label>
-            <Select id="hd-type" value={form.amend_type} onChange={(e) => set({ amend_type: e.target.value })}>
-              <option value="">—</option>
-              {AMEND_TYPE_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-          <RecordPicker
-            label="Customer"
-            items={data.buyers}
-            value={form.buyer_id}
-            onChange={(id) => set({ buyer_id: id })}
-          />
-          <div>
-            <Label htmlFor="hd-pono">PO No</Label>
-            <Input id="hd-pono" value={form.po_no} onChange={(e) => set({ po_no: e.target.value })} />
-          </div>
-          <RecordPicker
-            label="Merchand."
-            items={data.merchandisers}
-            value={form.merchandiser_id}
-            onChange={(id) => set({ merchandiser_id: id })}
-          />
-          <div>
-            <Label htmlFor="hd-season">Season</Label>
-            <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
-              <option value="">—</option>
-              {SEASON_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="hd-year">Yr</Label>
-            <Input id="hd-year" type="number" value={form.amend_year} onChange={(e) => set({ amend_year: e.target.value })} placeholder="2026" />
-          </div>
-          <div>
-            <Label htmlFor="hd-deli">Deli.Dt</Label>
-            <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="hd-excess">Excess %</Label>
-            <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
-          </div>
-          <div className="flex items-end gap-4 pb-1">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.pack} onChange={(e) => set({ pack: e.target.checked })} className="h-4 w-4 rounded border-border" />
-              Pack
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.mult_ord} onChange={(e) => set({ mult_ord: e.target.checked })} className="h-4 w-4 rounded border-border" />
-              Mult. Ord
-            </label>
-          </div>
-        </CardBody>
-      </Card>
+      {/* The header band that used to sit here is now the FIRST RAIL SECTION,
+          "Order Info" — see `orderInfoSection` above. It was a flat 13-field
+          `lg:grid-cols-4` on a full-bleed CardBody, so every box stretched to
+          ~370px against the ~280px the layout rules fix a field at, and it
+          hand-rolled `<div><Label/><Input/></div>` pairs, a literal "Date *"
+          asterisk and two raw checkboxes — none of which the field primitives
+          could see. Moving it into the rail puts every field on this screen in
+          one place and one convention.
 
-      {/* 10 sub-tabs */}
-      <Card>
-        <CardBody>
-          <Tabs items={tabs} defaultKey="logistic" />
-        </CardBody>
-      </Card>
+          The `pendingSeed` bar below deliberately did NOT move with it. It is a
+          transient decision the operator must not miss, and a section is hidden
+          the moment they navigate away from it. */}
 
-      {/* Footer */}
-      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 py-3 backdrop-blur">
-        <Button variant="outline" onClick={() => setMode("list")}>
-          Cancel
-        </Button>
-        {perms.canCreate && (
-          <Button variant="outline" disabled={isPending || !canSave} onClick={() => submit(true)}>
-            Save as Draft
-          </Button>
-        )}
-        <Button disabled={isPending || !canSave} onClick={() => submit(false)}>
-          {isPending ? "Saving…" : "Save"}
-        </Button>
-      </div>
+      {/* Asked INLINE, not in a `confirm()` or a modal — LAYOUT.md §6a, the same
+          reason Delete confirms inside its own row. It is also why this needs no
+          `useModalGuard`: an inline bar is not an overlay, so the reload guard's
+          DOM scan has nothing to miss. */}
+      {pendingSeed && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3">
+          <p className="text-sm font-medium text-foreground">
+            Replace the tabs with {pendingSeed.orderNo}&rsquo;s data?
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            The rows you have entered in the eight data tabs will be lost. The
+            header has already moved to the new order.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" onClick={acceptPendingSeed}>
+              Replace
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setPendingSeed(null)}>
+              Keep mine
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* THE TEN SUB-TABS ARE A SECTION RAIL, NOT A TOP STRIP (2026-08-09).
+          `components/ui/tabs.tsx` gave ten items no arrow-key navigation, no
+          roving tab stop, no `registerContentEdge` and no per-item state — a
+          horizontally-scrolling row of underlined text with no way to tell which
+          one held the error blocking Save. `MasterFullScreen` answers all four,
+          and `mount="page"` is what lets a route use it without the overlay
+          eating the sidebar.
+
+          No `initialSection`: it falls back to sections[0], which is Style(s) —
+          the tab the legacy screen opens on. It briefly carried
+          defaultKey="logistic" from building that tab, so the screen opened on
+          the charge blocks and read as the wrong screen entirely. */}
+      <MasterFullScreen
+        mount="page"
+        open
+        // No `header`: the route's own PageHeader above already names the
+        // record, and a second identity band would announce it twice.
+        onClose={() => setMode("list")}
+        modeLabel={null}
+        // The same signal `tabsHaveRows` computes for the discard prompt — real
+        // rows the operator would lose — rather than `mode === "edit"`, which is
+        // always true here and would pin the reload guard on permanently.
+        dirty={tabsHaveRows}
+        sections={sections}
+        /**
+         * Same footer contract as the Associates / Materials masters —
+         * `customer-master-screen.tsx:1642` is the reference. `status` names the
+         * save state, and `saveLabel` names the entity rather than reading a
+         * bare "Save" that could belong to any record on any screen.
+         *
+         * `status` keys off `tabsHaveRows` rather than a `dirty` flag, because
+         * this screen has never had one: its edits land in eight separate row
+         * arrays and a header, with no single place that observes a change. So
+         * it says "Unsaved changes" once real rows exist, and never claims "All
+         * changes saved", which it cannot honestly know. Adding the flag is a
+         * separate change — see the business-logic pass.
+         */
+        footer={{
+          status: tabsHaveRows ? "Unsaved changes" : editId ? "Editing amendment" : "New amendment",
+          onCancel: () => setMode("list"),
+          onSave: () => submit(false),
+          saveLabel: "Save amendment",
+          canSave,
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          isPending,
+        }}
+      />
     </div>
   );
 }
+
+/**
+ * One icon per section, keyed by the tab key it already had.
+ *
+ * A rail item is icon + label + status dot, so the icon is structural here in a
+ * way it never was on the text-only strip. A module-level constant rather than
+ * an inline lookup: it is a fixed vocabulary, and keeping it in one place makes
+ * a missing entry obvious. An unknown key falls back to `FileText` rather than
+ * rendering nothing, so a new tab is plain but never broken.
+ */
+const SECTION_ICONS: Record<string, LucideIcon> = {
+  styles: Shirt,
+  colors: Palette,
+  combos: Layers,
+  prices: Banknote,
+  packtypes: Package,
+  quantities: Hash,
+  approvalqty: CheckCheck,
+  countrysize: Globe,
+  logistic: Truck,
+  reason: FileText,
+};
 
 // ---------- small building blocks ----------
 
@@ -1644,11 +1931,18 @@ function RowRemove({ onClick }: { onClick: () => void }) {
 }
 
 /** A spanning "no rows yet" placeholder line inside a grid table body. */
-function EmptyRow({ cols, label }: { cols: number; label: string }) {
+/**
+ * `seeded` distinguishes the two ways a tab is empty, and they read identically
+ * without it: nothing picked yet, versus an order that genuinely records no
+ * rows of this kind. A correct seed on a thin order otherwise looks like a
+ * seed that failed — which is exactly how a working feature gets reported
+ * broken.
+ */
+function EmptyRow({ cols, label, seeded }: { cols: number; label: string; seeded?: boolean }) {
   return (
     <tr>
       <td colSpan={cols} className="px-2 py-6 text-center text-xs text-muted-foreground">
-        No {label}. Use “Add row”.
+        {seeded ? <>This order records no {label}. Use “Add row”.</> : <>No {label}. Use “Add row”.</>}
       </td>
     </tr>
   );

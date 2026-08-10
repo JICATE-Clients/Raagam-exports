@@ -8,6 +8,7 @@ import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { atCaretEdge, focusField } from "@/lib/focus";
+import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -508,6 +509,21 @@ export function gridKeyNav(
   }
 }
 
+/**
+ * What a column contributes to the grid's totals band.
+ *
+ * `sum` and `count` cover the two cases every line-item document has; `derived`
+ * is for an average, a weighted rate, or a "% of 100" that is not a plain sum.
+ * `blank` is only ever needed to say "deliberately nothing here" where the
+ * reader would expect a figure — omitting `total` says the same thing and is
+ * what almost every column does.
+ */
+export type ChildGridTotal<T> =
+  | { kind: "sum"; of: (row: T) => number; format?: (n: number) => ReactNode }
+  | { kind: "count"; format?: (n: number) => ReactNode }
+  | { kind: "derived"; value: (rows: T[]) => ReactNode }
+  | { kind: "blank" };
+
 export interface ChildGridColumn<T> {
   header: string;
   cell: (row: T, index: number) => ReactNode;
@@ -516,6 +532,31 @@ export interface ChildGridColumn<T> {
   /** Card-mode track width, e.g. "6rem" for a percentage or "auto" to hug.
    *  Omit to flex and take the remaining space (the picker/name column). */
   width?: string;
+  /**
+   * A totals cell under this column. Any column declaring one switches the
+   * grid's totals band on; the rest render blank, so the figures stay under the
+   * columns they total.
+   *
+   * COMPUTED OVER EVERY ROW, NEVER THE CURRENT PAGE. This grid paginates
+   * internally (`pageSize`), so a total a CALLER computed from what it could see
+   * would be a total of the visible page — wrong exactly when the grid is long
+   * enough for anyone to want one. That, plus the fact that a `<tfoot>` has to
+   * be inside the same `<table>` to inherit the header's column widths, is why
+   * this lives on the component rather than in a wrapper around it.
+   *
+   * THE BAND IS NOT A ROW. It carries no `data-grid-row` and holds text only —
+   * never an `<input>`, never a picker. Those two properties are what keep it
+   * off the keyboard axis: `ownDescendants` finds rows by `[data-grid-row]`, so
+   * a marked band would make ↓ off the last line land in the totals and Enter
+   * there stop adding rows; and `ROW_FIELDS` finds cells by control, so a
+   * focusable total would put a read-only figure on the Tab path.
+   *
+   * (It sits INSIDE `data-grid-body` in the two card layouts, which is safe for
+   * exactly those reasons, and is required in `responsive` mode — the cards
+   * container is what carries `@lg:hidden`, so a band outside it would render
+   * beside the table's `<tfoot>` at wide sizes rather than instead of it.)
+   */
+  total?: ChildGridTotal<T>;
   /**
    * A cell that must be filled before the cursor may leave it (client
    * 2026-08-04), the grid equivalent of `<Field required>` — the header draws a
@@ -529,6 +570,26 @@ export interface ChildGridColumn<T> {
    * cells do not inherit it — wrap those in `<RequiredScope>` directly.
    */
   required?: boolean;
+}
+
+/**
+ * One totals cell's value.
+ *
+ * `rows` is EVERY row the grid holds, never `view` — see `ChildGridColumn.total`.
+ *
+ * A `sum` coerces through `Number(…) || 0` because a half-typed numeric cell is
+ * `NaN`, and one `NaN` anywhere in a `reduce` blanks the whole figure. A total
+ * that vanishes while the operator is mid-keystroke reads as a bug in the total,
+ * not as an incomplete row.
+ */
+function renderTotal<T>(total: ChildGridTotal<T> | undefined, rows: T[]): ReactNode {
+  if (!total || total.kind === "blank") return null;
+  if (total.kind === "derived") return total.value(rows);
+  if (total.kind === "count") {
+    return total.format ? total.format(rows.length) : fmtNumber(rows.length);
+  }
+  const n = rows.reduce((acc, r) => acc + (Number(total.of(r)) || 0), 0);
+  return total.format ? total.format(n) : fmtNumber(n);
 }
 
 /**
@@ -558,6 +619,7 @@ export function ChildGrid<T extends { key: string }>({
   listRows = false,
   rowSummary,
   startIndex = 0,
+  totalsLabel = "Total",
 }: {
   /**
    * The grid's caption. OPTIONAL — omit it when the surrounding
@@ -667,6 +729,9 @@ export function ChildGrid<T extends { key: string }>({
    *  caller paginates `rows`, so numbering stays global (11, 12… on page 2)
    *  instead of restarting at 1 each page. Defaults to 0. */
   startIndex?: number;
+  /** Caption for the totals band, rendered where the "#" would be. Only appears
+   *  when at least one column declares a `total`. Defaults to "Total". */
+  totalsLabel?: ReactNode;
 }) {
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   // Optional pagination (no inner scroll). When pageSize is unset we use a huge
@@ -709,6 +774,18 @@ export function ChildGrid<T extends { key: string }>({
     : forceCards
       ? "cards"
       : "responsive";
+
+  /**
+   * The band appears when a COLUMN asks for one. `blank` is a column saying
+   * "nothing goes here", not the grid saying "no band" — otherwise a grid whose
+   * only declaration was a `blank` would draw an empty strip.
+   *
+   * `responsive` mode renders the table's `<tfoot>` and the cards band both, and
+   * CSS picks one — the same way it already picks between the two layouts, so
+   * exactly one is ever on screen.
+   */
+  const hasTotals = columns.some((c) => c.total && c.total.kind !== "blank");
+
   return (
     // Padding and rhythm are `DetailSection`'s, not this grid's own — they were
     // `p-3` / `space-y-3` against the section's `p-2.5 @2xl/editor:p-2`, so a
@@ -804,6 +881,35 @@ export function ChildGrid<T extends { key: string }>({
               );
             })}
           </tbody>
+          {/* A SIBLING of <tbody data-grid-body>, so `gridKeyNav` — which is
+              bound to that element and takes its grid from `e.currentTarget` —
+              never sees a keystroke from here, and `ownDescendants` never counts
+              this as a row. It has to be inside the same <table> to inherit the
+              <th> widths above it, which is the whole reason totals could not be
+              a wrapper around this component. */}
+          {hasTotals && (
+            <tfoot className="border-t-2 border-border bg-surface-muted font-semibold">
+              <tr>
+                <td className="px-2 py-1.5 text-center text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {totalsLabel}
+                </td>
+                {columns.map((c, ci) => (
+                  <td
+                    key={ci}
+                    className={cn(
+                      "border-l border-border px-2 py-1.5 text-sm tabular-nums",
+                      align[c.align ?? "left"],
+                      c.className,
+                    )}
+                  >
+                    {/* `rows`, not `view` — see ChildGridColumn.total. */}
+                    {renderTotal(c.total, rows)}
+                  </td>
+                ))}
+                <td className="border-l border-border" />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       )}
@@ -914,6 +1020,32 @@ export function ChildGrid<T extends { key: string }>({
             </div>
             );
           })}
+          {/* Mirrors the header band's track exactly — same `w-4` index spacer,
+              same `shrink-0`/`flex-1` per column, same `w-8` trailing spacer —
+              or the figures do not sit under the columns they total. No
+              `data-grid-row` and no control inside, so it stays off both the
+              arrow axis and the Tab path. */}
+          {hasTotals && (
+            <div className="flex items-center gap-2 border-t-2 border-border pt-1.5 font-semibold">
+              <span className="w-4 shrink-0 text-center text-[11px] uppercase tracking-wide text-muted-foreground">
+                {totalsLabel}
+              </span>
+              {columns.map((c, ci) => (
+                <div
+                  key={ci}
+                  className={cn(
+                    "min-w-0 text-sm tabular-nums",
+                    c.width ? "shrink-0" : "flex-1",
+                    align[c.align ?? "left"],
+                  )}
+                  style={c.width ? { width: c.width } : undefined}
+                >
+                  {renderTotal(c.total, rows)}
+                </div>
+              ))}
+              <span className="w-8 shrink-0" />
+            </div>
+          )}
         </div>
       ) : (
       /* stacked row-cards — the whole grid in `cards` mode, and the narrow half
@@ -967,6 +1099,30 @@ export function ChildGrid<T extends { key: string }>({
           </div>
           );
         })}
+        {/* Cards stack their columns, so there is nothing to sit a figure UNDER
+            — a column-aligned band here would align with nothing. One labelled
+            summary row after the last card instead, and one for the whole list
+            rather than one per card (a per-card total is the card).
+
+            It lives INSIDE this container on purpose: in `responsive` mode the
+            container is what carries `@lg:hidden`, so a band outside it would
+            render alongside the table's <tfoot> at wide sizes. */}
+        {hasTotals && (
+          <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1 border-t-2 border-border pt-2">
+            {columns
+              .filter((c) => c.total && c.total.kind !== "blank")
+              .map((c, ci) => (
+                <span key={ci} className="flex items-baseline gap-1.5">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {c.header}
+                  </span>
+                  <span className="text-sm font-semibold tabular-nums">
+                    {renderTotal(c.total, rows)}
+                  </span>
+                </span>
+              ))}
+          </div>
+        )}
       </div>
       )}
 

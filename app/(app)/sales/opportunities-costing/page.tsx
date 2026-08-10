@@ -1,37 +1,35 @@
-import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { HubCard } from "@/components/masters/hub-card";
+import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
 
 // Sales ▸ Marketing (legacy) — "Opportunities & Costing" sub-module hub.
 // Master structure: module → sub-module (sidebar) → child (these cards).
-const CARDS: { label: string; href: string; hint: string }[] = [
-  { label: "Opportunities / Pipeline", href: "/sales", hint: "Enquiry → costing → quoted → won/lost pipeline." },
-  { label: "Styles", href: "/sales/styles", hint: "Define styles for an opportunity." },
-  { label: "Cost Sheets", href: "/sales/cost-sheets", hint: "Versioned product cost sheets; draft → approve." },
-  { label: "Quote Preparation", href: "/sales/quotes", hint: "Prepare buyer quotes from approved costings." },
-  { label: "Confirm Quotes", href: "/sales/quote-confirmations", hint: "Accept/reject quotes (a win creates an order)." },
+//
+// Sales is deliberately absent from `lib/nav/module-groups.ts` — `nav.ts` keeps
+// its literal five-row list, because Sales already listed sub-modules and needed
+// no regrouping — so these cards are declared here and rendered by the shared
+// `HubPage`. Nothing machine-checks this list; `npm run check:nav` only sees the
+// nine grouped modules.
+//
+// The ↗ is GONE from every card, and that is a fix rather than a loss: it means
+// "this card leaves the module", and all five of these are Sales routes. The
+// same mistake is recorded against `/orders/ta`, which passed `external` on all
+// six of its own siblings.
+const CARDS: HubCardSpec[] = [
+  { key: "/sales", href: "/sales", label: "Opportunities / Pipeline", description: "Enquiry → costing → quoted → won/lost pipeline." },
+  { key: "/sales/styles", href: "/sales/styles", label: "Styles", description: "Define styles for an opportunity." },
+  { key: "/sales/cost-sheets", href: "/sales/cost-sheets", label: "Cost Sheets", description: "Versioned product cost sheets; draft → approve." },
+  { key: "/sales/quotes", href: "/sales/quotes", label: "Quote Preparation", description: "Prepare buyer quotes from approved costings." },
+  { key: "/sales/quote-confirmations", href: "/sales/quote-confirmations", label: "Confirm Quotes", description: "Accept/reject quotes (a win creates an order)." },
 ];
 
 export default async function OpportunitiesCostingHubPage() {
   await requirePermission("sales", "view");
   return (
-    <div className="space-y-4">
-      <nav className="text-xs text-muted-foreground">
-        <Link href="/sales" className="hover:text-primary">
-          Sales
-        </Link>{" "}
-        / <span className="text-foreground">Opportunities &amp; Costing</span>
-      </nav>
-      <PageHeader
-        title="Opportunities & Costing"
-        description="Customer engagement from opportunity through style definition, costing and quoting."
-      />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {CARDS.map((c) => (
-          <HubCard key={c.href} href={c.href} title={c.label} subtitle={c.hint} external />
-        ))}
-      </div>
-    </div>
+    <HubPage
+      breadcrumb={{ href: "/sales", label: "Sales" }}
+      title="Opportunities & Costing"
+      description="Customer engagement from opportunity through style definition, costing and quoting."
+      cards={CARDS}
+    />
   );
 }

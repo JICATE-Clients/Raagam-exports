@@ -1,0 +1,220 @@
+/**
+ * TEMPLATE — a master: list + a Sheet editor.
+ *
+ * Copy to `components/masters/<entity>-master-screen.tsx` and replace Thing /
+ * things / THING. Keep the comments that explain a WHY.
+ *
+ * Use this shape for a record of roughly ≤15 fields with at most one small child
+ * grid. Past that — or if the record has stages — use `rail-screen.tsx.template`.
+ *
+ * `.tsx.template` on purpose: tsconfig's `include` is `**\/*.tsx` with no
+ * `.claude` exclusion, so a real `.tsx` here would be typechecked as part of the
+ * app.
+ */
+"use client";
+
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Sheet } from "@/components/ui/sheet";
+import { DetailSection } from "@/components/masters/detail-section";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import { StatusPill } from "@/components/ui/status-pill";
+import { useToast } from "@/components/ui/toast";
+import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/masters/duplicate-error";
+import type { Column } from "@/components/ui/data-table";
+import { createThing, updateThing, deleteThing } from "@/lib/masters/thing-actions";
+import type { Thing } from "@/lib/masters/thing-types";
+
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; canImport?: boolean };
+type ChildRow = { key: string; line_name: string };
+
+const BLANK = { name: "", note: "", inactive: false };
+
+export function ThingMasterScreen({ rows, perms }: { rows: Thing[]; perms: Perms }) {
+  const router = useRouter();
+  const { success, error: toastError } = useToast();
+  const [isPending, start] = useTransition();
+
+  const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState(BLANK);
+  const [childRows, setChildRows] = useState<ChildRow[]>([]);
+  const keyRef = useRef(0);
+  const nextKey = () => `th-${++keyRef.current}`;
+
+  /**
+   * "Already exists" WHILE the operator types, not only after Save.
+   *
+   * Pass `rows` — that is not an optimisation. The cursor hold is a keydown-time
+   * test, so a check that answers 300 ms later has already lost: the operator
+   * types a colliding name, tabs away, and the message paints under a field they
+   * have left. The local pass answers in the SAME render as the keystroke.
+   *
+   * The SERVER guard (`checkDuplicateName` in the action) is the real one. This
+   * is a courtesy — see raagam-masters-picker-wiring.
+   */
+  const dupError = useDuplicateName({
+    table: "things",
+    name: form.name,
+    excludeId: editId ?? undefined,
+    enabled: !!form.name.trim(),
+    rows,
+    rowId: (r) => r.id,
+    rowValue: (r) => r.name,
+  });
+
+  const columns: Column<Thing>[] = [
+    { header: "Name", cell: (r) => <span className="text-sm">{r.name}</span> },
+    {
+      header: "Status",
+      cell: (r) => (
+        <StatusPill tone={r.inactive ? "danger" : "success"}>
+          {r.inactive ? "Inactive" : "Active"}
+        </StatusPill>
+      ),
+    },
+    // Do NOT add a "Created" column — MasterListShell splices the Created Date /
+    // Created User pair itself, and strips a hand-rolled one. The DATA half is a
+    // service concern: the list service must run through `withCreators()` and its
+    // select must name created_by, or the column renders a dash in every row.
+  ];
+
+  const childColumns: ChildGridColumn<ChildRow>[] = [
+    {
+      header: "Line",
+      required: true,
+      cell: (r) => (
+        <Input
+          uppercase
+          value={r.line_name}
+          onChange={(e) =>
+            setChildRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, line_name: e.target.value } : x)))
+          }
+        />
+      ),
+    },
+  ];
+
+  function openAdd() {
+    setEditId(null);
+    setForm(BLANK);
+    setChildRows([]);
+    setOpen(true);
+  }
+  function openEdit(r: Thing) {
+    setEditId(r.id);
+    setForm({ name: r.name, note: r.note ?? "", inactive: r.inactive });
+    setChildRows((r.lines ?? []).map((l) => ({ key: nextKey(), line_name: l.line_name })));
+    setOpen(true);
+  }
+
+  function submit() {
+    start(async () => {
+      const children = childRows.filter((c) => c.line_name.trim()).map((c) => ({ line_name: c.line_name.trim() }));
+      const res = editId ? await updateThing(editId, form, children) : await createThing(form, children);
+      if (res.ok) {
+        success(editId ? "Thing updated" : "Thing created");
+        setOpen(false);
+        router.refresh();
+      } else {
+        toastError(res.error);
+      }
+    });
+  }
+
+  return (
+    <>
+      {/* The shell owns the h-9 header row (search + Filters + Download + Add),
+          the Created pair, row actions, mobile cards and pagination. A screen
+          that hand-rolls that row drifts: `size="sm"` on one button put Download
+          4px short of Add on 28 screens before anyone noticed. */}
+      <MasterListShell<Thing>
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) => r.name}
+        statusOf={(r) => (r.inactive ? "inactive" : "active")}
+        columns={columns}
+        addLabel="+ Add Thing"
+        onAdd={openAdd}
+        actions={{ onEdit: openEdit, onDelete: (r) => void r }}
+        rowLabel={(r) => r.name}
+        mobile={{ title: (r) => r.name }}
+        isPending={isPending}
+      />
+
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editId ? "Edit Thing" : "New Thing"}
+        footer={
+          <>
+            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="md"
+              // A live duplicate blocks Save. It also holds the cursor in the
+              // field, via dupFieldProps below — one declaration, both effects.
+              disabled={isPending || !form.name.trim() || !!dupError}
+              onClick={submit}
+            >
+              {isPending ? "Saving…" : "Save thing"}
+            </Button>
+          </>
+        }
+      >
+        <DetailSection label="Details" cols={12}>
+          <FieldGrid>
+            {/* size="sm" on every field — ~280px, four per row. */}
+            <Field label="Name" required size="sm" htmlFor="th-name">
+              <Input
+                id="th-name"
+                uppercase
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                {...dupFieldProps(dupError, "th-name")}
+              />
+              <DuplicateError error={dupError} id="th-name" />
+            </Field>
+            <Field label="Note" size="sm" htmlFor="th-note">
+              <Input id="th-note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            </Field>
+            {/* A checkbox gets `min-h-9 items-center` so it centres on the same
+                36px control height as the field beside it. */}
+            <Field label="Inactive" size="sm" htmlFor="th-inactive">
+              <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
+                <input
+                  id="th-inactive"
+                  type="checkbox"
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                  checked={form.inactive}
+                  onChange={(e) => setForm({ ...form, inactive: e.target.checked })}
+                />
+                <span className="text-sm text-foreground">Yes</span>
+              </label>
+            </Field>
+          </FieldGrid>
+        </DetailSection>
+
+        <DetailSection label="Lines">
+          {/* `frameless` so the grid does not draw a second border inside the
+              section that already names it. */}
+          <ChildGrid<ChildRow>
+            columns={childColumns}
+            rows={childRows}
+            frameless
+            onAdd={() => setChildRows((xs) => [...xs, { key: nextKey(), line_name: "" }])}
+            onRemove={(r) => setChildRows((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add line"
+          />
+        </DetailSection>
+      </Sheet>
+    </>
+  );
+}

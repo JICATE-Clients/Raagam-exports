@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "patch-package",
     "dev": "next dev",
     "build": "next build --webpack",
     "build:check": "node scripts/build-check.mjs",
@@ -10,6 +11,8 @@
     "gen:icons": "node scripts/generate-pwa-icons.mjs",
     "mine:vocab": "node --experimental-strip-types scripts/mine-name-vocabularies.mts",
     "check:names": "node --experimental-strip-types scripts/check-name-suggest.mts",
+    "check:amendment-diff": "node --experimental-strip-types scripts/check-amendment-diff.mts",
+    "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "lint": "eslint"
   },
   "dependencies": {
@@ -44,6 +47,7 @@
     "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "patch-package": "^8.0.1",
     "sharp": "^0.35.3",
     "tailwindcss": "^4",
     "typescript": "^5"

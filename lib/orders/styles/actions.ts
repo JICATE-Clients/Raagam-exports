@@ -27,26 +27,39 @@ function normalizeCoordinates(data: GarmentStyleInput) {
     .map((c, i) => ({ ...c, sno: i + 1 }));
 }
 
+/**
+ * Components, each carrying its own process list.
+ *
+ * The processes are kept ATTACHED here rather than flattened, because they can
+ * only be written once the component row exists and has an id — see
+ * `writeChildren`. `trims` / `trims_category_id` are no longer produced: they
+ * left the Zod input on 2026-08-10, so there is nothing to read, and the stored
+ * column values are left alone.
+ */
 function normalizeComponents(data: GarmentStyleInput) {
   return data.components
     .map((c) => ({
-      coordinate_id: c.coordinate_id ?? null,
-      component_id: c.component_id ?? null,
-      structure_id: c.structure_id ?? null,
-      comp_type: clean(c.comp_type),
-      trims: !!c.trims,
-      trims_category_id: c.trims_category_id ?? null,
+      row: {
+        coordinate_id: c.coordinate_id ?? null,
+        component_id: c.component_id ?? null,
+        structure_id: c.structure_id ?? null,
+        comp_type: clean(c.comp_type),
+        item_id: c.item_id ?? null,
+      },
+      processes: (c.processes ?? [])
+        .filter((p) => !!p.process_id)
+        .map((p, i) => ({ process_id: p.process_id as string, sno: i + 1 })),
     }))
     .filter(
       (c) =>
-        c.coordinate_id ||
-        c.component_id ||
-        c.structure_id ||
-        c.comp_type ||
-        c.trims ||
-        c.trims_category_id,
+        c.row.coordinate_id ||
+        c.row.component_id ||
+        c.row.structure_id ||
+        c.row.comp_type ||
+        c.row.item_id ||
+        c.processes.length > 0,
     )
-    .map((c, i) => ({ ...c, sno: i + 1 }));
+    .map((c, i) => ({ ...c, row: { ...c.row, sno: i + 1 } }));
 }
 
 function normalizeSizes(data: GarmentStyleInput) {
@@ -73,7 +86,6 @@ async function writeChildren(
 
   const inserts: [string, Record<string, unknown>[]][] = [
     ["garment_style_coordinates", normalizeCoordinates(data)],
-    ["garment_style_components", normalizeComponents(data)],
     ["garment_style_sizes", normalizeSizes(data)],
   ];
   for (const [table, rows] of inserts) {
@@ -83,6 +95,48 @@ async function writeChildren(
       .insert(rows.map((r) => ({ ...r, style_id: styleId })));
     if (error) return fail(error.message);
   }
+
+  /**
+   * COMPONENTS AND THEIR PROCESSES — the one child that cannot be a blind insert.
+   *
+   * `garment_style_component_processes.component_id` points at a component row,
+   * and this function deletes and recreates every component on every save. So
+   * the ids the processes must reference DO NOT EXIST until the components are
+   * inserted, and they are different ids each time.
+   *
+   * Hence `.select("id")`: PostgREST returns the inserted rows in the order
+   * they were sent, so index i of the response is index i of the payload. Write
+   * the processes with a stale or guessed id and every one of them silently
+   * disappears on the second save — the failure would only ever show up as
+   * "the processes I entered are gone", one save later, with nothing logged.
+   */
+  const comps = normalizeComponents(data);
+  if (comps.length) {
+    const { data: created, error } = await s
+      .from("garment_style_components")
+      .insert(comps.map((c) => ({ ...c.row, style_id: styleId })))
+      .select("id");
+    if (error) return fail(error.message);
+
+    const rows = created ?? [];
+    if (rows.length !== comps.length) {
+      // Never observed, but the id↔payload pairing below is positional, so a
+      // length mismatch means the pairing is wrong and the processes would be
+      // attached to the wrong components. Refuse rather than mis-attach.
+      return fail("Component rows did not round-trip; processes were not saved.");
+    }
+
+    const procRows = comps.flatMap((c, i) =>
+      c.processes.map((p) => ({ ...p, component_id: (rows[i] as { id: string }).id })),
+    );
+    if (procRows.length) {
+      const { error: pErr } = await s
+        .from("garment_style_component_processes")
+        .insert(procRows);
+      if (pErr) return fail(pErr.message);
+    }
+  }
+
   return { ok: true };
 }
 

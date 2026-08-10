@@ -13,7 +13,7 @@ import {
 } from "@/lib/masters/extras-service";
 import { SUBMODULES, submoduleChildCount } from "@/lib/masters/submodules";
 import { PageHeader } from "@/components/ui/page-header";
-import { HubCard } from "@/components/masters/hub-card";
+import { HubPage, type HubCardSpec } from "@/components/shell/group-hub";
 import MastersClient from "./masters-client";
 
 export default async function MastersPage({
@@ -84,27 +84,27 @@ export default async function MastersPage({
   }
 
   // Default landing: the six Configure submodules.
+  //
+  // Every card here opens ANOTHER card grid, so each is a `hub` card: grid
+  // glyph, chevron, and its number read as "N screens" rather than as a bare
+  // figure that looks like a record count. That is the same number this page has
+  // always shown (`submoduleChildCount`) — child masters, never rows — and the
+  // shared card is what finally makes the two kinds of number distinguishable.
+  const cards: HubCardSpec[] = SUBMODULES.map((s) => ({
+    key: s.slug,
+    href: `/masters/${s.slug}`,
+    label: s.label,
+    description: s.description,
+    count: submoduleChildCount(s),
+    dashed: s.status === "provisional",
+    hub: true,
+  }));
+
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Master Data"
-        description="Company-wide reference lists, grouped into six areas."
-      />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {SUBMODULES.map((s) => {
-          const count = submoduleChildCount(s);
-          return (
-            <HubCard
-              key={s.slug}
-              href={`/masters/${s.slug}`}
-              title={s.label}
-              subtitle={s.description}
-              count={count}
-              dashed={s.status === "provisional"}
-            />
-          );
-        })}
-      </div>
-    </div>
+    <HubPage
+      title="Master Data"
+      description="Company-wide reference lists, grouped into six areas."
+      cards={cards}
+    />
   );
 }

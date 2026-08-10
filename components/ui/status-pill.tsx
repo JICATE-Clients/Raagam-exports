@@ -1,6 +1,13 @@
+import type { StatusTone } from "@/lib/ui/tone";
 import { cn } from "@/lib/utils";
 
-export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
+/**
+ * Declared in `lib/ui/tone.ts` and re-exported here, so the existing importers
+ * are untouched — and so a screen descriptor can name a status tone without
+ * pulling a `.tsx` into an import graph that plain Node has to load. Reasoning
+ * in that file; the class maps below are the half that stays here.
+ */
+export type { StatusTone };
 
 const tones: Record<StatusTone, string> = {
   success: "bg-success-soft text-success",

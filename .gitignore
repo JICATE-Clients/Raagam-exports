@@ -44,8 +44,30 @@ yarn-error.log*
 # MCP config — contains a Supabase access token (secret); never commit
 .mcp.json
 
-# Claude Code local tooling, skills, plans & machine-specific settings
-.claude/
+# Claude Code local tooling, plans & machine-specific settings.
+#
+# THE FOUR raagam-* SKILLS SHIP WITH THE REPO; everything else here stays local.
+#
+# They are not optional reading. `doc/ui/LAYOUT.md` §8 tells a developer that the
+# keyboard contract "lives in .claude/skills/raagam-keyboard-contract", and
+# `doc/ui/uicheck list.md` calls it "the authoritative version" — while `.claude/`
+# was ignored wholesale, so a fresh clone contained neither. Both documents have
+# been pointing at something nobody but the author could read.
+#
+# ORDER MATTERS AND IS NOT OBVIOUS. Git does not descend into an excluded
+# DIRECTORY, so `!.claude/skills/...` under a plain `.claude/` rule can never
+# match — the walk stops at `.claude` and the re-include is dead text. Each level
+# is therefore excluded by its CONTENTS (`dir/*`) and the next level re-included
+# by name, all the way down. Once a directory is re-included its files come with
+# it, which is why there is no fifth line.
+#
+# Verify with the catalog, not by reading:
+#   git check-ignore -v .claude/skills/raagam-screen-layout/SKILL.md   → no output
+#   git check-ignore -v .claude/skills/docx/SKILL.md                   → a match
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/raagam-*/
 
 # vercel
 .vercel

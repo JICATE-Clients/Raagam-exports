@@ -2,21 +2,25 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus } from "lucide-react";
+import { Shirt, SlidersHorizontal, Palette, Boxes, Ruler, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardBody } from "@/components/ui/card";
+import { Field, FieldGrid } from "@/components/ui/field";
+import {
+  MasterFullScreen,
+  SectionBody,
+  type FullScreenSection,
+  type MasterFullScreenHandle,
+} from "@/components/masters/master-full-screen";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate } from "@/lib/format";
-import { useUnsavedGuard } from "@/lib/reload-guard";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -27,16 +31,21 @@ import {
   deleteGarmentStyle,
 } from "@/lib/orders/styles/actions";
 import {
-  STYLE_FOR_OPTIONS,
   SEASON_OPTIONS,
-  TECH_PACK_OPTIONS,
   COMPONENT_TYPE_OPTIONS,
-  RECEIPT_MODE_OPTIONS,
   styleStatusTone,
   styleStatusText,
   type GarmentStyle,
 } from "@/lib/orders/styles/types";
-import type { PickerRow, StyleFormData } from "@/lib/orders/styles/service";
+import {
+  UNIT_KIND_OPTIONS,
+  coordinateLimit,
+  isUnitKind,
+  styleProblems,
+} from "@/lib/orders/styles/rules";
+import { ItemPicker } from "@/components/masters/lookup-picker";
+import { sectionValidity, type Problem } from "@/lib/screens/validity";
+import type { StyleFormData } from "@/lib/orders/styles/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -51,21 +60,32 @@ interface Props {
 
 // ---- editable child-row shapes ----
 type CoordRow = { key: string; coordinate_id: string | null; mlist_no: string };
+/** One process on a component — the nested grid's row. */
+type CompProcRow = { key: string; process_id: string | null };
 type CompRow = {
   key: string;
   coordinate_id: string | null;
   component_id: string | null;
   structure_id: string | null;
   comp_type: string;
-  trims: boolean;
-  trims_category_id: string | null;
+  /** The fabric: an `items` row of class FABRIC. */
+  item_id: string | null;
+  processes: CompProcRow[];
 };
 type SizeRow = { key: string; size_id: string | null };
 
+/**
+ * The form's own shape.
+ *
+ * Seven fields left it on 2026-08-10 at the client's request — `style_for`,
+ * `tech_pack`, `received_date`, `receipt_mode`, `department_id`, `contact_id`,
+ * `customer_reference`. Their DB columns and stored values remain; they are
+ * simply no longer asked for, and no longer written (they left the Zod input
+ * too, which is the half that stops an update nulling them).
+ */
 type HeaderForm = {
   blocked: boolean;
   style_date: string;
-  style_for: string;
   customer_id: string | null;
   approved_sample_id: string | null;
   style_name: string;
@@ -74,21 +94,18 @@ type HeaderForm = {
   article_no: string;
   style_category_id: string | null;
   style_description: string;
-  tech_pack: string;
   unit_id: string | null;
+  /** "" until answered — Piece or Set. Drives the Coordinates count. */
+  unit_kind: string;
+  /** The group last used to fill the sizes. Provenance, not authority. */
+  size_group_id: string | null;
   country_id: string | null;
-  department_id: string | null;
-  contact_id: string | null;
-  customer_reference: string;
-  received_date: string;
-  receipt_mode: string;
   description: string;
 };
 
 const BLANK: HeaderForm = {
   blocked: false,
   style_date: "",
-  style_for: "",
   customer_id: null,
   approved_sample_id: null,
   style_name: "",
@@ -97,14 +114,10 @@ const BLANK: HeaderForm = {
   article_no: "",
   style_category_id: null,
   style_description: "",
-  tech_pack: "",
   unit_id: null,
+  unit_kind: "",
+  size_group_id: null,
   country_id: null,
-  department_id: null,
-  contact_id: null,
-  customer_reference: "",
-  received_date: "",
-  receipt_mode: "",
   description: "",
 };
 
@@ -121,11 +134,30 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const [coords, setCoords] = useState<CoordRow[]>([]);
   const [comps, setComps] = useState<CompRow[]>([]);
   const [sizes, setSizes] = useState<SizeRow[]>([]);
+  /**
+   * Has the operator actually changed anything since this record was opened.
+   *
+   * A real flag, not a proxy like "does the form hold values" — on an EXISTING
+   * style every field is populated the moment it opens, so a content-derived
+   * guess would announce "Unsaved changes" before a key was pressed. Set by
+   * `set()` and by every child-grid mutation; cleared by `openAdd`/`openEdit`.
+   * Same shape as `customer-master-screen.tsx`, which is the reference for this
+   * footer.
+   */
+  const [dirty, setDirty] = useState(false);
+  /** Lets a blocked Save switch section and land on the offending field —
+   *  `MasterFullScreen` keeps `section` in its own state, so this handle is
+   *  the only way in from here. */
+  const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
-  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
-  useUnsavedGuard(mode === "edit" || isPending);
+  // The reload guard is no longer registered here. `MasterFullScreen mount="page"`
+  // calls `useUnsavedGuard(dirty || isPending)` itself, gated on the `dirty` flag
+  // above. The old call was `useUnsavedGuard(mode === "edit" || isPending)`, which
+  // is ALWAYS true while the editor is open and so pinned the silent PWA
+  // auto-update off for the whole session on this route, not just while there was
+  // work to lose.
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
@@ -133,38 +165,146 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const coordinateOpts = useMemo(() => lookups.filter((l) => l.kind === "coordinate"), [lookups]);
   const componentOpts = useMemo(() => lookups.filter((l) => l.kind === "style_component"), [lookups]);
   const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
-  const trimsCatOpts = useMemo(() => lookups.filter((l) => l.kind === "trims_category"), [lookups]);
   const sizeOpts = useMemo(() => lookups.filter((l) => l.kind === "size"), [lookups]);
-  const departmentOpts = useMemo(() => lookups.filter((l) => l.kind === "department"), [lookups]);
 
-  // Contact options depend on the chosen customer (its contact grid).
-  const contactItems: PickerRow[] = useMemo(() => {
-    const c = data.customers.find((x) => x.id === form.customer_id);
-    return (c?.contacts ?? []).map((ct) => ({
-      id: ct.id,
-      code: null,
-      name: ct.contact_name ?? "(unnamed contact)",
-    }));
-  }, [data.customers, form.customer_id]);
+  // ---- size group fill ------------------------------------------------------
 
-  const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
+  const sizeGroupItems = useMemo(
+    () =>
+      data.sizeGroups.map((g) => ({
+        id: g.id,
+        code: g.size_group_no,
+        name: g.size_group_name ?? g.size_group_no ?? "(unnamed group)",
+        inactive: g.inactive,
+      })),
+    [data.sizeGroups],
+  );
+
+  /** Size NAME → the `config_lookups` row that holds it. The group stores names
+   *  as text; the style stores FK ids, so the fill has to bridge the two. */
+  const sizeIdByName = useMemo(
+    () => new Map(sizeOpts.map((o) => [o.name.trim().toUpperCase(), o.id])),
+    [sizeOpts],
+  );
+
+  const groupSizeNames = useMemo(() => {
+    const g = data.sizeGroups.find((x) => x.id === form.size_group_id);
+    return [...(g?.sizes ?? [])]
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      .map((s) => s.size_name)
+      .filter((n) => !!n?.trim());
+  }, [data.sizeGroups, form.size_group_id]);
+
+  const fillableSizes = groupSizeNames;
+  const unmatchedSizes = useMemo(
+    () => groupSizeNames.filter((n) => !sizeIdByName.has(n.trim().toUpperCase())),
+    [groupSizeNames, sizeIdByName],
+  );
+
+  /**
+   * WHAT IS STOPPING A SAVE, AND WHICH SECTION HOLDS IT.
+   *
+   * `canSave` is DERIVED, not hand-assembled. The hand-assembled form —
+   * `!!name.trim() && !!date && …` — is a list a screen can forget to extend,
+   * and `customer-master-screen.tsx:1649` is what that looks like once it has:
+   * Save goes dead because of an error two sections away, with nothing on
+   * screen to say so.
+   *
+   * Two sources, one list:
+   *   - per-field `required`, declared once here and matching the `*` the form
+   *     already draws (`collectProblems` finds them)
+   *   - `styleProblems`, the cross-tab rules, which no single field can know
+   *
+   * The result feeds the rail's red counts AND the jump-to-problem on a blocked
+   * Save. This is the first screen to use either.
+   */
+  const validity = sectionValidity({
+    sections: [
+      { key: "style" },
+      { key: "general" },
+      { key: "coordinates" },
+      { key: "components" },
+      { key: "sizes" },
+    ],
+    values: form,
+    fields: [
+      { section: "style", id: "st-name", label: "Style", required: true, empty: (f) => !f.style_name.trim() },
+      { section: "style", id: "st-date", label: "Date", required: true, empty: (f) => !f.style_date },
+      { section: "general", id: "st-unitkind", label: "Unit Type", required: true, empty: (f) => !f.unit_kind },
+    ],
+    extra: styleProblems({
+      style_name: form.style_name,
+      style_date: form.style_date,
+      unit_kind: form.unit_kind,
+      coordinates: coords,
+    }).map<Problem>((p) => ({
+      section: p.section,
+      label: "Coordinates",
+      message: p.message,
+      kind: "custom",
+    })),
+  });
+
+  const canSave = validity.canSave;
+
+  /** Save is blocked: say why, and take the operator to the section that holds
+   *  it. `MasterFullScreen` keeps the button clickable so Ctrl+S and
+   *  Enter-off-the-last-field land here too. */
+  const revealFirstProblem = () => {
+    const p = validity.first;
+    if (!p) return;
+    toastError(p.message);
+    shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
+  };
+
+
+
+  const set = (patch: Partial<HeaderForm>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setDirty(true);
+  };
+
+  /**
+   * The child-grid setters, wrapped so a cell edit marks the record dirty.
+   *
+   * Every grid mutation goes through these — `openAdd` / `openEdit` keep using
+   * the raw setters on purpose, because seeding a record is not an edit and must
+   * leave `dirty` false.
+   */
+  const mutCoords = (fn: (xs: CoordRow[]) => CoordRow[]) => {
+    setCoords(fn);
+    setDirty(true);
+  };
+  const mutComps = (fn: (xs: CompRow[]) => CompRow[]) => {
+    setComps(fn);
+    setDirty(true);
+  };
+  const mutSizes = (fn: (xs: SizeRow[]) => SizeRow[]) => {
+    setSizes(fn);
+    setDirty(true);
+  };
+
+  const blankCoord = (): CoordRow => ({ key: newKey(), coordinate_id: null, mlist_no: "" });
+  const blankComp = (): CompRow => ({
+    key: newKey(),
+    coordinate_id: null,
+    component_id: null,
+    structure_id: null,
+    comp_type: "",
+    item_id: null,
+    processes: [],
+  });
+  const blankSize = (): SizeRow => ({ key: newKey(), size_id: null });
 
   function openAdd() {
     setEditId(null);
     setForm({ ...BLANK, style_date: today() });
-    setCoords([{ key: newKey(), coordinate_id: null, mlist_no: "" }]);
-    setComps([
-      {
-        key: newKey(),
-        coordinate_id: null,
-        component_id: null,
-        structure_id: null,
-        comp_type: "",
-        trims: false,
-        trims_category_id: null,
-      },
-    ]);
-    setSizes([{ key: newKey(), size_id: null }]);
+    setCoords([blankCoord()]);
+    setComps([blankComp()]);
+    setSizes([blankSize()]);
+    // Seeding a record is not an edit — the three blank rows above are the
+    // screen's doing, not the operator's.
+    setDirty(false);
     setMode("edit");
   }
 
@@ -173,7 +313,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     setForm({
       blocked: r.blocked,
       style_date: r.style_date ?? today(),
-      style_for: r.style_for ?? "",
       customer_id: r.customer_id,
       approved_sample_id: r.approved_sample_id,
       style_name: r.style_name ?? "",
@@ -182,14 +321,12 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       article_no: r.article_no ?? "",
       style_category_id: r.style_category_id,
       style_description: r.style_description ?? "",
-      tech_pack: r.tech_pack ?? "",
       unit_id: r.unit_id,
+      // "" on every style created before 0392. The field is `required`, so the
+      // operator answers it before this record can be saved again.
+      unit_kind: r.unit_kind ?? "",
+      size_group_id: r.size_group_id,
       country_id: r.country_id,
-      department_id: r.department_id,
-      contact_id: r.contact_id,
-      customer_reference: r.customer_reference ?? "",
-      received_date: r.received_date ?? "",
-      receipt_mode: r.receipt_mode ?? "",
       description: r.description ?? "",
     });
     setCoords(
@@ -206,11 +343,17 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         component_id: c.component_id,
         structure_id: c.structure_id,
         comp_type: c.comp_type ?? "",
-        trims: c.trims,
-        trims_category_id: c.trims_category_id,
+        item_id: c.item_id,
+        processes: (c.processes ?? []).map((p) => ({
+          key: newKey(),
+          process_id: p.process_id,
+        })),
       })),
     );
     setSizes(r.sizes.map((s) => ({ key: newKey(), size_id: s.size_id })));
+    // Loading a stored record is not an edit either, or every existing style
+    // would announce "Unsaved changes" the moment it opened.
+    setDirty(false);
     setMode("edit");
   }
 
@@ -218,7 +361,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     const payload = {
       blocked: form.blocked,
       style_date: form.style_date,
-      style_for: form.style_for || null,
       customer_id: form.customer_id,
       approved_sample_id: form.approved_sample_id,
       style_name: form.style_name,
@@ -227,14 +369,10 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       article_no: form.article_no || null,
       style_category_id: form.style_category_id,
       style_description: form.style_description || null,
-      tech_pack: form.tech_pack || null,
       unit_id: form.unit_id,
+      unit_kind: isUnitKind(form.unit_kind) ? form.unit_kind : null,
+      size_group_id: form.size_group_id,
       country_id: form.country_id,
-      department_id: form.department_id,
-      contact_id: form.contact_id,
-      customer_reference: form.customer_reference || null,
-      received_date: form.received_date || null,
-      receipt_mode: form.receipt_mode || null,
       description: form.description || null,
       is_draft: asDraft,
       coordinates: coords.map((c) => ({
@@ -248,8 +386,8 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         component_id: c.component_id,
         structure_id: c.structure_id,
         comp_type: c.comp_type || null,
-        trims: c.trims,
-        trims_category_id: c.trims_category_id,
+        item_id: c.item_id,
+        processes: c.processes.map((p) => ({ sno: 0, process_id: p.process_id })),
       })),
       sizes: sizes.map((s) => ({ sno: 0, size_id: s.size_id })),
     };
@@ -351,10 +489,577 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   }
 
   // ---------------- EDIT MODE ----------------
-  const canSave = !!form.style_name.trim() && !!form.style_date;
+
+  // ---- child grids ----------------------------------------------------------
+  // All three were hand-rolled: Coordinates and Components as raw <table>, and
+  // Sizes as a bare flex list with NO `data-grid-body` at all, so arrow keys have
+  // never worked in it. `ChildGrid` brings one implementation of ↑/↓/Enter, the
+  // `data-row-remove` marker Ctrl+Del drives, `data-row-add` for Tab into an
+  // empty nested grid, per-cell `RequiredScope`, pagination and mobile cards.
+
+  const coordColumns: ChildGridColumn<CoordRow>[] = [
+    {
+      header: "Coordinate",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="coordinate"
+          label="Coordinate"
+          options={coordinateOpts}
+          value={r.coordinate_id}
+          onChange={(id) =>
+            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))
+          }
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          compact
+        />
+      ),
+    },
+    {
+      header: "M.List No",
+      width: "12rem",
+      cell: (r) => (
+        <Input
+          value={r.mlist_no}
+          onChange={(e) =>
+            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, mlist_no: e.target.value } : x)))
+          }
+          className="h-8"
+        />
+      ),
+    },
+  ];
+
+  const compColumns: ChildGridColumn<CompRow>[] = [
+    {
+      header: "Coordinate",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="coordinate" label="Coordinate" options={coordinateOpts}
+          value={r.coordinate_id}
+          onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))}
+          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+        />
+      ),
+    },
+    {
+      header: "Component",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="style_component" label="Component" options={componentOpts}
+          value={r.component_id}
+          onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, component_id: id } : x)))}
+          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+        />
+      ),
+    },
+    {
+      header: "Structure",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="structure" label="Structure" options={structureOpts}
+          value={r.structure_id}
+          onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, structure_id: id } : x)))}
+          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+        />
+      ),
+    },
+    {
+      header: "Type",
+      width: "9rem",
+      cell: (r) => (
+        <Select
+          value={r.comp_type}
+          onChange={(e) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, comp_type: e.target.value } : x)))}
+          className="h-8"
+        >
+          <option value="">—</option>
+          {COMPONENT_TYPE_OPTIONS.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      /**
+       * THE FABRIC. There is no fabric master — a fabric is an `items` row of
+       * item class FABRIC, so this is `ItemPicker` over a list the SERVICE has
+       * already scoped (`getFabricRows`). The narrowing lives there rather than
+       * here because `ItemPicker` has no class filter of its own and the
+       * cascading-picker rule puts it at the layer that knows the class.
+       *
+       * `quickCreateClassId` is deliberately NOT passed: a fabric carries
+       * structure, type, composition and UOM rules, so one born from a name-only
+       * quick-create inside a grid cell would be incomplete. Fabrics are created
+       * on the Material master.
+       */
+      header: "Fabric",
+      cell: (r) => (
+        <ItemPicker
+          label="Fabric"
+          items={data.fabrics}
+          value={r.item_id ?? ""}
+          onChange={(v) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, item_id: v || null } : x)))}
+          compact
+        />
+      ),
+    },
+  ];
+
+  /**
+   * A component's processes — printing, embroidery, and anything else the
+   * `processes` master flags `for_components`.
+   *
+   * A NESTED grid, because one part can need both printing and embroidery, so
+   * this is a list per row rather than a column on it. `lib/focus.ts` already
+   * treats a row's nested grid as part of the row: Tab walks into it
+   * (`tabFieldsIn`), an empty one opens its first row (`enterNestedGrid`), and
+   * ↑/↓ hand off across the boundary (`fromChildGrid`).
+   */
+  const procColumns: ChildGridColumn<CompProcRow>[] = [
+    {
+      header: "Process",
+      cell: (p) => (
+        <RecordPicker
+          label="Process"
+          compact
+          items={data.processes}
+          value={p.process_id}
+          onChange={(id) =>
+            mutComps((xs) =>
+              xs.map((x) => ({
+                ...x,
+                processes: x.processes.map((q) => (q.key === p.key ? { ...q, process_id: id } : q)),
+              })),
+            )
+          }
+        />
+      ),
+    },
+  ];
+
+  const sizeColumns: ChildGridColumn<SizeRow>[] = [
+    {
+      header: "Size",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="size" label="Size" options={sizeOpts}
+          value={r.size_id}
+          onChange={(id) => mutSizes((xs) => xs.map((x) => (x.key === r.key ? { ...x, size_id: id } : x)))}
+          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+        />
+      ),
+    },
+  ];
+
+  // ---- the cross-tab rule ---------------------------------------------------
+
+  /** Piece → exactly 1 coordinate, Set → 2–6, null → no rule yet (legacy rows). */
+  const coordCap = coordinateLimit(form.unit_kind);
+
+  const coordHint = coordCap
+    ? coordCap.min === coordCap.max
+      ? `A Piece style has exactly ${coordCap.max} coordinate.`
+      : `A Set style has ${coordCap.min} to ${coordCap.max} coordinates.`
+    : "Pick a Unit Type on General to set how many coordinates this style may have.";
+
+  /**
+   * Switching to Piece trims the grid to its first row.
+   *
+   * Done on the CHANGE rather than in an effect: an effect watching `unit_kind`
+   * would also fire when an existing Set style is opened, silently deleting
+   * coordinates the operator never touched. Here it only ever runs because
+   * someone chose Piece just now.
+   */
+  const setUnitKind = (v: string) => {
+    set({ unit_kind: v });
+    const cap = coordinateLimit(v);
+    if (cap && coords.length > cap.max) {
+      mutCoords((xs) => xs.slice(0, cap.max));
+    }
+  };
+
+  // ---- rail sections --------------------------------------------------------
+  // Every field is `size="sm"` — the standing "ONE SIZE, EVERY FIELD" rule (3 of
+  // 12, four per row, ~280px). Nothing is sized to its own data, so a Year box
+  // and a Customer picker line up down the page. Previously these were 20
+  // hand-rolled `<div><Label/>…</div>` triples inside two full-bleed
+  // `lg:grid-cols-3` CardBodies, which stretched every control to ~370px and,
+  // more importantly, meant `<Field>` never wrapped anything — so `required` had
+  // nothing to bind to and both asterisks were literal text.
+
+  const sections: FullScreenSection[] = [
+    {
+      key: "style",
+      label: "Style",
+      icon: Shirt,
+      done: !!form.style_name.trim(),
+      problems: validity.bySection.style,
+      content: (
+        <SectionBody title="Style" hint="What this style is, and who it is for.">
+          <FieldGrid>
+            <Field label="Style" required size="sm" htmlFor="st-name">
+              <Input
+                id="st-name"
+                value={form.style_name}
+                onChange={(e) => set({ style_name: e.target.value })}
+                placeholder="Style name"
+              />
+            </Field>
+            <Field label="Date" required size="sm" htmlFor="st-date">
+              <Input
+                id="st-date"
+                type="date"
+                value={form.style_date}
+                onChange={(e) => set({ style_date: e.target.value })}
+              />
+            </Field>
+            {/* "For" withdrawn 2026-08-10 (client). `garment_styles.style_for`
+                keeps its column and its stored values; it is simply no longer
+                asked for, and no longer written — it left the Zod input too. */}
+            {/* Customer no longer clears a Contact on change — the Contact
+                field was withdrawn, so there is no dependent value to reset. */}
+            <Field label="Customer" size="sm">
+              <CustomerPicker
+                customers={data.customers}
+                value={form.customer_id}
+                onChange={(id) => set({ customer_id: id })}
+                label="Customer"
+                compact
+              />
+            </Field>
+            <Field label="Approved Sample No" size="sm">
+              <RecordPicker
+                label="Approved Sample No"
+                compact
+                items={data.samples}
+                value={form.approved_sample_id}
+                onChange={(id) => set({ approved_sample_id: id })}
+              />
+            </Field>
+            {/* The tick's word moves up into the field label and the cell gets
+                `min-h-9 items-center`, so it centres on the same 36px control
+                height as the Select beside it. */}
+            <Field label="Blocked" size="sm" htmlFor="st-blocked">
+              <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
+                <input
+                  id="st-blocked"
+                  type="checkbox"
+                  checked={form.blocked}
+                  onChange={(e) => set({ blocked: e.target.checked })}
+                  className="h-4 w-4 cursor-pointer accent-primary"
+                />
+                <span className="text-sm text-foreground">Yes</span>
+              </label>
+            </Field>
+          </FieldGrid>
+        </SectionBody>
+      ),
+    },
+    {
+      key: "general",
+      label: "General",
+      icon: SlidersHorizontal,
+      done:
+        !!form.season ||
+        !!form.style_category_id ||
+        !!form.article_no.trim() ||
+        !!form.unit_id ||
+        !!form.unit_kind,
+      problems: validity.bySection.general,
+      content: (
+        <SectionBody title="General" hint="Season, category and how this style is counted.">
+          <FieldGrid>
+            <Field label="Season" size="sm" htmlFor="st-season">
+              <Select id="st-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
+                <option value="">—</option>
+                {SEASON_OPTIONS.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Year" size="sm" htmlFor="st-year">
+              <Input
+                id="st-year"
+                type="number"
+                value={form.style_year}
+                onChange={(e) => set({ style_year: e.target.value })}
+                placeholder="e.g. 2026"
+              />
+            </Field>
+            <Field label="Article No." size="sm" htmlFor="st-article">
+              <Input id="st-article" value={form.article_no} onChange={(e) => set({ article_no: e.target.value })} />
+            </Field>
+            <Field label="Style Category" size="sm">
+              <LookupDialogPicker
+                kind="style_category"
+                label="Style Category"
+                options={styleCategories}
+                value={form.style_category_id}
+                onChange={(id) => set({ style_category_id: id })}
+                canCreate={masterPerms.canCreate}
+                canEdit={masterPerms.canEdit}
+                compact
+              />
+            </Field>
+            {/**
+              * UNIT TYPE — its own field, and the one the Coordinates rule reads.
+              *
+              * Deliberately NOT inferred from the Unit picker beside it. That
+              * picker is the Stock Unit master, which is seeded lowercase
+              * (nos, mtr, kg, set…), has no PIECE row at all, and whose codes an
+              * operator can rename from the Stock Unit screen — so a rule read
+              * off it would break silently the day someone tidied that master.
+              *
+              * `required`, which means an existing style (all of which predate
+              * this field) must answer before it can be saved again. That is
+              * deliberate backfill, not an oversight.
+              */}
+            <Field label="Unit Type" required size="sm" htmlFor="st-unitkind">
+              <Select
+                id="st-unitkind"
+                value={form.unit_kind}
+                onChange={(e) => setUnitKind(e.target.value)}
+              >
+                <option value="">—</option>
+                {UNIT_KIND_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Unit" size="sm">
+              <RecordPicker
+                label="Unit"
+                compact
+                items={data.uoms}
+                value={form.unit_id}
+                onChange={(id) => set({ unit_id: id })}
+              />
+            </Field>
+            <Field label="Style Description" size="lg" htmlFor="st-styledesc">
+              <Input
+                id="st-styledesc"
+                value={form.style_description}
+                onChange={(e) => set({ style_description: e.target.value })}
+              />
+            </Field>
+            <Field label="Country" size="sm">
+              <CountryPicker
+                countries={data.countries}
+                value={form.country_id}
+                onChange={(id) => set({ country_id: id })}
+                canCreate={masterPerms.canCreate}
+                canEdit={masterPerms.canEdit}
+                compact
+              />
+            </Field>
+            {/* Department · Contact · Customer Reference · Received Date ·
+                Receipt Mode · Tech pack all withdrawn 2026-08-10 (client). Their
+                columns and stored values remain; they left the Zod input too,
+                which is what stops an update writing NULL over them. */}
+            {/* Free text, so CAPS-exempt by construction — a Textarea is listed
+                among the CAPITALS exemptions. `full` because a 3-row box beside a
+                one-line field leaves the row ragged. */}
+            <Field label="Description" size="full" htmlFor="st-desc">
+              <Textarea
+                id="st-desc"
+                value={form.description}
+                onChange={(e) => set({ description: e.target.value })}
+                rows={3}
+              />
+            </Field>
+          </FieldGrid>
+        </SectionBody>
+      ),
+    },
+    {
+      key: "coordinates",
+      label: "Coordinates",
+      icon: Palette,
+      done: coords.some((c) => c.coordinate_id || c.mlist_no.trim()),
+      problems: validity.bySection.coordinates,
+      content: (
+        <SectionBody title="Coordinates" hint={coordHint}>
+          {/* No `label` — the section heading above already names the grid, and a
+              second caption costs it a band.
+
+              `hideAdd` is `ChildGrid`'s existing cap ("Single Yarn fabric =
+              exactly one component"), and it does two things at once: it removes
+              the button AND makes Enter on the last row DECLINE rather than grow
+              the grid, so the keyboard cannot get past the limit either. */}
+          <ChildGrid<CoordRow>
+            columns={coordColumns}
+            rows={coords}
+            hideAdd={!!coordCap && coords.length >= coordCap.max}
+            onAdd={() => mutCoords((xs) => [...xs, blankCoord()])}
+            onRemove={(r) => mutCoords((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add coordinate"
+          />
+        </SectionBody>
+      ),
+    },
+    {
+      key: "components",
+      label: "Components",
+      icon: Boxes,
+      done: comps.some((c) => c.coordinate_id || c.component_id || c.structure_id),
+      problems: validity.bySection.components,
+      content: (
+        <SectionBody
+          title="Components"
+          hint="What each coordinate is built from, its fabric, and any extra process it needs."
+        >
+          {/* CARDS, NOT A TABLE — because each component owns a LIST of
+              processes, and a list cannot live in a table cell. This is the
+              same shape Material Attributes uses for its values
+              (`forceCards listRows frameless` + `renderMobileRow`), which is
+              the one arrangement `lib/focus.ts` already understands as "a row
+              with a nested grid": Tab walks into the panel (`tabFieldsIn`), an
+              empty one opens its first row (`enterNestedGrid`), and ↑/↓ hand
+              off across the boundary (`fromChildGrid`).
+
+              `compColumns` is still declared and is not dead: it is the
+              fallback if this grid is ever switched back to a table. */}
+          <ChildGrid<CompRow>
+            columns={compColumns}
+            rows={comps}
+            forceCards
+            listRows
+            frameless
+            onAdd={() => mutComps((xs) => [...xs, blankComp()])}
+            onRemove={(r) => mutComps((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add component"
+            renderMobileRow={(c, i) => (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    #{i + 1}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-row-remove
+                    className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
+                    onClick={() => mutComps((xs) => xs.filter((x) => x.key !== c.key))}
+                    aria-label="Remove component"
+                  >
+                    <X className="h-4 w-4 shrink-0" />
+                  </Button>
+                </div>
+                <FieldGrid>
+                  {compColumns.map((col) => (
+                    <Field key={col.header} label={col.header} size="sm">
+                      {col.cell(c, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+                {/* The nested grid. `frameless` so it does not draw a second
+                    border inside the component's own row. */}
+                <ChildGrid<CompProcRow>
+                  label="Processes"
+                  columns={procColumns}
+                  rows={c.processes}
+                  frameless
+                  onAdd={() =>
+                    mutComps((xs) =>
+                      xs.map((x) =>
+                        x.key === c.key
+                          ? { ...x, processes: [...x.processes, { key: newKey(), process_id: null }] }
+                          : x,
+                      ),
+                    )
+                  }
+                  onRemove={(p) =>
+                    mutComps((xs) =>
+                      xs.map((x) =>
+                        x.key === c.key
+                          ? { ...x, processes: x.processes.filter((q) => q.key !== p.key) }
+                          : x,
+                      ),
+                    )
+                  }
+                  addLabel="+ Add process"
+                />
+              </div>
+            )}
+          />
+        </SectionBody>
+      ),
+    },
+    {
+      key: "sizes",
+      label: "Sizes",
+      icon: Ruler,
+      done: sizes.some((s) => s.size_id),
+      problems: validity.bySection.sizes,
+      content: (
+        <SectionBody title="Sizes" hint="The size set this style is made in.">
+          {/* THE GROUP IS A SHORTCUT, NOT THE SOURCE OF TRUTH. Picking one
+              REPLACES the rows below, which stay editable afterwards — add an
+              XXL, drop the S. The style keeps its own size rows, so editing a
+              group later cannot silently restate what a closed style was made
+              in. `size_group_id` is stored only so reopening the record can say
+              which group was used. */}
+          <FieldGrid>
+            <Field label="Size Group" size="sm">
+              <RecordPicker
+                label="Size Group"
+                compact
+                items={sizeGroupItems}
+                value={form.size_group_id}
+                onChange={(id) => set({ size_group_id: id })}
+              />
+            </Field>
+            <Field label="" size="sm">
+              <Button
+                type="button"
+                variant="outline"
+                size="md"
+                disabled={!fillableSizes.length}
+                onClick={() =>
+                  mutSizes(() =>
+                    fillableSizes.map((name) => ({
+                      key: newKey(),
+                      size_id: sizeIdByName.get(name.trim().toUpperCase()) ?? null,
+                    })),
+                  )
+                }
+              >
+                Fill sizes
+              </Button>
+            </Field>
+          </FieldGrid>
+          {unmatchedSizes.length > 0 && (
+            /* Said plainly rather than filled with blanks: a group whose size
+               names have no row in the Sizes list would otherwise produce empty
+               picker cells with no explanation of why. */
+            <p className="text-xs text-warning">
+              {unmatchedSizes.length === 1
+                ? `“${unmatchedSizes[0]}” is not in the Sizes list yet — add it with “+ Add” on a row.`
+                : `${unmatchedSizes.length} of this group’s sizes are not in the Sizes list yet (${unmatchedSizes.join(", ")}) — add them with “+ Add” on a row.`}
+            </p>
+          )}
+          <ChildGrid<SizeRow>
+            columns={sizeColumns}
+            rows={sizes}
+            onAdd={() => mutSizes((xs) => [...xs, blankSize()])}
+            onRemove={(r) => mutSizes((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add size"
+          />
+        </SectionBody>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-4">
+    // `flex h-full flex-col` is what a page-mounted MasterFullScreen requires:
+    // it takes `flex-1 min-h-0` and needs a definite height to divide. `h-full`
+    // resolves against `<main className="flex-1 overflow-y-auto">` in
+    // app/(app)/layout.tsx, which is a flex item of a `h-screen` column. Leave
+    // this as `space-y-4` and the editor sizes to its content instead, stranding
+    // the footer above a strip of empty page.
+    <div className="flex h-full flex-col gap-4">
       <PageHeader
         title={editId ? "Edit Style" : "New Style"}
         description="Wire each ⓘ field from stored data. Blank grid rows are ignored."
@@ -365,430 +1070,49 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         }
       />
 
-      {/* Header */}
-      <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <Label htmlFor="st-name">Style *</Label>
-            <Input
-              id="st-name"
-              value={form.style_name}
-              onChange={(e) => set({ style_name: e.target.value })}
-              placeholder="Style name"
-            />
-          </div>
-          <div>
-            <Label htmlFor="st-date">Date *</Label>
-            <Input
-              id="st-date"
-              type="date"
-              value={form.style_date}
-              onChange={(e) => set({ style_date: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="st-for">For</Label>
-            <Select id="st-for" value={form.style_for} onChange={(e) => set({ style_for: e.target.value })}>
-              <option value="">—</option>
-              {STYLE_FOR_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-          <CustomerPicker
-            customers={data.customers}
-            value={form.customer_id}
-            onChange={(id) => set({ customer_id: id, contact_id: null })}
-            label="Customer"
-          />
-          <RecordPicker
-            label="Approved Sample No"
-            items={data.samples}
-            value={form.approved_sample_id}
-            onChange={(id) => set({ approved_sample_id: id })}
-          />
-          <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.blocked}
-              onChange={(e) => set({ blocked: e.target.checked })}
-              className="h-4 w-4 rounded border-border"
-            />
-            Blocked
-          </label>
-        </CardBody>
-      </Card>
-
-      {/* General */}
-      <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <Label htmlFor="st-season">Season</Label>
-            <Select id="st-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
-              <option value="">—</option>
-              {SEASON_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="st-year">Year</Label>
-            <Input
-              id="st-year"
-              type="number"
-              value={form.style_year}
-              onChange={(e) => set({ style_year: e.target.value })}
-              placeholder="e.g. 2026"
-            />
-          </div>
-          <div>
-            <Label htmlFor="st-article">Article No.</Label>
-            <Input id="st-article" value={form.article_no} onChange={(e) => set({ article_no: e.target.value })} />
-          </div>
-          <LookupDialogPicker
-            kind="style_category"
-            label="Style Category"
-            options={styleCategories}
-            value={form.style_category_id}
-            onChange={(id) => set({ style_category_id: id })}
-            canCreate={masterPerms.canCreate}
-            canEdit={masterPerms.canEdit}
-          />
-          <div>
-            <Label htmlFor="st-tech">Tech pack</Label>
-            <Select id="st-tech" value={form.tech_pack} onChange={(e) => set({ tech_pack: e.target.value })}>
-              <option value="">—</option>
-              {TECH_PACK_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-          <RecordPicker
-            label="Unit"
-            items={data.uoms}
-            value={form.unit_id}
-            onChange={(id) => set({ unit_id: id })}
-          />
-          <div className="sm:col-span-2 lg:col-span-3">
-            <Label htmlFor="st-styledesc">Style Description</Label>
-            <Input
-              id="st-styledesc"
-              value={form.style_description}
-              onChange={(e) => set({ style_description: e.target.value })}
-            />
-          </div>
-          <CountryPicker
-            countries={data.countries}
-            value={form.country_id}
-            onChange={(id) => set({ country_id: id })}
-            canCreate={masterPerms.canCreate}
-            canEdit={masterPerms.canEdit}
-          />
-          <LookupDialogPicker
-            kind="department"
-            label="Department"
-            options={departmentOpts}
-            value={form.department_id}
-            onChange={(id) => set({ department_id: id })}
-            canCreate={masterPerms.canCreate}
-            canEdit={masterPerms.canEdit}
-          />
-          <RecordPicker
-            label="Contact"
-            items={contactItems}
-            value={form.contact_id}
-            onChange={(id) => set({ contact_id: id })}
-          />
-          <div>
-            <Label htmlFor="st-custref">Customer Reference</Label>
-            <Input
-              id="st-custref"
-              value={form.customer_reference}
-              onChange={(e) => set({ customer_reference: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="st-recdate">Received Date</Label>
-            <Input
-              id="st-recdate"
-              type="date"
-              value={form.received_date}
-              onChange={(e) => set({ received_date: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="st-recmode">Receipt Mode</Label>
-            <Select id="st-recmode" value={form.receipt_mode} onChange={(e) => set({ receipt_mode: e.target.value })}>
-              <option value="">—</option>
-              {RECEIPT_MODE_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* Coordinates grid */}
-      <GridCard
-        title="Coordinates"
-        onAdd={() => setCoords((xs) => [...xs, { key: newKey(), coordinate_id: null, mlist_no: "" }])}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[420px] text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                <th className="px-3 py-1.5 text-left font-medium">Coordinate</th>
-                <th className="px-3 py-1.5 text-left font-medium">M.List No</th>
-                <th className="w-10" />
-              </tr>
-            </thead>
-            {/* ↓/↑ walk a column across coordinate rows — gridKeyNav. */}
-            <tbody
-              data-grid-body
-              onKeyDown={(e) =>
-                gridKeyNav(e, () =>
-                  setCoords((xs) => [...xs, { key: newKey(), coordinate_id: null, mlist_no: "" }]),
-                )
-              }
-            >
-              {coords.map((r) => (
-                <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                  <td className="px-3 py-1">
-                    <LookupDialogPicker
-                      kind="coordinate"
-                      label="Coordinate"
-                      options={coordinateOpts}
-                      value={r.coordinate_id}
-                      onChange={(id) =>
-                        setCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))
-                      }
-                      canCreate={masterPerms.canCreate}
-                      canEdit={masterPerms.canEdit}
-                      compact
-                    />
-                  </td>
-                  <td className="px-3 py-1">
-                    <Input
-                      value={r.mlist_no}
-                      onChange={(e) =>
-                        setCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, mlist_no: e.target.value } : x)))
-                      }
-                      className="h-8"
-                    />
-                  </td>
-                  <td className="px-2 py-1">
-                    <RowRemove onClick={() => setCoords((xs) => xs.filter((x) => x.key !== r.key))} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </GridCard>
-
-      {/* Components grid */}
-      <GridCard
-        title="Components"
-        onAdd={() =>
-          setComps((xs) => [
-            ...xs,
-            {
-              key: newKey(),
-              coordinate_id: null,
-              component_id: null,
-              structure_id: null,
-              comp_type: "",
-              trims: false,
-              trims_category_id: null,
-            },
-          ])
-        }
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                <th className="px-2 py-1.5 text-left font-medium">Coordinate</th>
-                <th className="px-2 py-1.5 text-left font-medium">Component</th>
-                <th className="px-2 py-1.5 text-left font-medium">Structure</th>
-                <th className="px-2 py-1.5 text-left font-medium">Type</th>
-                <th className="px-2 py-1.5 text-center font-medium">Trims</th>
-                <th className="px-2 py-1.5 text-left font-medium">Trims Category</th>
-                <th className="w-10" />
-              </tr>
-            </thead>
-            {/* ↓/↑ walk a column across component rows — gridKeyNav. */}
-            <tbody
-              data-grid-body
-              onKeyDown={(e) =>
-                gridKeyNav(e, () =>
-                  setComps((xs) => [
-                    ...xs,
-                    {
-                      key: newKey(),
-                      coordinate_id: null,
-                      component_id: null,
-                      structure_id: null,
-                      comp_type: "",
-                      trims: false,
-                      trims_category_id: null,
-                    },
-                  ]),
-                )
-              }
-            >
-              {comps.map((r) => (
-                <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                  <td className="px-2 py-1">
-                    <LookupDialogPicker
-                      kind="coordinate" label="Coordinate" options={coordinateOpts}
-                      value={r.coordinate_id}
-                      onChange={(id) => setComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))}
-                      canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
-                    />
-                  </td>
-                  <td className="px-2 py-1">
-                    <LookupDialogPicker
-                      kind="style_component" label="Component" options={componentOpts}
-                      value={r.component_id}
-                      onChange={(id) => setComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, component_id: id } : x)))}
-                      canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
-                    />
-                  </td>
-                  <td className="px-2 py-1">
-                    <LookupDialogPicker
-                      kind="structure" label="Structure" options={structureOpts}
-                      value={r.structure_id}
-                      onChange={(id) => setComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, structure_id: id } : x)))}
-                      canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
-                    />
-                  </td>
-                  <td className="px-2 py-1">
-                    <Select
-                      value={r.comp_type}
-                      onChange={(e) => setComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, comp_type: e.target.value } : x)))}
-                      className="h-8"
-                    >
-                      <option value="">—</option>
-                      {COMPONENT_TYPE_OPTIONS.map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </Select>
-                  </td>
-                  <td className="px-2 py-1 text-center">
-                    <input
-                      type="checkbox"
-                      checked={r.trims}
-                      onChange={(e) => setComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, trims: e.target.checked } : x)))}
-                      className="h-4 w-4 rounded border-border"
-                    />
-                  </td>
-                  <td className="px-2 py-1">
-                    <LookupDialogPicker
-                      kind="trims_category" label="Trims Category" options={trimsCatOpts}
-                      value={r.trims_category_id}
-                      onChange={(id) => setComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, trims_category_id: id } : x)))}
-                      canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
-                    />
-                  </td>
-                  <td className="px-2 py-1">
-                    <RowRemove onClick={() => setComps((xs) => xs.filter((x) => x.key !== r.key))} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </GridCard>
-
-      {/* Sizes grid */}
-      <GridCard
-        title="Sizes"
-        onAdd={() => setSizes((xs) => [...xs, { key: newKey(), size_id: null }])}
-      >
-        <div className="max-w-md space-y-2">
-          {sizes.map((r) => (
-            <div key={r.key} className="flex items-center gap-2">
-              <div className="flex-1">
-                <LookupDialogPicker
-                  kind="size" label="Size" options={sizeOpts}
-                  value={r.size_id}
-                  onChange={(id) => setSizes((xs) => xs.map((x) => (x.key === r.key ? { ...x, size_id: id } : x)))}
-                  canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
-                />
-              </div>
-              <RowRemove onClick={() => setSizes((xs) => xs.filter((x) => x.key !== r.key))} />
-            </div>
-          ))}
-        </div>
-      </GridCard>
-
-      {/* Description */}
-      <Card>
-        <CardBody>
-          <Label htmlFor="st-desc">Description</Label>
-          <Textarea
-            id="st-desc"
-            value={form.description}
-            onChange={(e) => set({ description: e.target.value })}
-            rows={3}
-          />
-        </CardBody>
-      </Card>
-
-      {/* Footer */}
-      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 py-3 backdrop-blur">
-        <Button variant="outline" onClick={() => setMode("list")}>
-          Cancel
-        </Button>
-        {perms.canCreate && (
-          <Button variant="outline" disabled={isPending || !canSave} onClick={() => submit(true)}>
-            Save as Draft
-          </Button>
-        )}
-        <Button disabled={isPending || !canSave} onClick={() => submit(false)}>
-          {isPending ? "Saving…" : "Save"}
-        </Button>
-      </div>
+      {/* The five sections replace a flat stack of Cards: two field grids, three
+          grid cards and a lone Description card, all stretched full width with
+          nothing naming where the operator was. `mount="page"` is what lets a
+          route use this shell without the overlay swallowing the sidebar — and
+          its content pane carries `data-focus-scope`, which is what takes this
+          screen off the `--check tab-page-form` list ("page-level editor with no
+          data-focus-scope; Tab keeps native order here, so it leaves the form"). */}
+      <MasterFullScreen
+        ref={shellRef}
+        mount="page"
+        open
+        // No `header`: the PageHeader above already names the record, and two
+        // title bands stacked is the same record announced twice.
+        onClose={() => setMode("list")}
+        modeLabel={null}
+        dirty={dirty}
+        sections={sections}
+        /**
+         * The footer follows the Associates / Materials masters exactly —
+         * `customer-master-screen.tsx:1642` is the reference. Two things this
+         * screen did not have:
+         *
+         *   `status`    — the left-hand line. Silent before, so a form with
+         *                 unsaved edits looked identical to a saved one.
+         *   `saveLabel` — names the entity ("Save style", as Customer says
+         *                 "Save customer" and Applicant "Save applicant"),
+         *                 rather than a bare "Save" that could be any record on
+         *                 any screen.
+         *
+         * `draftLabel` is left off because "Save as Draft" is already the
+         * component's default, which is the same string those masters pass.
+         */
+        footer={{
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New style",
+          onCancel: () => setMode("list"),
+          onSave: () => submit(false),
+          onBlockedSave: revealFirstProblem,
+          saveLabel: "Save style",
+          canSave,
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          isPending,
+        }}
+      />
     </div>
-  );
-}
-
-// ---------- small building blocks ----------
-
-function GridCard({
-  title,
-  onAdd,
-  children,
-}: {
-  title: string;
-  onAdd: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardBody>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <Button type="button" variant="subtle" size="sm" onClick={onAdd}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-          </Button>
-        </div>
-        {children}
-      </CardBody>
-    </Card>
-  );
-}
-
-function RowRemove({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Remove row"
-      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-    >
-      <Trash2 className="h-4 w-4" />
-    </button>
   );
 }

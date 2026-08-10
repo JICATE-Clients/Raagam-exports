@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { amendmentInput, type AmendmentInput } from "./types";
+import {
+  seedAmendmentFromOrder,
+  type SeededAmendmentChildren,
+} from "./order-seed";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -274,6 +278,36 @@ export async function updateAmendment(
   });
   rev();
   return { ok: true };
+}
+
+/**
+ * Read the order the operator just picked and shape it into the eight child
+ * tabs, so the amendment starts as the order STANDS and they edit the deltas.
+ *
+ * A separate action rather than part of `getAmendmentFormData` because it is
+ * per-order and on-demand — seeding every order's children into the initial
+ * page payload would load the whole Orders module to fill one screen.
+ *
+ * Reads only: gated on `view`, and no `rev()` — there is nothing to revalidate.
+ */
+export type SeedResult =
+  | { ok: true; seed: SeededAmendmentChildren }
+  | { ok: false; error: string };
+
+// `fail()` returns the write-side `Result`, whose success branch carries no
+// payload — reusing it here would not narrow to the error case.
+const seedFail = (error: string): SeedResult => ({ ok: false, error });
+
+export async function loadOrderSeed(salesOrderId: string): Promise<SeedResult> {
+  if (!(await can("orders", "view"))) return seedFail("Forbidden");
+  if (!salesOrderId) return seedFail("No order selected");
+  try {
+    return { ok: true, seed: await seedAmendmentFromOrder(salesOrderId) };
+  } catch (e) {
+    // The screen leaves the tabs untouched on a failure rather than half-filling
+    // them, so the message is the only signal the operator gets.
+    return seedFail(e instanceof Error ? e.message : "Could not read the order");
+  }
 }
 
 export async function deleteAmendment(id: string): Promise<Result> {
