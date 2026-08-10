@@ -15,7 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RequiredScope, useRequiredHold } from "@/components/ui/field";
+import { Field, RequiredScope, useRequiredHold } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
@@ -831,10 +831,26 @@ export function DataPicker({
         </>
       ) : (
         <>
-          <div>
-            <Label htmlFor="dp-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+          {/**
+            * `<Field required>`, NOT a hand-written `*`.
+            *
+            * This box used to be a bare `<Label>Name <span
+            * className="text-danger">*</span></Label>` over a plain `<Input>`.
+            * The star was decoration: `useRequiredHold` emits
+            * `data-required-empty` from `ctx.required || own.required`, and
+            * neither was set — so a blank Name let Tab, Enter and ↓ straight
+            * past, on every picker in the app (client 2026-08-10, reported on
+            * Material ▸ New Yarn ▸ Category ▸ "+ Add").
+            *
+            * `Field` draws the star AND provides the scope, so the two cannot
+            * disagree. Its span classes are container-query based and simply do
+            * not match outside a `@container/section`, which is the documented
+            * fallback — in this narrow panel the field takes the full width.
+            *
+            * This is the PRIMITIVE behind every picker's inline "+ Add", so the
+            * hold arrives at ~160 call sites from this one declaration.
+            */}
+          <Field label="Name" required htmlFor="dp-name">
             <Input
               id="dp-name"
               autoFocus
@@ -844,17 +860,16 @@ export function DataPicker({
               {...dupFieldProps(dupError, "dp-name")}
             />
             <DuplicateError error={dupError} id="dp-name" />
-          </div>
+          </Field>
           {manage?.showTypeField && (
-            <div className="w-40">
-              <Label htmlFor="dp-type">Type</Label>
+            <Field label="Type" htmlFor="dp-type" className="w-40">
               <Input
                 id="dp-type"
                 uppercase
                 value={draftType}
                 onChange={(e) => setDraftType(e.target.value)}
               />
-            </div>
+            </Field>
           )}
         </>
       )}

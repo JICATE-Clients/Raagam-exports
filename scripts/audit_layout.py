@@ -1686,7 +1686,80 @@ def check_toolbar_size(path: Path, code: str, slug: str):
             )
 
 
+# The files that legitimately GENERATE a required marker. Everywhere else, a
+# `*` beside a label is written by hand and means nothing.
+STAR_OWNERS = {
+    "components/ui/field.tsx",            # `Field` draws it from `required`
+    "components/ui/data-picker.tsx",      # draws its OWN label; same `required`
+                                          # prop feeds `useRequiredHold` (:292)
+    "components/masters/child-grid.tsx",  # a column's `required` header star
+    "components/masters/simple-master-screen.tsx",
+}
+# Verified complete: `grep -rn "required && <span"` over components/ and lib/
+# returns exactly six sites, all inside these four files. Every other star in
+# the repo is typed by hand.
+
+# `<span className="text-danger">*</span>` and friends, and a bare `*` sitting
+# inside a <Label>. Both are the same defect wearing two spellings.
+HAND_STAR = re.compile(r"""<span[^>]*className=["'][^"']*text-danger[^"']*["'][^>]*>\s*\*\s*</span>""")
+LABEL_STAR = re.compile(r"""<Label\b[^>]*>[^<]*?\*""")
+STAR_EXEMPT = re.compile(r"required-star:\s*exempt\s*--")
+
+
+def check_required_star(path: Path, code: str, slug: str):
+    """AGENTS.md "Mandatory fields": the `*` is DERIVED, never typed.
+
+    `required` is stated once -- `<Field required>`, a picker's own `required`
+    prop, or `ChildGridColumn.required` -- and from that one prop come the red
+    star AND the `data-required-empty` marker that holds the cursor
+    (`useRequiredHold`, components/ui/field.tsx).
+
+    A hand-written star is therefore decoration with nothing behind it: the box
+    looks mandatory and lets Tab, Enter and the arrows straight past. That is
+    not a hypothetical. On 2026-08-10 a blank Name in the Category quick-create
+    sheet -- reached from Material > New Yarn > Category > "+ Add" -- moved on
+    freely, and so did the inline "+ Add" of EVERY picker in the app, because
+    `data-picker.tsx` carried the same shape and ~160 call sites inherit it.
+
+    This is the counterpart to `required-hold`, and it exists because that check
+    cannot see these files: it is gated on `*-master-screen.tsx`, on
+    `is_editor_screen`, and on a resolvable `lib/masters/<x>-types.ts`, which
+    leaves 38 of the 243 files that render an editable control. This one asks a
+    question every file can answer.
+
+    A star that is genuinely not a requiredness marker opts out per line with a
+    `required-star: exempt -- <reason>` comment.
+    """
+    if not slug.endswith(".tsx") or slug in STAR_OWNERS:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in STAR_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+
+    seen: set[int] = set()
+    for pattern, what in ((HAND_STAR, "a hand-written `*`"),
+                          (LABEL_STAR, "a `*` typed into a <Label>")):
+        for m in pattern.finditer(code):
+            line = line_of(code, m.start())
+            if line in seen or exempt_above(exempt, commentish, line):
+                continue
+            seen.add(line)
+            yield Finding(
+                "required-star", path, line,
+                f"{what} -- the star is drawn by `<Field required>` (or a "
+                "picker's `required` prop), which ALSO holds the cursor on a "
+                "blank field. Typed by hand it is decoration and the field "
+                "will not hold. Wrap the control in `<Field label=... required>` "
+                "and delete the `*`, or add a `required-star: exempt -- <reason>` "
+                "comment",
+            )
+
+
 CHECKS = {
+    "required-star": check_required_star,
     "created-columns": check_created_columns,
     "created-by-data": check_created_by_data,
     "required-hold": check_required_hold,

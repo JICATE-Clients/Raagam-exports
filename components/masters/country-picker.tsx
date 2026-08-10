@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
@@ -262,10 +263,7 @@ export function CountryPicker({
         }
       >
         <div className="space-y-3">
-          <div>
-            <Label htmlFor="cp-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+          <Field label="Name" required htmlFor="cp-name">
             <Input
               id="cp-name"
               autoFocus
@@ -275,7 +273,7 @@ export function CountryPicker({
               {...dupFieldProps(dupError, "cp-name")}
             />
             <DuplicateError error={dupError} id="cp-name" />
-          </div>
+          </Field>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="cp-code">Code</Label>

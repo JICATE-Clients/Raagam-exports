@@ -98,6 +98,27 @@ invisible to it. The star was not wired wrong; there was nothing for it to wire 
 
 **Do:** `<Field label="Date" required>`. One prop, both halves.
 
+**This one shipped, twice, and the second half is the lesson.** Reported 2026-08-10:
+Material ▸ New Yarn ▸ Category ▸ "+ Add" → a blank Name in the quick-create sheet let
+Tab, Enter and ↓ straight past. The cause was exactly the shape above. But it was never
+one screen — the identical markup was in `data-picker.tsx`'s own inline "+ Add" form, a
+**primitive**, so the same dead star sat behind ~160 picker call sites, plus the Country,
+Currency and Bank add sheets. Six of the seven picker-reachable create surfaces did not
+hold.
+
+**Two things worth carrying:**
+
+- **Suspect the declaration before the mechanism.** The obvious suspect was the
+  `RequiredScope` reset that `Sheet` and `DataPicker` put at their portal boundary
+  (trap #13 below). It is innocent: it clears *inherited* requiredness and a `<Field
+  required>` inside provides its own context, which wins. The hold was never broken; it
+  was never declared.
+- **Fix the primitive first.** One edit to `data-picker.tsx` reached every picker. The
+  four sheets were the remainder, not the problem.
+
+`--check required-star` now catches the shape everywhere, which `--check required-hold`
+structurally cannot (trap #8).
+
 ---
 
 ## 7. Removing a field from the form nulls the column
@@ -182,3 +203,35 @@ it would sum the visible page.
 
 **Do:** declare `ChildGridColumn.total`. The component places the band outside the
 navigable body and computes over all rows.
+
+---
+
+## 13. The portal `RequiredScope` reset is innocent — do not "fix" it
+
+`Sheet` (`sheet.tsx:234`) and `DataPicker` (`data-picker.tsx:1069`) each open with
+`<RequiredScope required={false} label={null}>`. It looks like it would suppress a hold
+inside a sheet. It does not.
+
+It exists because `RequiredScope` follows the **render** tree, and a quick-create sheet is
+rendered by the picker that opened it. With that picker in a mandatory `ChildGrid` cell,
+every empty field inside the sheet inherited "required" and held — on New Yarn opened from
+Fabric ▸ Composition ▸ Yarn \*, the **optional** Purity refused Tab and announced "Yarn is
+required" (client 2026-08-06).
+
+The reset clears inheritance only. A `<Field required>` below it renders its own nested
+provider, and React context resolves to the nearest one — so a sheet's own required fields
+work normally. Removing the reset would bring back the 08-06 bug and fix nothing.
+
+---
+
+## 14. A mandatory field the form never renders
+
+`REQUIRED_BY_FORM.YARN` lists `base_uom_id`, and the Yarn quick-create sheet supplies it
+as KG rather than asking — which is correct, quick-create is KG for every slot. But when
+the shop's Stock Unit master had no KG row, `kgUnitId` was null, Save was enabled anyway,
+and `createMaterial` answered "Fill in Yarn Type, Base UOM before saving" — naming a field
+that is not on the screen and cannot be put there.
+
+**Do:** when a required value is DERIVED rather than asked, gate Save on the derivation
+succeeding and say why it did not. A picker would have been the wrong fix; it would
+contradict the KG rule the sheet is built on.

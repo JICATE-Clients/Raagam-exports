@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capsName, capsTextNullable } from "@/lib/validation/formats";
+import { capsName } from "@/lib/validation/formats";
 
 // ============================================================================
 // Categories — rich material-classification master (0223). Legacy EDP2
@@ -76,7 +76,27 @@ export const categorySubCategoryInput = z.object({
 export const categoryInput = z.object({
   item_class_id: z.string().uuid("Item Class is required"),
   short_name: z.string().optional().nullable(),
-  name: capsTextNullable(),
+  /**
+   * REQUIRED — the fourth enforcer, added 2026-08-10.
+   *
+   * This was `capsTextNullable()`, and every other guard on the name was also
+   * absent: `categories.name` has no `NOT NULL` (0223), and `checkDuplicateName`
+   * returns ok on a blank ("nothing to dedupe on"). So the Save button was the
+   * ONLY thing stopping a nameless category — and `lib/data-io` imports reach
+   * `createCategory` directly, without one. A spreadsheet could create rows the
+   * pickers would then render as blank options.
+   *
+   * Putting it in the SCHEMA rather than the action is deliberate: the action
+   * and the importer both parse with this, so one line closes both doors.
+   * AGENTS.md §CAPITALS makes the same argument for the caps transform.
+   *
+   * The COLUMN is still nullable. Adding `NOT NULL` needs a backfill of any
+   * existing null-named row, which could not be checked here — see
+   * doc/masters-open-questions.md. Until then an existing nameless category
+   * cannot be saved from the form without being given a name, which is the
+   * intended outcome rather than a regression.
+   */
+  name: capsName("Category name is required"),
   short_spec: z.string().optional().nullable(),
   made: z.enum(MADE_TYPES).nullable().default(null),
   levy_id: z.string().uuid().nullable().default(null),

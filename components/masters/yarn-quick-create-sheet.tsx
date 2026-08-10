@@ -220,9 +220,31 @@ export function YarnQuickCreateSheet({
           <Button variant="outline" size="md" onClick={onClose}>
             Cancel
           </Button>
+          {/**
+            * GATES ON EVERY FIELD `REQUIRED_BY_FORM.YARN` LISTS.
+            *
+            * It used to gate on Count and Category only, while
+            * `material-types.ts:212` requires `item_class_id, yarn_type_id,
+            * count_id, category_id, base_uom_id`. So Save enabled, and
+            * `createMaterial` refused with "Fill in Yarn Type, Base UOM before
+            * saving" — naming Base UOM, which this sheet does not render at all.
+            *
+            * `base_uom_id` is not a choice here by design: quick-create is KG
+            * for every slot (see `save()`), so the gate is on whether a KG unit
+            * EXISTS rather than on a picker. The banner below says so, because a
+            * disabled button with no reason is the thing this replaces.
+            */}
           <Button
             size="md"
-            disabled={isPending || !countId || !categoryId || !!dupError || namePending}
+            disabled={
+              isPending ||
+              !countId ||
+              !categoryId ||
+              !yarnTypeId ||
+              !kgUnitId ||
+              !!dupError ||
+              namePending
+            }
             onClick={save}
           >
             {isPending ? "Saving…" : "Save"}
@@ -231,6 +253,17 @@ export function YarnQuickCreateSheet({
       }
     >
       <div className="space-y-3">
+        {/* Base UOM is required for a yarn and is supplied as KG, not chosen.
+            If the shop's Stock Unit master has no KG row there is nothing to
+            supply, so say that here rather than let Save look arbitrarily
+            broken — or worse, let the server answer with the name of a field
+            this sheet never shows. */}
+        {!kgUnitId && (
+          <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+            No <strong>KG</strong> stock unit exists, and a yarn is measured in KG. Add one on
+            Master Data ▸ Materials ▸ Stock Units before creating a yarn here.
+          </p>
+        )}
         {/* All four are pickers, not plain dropdowns: each one references a
             stored list an operator must be able to extend in place. A yarn that
             arrives with a count nobody has entered yet used to be a dead end
@@ -287,6 +320,10 @@ export function YarnQuickCreateSheet({
             options={yarnTypes}
             value={yarnTypeId}
             onChange={handleYarnTypeChange}
+            // `REQUIRED_BY_FORM.YARN` has always listed `yarn_type_id`; this
+            // sheet just never said so, so a blank one neither held the cursor
+            // nor drew a star and the server rejected it at Save instead.
+            required
             canCreate={canCreate}
             canEdit={canEdit}
             canDelete={canDelete}

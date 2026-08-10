@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
@@ -108,7 +109,10 @@ export function CategoryQuickCreateSheet({
       const payload: CategoryInput = {
         item_class_id: itemClassId,
         short_name: trimmed || null, // merged: Short Name = Name (single field)
-        name: trimmed || null,
+        // Required by the schema now; Save is gated on `!name.trim()`. The
+        // `stub` below keeps `|| null` on purpose — it is a `Category` ROW,
+        // whose column is still nullable.
+        name: trimmed,
         short_spec: null,
         made: madeValue,
         // Field hidden (client 2026-08-01) — a quick-create never sets it. The
@@ -192,10 +196,20 @@ export function CategoryQuickCreateSheet({
       }
     >
       <div className="space-y-3">
-        <div>
-          <Label htmlFor="cqc-name">
-            Name <span className="text-danger">*</span>
-          </Label>
+        {/**
+          * `<Field required>`, NOT a hand-written `*`.
+          *
+          * This was the reported bug (client 2026-08-10): a bare `<Label>Name
+          * <span className="text-danger">*</span></Label>` over a plain
+          * `<Input>`. `useRequiredHold` emits `data-required-empty` from
+          * `ctx.required || own.required`, and neither was set — so the star was
+          * decoration and a blank Name let Tab, Enter and ↓ straight past.
+          *
+          * NOT caused by the `RequiredScope` reset that `Sheet` puts at its
+          * portal boundary: that reset only clears INHERITED requiredness, and a
+          * `<Field required>` below it provides its own context, which wins.
+          */}
+        <Field label="Name" required htmlFor="cqc-name">
           <Input
             id="cqc-name"
             autoFocus
@@ -212,7 +226,7 @@ export function CategoryQuickCreateSheet({
             {...dupFieldProps(dupError, "cqc-name")}
           />
           <DuplicateError error={dupError} id="cqc-name" />
-        </div>
+        </Field>
 
         {/* Category Type (Natural/Manmade/Mixed) is a Yarn concept only — it
             drives Nature display + the Mixing % grid on the Materials form. */}

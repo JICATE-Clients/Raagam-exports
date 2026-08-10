@@ -394,7 +394,10 @@ export function CategoryMasterScreen({
       const payload: CategoryInput = {
         item_class_id: form.item_class_id,
         short_name: form.name.trim() || null, // merged: Short Name = Name (single field)
-        name: form.name.trim() || null,
+        // Not `|| null` any more: `categoryInput.name` is required, and Save
+        // is already gated on a non-blank name. Passing null here would be a
+        // value the schema now rejects — the typecheck said so.
+        name: form.name.trim(),
         short_spec: form.short_spec.trim() || null,
         made: form.made ? form.made : null,
         levy_id: form.levy_id || null,

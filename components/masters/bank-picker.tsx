@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
@@ -201,10 +202,7 @@ export function BankPicker({
         }
       >
         <div className="space-y-3">
-          <div>
-            <Label htmlFor="bp-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+          <Field label="Name" required htmlFor="bp-name">
             <Input
               id="bp-name"
               autoFocus
@@ -212,7 +210,7 @@ export function BankPicker({
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-          </div>
+          </Field>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="bp-code">Code</Label>

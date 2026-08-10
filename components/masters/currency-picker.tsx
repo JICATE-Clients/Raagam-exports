@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -179,10 +180,7 @@ export function CurrencyPicker({
       >
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="cur-code">
-                Code <span className="text-danger">*</span>
-              </Label>
+            <Field label="Code" required htmlFor="cur-code">
               <Input
                 id="cur-code"
                 autoFocus
@@ -193,18 +191,15 @@ export function CurrencyPicker({
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
               />
-            </div>
+            </Field>
             <div>
               <Label htmlFor="cur-symbol">Symbol</Label>
               <Input id="cur-symbol" value={symbol} onChange={(e) => setSymbol(e.target.value)} />
             </div>
           </div>
-          <div>
-            <Label htmlFor="cur-name">
-              Name <span className="text-danger">*</span>
-            </Label>
+          <Field label="Name" required htmlFor="cur-name">
             <Input id="cur-name" uppercase value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
+          </Field>
         </div>
       </Sheet>
     </>
