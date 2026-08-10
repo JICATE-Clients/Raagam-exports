@@ -267,6 +267,7 @@ export function CategoryPicker({
   canDelete = false,
   levies,
   fabricStructures,
+  itemClasses,
   compact = false,
 }: {
   label: string;
@@ -310,6 +311,11 @@ export function CategoryPicker({
    *  mini-child instead of the inline name-only form. */
   levies?: Levy[];
   fabricStructures?: ConfigLookup[];
+  /** Pass this and the quick-create sheet ASKS for the Item Class itself,
+   *  driving its own class-dependent fields from the answer. Omit it and the
+   *  class comes from `itemClassId`, which is what a caller whose form already
+   *  asked (the Material child) must do — two forms asking one question drift. */
+  itemClasses?: ConfigLookup[];
   /** Trigger-only (no label) for a dense grid row or a `<Field>` that already
    *  draws the label. Straight through to `DataPicker`, same as every other
    *  adapter — without it a caller wrapping this in `<Field label>` gets the
@@ -502,6 +508,7 @@ export function CategoryPicker({
           }}
           itemClassId={itemClassId!}
           selectedClassCode={selectedClassCode ?? null}
+          itemClasses={itemClasses}
           levies={levies!}
           fabricStructures={fabricStructures!}
           perms={{ canCreate, canEdit, canDelete }}

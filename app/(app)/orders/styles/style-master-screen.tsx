@@ -95,9 +95,6 @@ type HeaderForm = {
   style_year: string;
   article_no: string;
   style_category_id: string | null;
-  /** Scopes the Style Category picker. Its own field because the operator
-   *  chooses it — see the cascade note where it renders. */
-  item_class_id: string | null;
   style_description: string;
   unit_id: string | null;
   /** "" until answered — Piece or Set. Drives the Coordinates count. */
@@ -118,7 +115,6 @@ const BLANK: HeaderForm = {
   style_year: "",
   article_no: "",
   style_category_id: null,
-  item_class_id: null,
   style_description: "",
   unit_id: null,
   unit_kind: "",
@@ -242,24 +238,33 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     [lookups],
   );
 
-  /** The cascading-picker rule, same shape as material-master-screen.tsx:199 —
-   *  Category only ever shows rows scoped to the chosen Item Class, never the
-   *  full master. */
-  const scopedCategories = useMemo(
-    () => data.categories.filter((c) => c.item_class_id === form.item_class_id),
-    [data.categories, form.item_class_id],
+  /** The GARMENTS class — a style is a garment, so its category comes from
+   *  there. Resolved by CODE, not by a hardcoded id: the seven classes are
+   *  seeded rows whose ids differ per environment. */
+  const garmentClassId = useMemo(
+    () => itemClassOpts.find((c) => (c.code ?? "").toUpperCase() === "GAR")?.id ?? null,
+    [itemClassOpts],
   );
-  const selectedClassCode =
-    itemClassOpts.find((c) => c.id === form.item_class_id)?.code ?? null;
 
   /**
-   * Changing the class DROPS the category. Not a nicety: a category scoped to
-   * the old class is worse than an empty one, because it saves a classification
-   * that contradicts the class beside it. Same handler shape as the Material
-   * child's `handleItemClassChange`.
+   * The Style Category list: GARMENTS categories, plus whatever this style
+   * already holds.
+   *
+   * THE HELD VALUE ALWAYS SURVIVES THE FILTER — the standing "Disabled rows"
+   * rule, and it earns its place here for a second reason. The quick-create
+   * sheet lets the operator pick a different Item Class, so a category can be
+   * created outside GARMENTS; without this it would be selectable at the moment
+   * of creation and then vanish on the next refresh, blanking the FK on the
+   * following save. Keeping it visible is what makes that merely unusual rather
+   * than data loss.
    */
-  const handleItemClassChange = (v: string) =>
-    set({ item_class_id: v || null, style_category_id: null });
+  const scopedCategories = useMemo(
+    () =>
+      data.categories.filter(
+        (c) => c.item_class_id === garmentClassId || c.id === form.style_category_id,
+      ),
+    [data.categories, garmentClassId, form.style_category_id],
+  );
   const coordinateOpts = useMemo(() => lookups.filter((l) => l.kind === "coordinate"), [lookups]);
   const componentOpts = useMemo(() => lookups.filter((l) => l.kind === "style_component"), [lookups]);
   const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
@@ -488,7 +493,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       style_year: r.style_year != null ? String(r.style_year) : "",
       article_no: r.article_no ?? "",
       style_category_id: r.style_category_id,
-      item_class_id: r.item_class_id,
       style_description: r.style_description ?? "",
       unit_id: r.unit_id,
       // "" on every style created before 0392. The field is `required`, so the
@@ -537,7 +541,15 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       style_year: form.style_year ? Number(form.style_year) : null,
       article_no: form.article_no || null,
       style_category_id: form.style_category_id,
-      item_class_id: form.item_class_id,
+      /**
+       * DERIVED, NOT ASKED. The Item Class question moved inside the
+       * quick-create sheet (client 2026-08-10), so the form no longer holds an
+       * answer — but the column is still worth writing: it records which class
+       * the chosen category belongs to without the operator answering twice,
+       * and a second field asking it is how the two would drift apart.
+       */
+      item_class_id:
+        data.categories.find((c) => c.id === form.style_category_id)?.item_class_id ?? null,
       style_description: form.style_description || null,
       unit_id: form.unit_id,
       unit_kind: isUnitKind(form.unit_kind) ? form.unit_kind : null,
@@ -1021,20 +1033,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             <Field label="Article No." size="sm" htmlFor="st-article">
               <Input id="st-article" value={form.article_no} onChange={(e) => set({ article_no: e.target.value })} />
             </Field>
-            {/* The parent of the cascade. A style is classified the same way a
-                material is — pick the class, then the category under it. */}
-            <Field label="Item Class" size="sm">
-              <LookupDialogPicker
-                kind="item_class"
-                label="Item Class"
-                options={itemClassOpts}
-                value={form.item_class_id}
-                onChange={handleItemClassChange}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-                compact
-              />
-            </Field>
             {/**
               * STYLE CATEGORY — the Garment master, scoped to the class above.
               *
@@ -1054,10 +1052,14 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 categories={scopedCategories}
                 value={form.style_category_id ?? ""}
                 onChange={(v) => set({ style_category_id: v || null })}
-                itemClassId={form.item_class_id ?? ""}
-                selectedClassCode={selectedClassCode}
+                itemClassId={garmentClassId ?? ""}
+                selectedClassCode="GAR"
                 levies={data.levies}
                 fabricStructures={fabricStructureOpts}
+                // Handing the class list over is what makes "+ Add" ASK for
+                // the Item Class and render the form for it, rather than
+                // silently creating under GARMENTS.
+                itemClasses={itemClassOpts}
                 canCreate={masterPerms.canCreate}
                 canEdit={masterPerms.canEdit}
                 canDelete={masterPerms.canEdit}
