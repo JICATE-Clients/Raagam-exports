@@ -61,7 +61,7 @@ interface Props {
 }
 
 // ---- editable child-row shapes ----
-type CoordRow = { key: string; coordinate_id: string | null; mlist_no: string };
+type CoordRow = { key: string; coordinate_id: string | null };
 /** One process on a component — the nested grid's row. */
 type CompProcRow = { key: string; process_id: string | null };
 type CompRow = {
@@ -459,7 +459,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     setDirty(true);
   };
 
-  const blankCoord = (): CoordRow => ({ key: newKey(), coordinate_id: null, mlist_no: "" });
+  const blankCoord = (): CoordRow => ({ key: newKey(), coordinate_id: null });
   /** A new component starts on the style's coordinate when there is only ONE it
    *  could belong to — always the case for a Piece, and for a Set until the
    *  second coordinate is entered. Answering the question before it is asked;
@@ -522,7 +522,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       r.coordinates.map((c) => ({
         key: newKey(),
         coordinate_id: c.coordinate_id,
-        mlist_no: c.mlist_no ?? "",
       })),
     );
     setComps(
@@ -576,7 +575,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       coordinates: coords.map((c) => ({
         sno: 0,
         coordinate_id: c.coordinate_id,
-        mlist_no: c.mlist_no || null,
       })),
       components: comps.map((c) => ({
         sno: 0,
@@ -747,19 +745,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           canCreate={masterPerms.canCreate}
           canEdit={masterPerms.canEdit}
           compact
-        />
-      ),
-    },
-    {
-      header: "M.List No",
-      width: "12rem",
-      cell: (r) => (
-        <Input
-          value={r.mlist_no}
-          onChange={(e) =>
-            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, mlist_no: e.target.value } : x)))
-          }
-          className="h-8"
         />
       ),
     },
@@ -1177,7 +1162,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       key: "coordinates",
       label: "Coordinates",
       icon: Palette,
-      done: coords.some((c) => c.coordinate_id || c.mlist_no.trim()),
+      done: coords.some((c) => c.coordinate_id),
       problems: validity.bySection.coordinates,
       content: (
         <SectionBody title="Coordinates" hint={coordHint}>

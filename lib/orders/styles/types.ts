@@ -33,6 +33,12 @@ export interface GarmentStyleCoordinate {
   style_id: string;
   sno: number;
   coordinate_id: string | null;
+  /** Withdrawn from the form and the input 2026-08-10 (client): a coordinate
+   *  is now just a name from the master. The COLUMN remains and still reads
+   *  back — but note this is a CHILD table that `writeChildren` deletes and
+   *  reinserts on every save, so unlike a withdrawn HEADER field (0392) the
+   *  stored value does not survive the next save of its style. Nothing is
+   *  lost today: the table is empty. */
   mlist_no: string | null;
 }
 
@@ -118,7 +124,8 @@ const uuidN = z.string().uuid().nullable().default(null);
 export const styleCoordinateInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   coordinate_id: uuidN,
-  mlist_no: nullableText,
+  // `mlist_no` withdrawn 2026-08-10 (client): "not needed". Absent from the
+  // schema, not just the form — see the note on the interface above.
 });
 
 export const styleComponentProcessInput = z.object({

@@ -53,8 +53,10 @@ export async function previewStyleCode(styleDate: string | null): Promise<string
 
 function normalizeCoordinates(data: GarmentStyleInput) {
   return data.coordinates
-    .map((c) => ({ coordinate_id: c.coordinate_id ?? null, mlist_no: clean(c.mlist_no) }))
-    .filter((c) => c.coordinate_id || c.mlist_no)
+    .map((c) => ({ coordinate_id: c.coordinate_id ?? null }))
+    // A coordinate IS its name now, so an unanswered row is an empty row.
+    // This used to keep a row that had only an M.List No; that field is gone.
+    .filter((c) => c.coordinate_id)
     .map((c, i) => ({ ...c, sno: i + 1 }));
 }
 
