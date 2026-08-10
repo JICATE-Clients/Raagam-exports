@@ -78,7 +78,16 @@ export async function updateZone(
 export async function deactivateZone(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("zones").update({ blocked: true }).eq("id", id);
+  /**
+   * `inactive`, NOT `blocked` — fixed 2026-08-10.
+   *
+   * `0305_new_tables_blocked_to_inactive.sql:17` renamed this column, and
+   * `zone-types.ts` has said `inactive` ever since; only this write was left
+   * behind. It targeted a column that no longer exists, so deactivating a zone
+   * failed. Found while restoring the Size Group actions, whose deleted copy
+   * carried the identical line.
+   */
+  const { error } = await s.from("zones").update({ inactive: true }).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

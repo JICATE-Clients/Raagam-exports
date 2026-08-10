@@ -1,17 +1,32 @@
 import { z } from "zod";
+import { styleProblems } from "./rules";
 
 // ============================================================================
-// Garment Orders ▸ Style master (0124). Header + three child grids
-// (Coordinates, Components, Sizes). Icon fields reference customers / countries /
-// uoms / samples / customer_contacts / config_lookups.
+// Garment Orders ▸ Style master (0124, phase 1 content pass 0392). Header +
+// three child grids (Coordinates, Components, Sizes). Icon fields reference
+// customers / countries / uoms / samples / items / processes / config_lookups.
+//
+//
+// FIELDS THE CLIENT WITHDREW (2026-08-10) — READ BEFORE RE-ADDING ONE
+//
+// `style_for`, `tech_pack`, `received_date`, `receipt_mode`, `department_id`,
+// `contact_id`, `customer_reference` on the header, and `trims` /
+// `trims_category_id` on a component, are gone from the form AND from the Zod
+// input below. Their COLUMNS still exist and still hold whatever they held.
+//
+// Leaving them OUT OF THE SCHEMA is the half that matters. A field left in with
+// `.default(null)` is not a harmless leftover: `headerOnly(p.data)` writes the
+// parsed object, so every update would blank the stored value. Same reasoning
+// as `commodity_id` in lib/masters/process-types.ts, which is deliberately
+// absent for exactly this reason.
+//
+// The interfaces below KEEP the columns, because `service.ts` selects `*` and
+// the rows really do carry them.
 // ============================================================================
 
 // Fixed dropdowns — legacy option lists (confirm exact values via screenshots).
-export const STYLE_FOR_OPTIONS = ["Garments", "Fabric", "Made-ups"] as const;
 export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
-export const TECH_PACK_OPTIONS = ["Not Required", "Required", "Received"] as const;
 export const COMPONENT_TYPE_OPTIONS = ["Circular", "Flat"] as const;
-export const RECEIPT_MODE_OPTIONS = ["By Mail", "By Hand", "Courier", "Email"] as const;
 
 export interface GarmentStyleCoordinate {
   id: string;
@@ -19,6 +34,13 @@ export interface GarmentStyleCoordinate {
   sno: number;
   coordinate_id: string | null;
   mlist_no: string | null;
+}
+
+export interface GarmentStyleComponentProcess {
+  id: string;
+  component_id: string;
+  sno: number;
+  process_id: string | null;
 }
 
 export interface GarmentStyleComponent {
@@ -29,8 +51,13 @@ export interface GarmentStyleComponent {
   component_id: string | null;
   structure_id: string | null;
   comp_type: string | null;
+  /** The fabric — an `items` row of item class FABRIC (0392). */
+  item_id: string | null;
+  /** Withdrawn from the form 2026-08-10; the columns and their values remain. */
   trims: boolean;
   trims_category_id: string | null;
+  /** Printing / embroidery / … from the `processes` master. */
+  processes: GarmentStyleComponentProcess[];
 }
 
 export interface GarmentStyleSize {
@@ -56,6 +83,12 @@ export interface GarmentStyle {
   style_description: string | null;
   tech_pack: string | null;
   unit_id: string | null;
+  /** Piece or Set — drives the coordinate count. Null on every style created
+   *  before 0392; see `coordinateLimit` in ./rules. */
+  unit_kind: string | null;
+  /** The size group last used to FILL the sizes. Provenance only —
+   *  `garment_style_sizes` stays the source of truth. */
+  size_group_id: string | null;
   country_id: string | null;
   department_id: string | null;
   contact_id: string | null;
@@ -82,14 +115,23 @@ export const styleCoordinateInput = z.object({
   mlist_no: nullableText,
 });
 
+export const styleComponentProcessInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  process_id: uuidN,
+});
+
 export const styleComponentInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   coordinate_id: uuidN,
   component_id: uuidN,
   structure_id: uuidN,
   comp_type: nullableText,
-  trims: z.boolean().default(false),
-  trims_category_id: uuidN,
+  /** The fabric. An `items` id; the screen scopes the picker to item class
+   *  FABRIC, which is a caller concern — nothing here can check it without a
+   *  round trip, and a rule that needs one does not belong in a schema. */
+  item_id: uuidN,
+  // `trims` / `trims_category_id` are deliberately absent — see the header.
+  processes: z.array(styleComponentProcessInput).default([]),
 });
 
 export const styleSizeInput = z.object({
@@ -97,33 +139,54 @@ export const styleSizeInput = z.object({
   size_id: uuidN,
 });
 
-export const garmentStyleInput = z.object({
-  blocked: z.boolean().default(false),
-  style_date: z.string().min(1, "Date is required"),
-  style_for: nullableText,
-  customer_id: uuidN,
-  approved_sample_id: uuidN,
-  style_name: z.string().min(1, "Style name is required"),
-  season: nullableText,
-  style_year: z.coerce.number().int().nullable().default(null),
-  article_no: nullableText,
-  style_category_id: uuidN,
-  style_description: nullableText,
-  tech_pack: nullableText,
-  unit_id: uuidN,
-  country_id: uuidN,
-  department_id: uuidN,
-  contact_id: uuidN,
-  customer_reference: nullableText,
-  received_date: nullableText,
-  receipt_mode: nullableText,
-  description: nullableText,
-  is_draft: z.boolean().default(false),
-  // children
-  coordinates: z.array(styleCoordinateInput).default([]),
-  components: z.array(styleComponentInput).default([]),
-  sizes: z.array(styleSizeInput).default([]),
-});
+export const garmentStyleInput = z
+  .object({
+    blocked: z.boolean().default(false),
+    style_date: z.string().min(1, "Date is required"),
+    customer_id: uuidN,
+    approved_sample_id: uuidN,
+    style_name: z.string().min(1, "Style name is required"),
+    season: nullableText,
+    style_year: z.coerce.number().int().nullable().default(null),
+    article_no: nullableText,
+    style_category_id: uuidN,
+    style_description: nullableText,
+    unit_id: uuidN,
+    /** Piece or Set. NULLABLE on purpose: every style predating 0392 has none,
+     *  and rejecting those would make old records unsaveable. The FORM marks it
+     *  required, so the backfill happens on next edit. */
+    unit_kind: z.enum(["piece", "set"]).nullable().default(null),
+    size_group_id: uuidN,
+    country_id: uuidN,
+    description: nullableText,
+    is_draft: z.boolean().default(false),
+    // children
+    coordinates: z.array(styleCoordinateInput).default([]),
+    components: z.array(styleComponentInput).default([]),
+    sizes: z.array(styleSizeInput).default([]),
+  })
+  /**
+   * THE CROSS-TAB RULE, COMPILED IN.
+   *
+   * `styleProblems` is the same function the screen calls to badge the rail and
+   * to derive `canSave`. Running it here too is what makes the rule true for a
+   * caller that never touches the screen — a `lib/data-io` import, or a future
+   * API. AGENTS.md's standing phrasing: the screen check is a courtesy, this
+   * one is the guard.
+   *
+   * `path` is set to the child array so the message lands on the offending
+   * section rather than at the root, matching how `materialInput`'s mixing
+   * refinement reports.
+   */
+  .superRefine((v, ctx) => {
+    for (const p of styleProblems(v)) {
+      ctx.addIssue({
+        code: "custom",
+        message: p.message,
+        path: p.section === "coordinates" ? ["coordinates"] : [],
+      });
+    }
+  });
 export type GarmentStyleInput = z.infer<typeof garmentStyleInput>;
 
 export function styleStatusTone(

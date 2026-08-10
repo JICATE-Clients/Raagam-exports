@@ -53,6 +53,7 @@ import { DefectGroupMasterScreen } from "@/components/masters/defect-group-maste
 // --- Phase 1: Dedicated masters ---
 import { listDefectDetails, listDefectGroups } from "@/lib/masters/defect-detail-service";
 import { DefectDetailMasterScreen } from "@/components/masters/defect-detail-master-screen";
+import { SizeGroupMasterScreen } from "@/components/masters/size-group-master-screen";
 import { isAccessoryClass } from "@/lib/masters/material-types";
 
 export default async function MaterialEntityPage({
@@ -248,6 +249,11 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "defect_details") {
       const [rows, defectGroups] = await Promise.all([listDefectDetails(), listDefectGroups()]);
       screen = <DefectDetailMasterScreen rows={rows} defectGroups={defectGroups} perms={perms} />;
+    } else if (child.custom === "size_groups") {
+      // `listSizeGroups` was already imported here through the withdrawal — the
+      // Categories arm needs it — so this arm only had to come back.
+      const rows = await listSizeGroups();
+      screen = <SizeGroupMasterScreen rows={rows} perms={perms} />;
     } else if (child.custom === "item_class") {
       // listAttributes(), not listItemClasses(): same table, same filter, one
       // join more — it brings each class's attribute values along so the view

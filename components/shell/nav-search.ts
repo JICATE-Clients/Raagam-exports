@@ -6,6 +6,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { NAV, SECTION_ACTIONS, type NavItem, type SubNavItem } from "./nav";
+import { moduleLeafItems } from "@/lib/nav/module-groups";
 
 /**
  * Shared navigation-search logic. Both the mobile Peek Sheet (`mobile-nav.tsx`)
@@ -71,13 +72,36 @@ export function searchNav(
         href: m.href,
       });
 
-    for (const c of childrenFor(m.href, m.children)) {
+    // Sidebar rows PLUS the screens inside each group. A grouped module's
+    // `children` are sub-modules, so searching only those would have made every
+    // leaf ("Fabric BOM") and every leaf-keyed quick action ("New Worker")
+    // unfindable — the sidebar got shorter, search must not get smaller.
+    // Deduped by href: a standalone row is a sidebar child and nothing else,
+    // and the store links injected by `childrenFor` are not in the registry.
+    const sections = childrenFor(m.href, m.children);
+    const seen = new Set(sections.map((c) => c.href));
+    const searchable: { href: string; label: string; sub: string }[] = [
+      ...sections.map((c) => ({
+        href: c.href,
+        label: c.label,
+        sub: m.label + " · section",
+      })),
+      ...moduleLeafItems(m.href)
+        .filter((l) => !seen.has(l.href))
+        .map((l) => ({
+          href: l.href,
+          label: l.label,
+          sub: m.label + " · " + l.groupLabel,
+        })),
+    ];
+
+    for (const c of searchable) {
       if (c.label.toLowerCase().includes(q))
         rows.push({
           key: "s:" + c.href,
           icon: m.icon,
           title: c.label,
-          sub: m.label + " · section",
+          sub: c.sub,
           href: c.href,
         });
       for (const a of SECTION_ACTIONS[c.href] ?? []) {

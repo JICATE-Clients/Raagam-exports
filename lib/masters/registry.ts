@@ -40,7 +40,7 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "bins" | "garment_rejection_rules" | "defect_groups" | "defect_details";
+  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "bins" | "garment_rejection_rules" | "defect_groups" | "defect_details" | "size_groups";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
@@ -62,6 +62,9 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "materials", label: "Materials", singular: "Material", description: "Material master — class-driven specs, UOM & budget", custom: "materials" },
   { slug: "processes", label: "Processes", singular: "Process", description: "Sub-contract processes", custom: "processes" },
   { slug: "components", label: "Components", singular: "Component", description: "Buttons, zippers, labels, thread…", custom: "components" },
+  // RESTORED 2026-08-10. Withdrawn in 129c59f as a child "the business does not
+  // use"; the Style master now fills a style's sizes from a group, so it does.
+  { slug: "size-groups", label: "Size Groups", singular: "Size Group", description: "Size sets (S · M · L · XL) a style is made in", custom: "size_groups" },
   { slug: "gauges", label: "Gauges", singular: "Gauge", description: "Knitting machine gauges", custom: "gauges" },
   { slug: "knitting-dias", label: "Knitting Dias", singular: "Knitting Dia", description: "Knitting diameters", custom: "knitting_dias" },
   { slug: "out-document-terms", label: "Out Document Terms", singular: "Out Document Term", description: "Sub-contract issue terms", custom: "out_document_terms" },

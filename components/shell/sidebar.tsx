@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { NAV } from "./nav";
+import { owningNavHref } from "@/lib/nav/module-groups";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
 import { cn } from "@/lib/utils";
@@ -100,8 +101,13 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
               : (item.children ?? []);
           const hasChildren = children.length > 0;
           const moduleActive = isActive(pathname, item.href);
+          // A grouped module answers from its registry, because its leaf routes
+          // are NOT paths beneath the group they belong to (see `owningNavHref`)
+          // — a plain prefix scan would highlight nothing on `/planning/fabric-bom`.
+          // Ungrouped modules (Sales, Reports) and the live store links, which
+          // are not in the registry, still use the prefix scan.
           const activeChildHref = hasChildren
-            ? activeChild(pathname, children)
+            ? (owningNavHref(item.href, pathname) ?? activeChild(pathname, children))
             : undefined;
           // Strong highlight on the parent only when it's a leaf, or the module
           // is active but no specific sub-module matched.

@@ -1,0 +1,245 @@
+/**
+ * TEMPLATE — a record editor with sections (the section rail), mounted as a page.
+ *
+ * Copy to `app/(app)/<module>/<entity>/<entity>-screen.tsx` and replace Thing /
+ * things / THING. Keep the comments that explain a WHY; they are the reason the
+ * next person makes the same choice.
+ *
+ * Use this shape when the record has more than ~15 fields, or ANY child grid, or
+ * stages. For a smaller record use `list-master-screen.tsx.template` (a Sheet).
+ *
+ * `.tsx.template` on purpose: tsconfig's `include` is `**/*.tsx` with no `.claude`
+ * exclusion, so a real `.tsx` here would be typechecked as part of the app.
+ */
+"use client";
+
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { FileText, SlidersHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import {
+  MasterFullScreen,
+  SectionBody,
+  type FullScreenSection,
+  type MasterFullScreenHandle,
+} from "@/components/masters/master-full-screen";
+import { PageHeader } from "@/components/ui/page-header";
+import { RecordPicker } from "@/components/masters/record-picker";
+import { useToast } from "@/components/ui/toast";
+import { sectionValidity } from "@/lib/screens/validity";
+import { createThing, updateThing } from "@/lib/<module>/<entity>/actions";
+
+type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
+type LineRow = { key: string; item_id: string | null; qty: string };
+
+type Form = { name: string; thing_date: string; kind: string; owner_id: string | null };
+const BLANK: Form = { name: "", thing_date: "", kind: "", owner_id: null };
+
+export function ThingScreen({ perms }: { perms: Perms }) {
+  const router = useRouter();
+  const { success, error: toastError } = useToast();
+  const [isPending, start] = useTransition();
+
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState<Form>(BLANK);
+  const [lines, setLines] = useState<LineRow[]>([]);
+
+  /**
+   * Has the operator changed anything since this record opened.
+   *
+   * A real flag, not "do the fields hold values" — on an EXISTING record they
+   * always do, so a derived guess announces "Unsaved changes" before a key is
+   * pressed. Set by `set()` and by every grid mutation; cleared when a record is
+   * loaded or seeded.
+   */
+  const [dirty, setDirty] = useState(false);
+
+  /** Lets a blocked Save switch section and land on the offending field. The
+   *  shell keeps `section` in its own state; this handle is the only way in. */
+  const shellRef = useRef<MasterFullScreenHandle>(null);
+  const keySeq = useRef(0);
+  const newKey = () => `k${keySeq.current++}`;
+
+  const set = (patch: Partial<Form>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setDirty(true);
+  };
+  const mutLines = (fn: (xs: LineRow[]) => LineRow[]) => {
+    setLines(fn);
+    setDirty(true);
+  };
+
+  // ---- child grid -----------------------------------------------------------
+  // NEVER a hand-rolled <table>. ChildGrid brings Ctrl+Del row delete,
+  // `data-row-add`, required cells, pagination, mobile cards and a totals band.
+  const lineColumns: ChildGridColumn<LineRow>[] = [
+    {
+      header: "Item",
+      required: true,
+      cell: (r) => (
+        <RecordPicker
+          label="Item"
+          compact
+          items={[/* pass the option rows in as a prop */]}
+          value={r.item_id}
+          onChange={(id) =>
+            mutLines((xs) => xs.map((x) => (x.key === r.key ? { ...x, item_id: id } : x)))
+          }
+        />
+      ),
+    },
+    {
+      header: "Qty",
+      align: "right",
+      width: "8rem",
+      // A numeric column can carry a totals band. It is placed outside the
+      // navigable body and summed over ALL rows, never the visible page.
+      total: { kind: "sum", of: (r) => Number(r.qty) || 0 },
+      cell: (r) => (
+        <Input
+          className="h-8"
+          value={r.qty}
+          onChange={(e) =>
+            mutLines((xs) => xs.map((x) => (x.key === r.key ? { ...x, qty: e.target.value } : x)))
+          }
+        />
+      ),
+    },
+  ];
+
+  /**
+   * WHAT IS STOPPING A SAVE, AND WHICH SECTION HOLDS IT.
+   *
+   * `canSave` is DERIVED. The hand-assembled form — `!!name.trim() && !dupError
+   * && …` — is a list a screen can forget to extend, and two shipped screens
+   * gate Save on an error two sections away with nothing on screen to say so.
+   *
+   * `fields` mirrors the `required` props below, so the red `*`, the cursor hold
+   * and this list cannot disagree. `extra` carries what no single field can know
+   * — a live duplicate answer, a cross-section rule — each naming its section.
+   */
+  const validity = sectionValidity({
+    sections: [{ key: "details" }, { key: "lines" }],
+    values: form,
+    fields: [
+      { section: "details", id: "th-name", label: "Name", required: true, empty: (f) => !f.name.trim() },
+      { section: "details", id: "th-date", label: "Date", required: true, empty: (f) => !f.thing_date },
+    ],
+    extra: lines.length === 0
+      ? [{ section: "lines", label: "Lines", message: "Add at least one line.", kind: "custom" as const }]
+      : [],
+  });
+
+  const revealFirstProblem = () => {
+    const p = validity.first;
+    if (!p) return;
+    toastError(p.message);
+    shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
+  };
+
+  const sections: FullScreenSection[] = [
+    {
+      key: "details",
+      label: "Details",
+      icon: FileText,
+      done: !!form.name.trim(),
+      problems: validity.bySection.details,
+      content: (
+        <SectionBody title="Details" hint="What this record is.">
+          {/* ONE FieldGrid per section — SectionBody has no grid of its own, and
+              two stacked grids agree on the left edge but not the row gap. */}
+          <FieldGrid>
+            {/* size="sm" on EVERY field: 3 of 12, four per row, ~280px. Nothing
+                is sized to its own data, so every field lines up down the page. */}
+            <Field label="Name" required size="sm" htmlFor="th-name">
+              <Input id="th-name" uppercase value={form.name} onChange={(e) => set({ name: e.target.value })} />
+            </Field>
+            <Field label="Date" required size="sm" htmlFor="th-date">
+              <Input id="th-date" type="date" value={form.thing_date} onChange={(e) => set({ thing_date: e.target.value })} />
+            </Field>
+            <Field label="Kind" size="sm" htmlFor="th-kind">
+              <Select id="th-kind" value={form.kind} onChange={(e) => set({ kind: e.target.value })}>
+                <option value="">—</option>
+                <option value="a">A</option>
+              </Select>
+            </Field>
+          </FieldGrid>
+        </SectionBody>
+      ),
+    },
+    {
+      key: "lines",
+      label: "Lines",
+      icon: SlidersHorizontal,
+      done: lines.length > 0,
+      problems: validity.bySection.lines,
+      content: (
+        <SectionBody title="Lines" hint="What this record is made of.">
+          {/* No `label` — the section heading already names the grid. */}
+          <ChildGrid<LineRow>
+            columns={lineColumns}
+            rows={lines}
+            onAdd={() => mutLines((xs) => [...xs, { key: newKey(), item_id: null, qty: "" }])}
+            onRemove={(r) => mutLines((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add line"
+          />
+        </SectionBody>
+      ),
+    },
+  ];
+
+  function submit(asDraft: boolean) {
+    start(async () => {
+      const payload = { ...form, is_draft: asDraft, lines: lines.map((l) => ({ sno: 0, ...l })) };
+      const res = editId ? await updateThing(editId, payload) : await createThing(payload);
+      if (res.ok) {
+        success(editId ? "Thing updated" : "Thing created");
+        router.refresh();
+      } else {
+        toastError(res.error);
+      }
+    });
+  }
+
+  return (
+    // `flex h-full flex-col` is what a page-mounted MasterFullScreen REQUIRES:
+    // it takes `flex-1 min-h-0` and needs a definite height to divide. `h-full`
+    // resolves against `<main className="flex-1 overflow-y-auto">` in
+    // app/(app)/layout.tsx. Leave this as `space-y-4` and the editor sizes to its
+    // content, stranding the footer above a strip of empty page.
+    <div className="flex h-full flex-col gap-4">
+      <PageHeader title={editId ? "Edit Thing" : "New Thing"} description="…" />
+      <MasterFullScreen
+        ref={shellRef}
+        mount="page"
+        open
+        // No `header`: the PageHeader above already names the record, and two
+        // title bands stacked is the same record announced twice.
+        onClose={() => router.back()}
+        modeLabel={null}
+        dirty={dirty}
+        sections={sections}
+        footer={{
+          // Names the save state, and reads a real dirty flag.
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New thing",
+          onCancel: () => router.back(),
+          onSave: () => submit(false),
+          // Names the ENTITY — "Save thing", not a bare "Save" that could belong
+          // to any record on any screen.
+          saveLabel: "Save thing",
+          canSave: validity.canSave,
+          // Keeps Save clickable when blocked, so it explains itself instead of
+          // going silently dead — and so Ctrl+S and Enter-off-the-last-field
+          // reach the same handler. See references/traps.md #2.
+          onBlockedSave: revealFirstProblem,
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          isPending,
+        }}
+      />
+    </div>
+  );
+}

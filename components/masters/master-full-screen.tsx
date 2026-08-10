@@ -3,10 +3,12 @@
 import {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import { X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,7 +21,12 @@ import {
   registerContentEdge,
 } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
-import { useModalGuard, confirmDiscard, hasOpenModalInDom } from "@/lib/reload-guard";
+import {
+  useModalGuard,
+  useUnsavedGuard,
+  confirmDiscard,
+  hasOpenModalInDom,
+} from "@/lib/reload-guard";
 
 /**
  * The COMPLEX-tier editor surface: a full-screen takeover with a left section
@@ -45,8 +52,57 @@ export type FullScreenSection = {
   icon: LucideIcon;
   /** Completion dot on the rail ("has data"). */
   done?: boolean;
+  /**
+   * BLOCKING problems in this section — a red count on the rail, replacing the
+   * `done` dot, and where `goToSection(key, "problem")` steers.
+   *
+   * It exists because only ONE section is mounted at a time, which makes a
+   * blocked Save unexplainable without it: `customer-master-screen.tsx:1649`
+   * and `vendor-master-screen.tsx:2240` both read
+   *   canSave: !!form.name.trim() && !gstDupError && !nameDupError
+   * where those two errors render in two DIFFERENT sections. An operator on
+   * Identity with a colliding GST number on General sees a dead Save button, no
+   * error anywhere on screen, and — until `goToSection` below — no way for the
+   * screen to take them there even if it knew.
+   *
+   * A COUNT, not a dot: on a ten-section document a dot says "something is
+   * wrong here" and a count says how much is left, which is the difference
+   * between one trip to the section and three.
+   *
+   * Blocking only. Derive it from `blockingBySection` in `lib/screens/validity.ts`
+   * so that a red badge and a cursor that will not leave a field always mean the
+   * same thing — an advisory that deadened a section would teach the operator to
+   * distrust both.
+   */
+  problems?: number;
   /** Rendered only while this section is active. */
   content: ReactNode;
+};
+
+/**
+ * Where the cursor lands after a section switch.
+ *
+ * `"problem"` and `{fieldId}` are consulted only AFTER the target section has
+ * mounted — which is the whole reason validity is computed from state rather
+ * than read off the DOM. A blank mandatory field on an inactive section has no
+ * node, so it carries no `data-required-empty` for a query to find.
+ */
+type Landing = "first" | "last" | "problem" | { fieldId: string };
+
+export type MasterFullScreenHandle = {
+  /**
+   * Switch section and place the cursor. The API this surface has never had:
+   * `section` is local `useState` with no way in from a parent, so a screen that
+   * knew which section held the error still could not go there.
+   *
+   * `"problem"` targets the first field carrying `data-dup-error`, then
+   * `data-required-empty` — duplicate first, the same precedence `holdReason()`
+   * in `keyboard-nav-provider.tsx` already applies, because "already exists" is
+   * the more useful thing to say. The operator therefore lands on a field that
+   * is ALREADY holding, and the existing cursor hold takes over: the reveal and
+   * the hold are the same mechanism seen from opposite ends.
+   */
+  goToSection: (key: string, land?: Landing) => void;
 };
 
 /** The rail's section buttons, in order. */
@@ -55,6 +111,9 @@ function railButtons(rail: HTMLElement | null): HTMLElement[] {
 }
 
 export function MasterFullScreen({
+  ref,
+  mount = "overlay",
+  dirty = false,
   open,
   onClose,
   modeLabel,
@@ -63,11 +122,52 @@ export function MasterFullScreen({
   initialSection,
   footer,
 }: {
+  ref?: Ref<MasterFullScreenHandle>;
+  /**
+   * WHERE THIS SURFACE IS MOUNTED. Same rail, same header, same footer, same
+   * keyboard — two hosts.
+   *
+   * `"overlay"` (default) — a `fixed inset-0` takeover above a list. Every
+   * existing caller is this, and nothing about it changes.
+   *
+   * `"page"` — the editor IS the route (`/orders/amendments/[id]`), sitting in
+   * normal flow under the app chrome. This is what a DOCUMENT needs: a
+   * shareable link, a working browser Back, and a screen that survives a
+   * refresh. It is also the only way a rail editor can replace a page-level top
+   * tab strip without eating the sidebar.
+   *
+   * What must NOT differ is the content pane: it carries `data-focus-scope` and
+   * `data-focus-region="content"` in both, so `isEditorScope()` is true either
+   * way. That marker is precisely the one AGENTS.md records ~51 page-level
+   * editors as missing (`--check tab-page-form`), and a page mount here cannot
+   * be missing it because it is not conditional on the mount.
+   */
+  mount?: "overlay" | "page";
+  /**
+   * Unsaved work. PAGE MOUNT ONLY, and required there.
+   *
+   * A page mount cannot use `useModalGuard`: that blocks the silent PWA
+   * auto-update for as long as the surface is mounted, and on a route that is
+   * forever — the same failure AGENTS.md records for an ungated tooltip flag
+   * ("permanently blocks the silent auto-update on that route"). An overlay is
+   * transient and modal; a page is neither. So a page gates the reload on real
+   * dirtiness instead.
+   */
+  dirty?: boolean;
+  /** Always true on a page mount — the route IS the editor. */
   open: boolean;
   onClose: () => void;
   /** Thin top strip, e.g. <>Editing <b>Acme</b></> — pair with the ✕ it renders. */
   modeLabel: ReactNode;
-  header: {
+  /**
+   * The sticky identity band. OPTIONAL — omit it and the band is not rendered.
+   *
+   * An overlay needs it: it covers the whole screen, so without it there is
+   * nothing on screen naming the record being edited. A PAGE mount usually does
+   * not, because the route already carries a `PageHeader` above it, and two
+   * title bands stacked is the same record announced twice.
+   */
+  header?: {
     /** Defaults to an initials block derived from `initials`. */
     avatar?: ReactNode;
     /** Fallback text for the default avatar (e.g. "AC"). */
@@ -88,11 +188,33 @@ export function MasterFullScreen({
     onCancel: () => void;
     onSave: () => void;
     saveLabel: string;
+    /**
+     * "The record is complete." When this is false AND `onBlockedSave` is
+     * supplied, Save stays CLICKABLE — see `onBlockedSave`.
+     */
     canSave: boolean;
+    /**
+     * Called instead of `onSave` when `canSave` is false. Supply it and Save
+     * stops being disabled and starts being informative: the screen toasts the
+     * reason and calls `goToSection(problem.section, "problem")`.
+     *
+     * KEEPING THE BUTTON ENABLED IS NOT COSMETIC. `submitTargetOf`
+     * (`lib/focus.ts`) resolves the surface's primary action to the footer's
+     * last NON-disabled button. Disable Save and Enter-off-the-last-field and
+     * Ctrl+S both fall through to "Save as Draft" or Cancel — which is the
+     * 2026-07-25 bug where Ctrl+S resolved to Cancel. Enabled, all three entry
+     * points route here and do the same thing.
+     *
+     * Omit it and the button behaves exactly as it always has: disabled.
+     */
+    onBlockedSave?: () => void;
     /** Renders a "Save as Draft" outline button when provided. */
     onSaveDraft?: () => void;
     draftLabel?: string;
     isPending?: boolean;
+    /** Between the status text and Cancel — e.g. a "3 to fix" summary that
+     *  re-fires the reveal. Chrome, so Tab steps over it and the mouse reaches it. */
+    extra?: ReactNode;
   };
 }) {
   const firstKey = initialSection ?? sections[0]?.key ?? "";
@@ -106,7 +228,7 @@ export function MasterFullScreen({
   // upwards, so the section hand-off has to be keyed on this one.
   const paneRef = useRef<HTMLDivElement>(null);
   /** Where the cursor lands after a section switch — see `onContentEdge`. */
-  const landingRef = useRef<"first" | "last">("first");
+  const landingRef = useRef<Landing>("first");
   // Latest sections/active key behind a ref, so `onContentEdge` (registered once
   // per open) reads the current ones without re-subscribing on every render (the
   // `sections` array is a fresh literal at every consumer's render).
@@ -118,7 +240,15 @@ export function MasterFullScreen({
   // Hold off the silent PWA auto-reload while this editor is open. Required
   // explicitly: unlike Sheet, this overlay is a bare fixed-inset div with no
   // role="dialog", so reload-guard's DOM scan cannot see it.
-  useModalGuard(open);
+  //
+  // OVERLAY ONLY — see the `dirty` prop. A modal guard on a route never lifts,
+  // so the page would never receive a deploy.
+  useModalGuard(open && mount === "overlay");
+
+  // The page mount's counterpart: gate on real unsaved work, and include
+  // `isPending` — a reload landing mid-server-action loses the success toast and
+  // leaves the operator unsure whether the save committed (AGENTS.md, STANDING).
+  useUnsavedGuard(mount === "page" && (dirty || !!footer.isPending));
 
   // Re-open always lands on the initial section.
   useEffect(() => {
@@ -133,23 +263,74 @@ export function MasterFullScreen({
   //
   // The timeout is load-bearing: a section switch re-mounts the content, so the
   // fields we are aiming at do not exist until after the commit.
-  useEffect(() => {
-    if (!open) return;
+  const land = useCallback(() => {
     const landing = landingRef.current;
     landingRef.current = "first";
-    const id = window.setTimeout(() => {
-      const moved =
-        landing === "last" ? focusLastField(contentRef.current) : focusFirstField(contentRef.current);
-      // A section with nothing focusable in it (a pure summary pane) would
-      // otherwise strand the cursor on the node we just unmounted — i.e. on
-      // <body>, where no key reaches the form at all. Fall back to the rail.
-      if (!moved) {
-        const btn = railButtons(railRef.current).find((el) => el.dataset.sectionKey === section);
-        if (btn) focusField(btn);
+    const pane = contentRef.current;
+    let moved = false;
+
+    // A named field wins outright — it is the only landing that can promise the
+    // cursor reaches the control the message is about, rather than the first
+    // marked one in the section.
+    if (typeof landing === "object") {
+      const el = pane?.querySelector<HTMLElement>(`#${CSS.escape(landing.fieldId)}`);
+      if (el) {
+        focusField(el);
+        moved = true;
       }
-    }, 60);
+    } else if (landing === "problem") {
+      // The two markers the holds already use. Duplicate first, the same
+      // precedence `holdReason()` applies for a field that is somehow both.
+      const el =
+        pane?.querySelector<HTMLElement>("[data-dup-error]") ??
+        pane?.querySelector<HTMLElement>("[data-required-empty]");
+      if (el) {
+        focusField(el);
+        moved = true;
+      }
+    }
+
+    // Both targeted landings fall back rather than stranding the cursor: a
+    // problem the screen knows about may not have painted its marker yet.
+    if (!moved) {
+      moved = landing === "last" ? focusLastField(pane) : focusFirstField(pane);
+    }
+    // A section with nothing focusable in it (a pure summary pane) would
+    // otherwise strand the cursor on the node we just unmounted — i.e. on
+    // <body>, where no key reaches the form at all. Fall back to the rail.
+    if (!moved) {
+      const btn = railButtons(railRef.current).find(
+        (el) => el.dataset.sectionKey === navRef.current.section,
+      );
+      if (btn) focusField(btn);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(land, 60);
     return () => window.clearTimeout(id);
-  }, [open, section]);
+  }, [open, section, land]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      goToSection(key, landing = "first") {
+        landingRef.current = landing;
+        // Already on that section: no state change means no effect, so nothing
+        // would move. `setTimeout(0)` rather than a direct call because the
+        // caller is usually reacting to values that changed in this same commit
+        // — a just-appeared duplicate error has no marker in the DOM until
+        // React has painted it.
+        if (key === navRef.current.section) {
+          window.setTimeout(land, 0);
+          return;
+        }
+        setSection(key);
+      },
+    }),
+    [land],
+  );
 
   /**
    * MOVING PAST THE LAST FIELD OF A SECTION OPENS THE NEXT SECTION — Tab off the
@@ -205,14 +386,25 @@ export function MasterFullScreen({
   // sees the key, which is also what stops a held Tab from switching section out
   // from under the message.
 
+  /**
+   * ONE resolution of "save" for all three entry points: the footer button,
+   * Ctrl/⌘+S, and Enter off the last field of the last section (which arrives
+   * here because `submitTargetOf` picks the footer's last NON-disabled button).
+   *
+   * They must not be able to disagree, and they used to. With Ctrl+S carrying
+   * its own `canSave` guard and the button carrying `disabled`, a blocked save
+   * was two separate silences for two separate reasons — and if the button was
+   * disabled, Enter and Ctrl+S resolved to whatever button was last instead.
+   */
+  const blocked = !footer.canSave && !!footer.onBlockedSave;
+  const fireSave = () => {
+    if (footer.isPending) return;
+    if (footer.canSave) footer.onSave();
+    else footer.onBlockedSave?.();
+  };
+
   // Ctrl/⌘+S saves the open editor (checklist keyboard shortcut).
-  useRegisterShortcut(
-    "save",
-    () => {
-      if (!footer.isPending && footer.canSave) footer.onSave();
-    },
-    open,
-  );
+  useRegisterShortcut("save", fireSave, open);
 
   // Latest onClose behind a stable ref, so the listener registered on open
   // doesn't capture a stale closure when the caller re-renders.
@@ -222,8 +414,15 @@ export function MasterFullScreen({
   });
 
   // Escape closes the editor, asking first when there is unsaved work.
+  //
+  // OVERLAY ONLY, and the omission on a page mount is deliberate rather than an
+  // oversight. The provider's window-bound last layer already does
+  // `hasOpenModalInDom()` → `confirmDiscard()` → `router.back()`, which is the
+  // correct bottom rung of "Escape unwinds one layer per press, down to leaving
+  // the page". A second listener here would ask the discard question twice, and
+  // the `preventDefault()` below would stop the page ever being left at all.
   useEffect(() => {
-    if (!open) return;
+    if (!open || mount !== "overlay") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       // Anything modal ABOVE us owns Escape: nested picker Sheets stack over
@@ -242,17 +441,20 @@ export function MasterFullScreen({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, mount]);
 
   // Lock body scroll behind the overlay (same behavior the customer editor had).
+  //
+  // OVERLAY ONLY. On a page mount the editor IS the document flow, so locking
+  // `body.overflow` would freeze the very page it is rendered on.
   useEffect(() => {
-    if (!open) return;
+    if (!open || mount !== "overlay") return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [open]);
+  }, [open, mount]);
 
   /**
    * The rail is an ARIA tablist with MANUAL activation: arrows move focus
@@ -282,55 +484,88 @@ export function MasterFullScreen({
 
   if (!open) return null;
 
+  const overlay = mount === "overlay";
   const active = sections.find((s) => s.key === section) ?? sections[0];
 
   return (
     <div
       ref={rootRef}
-      className="fixed inset-0 z-[80] flex flex-col bg-background"
+      className={cn(
+        "flex flex-col bg-background",
+        overlay
+          ? "fixed inset-0 z-[80]"
+          : /**
+             * FILLS ITS SCROLLPORT, rather than sizing to its content.
+             *
+             * `min-h-[70vh]` was the first cut and it left a dead strip of page
+             * below the footer: `sticky bottom-0` can only reach the bottom of
+             * its own container, so a container that stops short of the
+             * scrollport parks the Save button halfway up the screen with
+             * nothing under it (client 2026-08-10).
+             *
+             * `flex-1 min-h-0` works because the app shell gives it a definite
+             * height to divide: `app/(app)/layout.tsx` renders
+             * `<main className="flex-1 overflow-y-auto">` inside a
+             * `<div className="flex h-screen">`. The host screen's root must be
+             * `flex h-full flex-col` for this to resolve — that is the one thing
+             * a page mount asks of its caller.
+             *
+             * `min-h-0` is not optional: a flex item's default `min-height:auto`
+             * refuses to shrink below its content, so without it a long record
+             * pushes the footer back off the bottom and the gap returns.
+             */
+            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border",
+      )}
     >
-      {/* topbar */}
-      <div
-        className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5"
-        // Tab order is fields → footer → ✕: the close button stays reachable by
-        // keyboard but lands last, out of the typing path. See orderedFocusables.
-        data-focus-region="header"
-      >
-        <div className="text-xs text-muted-foreground">{modeLabel}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-          aria-label="Close"
+      {/* topbar — OVERLAY ONLY. A route already has browser Back, a breadcrumb
+          and the app chrome above it, so a second ✕ is chrome for nothing; the
+          page's own header owns "← Back to list". */}
+      {overlay && (
+        <div
+          className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5"
+          // Tab order is fields → footer → ✕: the close button stays reachable by
+          // keyboard but lands last, out of the typing path. See orderedFocusables.
+          data-focus-region="header"
         >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
+          <div className="text-xs text-muted-foreground">{modeLabel}</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      )}
 
-      {/* record header (sticky identity band) */}
-      <div className="grid gap-3 border-b border-border bg-surface px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          {header.avatar ?? (
-            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-primary/10 text-base font-bold text-primary">
-              {header.initials ?? "—"}
-            </div>
-          )}
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Truncated className="text-[15px] font-bold tracking-tight text-foreground">
-                {header.title}
-              </Truncated>
-              {header.badges}
-            </div>
-            {header.meta && (
-              <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                {header.meta}
+      {/* record header (sticky identity band) — omitted entirely when the host
+          route already names the record. See the `header` prop. */}
+      {header && (
+        <div className="grid gap-3 border-b border-border bg-surface px-4 py-3 md:grid-cols-[1fr_auto] md:items-center md:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            {header.avatar ?? (
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-primary/10 text-base font-bold text-primary">
+                {header.initials ?? "—"}
               </div>
             )}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Truncated className="text-[15px] font-bold tracking-tight text-foreground">
+                  {header.title}
+                </Truncated>
+                {header.badges}
+              </div>
+              {header.meta && (
+                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  {header.meta}
+                </div>
+              )}
+            </div>
           </div>
+          {header.right && <div className="flex flex-col gap-1.5 md:items-end">{header.right}</div>}
         </div>
-        {header.right && <div className="flex flex-col gap-1.5 md:items-end">{header.right}</div>}
-      </div>
+      )}
 
       {/* body: rail + content */}
       <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[228px_1fr]">
@@ -379,13 +614,36 @@ export function MasterFullScreen({
                     vocabulary is fixed and short, and clicking the step shows
                     the section whose heading names it again in full. */}
                 <span className="flex-1 truncate whitespace-nowrap">{s.label}</span>
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 shrink-0 rounded-full border",
-                    s.done ? "border-accent bg-accent" : "border-border bg-transparent",
-                  )}
-                  aria-label={s.done ? "has data" : "empty"}
-                />
+                {/* The count REPLACES the done dot rather than sitting beside
+                    it: a section with blocking problems is not "done", and two
+                    indicators on a 228px rail item is where the label starts
+                    truncating.
+
+                    `bg-danger-soft text-danger` is the app's existing danger
+                    badge idiom (status-pill.tsx), and it is the theme-safe one —
+                    there is no `--danger-foreground` token, so a filled
+                    `bg-danger` would need hardcoded white text and `--danger`
+                    inverts to a LIGHT red in dark mode.
+
+                    The aria-label rides inside the button, so the rail item's
+                    accessible name becomes "Identity 2 problems" — the count is
+                    announced with the section rather than as loose chrome. */}
+                {s.problems ? (
+                  <span
+                    className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-danger-soft px-1 text-[10px] font-bold leading-none text-danger"
+                    aria-label={`${s.problems} problem${s.problems === 1 ? "" : "s"}`}
+                  >
+                    {s.problems}
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 shrink-0 rounded-full border",
+                      s.done ? "border-accent bg-accent" : "border-border bg-transparent",
+                    )}
+                    aria-label={s.done ? "has data" : "empty"}
+                  />
+                )}
               </button>
             );
           })}
@@ -393,6 +651,13 @@ export function MasterFullScreen({
 
         <div
           ref={paneRef}
+          // IDENTICAL ACROSS BOTH MOUNTS, including the scroller. The pane owns
+          // its own scrollbar either way, which is what pins the footer to the
+          // bottom of the surface instead of to the end of the content.
+          //
+          // `data-focus-scope` is what makes `isEditorScope()` true and what
+          // `registerContentEdge` keys the section hand-off on, so those two
+          // attributes especially must never become conditional on the mount.
           className="min-h-0 flex-1 overflow-y-auto"
           // Field navigation comes from keyboard-nav-provider.tsx; this pane is
           // the navigation boundary because it carries data-focus-scope.
@@ -420,9 +685,32 @@ export function MasterFullScreen({
         </div>
       </div>
 
-      {/* sticky footer */}
+      {/* sticky footer. On a page mount it sticks to the bottom of the viewport
+          while the document scrolls behind it, with the safe-area inset Sheet
+          already worked out — a short record must not leave the buttons
+          orphaned halfway up (client 2026-08-04). */}
       <div
-        className="flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6"
+        className={cn(
+          "flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6",
+          /**
+           * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
+           * filling its scrollport rather than a separate decision.
+           *
+           * `app/globals.css` (its `@media (min-width: 768px)` block) already
+           * lifts the Bug Reporter's floating trigger to `bottom: 4.5rem`
+           * because "every full-screen master editor and every Sheet drawer's
+           * sticky footer places its primary Save button in the same
+           * bottom-right corner as the SDK's desktop default".
+           *
+           * That lift assumes the footer sits at the VIEWPORT bottom. While the
+           * page mount was `min-h-[70vh]` its footer sat higher, the lifted
+           * trigger landed on top of Save, and this carried a ~96px gutter to
+           * dodge it. Now that both mounts end at the same place, the gutter was
+           * papering over the geometry rather than the geometry being right —
+           * one rule in globals.css covers both surfaces again.
+           */
+          !overlay && "sticky bottom-0 z-10 pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
+        )}
         // Tabbed after the fields, before the ✕. Note this does NOT change what
         // Enter does: `submitSurface` is handed the nav SCOPE (the content pane),
         // which does not contain this footer, so Enter still saves through the
@@ -431,6 +719,7 @@ export function MasterFullScreen({
       >
         {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
         <div className="flex-1" />
+        {footer.extra}
         <Button variant="outline" size="md" onClick={footer.onCancel}>
           Cancel
         </Button>
@@ -444,7 +733,22 @@ export function MasterFullScreen({
             {footer.draftLabel ?? "Save as Draft"}
           </Button>
         )}
-        <Button size="md" disabled={footer.isPending || !footer.canSave} onClick={footer.onSave}>
+        {/* Dimmed but ENABLED while blocked, and deliberately NOT `aria-disabled`
+            — it does something when clicked (reveals the first problem), and
+            telling a screen reader it is unavailable would be a lie about a
+            control that acts. The reason is announced by the screen's toast in
+            `onBlockedSave`.
+
+            Staying undisabled is also load-bearing for the keyboard:
+            `submitTargetOf` takes the footer's last non-disabled button, so a
+            disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
+        <Button
+          size="md"
+          disabled={footer.isPending || (!footer.canSave && !blocked)}
+          data-blocked={blocked || undefined}
+          className={cn(blocked && "opacity-60")}
+          onClick={fireSave}
+        >
           {footer.isPending ? "Saving…" : footer.saveLabel}
         </Button>
       </div>

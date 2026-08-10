@@ -556,6 +556,147 @@ footer on the next. It also does not exempt the two declaring components: skippi
 `data-io-toolbar.tsx` would have made the check pass while the actual cause sat untouched.
 `doc/ui/LAYOUT.md` §10.
 
+## The sidebar lists SUB-MODULES (STANDING)
+
+**A module's sidebar shows groups and standalone screens — never a screen that
+lives under another screen in the same list.** Two levels in the sidebar, the
+third on the page. Master Data always had this shape (five sub-modules;
+Materials' ~40 entities live on its hub) and every other module was a flat dump
+of leaf screens until 2026-08-07, when the client reported the two as
+conflicting.
+
+Four distinct ways the lists were wrong. The third looks like a detail; the
+fourth survived the first regrouping and is the one this section exists to stop
+recurring:
+
+- **A sub-module beside its own child.** Purchase listed `Indents` and
+  `Indent Approval` as equals — the second is `/purchase/indents/approval`, a
+  route *beneath* the first.
+- **A family flattened into its members.** Planning's 20 rows are really 6 BOM
+  screens and 6 PPM screens plus strays, with no BOM or PPM row to hold them.
+- **The module repeated as its own first child.** Production listed
+  `Production Board → /production`, Logistics `Shipments → /logistics`, Reports
+  `All Reports → /reports`. The module label already navigates there
+  (`sidebar.tsx`), so those were two rows opening one page.
+  **This is about ROWS, and a hub CARD is not a row.** A sub-module that leaves
+  out the screen its own work starts on just sends the operator hunting — Orders
+  ▸ Order Entry listed Order Booking, Pack Ratios and Excess Orders but not
+  Garment Orders, the screen an order is entered on (client 2026-08-08). So a
+  group child MAY be the module root, and `owningNavHref` skips it when
+  resolving: without that, visiting `/orders` matches the leaf, highlights the
+  *sub-module*, and `parentStrong` drops off the module row — the operator lands
+  on Orders and the sidebar tells them they are in Order Entry.
+  **A group child may also be a screen ANOTHER group owns**, marked
+  `cardOnly: true` — Order Entry lists Order Amendment because raising one is
+  Order Entry work, while the row stays under Amendments beside the other three
+  amendment screens. The flag is what keeps a second *listing* from becoming a
+  second *row*: `owningNavHref` skips it (or the operator lands on the screen
+  with the wrong sub-module lit) and `moduleLeafItems` skips it (or the command
+  palette offers the same screen twice under two group labels). Both halves are
+  asserted — a `cardOnly` child must resolve to somewhere OTHER than the group
+  listing it, and never to nothing, which would mean the second listing
+  orphaned it. **Cross-list, never re-parent**: moving the row instead would
+  strand Order Amendment away from Material BOM / Process / Approve Amendment.
+- **A LEAF THAT IS ITSELF A HUB.** The inverse of the first one, and it hides
+  where the first is obvious. The 08-07 regrouping registered
+  `/orders/garment-orders` as a leaf of Order Entry, described as "Create and
+  track garment orders through their lifecycle" — the file was a 14-card
+  `HubCard` grid duplicating `/orders`, right down to the same `PageHeader`
+  title, and its own "All Orders" card pointed back at `/orders`. So the
+  operator clicked a sidebar row, got cards, clicked a card, got the same cards,
+  and the third click returned them to where they started; the 14 screens behind
+  it were in no sidebar row and no search result (client 2026-08-08). **Every
+  other assertion passed** — the route existed, resolved to its group and was in
+  search — because "the route exists" is not "the route is a screen". Assertion
+  8 in `check-module-groups.mts` is what catches it: a leaf's `page.tsx` may not
+  import `HubCard` or `GroupHub`. Verify a new assertion by making it FAIL
+  before trusting it; this one was, against a leaf pointed at a known hub, and
+  it was the only check of the eight that fired.
+  **A hub is fine as a GROUP** — `/orders/garment-orders` is one again (below).
+  The rule is about a *leaf* rendering cards, so the fix for "this leaf is a hub"
+  is to register it as a group, never to keep it a leaf and hide the import.
+
+**A screen that loses its sidebar row keeps its URL.** A dissolved hub becomes a
+`redirect()`, never a deletion, and it is declared in `REDIRECTED` in the check
+script rather than quietly struck from `OLD_NAV_LEAVES` — the assertion "nothing
+the old nav reached is orphaned" is only worth running while removing an entry
+from it stays deliberate. The redirect target is asserted too, so a declaration
+cannot outlive the file. `REDIRECTED` is empty today; keep the table, not the
+habit of emptying it.
+
+**GARMENT ORDERS IS BACK, AS A GROUP** (operator request, 2026-08-08). It was a
+redirect for one day. What was wrong with it was never that the landing page
+existed — an operator who has used the 14-step flow for years looks for it — but
+that its card list was a hand-maintained literal, which is how its 14 screens sat
+on the page and in no sidebar row simultaneously. So it returns as a registered
+sub-module: `slug: "garment-orders"`, rendered by `GroupHub` from the same
+registry the sidebar reads, and **every child marked `cardOnly`**. That is what
+makes the restoration cheap — it adds exactly one sidebar row, and not one screen
+changes owner, gains a second search hit, or leaves the flow group (Order Setup,
+Order Entry, Amendments, …) that owns it. The amendment screens reach the
+operator two ways on purpose: down the flow, or off the hub.
+
+**AND THE HUB NESTS ONE HUB.** Its ten cards include `Amendments`, which opens
+`/orders/changes` — so the four amendment screens are the FOURTH level: module
+row, Garment Orders row, Amendments card, screen (operator request, 2026-08-08).
+That is a card opening another card list, which is the shape assertion 8 exists
+to ban, so the assertion was narrowed rather than waived: a hub-to-hub link is
+allowed **only** when the target is a REGISTERED group of the same module and the
+card is `cardOnly`. Both halves earn their place — registered means the nested
+hub has its own sidebar row and its own search entries, so nothing is reachable
+by cards alone; `cardOnly` means it did not steal them. What stays banned is
+unchanged and is the thing that actually broke: **a card grid nobody declared**.
+
+Permitting hub-to-hub links removed a loop that used to be structurally
+impossible, so it is now asserted. Assertion 8 rejects a hub carrying a card
+pointing at itself, and **assertion 9 walks the hub graph for longer cycles** —
+A cards to B, B cards back to A, and the operator circles. Verified by making it
+fail (a `/orders/garment-orders` card added to Amendments →
+`hub cycle in /orders: /orders/garment-orders → /orders/changes →
+/orders/garment-orders`) before being trusted.
+
+Two things that came back with it. `/orders` is deliberately both the module row
+and this hub's first card — assertion 5 tests the module root FIRST for exactly
+this reason, since it is `cardOnly` *and* legitimately owned by no row in the
+table (the module row owns it), and testing `cardOnly` ahead of it fails a
+correct registry. And `Material BOM` (`/orders/material-bom`) was a card on the
+legacy hub and is **not** restored: the route has never existed here, so it was a
+dead tile — assertion 2 would now catch it, which is the point of registering the
+cards instead of hand-writing them.
+
+**One declaration, three readers.** `lib/nav/module-groups.ts` is the registry;
+`nav.ts` derives `children` from it, `GroupHub` renders each hub page's cards
+from it, and `nav-search.ts` reads it for the screens the sidebar now hides.
+That is the same lesson `lib/reports/catalog.ts` records — the nav list and the
+landing grid were once two hand-edited literals nothing kept in sync.
+
+Four things that are not obvious and each cost something to learn:
+
+- **Grouping does NOT move the leaf routes.** `/planning/fabric-bom` stays where
+  it is; a group slug is a new route that renders tiles. Re-parenting would
+  break every deep link and bookmark for no gain.
+- **Which is why `owningNavHref` exists.** The sidebar highlights a child by
+  prefix, and a leaf is not a path beneath its group — so without the registry
+  lookup, `/planning/fabric-bom` highlights no sub-module and the operator loses
+  their place. Master Data never needed it: its entities really do nest
+  (`/masters/materials/yarn`).
+- **Search must not shrink with the sidebar.** Nav search walks a module's
+  `children`; once those are groups, "Fabric BOM" and every leaf-keyed
+  `SECTION_ACTIONS` entry ("/hr/workers" → "New Worker") stop being findable.
+  `moduleLeafItems()` is what puts them back, and it is asserted, not assumed.
+- **Hubs are static pages, not one `[group]` route per module.** Four modules
+  already own a dynamic segment at that level (`/orders/[orderId]`,
+  `/stores/[storeId]`, `/sales/[opportunityId]`, `/logistics/[shipmentId]`), and
+  Next.js refuses two slug names for one dynamic path — so a generic `[group]`
+  beside them is a build error, not a style choice.
+
+Sales and Reports keep a literal list: Sales already listed five sub-modules,
+Reports is derived from the report catalog. Checked by `npm run check:nav`,
+which asserts a hub page per group, a real route per leaf, no row beneath
+another row, no row duplicating its module root, every leaf resolving back to
+its group, every leaf still in search, and nothing the old flat nav reached
+being orphaned.
+
 ## Browser autofill (STANDING)
 
 **The browser's memory is not a master list.** Chrome remembers every value ever typed

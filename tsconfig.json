@@ -41,9 +41,11 @@
   ],
   "exclude": [
     "node_modules",
+    "scripts/check-amendment-diff.mts",
     "scripts/check-gstin.mts",
     "scripts/check-name-suggest.mts",
     "scripts/check-keyboard-holds.mts",
+    "scripts/check-module-groups.mts",
     "scripts/mine-name-vocabularies.mts",
     "scripts/vocab-sources/**/*.mts"
   ]

@@ -1,5 +1,6 @@
 import { cloneElement, createContext, isValidElement, useContext, type ReactNode } from "react";
 import { Label } from "@/components/ui/label";
+import type { FieldSize } from "@/lib/ui/sizes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -100,7 +101,14 @@ export function useRequiredHold(
  * The classes are a static lookup, never interpolated — Tailwind v4 scans source
  * text, so a computed `@lg/section:col-span-${n}` would produce no CSS at all.
  */
-export type FieldSize = "xs" | "sm" | "md" | "lg" | "xl" | "full";
+/**
+ * Declared in `lib/ui/sizes.ts` and re-exported here, so the ~90 call sites that
+ * import it from this file are untouched — and so a DESCRIPTOR can name a width
+ * without dragging a `.tsx` module into an import graph that plain Node has to
+ * be able to load. The reasoning is in that file; the SPAN map below is the half
+ * that stays here.
+ */
+export type { FieldSize };
 
 /**
  * The 12-col track that the spans below query. Exported so `DetailSection` and

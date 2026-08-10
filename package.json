@@ -10,6 +10,8 @@
     "gen:icons": "node scripts/generate-pwa-icons.mjs",
     "mine:vocab": "node --experimental-strip-types scripts/mine-name-vocabularies.mts",
     "check:names": "node --experimental-strip-types scripts/check-name-suggest.mts",
+    "check:amendment-diff": "node --experimental-strip-types scripts/check-amendment-diff.mts",
+    "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "lint": "eslint"
   },
   "dependencies": {
