@@ -131,6 +131,21 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
+
+  /**
+   * The record's serial (STL-2627-81), for the read-only field on General.
+   *
+   * READ OFF THE ROW, NOT HELD IN `HeaderForm`. The DB trigger owns `code` and
+   * `garmentStyleInput` has no key for it, so a value that never enters `form`
+   * can never be sent by accident — now or after a future refactor of the
+   * payload, which is assembled field by field. Reading `rows` also means a
+   * newly created style's number appears on its own: `router.refresh()` already
+   * brings the saved row back.
+   *
+   * Null on a new record, because the trigger assigns on INSERT — there
+   * genuinely is no serial yet, and the field says `(auto)` rather than blank.
+   */
+  const editingCode = rows.find((r) => r.id === editId)?.code ?? null;
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [coords, setCoords] = useState<CoordRow[]>([]);
   const [comps, setComps] = useState<CompRow[]>([]);
@@ -488,7 +503,11 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   if (mode === "list") {
     const columns: Column<GarmentStyle>[] = [
       {
-        header: "Code",
+        // "Serial No", matching the field on General. `Code` is the word this
+        // app hides from operators everywhere else (codes are backend-only,
+        // client 2026-07-23) — this column survived because the value here IS
+        // the human identifier, so it should be named the way the form names it.
+        header: "Serial No",
         cell: (r) => (
           <button
             type="button"
@@ -863,6 +882,33 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       content: (
         <SectionBody title="General" hint="Season, category and how this style is counted.">
           <FieldGrid>
+            {/**
+              * THE SERIAL — STL-<fy><fy+1>-<n>, e.g. STL-2627-81.
+              *
+              * First on the section: the number the record is KNOWN by should
+              * read before what classifies it. It was previously rendered in
+              * exactly one place, the list's "Code" column, so an operator who
+              * opened a style could not see it at all (reported 2026-08-10).
+              *
+              * `readOnly` is doing three jobs at once, all of them house rules:
+              * `Input` sets `tabIndex={-1}` on a readOnly field itself, so this
+              * leaves the Tab path, the arrows and the focus trap without a
+              * per-screen opt-out; `useRequiredHold` is gated on `!readOnly`, so
+              * it can never become a cage with no keyboard way out; and a
+              * read-only `(auto)` field is CAPS-exempt, hence no `uppercase`.
+              *
+              * The value is assigned by the DB trigger on INSERT, so a new style
+              * has none and the box reads `(auto)`.
+              *
+              * NOTE: until 0392 is applied the live trigger is still 0124's
+              * `assign_code('STL', seq)`, so this correctly shows STL-0001 —
+              * four padded digits, no fiscal year, no yearly reset. Do NOT
+              * "fix" that by reformatting here: a second numbering rule in the
+              * UI would make this field and the database disagree.
+              */}
+            <Field label="Serial No" size="sm" htmlFor="st-code">
+              <Input id="st-code" readOnly value={editingCode ?? ""} placeholder="(auto)" />
+            </Field>
             <Field label="Season" size="sm" htmlFor="st-season">
               <Select id="st-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
                 <option value="">—</option>
