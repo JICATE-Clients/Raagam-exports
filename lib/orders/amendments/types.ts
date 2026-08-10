@@ -209,16 +209,6 @@ export interface GarmentOrderAmendment {
 const nullableText = z.string().optional().nullable();
 const uuidN = z.string().uuid().nullable().default(null);
 const num = z.coerce.number().default(0);
-const intN = z.coerce.number().int().default(0);
-
-export const amendmentChargeInput = z.object({
-  sno: z.coerce.number().int().nonnegative().default(0),
-  section: z.enum(["less", "add"]).default("less"),
-  label: nullableText,
-  calc_mode: nullableText,
-  amount: num,
-  unit: nullableText,
-});
 
 export const amendmentStylePriceInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
@@ -313,36 +303,37 @@ export const amendmentInput = z.object({
   excess_pct: num,
   pack: z.boolean().default(false),
   mult_ord: z.boolean().default(false),
+  /**
+   * WITHDRAWN FROM THE FORM 2026-08-10 (client), and therefore from this schema.
+   *
+   * `department_id`, `agent_id`, `received_mode`, the whole `charges` child and
+   * `cd1_pct … cd3_days` are no longer asked for. Their COLUMNS and their stored
+   * values are untouched.
+   *
+   * Leaving them OUT OF THE SCHEMA is the half that matters: a field left here
+   * with a `.default()` is written by `headerOnly(p.data)` on every update, so
+   * it would null out what it no longer collects. Same reasoning as
+   * `commodity_id` in lib/masters/process-types.ts.
+   */
   // logistic scalars
-  department_id: uuidN,
   ship_type_id: uuidN,
   contact_id: uuidN,
   logi_po_date: nullableText,
-  agent_id: uuidN,
   ship_mode: nullableText,
   country_id: uuidN,
   currency_code: nullableText,
   received_date: nullableText,
-  received_mode: nullableText,
   pay_mode: nullableText,
   pay_terms_id: uuidN,
   ex_rate: num,
   avg_rate: num,
   gross_value: num,
-  // cash discount
-  cd1_pct: num,
-  cd1_days: intN,
-  cd2_pct: num,
-  cd2_days: intN,
-  cd3_pct: num,
-  cd3_days: intN,
   // reason ("Amendment In" panel)
   amend_in_material_bom: z.boolean().default(false),
   amend_in_fabric_bom: z.boolean().default(false),
   amend_in_garment_process_bom: z.boolean().default(false),
   reason_text: nullableText,
   // children
-  charges: z.array(amendmentChargeInput).default([]),
   style_prices: z.array(amendmentStylePriceInput).default([]),
   styles: z.array(amendmentStyleInput).default([]),
   dyeings: z.array(amendmentDyeingInput).default([]),
@@ -351,7 +342,6 @@ export const amendmentInput = z.object({
   combos: z.array(amendmentComboInput).default([]),
   price_details: z.array(amendmentPriceDetailInput).default([]),
   approval_qtys: z.array(amendmentApprovalQtyInput).default([]),
-  country_sizes: z.array(amendmentCountrySizeInput).default([]),
 });
 export type AmendmentInput = z.infer<typeof amendmentInput>;
 

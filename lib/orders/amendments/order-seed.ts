@@ -53,7 +53,11 @@ export interface SeededAmendmentChildren {
   combos: Seeded<AmendmentCombo>[];
   priceDetails: Seeded<AmendmentPriceDetail>[];
   approvalQtys: Seeded<AmendmentApprovalQty>[];
-  countrySizes: Seeded<AmendmentCountrySize>[];
+  /** Still seeded and still diffed (scripts/check-amendment-diff.mts), but the
+   *  Country/Sizewise TAB was withdrawn on 2026-08-10, so the screen no longer
+   *  consumes it. Optional rather than deleted: the diff vectors are the only
+   *  remaining consumer and they should keep working. */
+  countrySizes?: Seeded<AmendmentCountrySize>[];
 }
 
 export const EMPTY_SEED: SeededAmendmentChildren = {

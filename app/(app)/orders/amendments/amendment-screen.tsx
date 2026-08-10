@@ -12,7 +12,6 @@ import {
   Package,
   Hash,
   CheckCheck,
-  Globe,
   Truck,
   FileText,
   ClipboardList,
@@ -61,7 +60,6 @@ import {
   SEASON_OPTIONS,
   SHIP_MODES,
   PAY_MODES,
-  RECEIPT_MODES,
   amendmentStatusTone,
   amendmentStatusText,
   type GarmentOrderAmendment,
@@ -85,16 +83,6 @@ interface Props {
 }
 
 // ---- editable child-row shapes ----
-type ChargeRow = {
-  key: string;
-  section: "less" | "add";
-  label: string;
-  calc_mode: string;
-  amount: string;
-  unit: string;
-  /** client-only: fixed legacy labels (Freight/Piece …) are not editable. */
-  fixed: boolean;
-};
 type StylePriceRow = {
   key: string;
   style_ref_no: string;
@@ -143,13 +131,6 @@ type ApprovalQtyRow = {
   style: string;
   article_no: string;
   approval_qty: string;
-};
-type CountrySizeRow = {
-  key: string;
-  style_ref_no: string;
-  style: string;
-  article_no: string;
-  countrywise: boolean;
 };
 
 /**
@@ -209,23 +190,8 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       ...styleCols(x),
       approval_qty: num(x.approval_qty),
     })),
-    countrySizes: src.countrySizes.map((x): CountrySizeRow => ({
-      key: newKey(),
-      ...styleCols(x),
-      countrywise: x.countrywise,
-    })),
   };
 }
-
-// Fixed "Less" rows on the legacy Logistic tab (label read-only).
-const LESS_FIXED = [
-  "Freight / Piece",
-  "Insurance / Piece",
-  "Bonus",
-  "Buyer Commission",
-  "Agent Commission",
-  "Discount",
-];
 
 type HeaderForm = {
   // order header
@@ -259,13 +225,6 @@ type HeaderForm = {
   ex_rate: string;
   avg_rate: string;
   gross_value: string;
-  // cash discount
-  cd1_pct: string;
-  cd1_days: string;
-  cd2_pct: string;
-  cd2_days: string;
-  cd3_pct: string;
-  cd3_days: string;
   // reason ("Amendment In" panel)
   amend_in_material_bom: boolean;
   amend_in_fabric_bom: boolean;
@@ -303,12 +262,6 @@ const BLANK: HeaderForm = {
   ex_rate: "",
   avg_rate: "",
   gross_value: "",
-  cd1_pct: "",
-  cd1_days: "",
-  cd2_pct: "",
-  cd2_days: "",
-  cd3_pct: "",
-  cd3_days: "",
   amend_in_material_bom: false,
   amend_in_fabric_bom: false,
   amend_in_garment_process_bom: false,
@@ -326,7 +279,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<HeaderForm>(BLANK);
-  const [charges, setCharges] = useState<ChargeRow[]>([]);
   const [stylePrices, setStylePrices] = useState<StylePriceRow[]>([]);
   // Phase 2 data-tab grids
   const [styles, setStyles] = useState<StyleRow[]>([]);
@@ -336,7 +288,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   const [combos, setCombos] = useState<ComboRow[]>([]);
   const [priceDetails, setPriceDetails] = useState<PriceDetailRow[]>([]);
   const [approvalQtys, setApprovalQtys] = useState<ApprovalQtyRow[]>([]);
-  const [countrySizes, setCountrySizes] = useState<CountrySizeRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
@@ -363,7 +314,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     setCombos(r.combos);
     setPriceDetails(r.priceDetails);
     setApprovalQtys(r.approvalQtys);
-    setCountrySizes(r.countrySizes);
   };
 
   /** Has the operator put anything in the eight data tabs worth protecting? */
@@ -374,8 +324,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     structures.length > 0 ||
     combos.length > 0 ||
     priceDetails.length > 0 ||
-    approvalQtys.length > 0 ||
-    countrySizes.length > 0;
+    approvalQtys.length > 0;
 
   // Inline editor, not a Sheet / MasterFullScreen, so nothing registers it with
   // the reload guard automatically — see mba-master-screen.tsx for the full
@@ -385,9 +334,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
-  const departmentOpts = useMemo(() => lookups.filter((l) => l.kind === "department"), [lookups]);
   const shipTypeOpts = useMemo(() => lookups.filter((l) => l.kind === "ship_type"), [lookups]);
-  const agentOpts = useMemo(() => lookups.filter((l) => l.kind === "agent"), [lookups]);
   // From the Payment Term MASTER, not `lookups` — `pay_terms_id` is an FK into
   // `public.payment_terms` since 0375, and the lookup rows it used to read are
   // gone. Filtering `lookups` here would silently render an empty list.
@@ -486,29 +433,9 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     setPendingSeed(null);
   }
 
-  function seedCharges(): ChargeRow[] {
-    const blankCharge = (section: "less" | "add", label: string, fixed: boolean): ChargeRow => ({
-      key: newKey(),
-      section,
-      label,
-      calc_mode: "",
-      amount: "",
-      unit: "",
-      fixed,
-    });
-    return [
-      ...LESS_FIXED.map((l) => blankCharge("less", l, true)),
-      blankCharge("less", "", false), // Others 1
-      blankCharge("less", "", false), // Others 2
-      blankCharge("add", "", false), // Add 1
-      blankCharge("add", "", false), // Add 2
-    ];
-  }
-
   function openAdd() {
     setEditId(null);
     setForm({ ...BLANK, amend_date: today() });
-    setCharges(seedCharges());
     setStylePrices([]);
     setStyles([]);
     setDyeings([]);
@@ -517,7 +444,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     setCombos([]);
     setPriceDetails([]);
     setApprovalQtys([]);
-    setCountrySizes([]);
     setPendingSeed(null);
     setSeeded(false);
     setMode("edit");
@@ -557,30 +483,11 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       ex_rate: r.ex_rate ? String(r.ex_rate) : "",
       avg_rate: r.avg_rate ? String(r.avg_rate) : "",
       gross_value: r.gross_value ? String(r.gross_value) : "",
-      cd1_pct: r.cd1_pct ? String(r.cd1_pct) : "",
-      cd1_days: r.cd1_days ? String(r.cd1_days) : "",
-      cd2_pct: r.cd2_pct ? String(r.cd2_pct) : "",
-      cd2_days: r.cd2_days ? String(r.cd2_days) : "",
-      cd3_pct: r.cd3_pct ? String(r.cd3_pct) : "",
-      cd3_days: r.cd3_days ? String(r.cd3_days) : "",
       amend_in_material_bom: r.amend_in_material_bom,
       amend_in_fabric_bom: r.amend_in_fabric_bom,
       amend_in_garment_process_bom: r.amend_in_garment_process_bom,
       reason_text: r.reason_text ?? "",
     });
-    setCharges(
-      r.charges.length
-        ? r.charges.map((c) => ({
-            key: newKey(),
-            section: c.section,
-            label: c.label ?? "",
-            calc_mode: c.calc_mode ?? "",
-            amount: c.amount ? String(c.amount) : "",
-            unit: c.unit ?? "",
-            fixed: LESS_FIXED.includes(c.label ?? ""),
-          }))
-        : seedCharges(),
-    );
     setStylePrices(
       r.style_prices.map((p) => ({
         key: newKey(),
@@ -604,7 +511,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       combos: r.combos,
       priceDetails: r.price_details,
       approvalQtys: r.approval_qtys,
-      countrySizes: r.country_sizes,
     });
     setMode("edit");
   }
@@ -641,24 +547,10 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       ex_rate: numOrNull(form.ex_rate) ?? 0,
       avg_rate: numOrNull(form.avg_rate) ?? 0,
       gross_value: numOrNull(form.gross_value) ?? 0,
-      cd1_pct: numOrNull(form.cd1_pct) ?? 0,
-      cd1_days: numOrNull(form.cd1_days) ?? 0,
-      cd2_pct: numOrNull(form.cd2_pct) ?? 0,
-      cd2_days: numOrNull(form.cd2_days) ?? 0,
-      cd3_pct: numOrNull(form.cd3_pct) ?? 0,
-      cd3_days: numOrNull(form.cd3_days) ?? 0,
       amend_in_material_bom: form.amend_in_material_bom,
       amend_in_fabric_bom: form.amend_in_fabric_bom,
       amend_in_garment_process_bom: form.amend_in_garment_process_bom,
       reason_text: form.reason_text || null,
-      charges: charges.map((c) => ({
-        sno: 0,
-        section: c.section,
-        label: c.label || null,
-        calc_mode: c.calc_mode || null,
-        amount: numOrNull(c.amount) ?? 0,
-        unit: c.unit || null,
-      })),
       style_prices: stylePrices.map((p) => ({
         sno: 0,
         style_ref_no: p.style_ref_no || null,
@@ -710,13 +602,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         style: r.style || null,
         article_no: r.article_no || null,
         approval_qty: numOrNull(r.approval_qty) ?? 0,
-      })),
-      country_sizes: countrySizes.map((r) => ({
-        sno: 0,
-        style_ref_no: r.style_ref_no || null,
-        style: r.style || null,
-        article_no: r.article_no || null,
-        countrywise: r.countrywise,
       })),
     };
     start(async () => {
@@ -812,13 +697,21 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   }
 
   // ---------------- EDIT MODE ----------------
-  const canSave = !!form.amend_date;
-
-  const lessRows = charges.filter((c) => c.section === "less");
-  const addRows = charges.filter((c) => c.section === "add");
-
-  const updateCharge = (key: string, patch: Partial<ChargeRow>) =>
-    setCharges((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+  /**
+   * The five Logistics fields the client made mandatory gate Save too.
+   *
+   * `required` on the field holds the CURSOR, which stops an operator tabbing
+   * past a blank one — but it cannot stop someone who never focused it at all.
+   * Requiredness that does not reach the Save button is half a rule; AGENTS.md
+   * calls the two "enforcers" of one declaration.
+   */
+  const canSave =
+    !!form.amend_date &&
+    !!form.ship_type_id &&
+    !!form.ship_mode &&
+    !!form.pay_mode &&
+    !!form.pay_terms_id &&
+    !!form.currency_code;
 
   // ---- Phase 2 grid row updaters / adders / removers ----
   const updateStyle = (key: string, patch: Partial<StyleRow>) =>
@@ -867,11 +760,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       ...xs,
       { key: newKey(), style_ref_no: "", style: "", article_no: "", approval_qty: "" },
     ]);
-  const addCountrySize = () =>
-    setCountrySizes((xs) => [
-      ...xs,
-      { key: newKey(), style_ref_no: "", style: "", article_no: "", countrywise: false },
-    ]);
 
   /**
    * Rail completion dots — "this section has data".
@@ -890,8 +778,11 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     combos: combos.length > 0,
     prices: priceDetails.length > 0,
     approvalqty: approvalQtys.length > 0,
-    countrysize: countrySizes.length > 0,
-    logistic: charges.length > 0,
+    // Was `charges.length > 0`, and the charges are gone. The five fields
+    // the client made mandatory are the honest signal now.
+    logistic:
+      !!form.ship_type_id && !!form.ship_mode && !!form.pay_mode &&
+      !!form.pay_terms_id && !!form.currency_code,
   };
 
   const tabs: TabItem[] = [
@@ -1152,51 +1043,11 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         </GridCard>
       ),
     },
-    // ---------------- Country / Sizewise ----------------
-    {
-      key: "countrysize",
-      label: "Country/Sizewise",
-      content: (
-        <GridCard title="Country / Size Details" onAdd={addCountrySize}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">Style Ref No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Style</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Article No</th>
-                  <th className="px-2 py-1.5 text-center font-medium">Countrywise</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addCountrySize)}>
-                {countrySizes.map((r) => {
-                  const upd = (patch: Partial<CountrySizeRow>) =>
-                    setCountrySizes((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
-                  return (
-                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                      <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1 text-center">
-                        <label className="inline-flex items-center gap-2 text-xs">
-                          <input type="checkbox" checked={r.countrywise} onChange={(e) => upd({ countrywise: e.target.checked })} className="h-4 w-4 rounded border-border" />
-                          <Button type="button" variant="outline" size="sm" disabled title="Countrywise detail — awaiting spec">
-                            Detail
-                          </Button>
-                        </label>
-                      </td>
-                      <td className="px-2 py-1"><RowRemove onClick={() => setCountrySizes((xs) => xs.filter((x) => x.key !== r.key))} /></td>
-                    </tr>
-                  );
-                })}
-                {countrySizes.length === 0 && <EmptyRow cols={5} label="country / size rows" seeded={seeded} />}
-              </tbody>
-            </table>
-          </div>
-        </GridCard>
-      ),
-    },
+    // Country/Sizewise WITHDRAWN 2026-08-10 (client): the information is
+    // already captured in the quantity breakdown. The table
+    // `garment_order_amendment_country_sizes` and its rows are untouched —
+    // `actions.ts` no longer lists it, and that list drives the DELETE as well
+    // as the insert, so stored rows are frozen rather than wiped.
     {
       key: "logistic",
       label: "Logistic",
@@ -1205,21 +1056,16 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
           {/* Logistic scalars */}
           <Card>
             <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <LookupDialogPicker
-                kind="department"
-                label="Department"
-                options={departmentOpts}
-                value={form.department_id}
-                onChange={(id) => set({ department_id: id })}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-              />
+              {/* Department, Agent and Received (mode) withdrawn 2026-08-10
+                  (client). Their columns and stored values remain; they left the
+                  Zod input too, which is what stops a save nulling them. */}
               <LookupDialogPicker
                 kind="ship_type"
                 label="Ship Type"
                 options={shipTypeOpts}
                 value={form.ship_type_id}
                 onChange={(id) => set({ ship_type_id: id })}
+                required
                 canCreate={masterPerms.canCreate}
                 canEdit={masterPerms.canEdit}
               />
@@ -1238,17 +1084,10 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   onChange={(e) => set({ logi_po_date: e.target.value })}
                 />
               </div>
-              <LookupDialogPicker
-                kind="agent"
-                label="Agent"
-                options={agentOpts}
-                value={form.agent_id}
-                onChange={(id) => set({ agent_id: id })}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-              />
-              <div>
-                <Label htmlFor="lg-shipmode">Ship Mode</Label>
+              {/* `<Field required>` rather than a bare Label: a `<Select>` reads
+                  requiredness from context (`select.tsx` → `useRequiredHold`), so
+                  the star and the cursor hold both come from this one prop. */}
+              <Field label="Ship Mode" required htmlFor="lg-shipmode">
                 <Select
                   id="lg-shipmode"
                   value={form.ship_mode}
@@ -1259,7 +1098,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     <option key={o} value={o}>{o}</option>
                   ))}
                 </Select>
-              </div>
+              </Field>
               <CountryPicker
                 countries={data.countries}
                 value={form.country_id}
@@ -1267,14 +1106,21 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                 canCreate={masterPerms.canCreate}
                 canEdit={masterPerms.canEdit}
               />
-              <CurrencyPicker
-                label="Currency"
-                currencies={data.currencies}
-                value={form.currency_code}
-                onChange={(code) => set({ currency_code: code })}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-              />
+              {/* `CurrencyPicker` has no `required` prop of its own, so the
+                  scope comes from the wrapper — its inner `DataPicker` ORs the
+                  context (`data-picker.tsx:292`). `compact` because the Field
+                  now draws the label. */}
+              <Field label="Currency" required>
+                <CurrencyPicker
+                  label="Currency"
+                  compact
+                  currencies={data.currencies}
+                  value={form.currency_code}
+                  onChange={(code) => set({ currency_code: code })}
+                  canCreate={masterPerms.canCreate}
+                  canEdit={masterPerms.canEdit}
+                />
+              </Field>
               <div>
                 <Label htmlFor="lg-exrate">Ex-Rate</Label>
                 <Input
@@ -1293,21 +1139,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   onChange={(e) => set({ received_date: e.target.value })}
                 />
               </div>
-              <div>
-                <Label htmlFor="lg-recmode">Received (mode)</Label>
-                <Select
-                  id="lg-recmode"
-                  value={form.received_mode}
-                  onChange={(e) => set({ received_mode: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {RECEIPT_MODES.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="lg-paymode">Pay Mode</Label>
+              <Field label="Pay Mode" required htmlFor="lg-paymode">
                 <Select
                   id="lg-paymode"
                   value={form.pay_mode}
@@ -1318,9 +1150,10 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                     <option key={o} value={o}>{o}</option>
                   ))}
                 </Select>
-              </div>
+              </Field>
               <PaymentTermPicker
                 label="Pay Terms"
+                required
                 options={payTermOpts}
                 value={form.pay_terms_id}
                 onChange={(id) => set({ pay_terms_id: id })}
@@ -1348,50 +1181,16 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
             </CardBody>
           </Card>
 
-          {/* Less / Add charges */}
-          <Card>
-            <CardBody className="space-y-4">
-              <ChargeBlock
-                title="Less"
-                rows={lessRows}
-                onUpdate={updateCharge}
-              />
-              <ChargeBlock title="Add" rows={addRows} onUpdate={updateCharge} />
-            </CardBody>
-          </Card>
+          {/* Less / Add charges and Cash Discount withdrawn 2026-08-10
+              (client): "remove the complexity for now to keep the logic simple".
+              Both were on THIS tab, not Prices.
 
-          {/* Cash Discount */}
-          <Card>
-            <CardBody>
-              <h3 className="mb-2 text-sm font-semibold text-foreground">Cash Discount</h3>
-              <div className="space-y-2">
-                {([1, 2, 3] as const).map((n) => {
-                  const pctKey = `cd${n}_pct` as const;
-                  const daysKey = `cd${n}_days` as const;
-                  return (
-                    <div key={n} className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="w-16 text-muted-foreground">CD of {n}</span>
-                      <Input
-                        type="number"
-                        value={form[pctKey]}
-                        onChange={(e) => set({ [pctKey]: e.target.value } as Partial<HeaderForm>)}
-                        className="h-8 w-24"
-                      />
-                      <span className="text-muted-foreground">% if Paid in</span>
-                      <Input
-                        type="number"
-                        value={form[daysKey]}
-                        onChange={(e) => set({ [daysKey]: e.target.value } as Partial<HeaderForm>)}
-                        className="h-8 w-24"
-                      />
-                      <span className="text-muted-foreground">Days</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardBody>
-          </Card>
-
+              Their tables and columns are untouched —
+              `garment_order_amendment_charges` and `cd1_pct … cd3_days` keep
+              whatever they hold. They left the Zod input too, and
+              `actions.ts` no longer deletes the charges rows, so a save on an
+              existing amendment leaves the stored charges exactly as they are
+              rather than wiping them. */}
           {/* Style-wise price grid */}
           <GridCard
             title="Style Prices"
@@ -1800,7 +1599,6 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   packtypes: Package,
   quantities: Hash,
   approvalqty: CheckCheck,
-  countrysize: Globe,
   logistic: Truck,
   reason: FileText,
 };
@@ -1825,74 +1623,6 @@ function placeholderTab(key: string, label: string): TabItem {
 }
 
 /** The Logistic "Less" / "Add" charge block: fixed + free-label rows. */
-function ChargeBlock({
-  title,
-  rows,
-  onUpdate,
-}: {
-  title: string;
-  rows: ChargeRow[];
-  onUpdate: (key: string, patch: Partial<ChargeRow>) => void;
-}) {
-  return (
-    <div>
-      <h3 className="mb-2 text-sm font-semibold text-foreground">{title}</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px] text-sm">
-          <thead>
-            <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-              <th className="px-2 py-1.5 text-left font-medium">Item</th>
-              <th className="px-2 py-1.5 text-left font-medium">Mode</th>
-              <th className="px-2 py-1.5 text-right font-medium">Amount</th>
-              <th className="px-2 py-1.5 text-left font-medium">Unit</th>
-            </tr>
-          </thead>
-          <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => {})}>
-            {rows.map((r) => (
-              <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                <td className="px-2 py-1">
-                  {r.fixed ? (
-                    <span className="text-sm text-foreground">{r.label}</span>
-                  ) : (
-                    <Input
-                      value={r.label}
-                      onChange={(e) => onUpdate(r.key, { label: e.target.value })}
-                      placeholder={title === "Add" ? "Add charge…" : "Others…"}
-                      className="h-8"
-                    />
-                  )}
-                </td>
-                <td className="px-2 py-1">
-                  <Input
-                    value={r.calc_mode}
-                    onChange={(e) => onUpdate(r.key, { calc_mode: e.target.value })}
-                    className="h-8"
-                  />
-                </td>
-                <td className="px-2 py-1">
-                  <Input
-                    type="number"
-                    value={r.amount}
-                    onChange={(e) => onUpdate(r.key, { amount: e.target.value })}
-                    className="h-8 text-right"
-                  />
-                </td>
-                <td className="px-2 py-1">
-                  <Input
-                    value={r.unit}
-                    onChange={(e) => onUpdate(r.key, { unit: e.target.value })}
-                    className="h-8"
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function GridCard({
   title,
   onAdd,

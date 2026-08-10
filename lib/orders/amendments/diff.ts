@@ -161,7 +161,7 @@ type StructureRow = Children["structures"][number];
 type ComboRow = Children["combos"][number];
 type PriceRow = Children["priceDetails"][number];
 type QtyRow = Children["approvalQtys"][number];
-type CountryRow = Children["countrySizes"][number];
+type CountryRow = NonNullable<Children["countrySizes"]>[number];
 
 const styleName = (r: { style_ref_no: string | null }) => r.style_ref_no?.trim() || "(no style)";
 
@@ -262,7 +262,9 @@ export function diffAmendment(
     diffTab(COMBOS, before.combos, after.combos),
     diffTab(PRICES, before.priceDetails, after.priceDetails),
     diffTab(APPROVAL_QTYS, before.approvalQtys, after.approvalQtys),
-    diffTab(COUNTRY_SIZES, before.countrySizes, after.countrySizes),
+    // The tab was withdrawn from the SCREEN on 2026-08-10; the seed still
+    // produces these rows and check-amendment-diff.mts still asserts on them.
+    diffTab(COUNTRY_SIZES, before.countrySizes ?? [], after.countrySizes ?? []),
   ];
 }
 

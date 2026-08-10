@@ -24,19 +24,6 @@ const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null
 
 // ---------- child normalizers (drop fully-empty rows + renumber sno) ----------
 
-function normalizeCharges(data: AmendmentInput) {
-  return data.charges
-    .map((c) => ({
-      section: c.section === "add" ? "add" : "less",
-      label: clean(c.label),
-      calc_mode: clean(c.calc_mode),
-      amount: Number(c.amount) || 0,
-      unit: clean(c.unit),
-    }))
-    .filter((c) => c.label || c.calc_mode || c.amount || c.unit)
-    .map((c, i) => ({ ...c, sno: i + 1 }));
-}
-
 function normalizeStylePrices(data: AmendmentInput) {
   return data.style_prices
     .map((p) => ({
@@ -159,17 +146,6 @@ function normalizeApprovalQtys(data: AmendmentInput) {
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
-function normalizeCountrySizes(data: AmendmentInput) {
-  return data.country_sizes
-    .map((r) => ({
-      style_ref_no: clean(r.style_ref_no),
-      style: clean(r.style),
-      article_no: clean(r.article_no),
-      countrywise: !!r.countrywise,
-    }))
-    .filter((r) => r.style_ref_no || r.style || r.article_no || r.countrywise)
-    .map((r, i) => ({ ...r, sno: i + 1 }));
-}
 
 /** Replace every child grid wholesale for a given amendment id. */
 async function writeChildren(
@@ -177,8 +153,16 @@ async function writeChildren(
   amendmentId: string,
   data: AmendmentInput,
 ): Promise<Result> {
+  /**
+   * `garment_order_amendment_charges` is deliberately ABSENT (2026-08-10).
+   *
+   * The delete loop below iterates THIS list, so dropping an entry removes the
+   * table from both halves: the stored charge rows are neither rewritten nor
+   * deleted, they are simply left alone. Putting it back in the list while the
+   * form no longer collects charges would wipe every amendment's charges on its
+   * next save.
+   */
   const inserts: [string, Record<string, unknown>[]][] = [
-    ["garment_order_amendment_charges", normalizeCharges(data)],
     ["garment_order_amendment_style_prices", normalizeStylePrices(data)],
     ["garment_order_amendment_styles", normalizeStyles(data)],
     ["garment_order_amendment_dyeings", normalizeDyeings(data)],
@@ -187,7 +171,6 @@ async function writeChildren(
     ["garment_order_amendment_combos", normalizeCombos(data)],
     ["garment_order_amendment_price_details", normalizePriceDetails(data)],
     ["garment_order_amendment_approval_qtys", normalizeApprovalQtys(data)],
-    ["garment_order_amendment_country_sizes", normalizeCountrySizes(data)],
   ];
 
   // Delete-all-then-reinsert each child grid wholesale.
@@ -209,7 +192,6 @@ async function writeChildren(
 /** Strip child arrays so only header columns hit garment_order_amendments. */
 function headerOnly(data: AmendmentInput) {
   const {
-    charges: _c,
     style_prices: _p,
     styles: _st,
     dyeings: _dy,
@@ -218,10 +200,8 @@ function headerOnly(data: AmendmentInput) {
     combos: _cb,
     price_details: _pd,
     approval_qtys: _aq,
-    country_sizes: _cs,
     ...header
   } = data;
-  void _c;
   void _p;
   void _st;
   void _dy;
@@ -230,7 +210,6 @@ function headerOnly(data: AmendmentInput) {
   void _cb;
   void _pd;
   void _aq;
-  void _cs;
   return header;
 }
 
