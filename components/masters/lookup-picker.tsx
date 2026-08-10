@@ -323,6 +323,7 @@ export function CategoryPicker({
   fabricStructures,
   itemClasses,
   compact = false,
+  id,
 }: {
   label: string;
   /**
@@ -375,6 +376,13 @@ export function CategoryPicker({
    *  adapter — without it a caller wrapping this in `<Field label>` gets the
    *  label twice. */
   compact?: boolean;
+  /**
+   * Anchors the field for `goToSection(..., { fieldId })` — a blocked Save jumps
+   * to the section AND focuses the offending control, and that lookup is a plain
+   * `querySelector("#id")`, so an id that never reaches the DOM makes the jump
+   * silently do nothing. Straight through to `DataPicker`.
+   */
+  id?: string;
 }) {
   const router = useRouter();
   const [extra, setExtra] = useState<Category[]>([]);
@@ -538,6 +546,7 @@ export function CategoryPicker({
         clearable={clearable}
         required={required}
         compact={compact}
+        id={id}
         manage={manage}
         onAddOverride={
           useFullQc

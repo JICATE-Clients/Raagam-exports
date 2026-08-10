@@ -63,6 +63,7 @@ export function CountryPicker({
   canDelete,
   compact = false,
   required = true,
+  id,
 }: {
   countries: Country[];
   value: string | null;
@@ -88,6 +89,13 @@ export function CountryPicker({
   canDelete?: boolean;
   /** Trigger-only (no label) for dense grid rows. */
   compact?: boolean;
+  /**
+   * Anchors the field for `goToSection(..., { fieldId })` — a blocked Save jumps
+   * to the section AND focuses the offending control, and that lookup is a plain
+   * `querySelector("#id")`, so an id that never reaches the DOM makes the jump
+   * silently do nothing. Straight through to `DataPicker`.
+   */
+  id?: string;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -228,6 +236,7 @@ export function CountryPicker({
   return (
     <>
       <DataPicker
+        id={id}
         label="Country"
         rows={rows}
         value={value}

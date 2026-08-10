@@ -396,6 +396,21 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       { section: "style", id: "st-name", label: "Style", required: true, empty: (f) => !f.style_name.trim() },
       { section: "style", id: "st-date", label: "Date", required: true, empty: (f) => !f.style_date },
       { section: "general", id: "st-unitkind", label: "Unit Type", required: true, empty: (f) => !f.unit_kind },
+      /**
+       * THE OTHER THREE COMPULSORY FIELDS (client 2026-08-10, read off the
+       * legacy screen's red ⓘ markers).
+       *
+       * Each of these needs BOTH halves. Marking the control alone gives a star
+       * and a cursor hold with Save still enabled; adding only the entry here
+       * gives a dead Save with nothing on screen to explain it. Country is the
+       * proof: `CountryPicker` defaults `required = true`, so it has been
+       * holding the cursor since the field was added while Save stayed live —
+       * exactly the third-enforcer gap `country-picker.tsx` warns about, where
+       * requiredness buried in a shared picker is invisible to the audit.
+       */
+      { section: "style", id: "st-customer", label: "Customer", required: true, empty: (f) => !f.customer_id },
+      { section: "general", id: "st-category", label: "Style Category", required: true, empty: (f) => !f.style_category_id },
+      { section: "general", id: "st-country", label: "Country", required: true, empty: (f) => !f.country_id },
     ],
     extra: styleProblems({
       style_name: form.style_name,
@@ -975,8 +990,15 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 asked for, and no longer written — it left the Zod input too. */}
             {/* Customer no longer clears a Contact on change — the Contact
                 field was withdrawn, so there is no dependent value to reset. */}
-            <Field label="Customer" size="sm">
+            {/* COMPULSORY — red ⓘ on the legacy header (client 2026-08-10).
+                `CustomerPicker` has no `required` prop of its own, so the
+                declaration goes on the wrapper: the inner `DataPicker` ORs
+                `RequiredScope` context, which is the same route CurrencyPicker
+                takes on the amendment screen. `htmlFor` so a blocked Save can
+                land the cursor here via `goToSection(..., { fieldId })`. */}
+            <Field label="Customer" required size="sm" htmlFor="st-customer">
               <CustomerPicker
+                id="st-customer"
                 customers={data.customers}
                 value={form.customer_id}
                 onChange={(id) => set({ customer_id: id })}
@@ -1059,9 +1081,12 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               * `scopedCategories` is empty until a class is chosen, so the field
               * offers nothing rather than the whole master.
               */}
-            <Field label="Style Category" size="sm">
+            {/* COMPULSORY — red ⓘ on the legacy General tab. */}
+            <Field label="Style Category" required size="sm" htmlFor="st-category">
               <CategoryPicker
+                id="st-category"
                 label="Style Category"
+                required
                 categories={scopedCategories}
                 value={form.style_category_id ?? ""}
                 onChange={(v) => set({ style_category_id: v || null })}
@@ -1120,8 +1145,16 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 onChange={(e) => set({ style_description: e.target.value })}
               />
             </Field>
-            <Field label="Country" size="sm">
+            {/* COMPULSORY — red ⓘ on the legacy General tab, and ALREADY
+                enforced: `CountryPicker` defaults `required = true`, so this has
+                been drawing a star and holding the cursor all along. What was
+                missing is the Save gate — see the `sectionValidity` entry. No
+                prop is added here on purpose: passing `required` explicitly
+                would imply the default is not to be relied on, and 19 other
+                Country fields rely on it. */}
+            <Field label="Country" size="sm" htmlFor="st-country">
               <CountryPicker
+                id="st-country"
                 countries={data.countries}
                 value={form.country_id}
                 onChange={(id) => set({ country_id: id })}
