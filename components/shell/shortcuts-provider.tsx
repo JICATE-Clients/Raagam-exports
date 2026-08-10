@@ -47,6 +47,41 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Esc", label: "Close the list, then the form, then the page" },
 ];
 
+/**
+ * What the marks on a field mean.
+ *
+ * Lives here, beside the keys, rather than as a strip on any one screen: it is
+ * the same three facts on all 232 screens, and a per-screen caption is a
+ * per-screen wording. The legacy RP-Software forms carried five indicators —
+ * red field, blue field, an ⓘ for master data, a star for current-entry data,
+ * and a green arrow for a value from a previous tab. This app draws THREE,
+ * and the difference is deliberate rather than unfinished:
+ *
+ *  - RED and the ⓘ survive as the `*` and as the shape of the control itself.
+ *  - BLUE and the STAR were the two ways of saying "neither of those". A third
+ *    and fourth colour meaning "not the first one" carries no information, so
+ *    optional is simply the absence of a mark (decided 2026-07-29).
+ *  - The GREEN ARROW is ENFORCED INSTEAD OF ANNOTATED. A field fed by an
+ *    earlier section only offers what that section holds — Style ▸ Components
+ *    ▸ Coordinate is the worked example. A badge beside a list that still lets
+ *    you pick the wrong value is decoration; a list that cannot offer it is
+ *    the rule. So there is nothing left to label.
+ */
+const FIELD_MARKERS: { mark: string; label: string }[] = [
+  {
+    mark: "*",
+    label: "Required — Save is blocked, and the cursor will not leave it blank",
+  },
+  {
+    mark: "▾",
+    label: "The value comes from a master list; ⊕ adds one without leaving the form",
+  },
+  {
+    mark: "—",
+    label: "No mark: optional, and typed on this screen",
+  },
+];
+
 export function ShortcutsProvider({ children }: { children: ReactNode }) {
   // Per-id handler stacks (topmost wins). Refs, not state — registration must
   // not re-render the whole app subtree.
@@ -117,6 +152,33 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
             </li>
           ))}
         </ul>
+
+        {/* Not a second Sheet and not a tab: the operator who cannot tell why a
+            field will not let go is the same one reading the key list, and one
+            scroll is cheaper than a second place to look. */}
+        <h3 className="mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Field markers
+        </h3>
+        <ul className="mt-1 divide-y divide-border">
+          {FIELD_MARKERS.map((f) => (
+            <li key={f.mark} className="flex items-start justify-between gap-4 py-2.5">
+              <span className="text-sm text-foreground">{f.label}</span>
+              <span
+                aria-hidden
+                className="shrink-0 rounded-md border border-border bg-surface-muted px-2 py-1 text-xs font-medium text-danger"
+              >
+                {f.mark}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {/* Says the thing the marks cannot: a field that refuses to let go is
+            working, not stuck. This is the sentence the client's five-colour
+            legend was really for. */}
+        <p className="mt-3 text-xs text-muted-foreground">
+          A field that will not let you move on is either blank and required, or holds a name that
+          already exists. Fill it in, or press <strong>Esc</strong> to leave.
+        </p>
       </Sheet>
     </ShortcutsContext.Provider>
   );

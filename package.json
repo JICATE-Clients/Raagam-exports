@@ -12,6 +12,7 @@
     "mine:vocab": "node --experimental-strip-types scripts/mine-name-vocabularies.mts",
     "check:names": "node --experimental-strip-types scripts/check-name-suggest.mts",
     "check:amendment-diff": "node --experimental-strip-types scripts/check-amendment-diff.mts",
+    "check:style-rules": "node --experimental-strip-types scripts/check-style-rules.mts",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "lint": "eslint"
   },

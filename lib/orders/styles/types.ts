@@ -177,13 +177,23 @@ export const garmentStyleInput = z
    * `path` is set to the child array so the message lands on the offending
    * section rather than at the root, matching how `materialInput`'s mixing
    * refinement reports.
+   *
+   * The rail's section keys and the child array names are the same words, so
+   * the mapping is a membership test rather than a lookup table — but it is a
+   * TEST rather than a bare cast, because a section that is not a child array
+   * ("style", "general") must land at the root, not invent a path key nothing
+   * in the payload has. Written as a set so adding a rule on a new child is one
+   * word here instead of another `===` branch nobody remembers to extend; the
+   * previous form hard-coded "coordinates" and would have filed this commit's
+   * components problem at the root.
    */
   .superRefine((v, ctx) => {
+    const childArrays = new Set(["coordinates", "components", "sizes"]);
     for (const p of styleProblems(v)) {
       ctx.addIssue({
         code: "custom",
         message: p.message,
-        path: p.section === "coordinates" ? ["coordinates"] : [],
+        path: childArrays.has(p.section) ? [p.section] : [],
       });
     }
   });

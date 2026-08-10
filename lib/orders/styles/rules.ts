@@ -65,6 +65,48 @@ export function filledCoordinates(rows: readonly CoordinateLike[]): number {
   return rows.filter((r) => !!r.coordinate_id).length;
 }
 
+/** A component names the coordinate it belongs to — Front Body under TOP. The
+ *  same shape as `CoordinateLike`, named separately because the two mean
+ *  different things and a future field on either must not silently widen both. */
+export type ComponentLike = { coordinate_id: string | null };
+
+/**
+ * The coordinates this style actually declared.
+ *
+ * EXPORTED BECAUSE THE SCREEN MUST FILTER BY THE SAME SET THE RULE JUDGES BY.
+ * The Components tab's Coordinate picker offers exactly this, and
+ * `orphanComponents` below flags exactly what falls outside it. Two
+ * implementations of "which coordinates does this style have" would drift, and
+ * the drift is invisible: the picker would offer a value the rule then rejects,
+ * or reject one the picker offered.
+ */
+export function styleCoordinateIds(rows: readonly CoordinateLike[]): Set<string> {
+  return new Set(rows.map((r) => r.coordinate_id).filter((id): id is string => !!id));
+}
+
+/**
+ * Components filed under a coordinate the style does not have.
+ *
+ * A component with NO coordinate is not an orphan — it is unanswered, and the
+ * grid cell says so on its own. Only a component pointing at something absent
+ * from the Coordinates tab counts.
+ *
+ * UNLIKE `coordinateLimit`, THIS FIRES WHATEVER `unit_kind` SAYS, including on
+ * a legacy style that has none. That is not an inconsistency with the "null is
+ * not an error" note above: the count rule would fail perfectly valid old data
+ * (a two-coordinate style that was never asked Piece-or-Set), whereas this one
+ * can only fire on data that is genuinely self-contradictory — a part of a
+ * garment attached to a section of the garment that is not there. Nothing is
+ * retroactively invalidated by holding that to be wrong.
+ */
+export function orphanComponents(
+  components: readonly ComponentLike[],
+  coordinates: readonly CoordinateLike[],
+): number {
+  const have = styleCoordinateIds(coordinates);
+  return components.filter((c) => !!c.coordinate_id && !have.has(c.coordinate_id)).length;
+}
+
 /**
  * A problem, tagged with the rail section that can fix it.
  *
@@ -83,6 +125,7 @@ export type StyleRuleInput = {
   style_date?: string | null;
   unit_kind?: string | null;
   coordinates?: readonly CoordinateLike[];
+  components?: readonly ComponentLike[];
 };
 
 /**
@@ -114,6 +157,31 @@ export function styleProblems(input: StyleRuleInput): StyleProblem[] {
         message: `A ${input.unit_kind === "piece" ? "Piece" : "Set"} style allows at most ${limit.max} coordinate${limit.max === 1 ? "" : "s"} — there are ${n}.`,
       });
     }
+  }
+
+  /**
+   * A component must belong to one of THIS style's coordinates.
+   *
+   * The Components picker is scoped so this cannot be reached by choosing
+   * badly. It is reached by the coordinate moving out from under a component
+   * that was already correct — deleting a Coordinates row, or switching Unit
+   * Type to Piece, which trims the grid to its first row.
+   *
+   * SO THE RULE EXISTS TO REFUSE A SAVE, NOT TO CATCH A TYPO. The alternative
+   * is to drop the orphaned components automatically, which is data loss the
+   * operator never sees: deleting BOTTOM by mistake would silently take its
+   * four components with it. Blocking here puts the choice back on them —
+   * re-add the coordinate, or remove the components.
+   */
+  const orphans = orphanComponents(input.components ?? [], input.coordinates ?? []);
+  if (orphans > 0) {
+    problems.push({
+      section: "components",
+      message:
+        orphans === 1
+          ? "1 component is filed under a coordinate this style no longer has — give it one of the style's coordinates, or remove it."
+          : `${orphans} components are filed under a coordinate this style no longer has — give them one of the style's coordinates, or remove them.`,
+    });
   }
 
   return problems;

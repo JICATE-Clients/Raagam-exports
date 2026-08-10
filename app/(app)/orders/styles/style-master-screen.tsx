@@ -41,6 +41,7 @@ import {
   UNIT_KIND_OPTIONS,
   coordinateLimit,
   isUnitKind,
+  styleCoordinateIds,
   styleProblems,
 } from "@/lib/orders/styles/rules";
 import { ItemPicker } from "@/components/masters/lookup-picker";
@@ -167,6 +168,54 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
   const sizeOpts = useMemo(() => lookups.filter((l) => l.kind === "size"), [lookups]);
 
+  // ---- the Components tab reads the Coordinates tab --------------------------
+
+  /**
+   * THE COORDINATES THIS STYLE HAS — the only ones a component may be filed
+   * under.
+   *
+   * Components used to be offered `coordinateOpts`, the entire `config_lookups`
+   * kind: the same list the Coordinates tab picks FROM, with nothing scoping it
+   * to what this style declared. So a Piece style capped at one coordinate still
+   * offered every coordinate in the database, and a component could be filed
+   * under a BOTTOM the style does not own.
+   *
+   * That is the client's "green arrow — data pulled from a previous tab", and
+   * `raagam-masters-picker-wiring`'s cascading rule: a downstream picker is
+   * filtered by its parent's value, never handed the global list.
+   *
+   * Membership comes from `styleCoordinateIds` in `lib/orders/styles/rules.ts`,
+   * which is also what `orphanComponents` judges by — deliberately one function,
+   * because two would drift into a picker offering a value the rule rejects.
+   */
+  const coordinateIds = useMemo(() => styleCoordinateIds(coords), [coords]);
+
+  const styleCoordinateOpts = useMemo(
+    () => coordinateOpts.filter((o) => coordinateIds.has(o.id)),
+    [coordinateOpts, coordinateIds],
+  );
+
+  /**
+   * The options for ONE component row: the style's coordinates, plus the value
+   * this row already holds if that has fallen out of them.
+   *
+   * THE HELD VALUE ALWAYS SURVIVES THE FILTER. Dropping it would render a filled
+   * field as empty and blank the FK on the next save — AGENTS.md's "Disabled
+   * rows" rule, which exists for exactly this shape. It comes back marked
+   * `is_active: false`, which is how the app already says "you may keep this,
+   * you may not re-pick it": `DataPicker` greys it and excludes it from new
+   * selections without any new mechanism. The name carries the reason, because
+   * the default tag would read "(inactive)" — and the coordinate master row is
+   * perfectly active. It is this STYLE that no longer has it.
+   */
+  const compCoordinateOpts = (held: string | null) => {
+    if (!held || coordinateIds.has(held)) return styleCoordinateOpts;
+    const row = coordinateOpts.find((o) => o.id === held);
+    return row
+      ? [...styleCoordinateOpts, { ...row, name: `${row.name} (not in this style)`, is_active: false }]
+      : styleCoordinateOpts;
+  };
+
   // ---- size group fill ------------------------------------------------------
 
   const sizeGroupItems = useMemo(
@@ -237,9 +286,17 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       style_date: form.style_date,
       unit_kind: form.unit_kind,
       coordinates: coords,
+      // Without this the orphan rule is silent on the screen while STILL firing
+      // in `garmentStyleInput`'s superRefine — Save would be enabled, the action
+      // would refuse, and the rail would show nothing. A rule enforced in one
+      // half of the pair is worse than one enforced in neither.
+      components: comps,
     }).map<Problem>((p) => ({
       section: p.section,
-      label: "Coordinates",
+      // Was hard-coded "Coordinates", which was true while coordinates were the
+      // only cross-tab rule. The label names the section the problem belongs to,
+      // so it has to be derived from it.
+      label: p.section === "components" ? "Components" : "Coordinates",
       message: p.message,
       kind: "custom",
     })),
@@ -285,9 +342,18 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   };
 
   const blankCoord = (): CoordRow => ({ key: newKey(), coordinate_id: null, mlist_no: "" });
+  /** A new component starts on the style's coordinate when there is only ONE it
+   *  could belong to — always the case for a Piece, and for a Set until the
+   *  second coordinate is entered. Answering the question before it is asked;
+   *  with two or more there is a real choice, so it stays blank. */
+  const soleCoordinateId = (): string | null => {
+    const ids = [...coordinateIds];
+    return ids.length === 1 ? ids[0] : null;
+  };
+
   const blankComp = (): CompRow => ({
     key: newKey(),
-    coordinate_id: null,
+    coordinate_id: soleCoordinateId(),
     component_id: null,
     structure_id: null,
     comp_type: "",
@@ -509,6 +575,21 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           onChange={(id) =>
             mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))
           }
+          /**
+           * PICK-ONCE. A style cannot have TOP twice, and a duplicate is not
+           * merely untidy here — it makes the two rules below disagree with what
+           * the operator sees. `filledCoordinates` would count two toward the
+           * Piece/Set cap while the Components list offers one entry, so a
+           * Piece style could hold two rows and still look correct.
+           *
+           * `usedIds` is `DataPicker`'s existing prop for exactly this and is
+           * safe to hand the row's own value: it excludes the siblings, not the
+           * current cell.
+           */
+          usedIds={coords
+            .filter((x) => x.key !== r.key)
+            .map((x) => x.coordinate_id)
+            .filter((id): id is string => !!id)}
           canCreate={masterPerms.canCreate}
           canEdit={masterPerms.canEdit}
           compact
@@ -535,10 +616,22 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       header: "Coordinate",
       cell: (r) => (
         <LookupDialogPicker
-          kind="coordinate" label="Coordinate" options={coordinateOpts}
+          kind="coordinate" label="Coordinate"
+          // Scoped to the style's own coordinates — NOT `coordinateOpts`.
+          options={compCoordinateOpts(r.coordinate_id)}
           value={r.coordinate_id}
           onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))}
-          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+          /**
+           * NO ADD, NO MODIFY, and this is the half that is easy to get wrong.
+           *
+           * Inline Add here would write a row to the `coordinate` MASTER, which
+           * does not give this style that coordinate — so the value the operator
+           * just created would still not appear in this list. A control whose
+           * success is indistinguishable from failure is worse than no control.
+           * Coordinates are added on the Coordinates tab, which is the only
+           * place that changes what this list holds.
+           */
+          canCreate={false} canEdit={false} compact
         />
       ),
     },
@@ -907,7 +1000,11 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       content: (
         <SectionBody
           title="Components"
-          hint="What each coordinate is built from, its fabric, and any extra process it needs."
+          hint={
+            coordinateIds.size === 0
+              ? "Add coordinates first — a component is a part of one of them."
+              : "What each coordinate is built from, its fabric, and any extra process it needs. Coordinate offers only the ones on the Coordinates tab."
+          }
         >
           {/* CARDS, NOT A TABLE — because each component owns a LIST of
               processes, and a list cannot live in a table cell. This is the
