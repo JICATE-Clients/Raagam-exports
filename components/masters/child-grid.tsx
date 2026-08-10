@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RequiredScope } from "@/components/ui/field";
@@ -615,6 +615,7 @@ export function ChildGrid<T extends { key: string }>({
   keyboardNav = true,
   hideAdd = false,
   narrow = false,
+  lockExisting = false,
   inlineCards = false,
   flushRows = false,
   listRows = false,
@@ -683,6 +684,35 @@ export function ChildGrid<T extends { key: string }>({
    * different bug entirely.
    */
   narrow?: boolean;
+  /**
+   * ROWS THAT WERE ALREADY SAVED CANNOT BE REMOVED — only ones added since this
+   * grid mounted (client 2026-08-10: "delete permission should not be allowed").
+   *
+   * Master Data child grids offered a ✕ on every row regardless of permission:
+   * 0 of 27 gated it, while 29 list screens already gated their row Delete. So
+   * the list half respected permissions and the grid half did not.
+   *
+   * WHY "ADDED SINCE MOUNT" AND NOT "HAS NO ID". Almost none of these row types
+   * carry the database id — the screens map stored rows onto fresh `key`s on
+   * load — so provenance is not representable per row without editing 27 row
+   * types and their mapping functions. The grid remembers the keys it was handed
+   * on its first render instead; those are the stored ones by construction,
+   * because every one of these sheets sets its rows in the same handler that
+   * opens it.
+   *
+   * THE ROW JUST ADDED STAYS REMOVABLE, and that is not a softening of the rule
+   * — it is what keeps it satisfiable. Ctrl+Del deletes a grid row by clicking
+   * the row's own ✕, and AGENTS.md keeps that exemption precisely so a blank
+   * MANDATORY cell in a row the operator should not have added is not a dead end
+   * they can neither fill, leave, nor delete. Lock a freshly added row and a
+   * required cell inside it becomes exactly that cage.
+   *
+   * The caveat, stated: a grid whose rows arrive AFTER mount would treat them as
+   * new and leave them removable. No masters sheet does that today; if one ever
+   * loads asynchronously it must pass its rows before the grid mounts, or this
+   * silently permits what it is meant to prevent.
+   */
+  lockExisting?: boolean;
   /** One flex row per record with a single shared header, honouring each
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
@@ -827,6 +857,20 @@ export function ChildGrid<T extends { key: string }>({
    */
   const hugsContent = columns.length > 0 && columns.every((c) => c.width);
 
+  /**
+   * The row keys this grid was handed on its FIRST render — the stored rows.
+   *
+   * A LAZY `useState` INITIALISER, not a ref. Both run once per mount, but a ref
+   * read during render is `react-hooks/refs` ("Cannot access refs during
+   * render") — the compiler cannot prove the value is stable, and this one is
+   * read in all three layout branches. State computed once is legal to read and
+   * says the same thing. There is no setter: the snapshot must never be
+   * recomputed, or every row would re-lock the instant it was added.
+   */
+  const [storedKeys] = useState<Set<string>>(() => new Set(rows.map((r) => r.key)));
+  /** Withhold the ✕ — and with it Ctrl+Del, which drives that same button. */
+  const locked = (row: T) => lockExisting && storedKeys.has(row.key);
+
   return (
     // Padding and rhythm are `DetailSection`'s, not this grid's own — they were
     // `p-3` / `space-y-3` against the section's `p-2.5 @2xl/editor:p-2`, so a
@@ -916,6 +960,7 @@ export function ChildGrid<T extends { key: string }>({
                   </td>
                 ))}
                 <td className="border-l border-border px-1 py-1.5 text-center">
+                  {!locked(row) && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -936,6 +981,7 @@ export function ChildGrid<T extends { key: string }>({
                   >
                     <X className="h-4 w-4 shrink-0" />
                   </Button>
+                  )}
                 </td>
               </tr>
               );
@@ -1066,6 +1112,7 @@ export function ChildGrid<T extends { key: string }>({
                   </RequiredScope>
                 </div>
               ))}
+              {!locked(row) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -1077,6 +1124,7 @@ export function ChildGrid<T extends { key: string }>({
               >
                 <X className="h-4 w-4 shrink-0" />
               </Button>
+              )}
             </div>
             );
           })}
@@ -1144,9 +1192,11 @@ export function ChildGrid<T extends { key: string }>({
                 {rowSummary && (
                   <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
                 )}
-                <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
-                  <X className="h-4 w-4 shrink-0" />
-                </Button>
+                {!locked(row) && (
+                  <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+                    <X className="h-4 w-4 shrink-0" />
+                  </Button>
+                )}
               </div>
             )}
             {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (

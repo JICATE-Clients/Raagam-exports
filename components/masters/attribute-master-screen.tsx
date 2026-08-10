@@ -308,6 +308,7 @@ export function AttributeMasterScreen({ rows, perms }: { rows: Attribute[]; perm
           ) : (
             <div className="space-y-3 sm:col-span-2">
               <ChildGrid<ValueRow>
+                lockExisting
                 key={editRow?.id ?? "new"}
                 label="Attributes"
                 rows={values}

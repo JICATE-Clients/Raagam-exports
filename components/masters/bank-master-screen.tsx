@@ -534,6 +534,7 @@ export function BankMasterScreen({
               with its own header band, `#` column, remove button and a
               `max-h-96` scroller. */}
           <ChildGrid<BranchRow>
+            lockExisting
             label="Bank Detail"
             rows={branches}
             onAdd={addBranch}

@@ -1573,6 +1573,7 @@ export function MaterialMasterScreen({
       // `ChildGrid` drops the whole caption row by itself when neither is set.
       return (
         <ChildGrid<MixRow>
+          lockExisting
           inlineCards
           frameless
           // This grid SHARES its row with the Using field beside it, so its rows
@@ -1630,6 +1631,7 @@ export function MaterialMasterScreen({
 
     return (
       <ChildGrid<MixRow>
+        lockExisting
         label="Mixing"
         badge={pctBadge}
         inlineCards
@@ -2588,6 +2590,7 @@ export function MaterialMasterScreen({
                 {form.has_alternate_uom && !singleUomClass && (
                   <Field size="full">
                     <ChildGrid<ConvRow>
+                      lockExisting
                       label="Alternate ↔ Base Conversions"
                       rows={conversions}
                       onAdd={addConv}
