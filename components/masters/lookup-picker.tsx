@@ -267,6 +267,7 @@ export function CategoryPicker({
   canDelete = false,
   levies,
   fabricStructures,
+  compact = false,
 }: {
   label: string;
   /**
@@ -309,6 +310,11 @@ export function CategoryPicker({
    *  mini-child instead of the inline name-only form. */
   levies?: Levy[];
   fabricStructures?: ConfigLookup[];
+  /** Trigger-only (no label) for a dense grid row or a `<Field>` that already
+   *  draws the label. Straight through to `DataPicker`, same as every other
+   *  adapter — without it a caller wrapping this in `<Field label>` gets the
+   *  label twice. */
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [extra, setExtra] = useState<Category[]>([]);
@@ -471,6 +477,7 @@ export function CategoryPicker({
         usedIds={usedIds}
         clearable={clearable}
         required={required}
+        compact={compact}
         manage={manage}
         onAddOverride={
           useFullQc

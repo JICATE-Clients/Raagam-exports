@@ -45,7 +45,7 @@ import {
   styleCoordinateIds,
   styleProblems,
 } from "@/lib/orders/styles/rules";
-import { ItemPicker } from "@/components/masters/lookup-picker";
+import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 import type { StyleFormData } from "@/lib/orders/styles/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -95,6 +95,9 @@ type HeaderForm = {
   style_year: string;
   article_no: string;
   style_category_id: string | null;
+  /** Scopes the Style Category picker. Its own field because the operator
+   *  chooses it — see the cascade note where it renders. */
+  item_class_id: string | null;
   style_description: string;
   unit_id: string | null;
   /** "" until answered — Piece or Set. Drives the Coordinates count. */
@@ -115,6 +118,7 @@ const BLANK: HeaderForm = {
   style_year: "",
   article_no: "",
   style_category_id: null,
+  item_class_id: null,
   style_description: "",
   unit_id: null,
   unit_kind: "",
@@ -219,7 +223,43 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
-  const styleCategories = useMemo(() => lookups.filter((l) => l.kind === "style_category"), [lookups]);
+  /**
+   * STYLE CATEGORY COMES FROM THE GARMENT MASTER, NOT A LIST OF ITS OWN.
+   *
+   * This was `lookups.filter(kind === "style_category")` — a config_lookups kind
+   * that has never held a single row, so the field was a dropdown over an empty
+   * list and read as a bare text box (client 2026-08-10). 0394 repoints
+   * `garment_styles.style_category_id` at `public.categories`, the same master
+   * the Material child classifies against.
+   *
+   * The kind itself stays declared in the CHECK constraint: it holds nothing,
+   * and removing it would mean re-listing every other kind for no gain. It is
+   * simply unreferenced now, like `trims_category` after 0392.
+   */
+  const itemClassOpts = useMemo(() => lookups.filter((l) => l.kind === "item_class"), [lookups]);
+  const fabricStructureOpts = useMemo(
+    () => lookups.filter((l) => l.kind === "fabric_structure"),
+    [lookups],
+  );
+
+  /** The cascading-picker rule, same shape as material-master-screen.tsx:199 —
+   *  Category only ever shows rows scoped to the chosen Item Class, never the
+   *  full master. */
+  const scopedCategories = useMemo(
+    () => data.categories.filter((c) => c.item_class_id === form.item_class_id),
+    [data.categories, form.item_class_id],
+  );
+  const selectedClassCode =
+    itemClassOpts.find((c) => c.id === form.item_class_id)?.code ?? null;
+
+  /**
+   * Changing the class DROPS the category. Not a nicety: a category scoped to
+   * the old class is worse than an empty one, because it saves a classification
+   * that contradicts the class beside it. Same handler shape as the Material
+   * child's `handleItemClassChange`.
+   */
+  const handleItemClassChange = (v: string) =>
+    set({ item_class_id: v || null, style_category_id: null });
   const coordinateOpts = useMemo(() => lookups.filter((l) => l.kind === "coordinate"), [lookups]);
   const componentOpts = useMemo(() => lookups.filter((l) => l.kind === "style_component"), [lookups]);
   const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
@@ -448,6 +488,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       style_year: r.style_year != null ? String(r.style_year) : "",
       article_no: r.article_no ?? "",
       style_category_id: r.style_category_id,
+      item_class_id: r.item_class_id,
       style_description: r.style_description ?? "",
       unit_id: r.unit_id,
       // "" on every style created before 0392. The field is `required`, so the
@@ -496,6 +537,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       style_year: form.style_year ? Number(form.style_year) : null,
       article_no: form.article_no || null,
       style_category_id: form.style_category_id,
+      item_class_id: form.item_class_id,
       style_description: form.style_description || null,
       unit_id: form.unit_id,
       unit_kind: isUnitKind(form.unit_kind) ? form.unit_kind : null,
@@ -979,15 +1021,46 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             <Field label="Article No." size="sm" htmlFor="st-article">
               <Input id="st-article" value={form.article_no} onChange={(e) => set({ article_no: e.target.value })} />
             </Field>
-            <Field label="Style Category" size="sm">
+            {/* The parent of the cascade. A style is classified the same way a
+                material is — pick the class, then the category under it. */}
+            <Field label="Item Class" size="sm">
               <LookupDialogPicker
-                kind="style_category"
-                label="Style Category"
-                options={styleCategories}
-                value={form.style_category_id}
-                onChange={(id) => set({ style_category_id: id })}
+                kind="item_class"
+                label="Item Class"
+                options={itemClassOpts}
+                value={form.item_class_id}
+                onChange={handleItemClassChange}
                 canCreate={masterPerms.canCreate}
                 canEdit={masterPerms.canEdit}
+                compact
+              />
+            </Field>
+            {/**
+              * STYLE CATEGORY — the Garment master, scoped to the class above.
+              *
+              * `CategoryPicker`, not `LookupDialogPicker`: passing `levies` and
+              * `fabricStructures` is what makes its "+ Add" open the full
+              * class-aware `CategoryQuickCreateSheet` instead of the name-only
+              * inline form (`useFullQc`, lookup-picker.tsx). Omitting either one
+              * silently downgrades the control to a Name box with no error
+              * anywhere — which is the whole thing the client asked to fix.
+              *
+              * `scopedCategories` is empty until a class is chosen, so the field
+              * offers nothing rather than the whole master.
+              */}
+            <Field label="Style Category" size="sm">
+              <CategoryPicker
+                label="Style Category"
+                categories={scopedCategories}
+                value={form.style_category_id ?? ""}
+                onChange={(v) => set({ style_category_id: v || null })}
+                itemClassId={form.item_class_id ?? ""}
+                selectedClassCode={selectedClassCode}
+                levies={data.levies}
+                fabricStructures={fabricStructureOpts}
+                canCreate={masterPerms.canCreate}
+                canEdit={masterPerms.canEdit}
+                canDelete={masterPerms.canEdit}
                 compact
               />
             </Field>

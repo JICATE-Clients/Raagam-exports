@@ -79,7 +79,13 @@ export interface GarmentStyle {
   season: string | null;
   style_year: number | null;
   article_no: string | null;
+  /** A `categories` row, NOT a config_lookup (0394). The Style Category comes
+   *  from the Garment master, scoped by `item_class_id` below. */
   style_category_id: string | null;
+  /** The Item Class the operator chose; scopes the Category picker. Stored
+   *  rather than derived from the category, so a draft saved before a category
+   *  is picked still reopens on the right class (0394). */
+  item_class_id: string | null;
   style_description: string | null;
   tech_pack: string | null;
   unit_id: string | null;
@@ -150,6 +156,7 @@ export const garmentStyleInput = z
     style_year: z.coerce.number().int().nullable().default(null),
     article_no: nullableText,
     style_category_id: uuidN,
+    item_class_id: uuidN,
     style_description: nullableText,
     unit_id: uuidN,
     /** Piece or Set. NULLABLE on purpose: every style predating 0392 has none,

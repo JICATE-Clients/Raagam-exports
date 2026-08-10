@@ -4,10 +4,14 @@ import { listCustomers } from "@/lib/masters/customer-service";
 import { listCountries } from "@/lib/masters/country-service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
 import { listSizeGroups } from "@/lib/masters/size-group-service";
+import { listCategories } from "@/lib/masters/category-service";
+import { listLevies } from "@/lib/masters/levy-service";
 import type { Customer } from "@/lib/masters/customer-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { SizeGroup } from "@/lib/masters/size-group-types";
+import type { Category } from "@/lib/masters/category-types";
+import type { Levy } from "@/lib/masters/levy-types";
 import type { GarmentStyle } from "./types";
 import { withCreators } from "@/lib/created-by";
 
@@ -169,11 +173,25 @@ export type StyleFormData = {
   fabrics: FabricRow[];
   processes: PickerRow[];
   sizeGroups: SizeGroup[];
+  /**
+   * The Category master, UNSCOPED. The screen filters it to the chosen Item
+   * Class, exactly as material-master-screen.tsx does — the cascade is a
+   * client concern because the class changes without a round trip.
+   */
+  categories: Category[];
+  /**
+   * Only here to reach `CategoryQuickCreateSheet`. `CategoryPicker` switches
+   * its "+ Add" from the name-only inline form to the full class-aware sheet
+   * ONLY when handed both `levies` and `fabricStructures` (`useFullQc` in
+   * lookup-picker.tsx) — so omitting this silently downgrades the control the
+   * client asked for, with no error anywhere.
+   */
+  levies: Levy[];
 };
 
 /** Every picker option list the Style editor needs, fetched in parallel. */
 export async function getStyleFormData(): Promise<StyleFormData> {
-  const [customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups] =
+  const [customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups, categories, levies] =
     await Promise.all([
       listCustomers(),
       listCountries(),
@@ -183,6 +201,11 @@ export async function getStyleFormData(): Promise<StyleFormData> {
       getFabricRows(),
       getComponentProcessRows(),
       listSizeGroups(),
+      listCategories(),
+      listLevies(),
     ]);
-  return { customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups };
+  return {
+    customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups,
+    categories, levies,
+  };
 }
