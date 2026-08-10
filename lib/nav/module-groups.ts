@@ -132,6 +132,25 @@ export interface ModuleGroup {
   label: string;
   description: string;
   /**
+   * NO SIDEBAR ROW, but everything else about the group stays live.
+   *
+   * `moduleNavChildren` is the only reader that honours this, so the hub page
+   * still renders at its own URL, `findGroup` still resolves it, and its cards
+   * still work. Only the row disappears.
+   *
+   * SAFE EXACTLY WHEN EVERY CHILD IS `cardOnly`. Those children are owned by
+   * another group's row, so hiding this one strands nothing — it is the precise
+   * inverse of what made restoring Garment Orders cheap ("it adds exactly ONE
+   * sidebar row, and not one screen changes owner"). Hide a group whose
+   * children are NOT cardOnly and those screens lose their only row; the nav
+   * check's orphan assertion is what would catch it.
+   *
+   * Preferred over commenting the block out, which is what "we may need it
+   * again" usually becomes: a commented registry entry stops being
+   * type-checked, and its routes stop being asserted, so it rots silently.
+   */
+  hidden?: boolean;
+  /**
    * PROVISIONAL — the grouping or its screens are still being settled, so the
    * hub's `note` renders amber rather than as a neutral aside. Same two fields
    * `SubmoduleDef` already carries in `lib/masters/submodules.ts`, spelled the
@@ -212,6 +231,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "garment-orders",
         label: "Garment Orders",
+        // HIDDEN FROM THE SIDEBAR (client 2026-08-10) — it cards every screen
+        // the other Orders groups already own, so the row was a second way in
+        // rather than a home. Safe because every child below is `cardOnly`:
+        // nothing loses its row. The hub still answers at
+        // /orders/garment-orders, so restoring it is deleting this one line.
+        hidden: true,
         description:
           "The 14-step garment order flow — BOMs, processes, work orders, amendments, cancellation and completion",
         children: [
@@ -749,11 +774,15 @@ export function moduleNavChildren(
 ): { href: string; label: string }[] | undefined {
   const grouping = MODULE_GROUPS[moduleHref];
   if (!grouping) return undefined;
-  return grouping.entries.map((e) =>
-    e.kind === "group"
-      ? { href: `${moduleHref}/${e.slug}`, label: e.label }
-      : { href: e.href, label: e.label },
-  );
+  return grouping.entries
+    // `hidden` groups keep their hub page and their URL — they are simply not
+    // offered as a row. See the flag's own note for when that is safe.
+    .filter((e) => !(e.kind === "group" && e.hidden))
+    .map((e) =>
+      e.kind === "group"
+        ? { href: `${moduleHref}/${e.slug}`, label: e.label }
+        : { href: e.href, label: e.label },
+    );
 }
 
 /** A group plus its module context, for the hub page. `null` when unknown. */
