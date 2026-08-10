@@ -805,6 +805,28 @@ export function ChildGrid<T extends { key: string }>({
    */
   const hasTotals = columns.some((c) => c.total && c.total.kind !== "blank");
 
+  /**
+   * Every caller column has declared a width, so the TABLE CAN HUG ITS CONTENT
+   * instead of filling the section.
+   *
+   * `w-full` is right when the columns are open-ended — a description, a party
+   * name — because the slack has to go somewhere and spreading it is the least
+   * surprising choice. It is wrong when every column is a short value: a Size
+   * grid rendered "S" in a 490px control (client 2026-08-10) purely because it
+   * was the only column and inherited all the slack.
+   *
+   * The declaration is all-or-nothing on purpose. With one column sized and one
+   * open, `w-auto` would shrink-wrap the sized one and leave the other to fight
+   * for the remainder — a layout that depends on content length, which is the
+   * thing a fixed width is chosen to avoid.
+   *
+   * `w-fit` goes on the SCROLL WRAPPER, never on the `@container` root above:
+   * `container-type: inline-size` applies `contain: inline-size`, so a
+   * content-sized container query element is a cycle the browser resolves by
+   * collapsing it. The root stays parent-sized; only the bordered box hugs.
+   */
+  const hugsContent = columns.length > 0 && columns.every((c) => c.width);
+
   return (
     // Padding and rhythm are `DetailSection`'s, not this grid's own — they were
     // `p-3` / `space-y-3` against the section's `p-2.5 @2xl/editor:p-2`, so a
@@ -841,10 +863,14 @@ export function ChildGrid<T extends { key: string }>({
           // See `narrow`: the cap would otherwise push this below @lg and the
           // grid would render as cards.
           narrow ? "@md:block" : "@lg:block",
+          hugsContent && "w-fit max-w-full",
         )}
       >
         <table
-          className="w-full min-w-[420px] border-collapse text-sm"
+          className={cn(
+            "border-collapse text-sm",
+            hugsContent ? "w-auto" : "w-full min-w-[420px]",
+          )}
         >
           <thead>
             <tr className="border-b border-border bg-surface-muted">
@@ -852,6 +878,13 @@ export function ChildGrid<T extends { key: string }>({
               {columns.map((c, i) => (
                 <th
                   key={i}
+                  // The header carries the width for the whole column — a
+                  // `<td>` cannot widen past its `<th>` under `border-collapse`,
+                  // so declaring it once here is what makes `width` mean
+                  // anything in the table layout at all. It was previously read
+                  // ONLY by the card layouts, which is why setting it on a table
+                  // grid appeared to do nothing.
+                  style={c.width ? { width: c.width } : undefined}
                   className={cn(
                     "border-l border-border px-2 py-1.5 text-xs font-semibold text-muted-foreground",
                     align[c.align ?? "left"],

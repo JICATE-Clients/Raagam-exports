@@ -707,6 +707,9 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const coordColumns: ChildGridColumn<CoordRow>[] = [
     {
       header: "Coordinate",
+      // Same reason as Sizes — one column, a short value. Wider because a
+      // coordinate reads "NECK AND SHOULDER RIB", not "XXL".
+      width: "20rem",
       cell: (r) => (
         <ItemPicker
           label="Coordinate"
@@ -882,6 +885,10 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const sizeColumns: ChildGridColumn<SizeRow>[] = [
     {
       header: "Size",
+      // Declared so the table HUGS instead of stretching: `ChildGrid` switches
+      // to `w-auto` once every column has a width. A size is "S" or "XXL";
+      // without this it inherited all the grid's slack.
+      width: "14rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="size" label="Size" options={sizeOpts}
