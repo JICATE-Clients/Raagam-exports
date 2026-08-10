@@ -18,6 +18,37 @@ function rev(): void {
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
 
+/**
+ * The code the next style created on `styleDate` WOULD receive — so the New
+ * Style form can show its serial while it is being entered, instead of "(auto)".
+ *
+ * ASKS THE DATABASE RATHER THAN COMPOSING THE STRING HERE. Building
+ * `STL-<fy>-<n>` in TypeScript would be a second implementation of the format
+ * AND of the April–March fiscal-year rule; the first time either changed, the
+ * screen would confidently display a number different from the one saved.
+ * `peek_garment_style_code` (0393) shares `garment_style_fy()` with the trigger
+ * that actually assigns, which is what makes them impossible to drift apart.
+ *
+ * A PREDICTION, NOT A RESERVATION. The peek does not consume the counter — so
+ * opening the form and abandoning it burns no numbers — which means two
+ * operators entering at once both see the same one and only the first to save
+ * gets it. The trigger stays the sole authority, so the STORED value is always
+ * correct even when the preview was not.
+ *
+ * Returns null rather than throwing when the RPC is missing (0393 not applied)
+ * or RLS denies the read. The field then falls back to "(auto)", which is the
+ * honest answer: better a placeholder than a number nothing will honour.
+ */
+export async function previewStyleCode(styleDate: string | null): Promise<string | null> {
+  if (!(await can("orders", "create"))) return null;
+  const s = await createClient();
+  const { data, error } = await s.rpc("peek_garment_style_code", {
+    p_on: styleDate && styleDate.trim() ? styleDate : null,
+  });
+  if (error) return null;
+  return typeof data === "string" && data ? data : null;
+}
+
 // ---------- child normalizers (drop fully-empty rows + renumber sno) ----------
 
 function normalizeCoordinates(data: GarmentStyleInput) {

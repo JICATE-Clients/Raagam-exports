@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Shirt, SlidersHorizontal, Palette, Boxes, Ruler, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import {
   createGarmentStyle,
   updateGarmentStyle,
   deleteGarmentStyle,
+  previewStyleCode,
 } from "@/lib/orders/styles/actions";
 import {
   SEASON_OPTIONS,
@@ -142,14 +143,55 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
    * newly created style's number appears on its own: `router.refresh()` already
    * brings the saved row back.
    *
-   * Null on a new record, because the trigger assigns on INSERT — there
-   * genuinely is no serial yet, and the field says `(auto)` rather than blank.
+   * Null on a new record, because the trigger assigns on INSERT — there is no
+   * serial yet, and `previewCode` below answers for that case instead.
    */
   const editingCode = rows.find((r) => r.id === editId)?.code ?? null;
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [coords, setCoords] = useState<CoordRow[]>([]);
   const [comps, setComps] = useState<CompRow[]>([]);
   const [sizes, setSizes] = useState<SizeRow[]>([]);
+
+  /**
+   * What the serial WILL be, shown while a new style is being entered.
+   *
+   * KEYED ON `style_date`, not on nothing: the fiscal year comes from that field
+   * (`assign_garment_style_code`), so back-dating a style into last March moves
+   * it into the previous year's numbering. A preview that ignored the date would
+   * be wrong for exactly the entries most likely to be checked.
+   *
+   * Only for a NEW record — an existing style has a real code and must never be
+   * shown a predicted one.
+   *
+   * A PREDICTION, NOT A RESERVATION. `peek_garment_style_code` (0393) does not
+   * consume the counter, so opening this form and abandoning it burns no
+   * numbers; the cost is that two operators entering at once see the same next
+   * number and only the first to save gets it. The trigger stays the sole
+   * authority, so what is STORED is always right. Reserving instead would issue
+   * numbers to records that may never exist, and those gaps are what an audit
+   * asks about.
+   *
+   * `cancelled` guards the response, not the request: an operator retyping the
+   * date fires several of these and they can land out of order, which would
+   * leave the field showing the answer to a date that is no longer in the box.
+   *
+   * The effect only FETCHES; clearing is done by `openAdd`/`openEdit`, which is
+   * where this screen resets all its other state too. Clearing here instead
+   * would be a synchronous setState in an effect body — the cascading-render
+   * shape `react-hooks/set-state-in-effect` exists to catch, and an event
+   * handler is the honest place for "the operator opened a different record".
+   */
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (mode !== "edit" || editId) return;
+    let cancelled = false;
+    previewStyleCode(form.style_date).then((c) => {
+      if (!cancelled) setPreviewCode(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, editId, form.style_date]);
   /**
    * Has the operator actually changed anything since this record was opened.
    *
@@ -383,6 +425,9 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     setCoords([blankCoord()]);
     setComps([blankComp()]);
     setSizes([blankSize()]);
+    // Dropped, not kept: the previous form's predicted serial was for whatever
+    // date was in that box. The effect refills it for today's.
+    setPreviewCode(null);
     // Seeding a record is not an edit — the three blank rows above are the
     // screen's doing, not the operator's.
     setDirty(false);
@@ -390,6 +435,8 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   }
 
   function openEdit(r: GarmentStyle) {
+    // An existing style has a real code; it must never be shown a predicted one.
+    setPreviewCode(null);
     setEditId(r.id);
     setForm({
       blocked: r.blocked,
@@ -810,6 +857,36 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       content: (
         <SectionBody title="Style" hint="What this style is, and who it is for.">
           <FieldGrid>
+            {/**
+              * THE SERIAL — STL-<fy><fy+1>-<n>, e.g. STL-2627-81.
+              *
+              * FIRST FIELD ON THE FIRST SECTION (client 2026-08-10): the number
+              * the record is known by reads before anything that describes it.
+              * It was previously rendered in exactly one place, the list's
+              * "Code" column, so an operator who opened a style could not see it
+              * at all.
+              *
+              * `readOnly` is doing three jobs at once, all of them house rules:
+              * `Input` sets `tabIndex={-1}` on a readOnly field itself, so this
+              * leaves the Tab path, the arrows and the focus trap without a
+              * per-screen opt-out; `useRequiredHold` is gated on `!readOnly`, so
+              * it can never become a cage with no keyboard way out; and a
+              * read-only auto field is CAPS-exempt, hence no `uppercase`.
+              *
+              * On an EXISTING style this is the stored code. On a NEW one it is
+              * `previewCode` — what the trigger WOULD assign — which is a
+              * prediction and not a reservation: see `previewStyleCode`. The
+              * "(auto)" placeholder survives only as the fallback for when the
+              * database cannot answer.
+              */}
+            <Field label="Serial No" size="sm" htmlFor="st-code">
+              <Input
+                id="st-code"
+                readOnly
+                value={editingCode ?? previewCode ?? ""}
+                placeholder="(auto)"
+              />
+            </Field>
             <Field label="Style" required size="sm" htmlFor="st-name">
               <Input
                 id="st-name"
@@ -882,33 +959,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       content: (
         <SectionBody title="General" hint="Season, category and how this style is counted.">
           <FieldGrid>
-            {/**
-              * THE SERIAL — STL-<fy><fy+1>-<n>, e.g. STL-2627-81.
-              *
-              * First on the section: the number the record is KNOWN by should
-              * read before what classifies it. It was previously rendered in
-              * exactly one place, the list's "Code" column, so an operator who
-              * opened a style could not see it at all (reported 2026-08-10).
-              *
-              * `readOnly` is doing three jobs at once, all of them house rules:
-              * `Input` sets `tabIndex={-1}` on a readOnly field itself, so this
-              * leaves the Tab path, the arrows and the focus trap without a
-              * per-screen opt-out; `useRequiredHold` is gated on `!readOnly`, so
-              * it can never become a cage with no keyboard way out; and a
-              * read-only `(auto)` field is CAPS-exempt, hence no `uppercase`.
-              *
-              * The value is assigned by the DB trigger on INSERT, so a new style
-              * has none and the box reads `(auto)`.
-              *
-              * NOTE: until 0392 is applied the live trigger is still 0124's
-              * `assign_code('STL', seq)`, so this correctly shows STL-0001 —
-              * four padded digits, no fiscal year, no yearly reset. Do NOT
-              * "fix" that by reformatting here: a second numbering rule in the
-              * UI would make this field and the database disagree.
-              */}
-            <Field label="Serial No" size="sm" htmlFor="st-code">
-              <Input id="st-code" readOnly value={editingCode ?? ""} placeholder="(auto)" />
-            </Field>
             <Field label="Season" size="sm" htmlFor="st-season">
               <Select id="st-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
                 <option value="">—</option>
