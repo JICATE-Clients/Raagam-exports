@@ -1164,7 +1164,11 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               exactly one component"), and it does two things at once: it removes
               the button AND makes Enter on the last row DECLINE rather than grow
               the grid, so the keyboard cannot get past the limit either. */}
+          {/* `narrow` for the same reason as Sizes — this became a one-column
+              grid when M.List No was withdrawn, and a lone Coordinate picker
+              has no business spanning the section. */}
           <ChildGrid<CoordRow>
+            narrow
             columns={coordColumns}
             rows={coords}
             hideAdd={!!coordCap && coords.length >= coordCap.max}
@@ -1266,7 +1270,10 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 : `${unmatchedSizes.length} of this group’s sizes are not in the Sizes list yet (${unmatchedSizes.join(", ")}) — add them with “+ Add” on a row.`}
             </p>
           )}
+          {/* `narrow`: one column holding a two-character value. Without it the
+              Size picker stretched the full width of the section. */}
           <ChildGrid<SizeRow>
+            narrow
             columns={sizeColumns}
             rows={sizes}
             onAdd={() => mutSizes((xs) => [...xs, blankSize()])}

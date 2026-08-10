@@ -614,6 +614,7 @@ export function ChildGrid<T extends { key: string }>({
   frameless = false,
   keyboardNav = true,
   hideAdd = false,
+  narrow = false,
   inlineCards = false,
   flushRows = false,
   listRows = false,
@@ -664,6 +665,24 @@ export function ChildGrid<T extends { key: string }>({
   /** Hide the trailing "+ Add" button — for grids capped at a fixed row count
    *  (e.g. Single Yarn fabric = exactly one component). */
   hideAdd?: boolean;
+  /**
+   * Every column holds a SHORT value — one picker, a size, a coordinate — so cap
+   * the grid's width instead of stretching it across the section.
+   *
+   * A `<table>` shares its slack among the columns, and `ChildGridColumn.width`
+   * cannot help: it is a CARD-mode track width and the table branch does not
+   * read it. So a one-column grid renders a two-character size in a 1200px
+   * control (client 2026-08-10). Legacy draws the same list in a narrow panel.
+   *
+   * THE CAP AND THE TABLE'S BREAKPOINT ARE COUPLED — this is the part to leave
+   * alone. The layout is chosen by a CONTAINER query on this component's own
+   * root, so capping the root's width also decides which layout it gets.
+   * `max-w-lg` (32rem) with the table showing from `@md` (28rem) leaves 4rem of
+   * headroom over the table's own `min-w-[420px]`. Tighten the cap below the
+   * breakpoint and the grid silently flips to stacked cards, which looks like a
+   * different bug entirely.
+   */
+  narrow?: boolean;
   /** One flex row per record with a single shared header, honouring each
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
@@ -795,6 +814,7 @@ export function ChildGrid<T extends { key: string }>({
       className={cn(
         "@container space-y-2 @2xl/editor:space-y-1.5",
         !frameless && "rounded-lg border border-border p-2.5 @2xl/editor:p-2",
+        narrow && "max-w-lg",
       )}
     >
       {/* No caption row when there is nothing to put in it. A grid nested inside
@@ -815,7 +835,14 @@ export function ChildGrid<T extends { key: string }>({
       {/* wide-container table — only in `responsive` mode. The inline layout is
           a REPLACEMENT for this, not a companion to it. */}
       {mode === "responsive" && (
-      <div className="hidden overflow-x-auto rounded-lg border border-border @lg:block">
+      <div
+        className={cn(
+          "hidden overflow-x-auto rounded-lg border border-border",
+          // See `narrow`: the cap would otherwise push this below @lg and the
+          // grid would render as cards.
+          narrow ? "@md:block" : "@lg:block",
+        )}
+      >
         <table
           className="w-full min-w-[420px] border-collapse text-sm"
         >
@@ -1057,7 +1084,7 @@ export function ChildGrid<T extends { key: string }>({
         data-grid-body
         className={cn(
           listRows ? "divide-y divide-border" : "space-y-2",
-          mode === "responsive" && "@lg:hidden",
+          mode === "responsive" && (narrow ? "@md:hidden" : "@lg:hidden"),
         )}
         onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
       >
