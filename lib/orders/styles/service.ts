@@ -24,17 +24,37 @@ export type PickerRow = { id: string; code: string | null; name: string; inactiv
 /** All styles with embedded customer + child grids (mirrors listCustomers). */
 export async function getGarmentStyles(): Promise<GarmentStyle[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("garment_styles")
     .select(
       "*, customer:customers(id,code,name), " +
-        "coordinates:garment_style_coordinates(*), " +
         // The nested embed is what carries a component's processes (0392). The
         // grid is per-component, so they cannot be a flat child of the style.
+        "coordinates:garment_style_coordinates(*), " +
         "components:garment_style_components(*, processes:garment_style_component_processes(*)), " +
         "sizes:garment_style_sizes(*)",
     )
     .order("created_at", { ascending: false });
+
+  /**
+   * A FAILED QUERY IS NOT AN EMPTY TABLE.
+   *
+   * This was `const { data } = …` with `data ?? []` below, so any error became a
+   * list of zero styles — no error boundary, no console, nothing. It hid a real
+   * outage for days (found 2026-08-10): `garment_style_component_processes` does
+   * not exist until 0392 is applied, so the embed above returned HTTP 400 and
+   * EVERY request rendered an empty Style list. The screen looked like a shop
+   * with no styles entered yet.
+   *
+   * That is the same failure shape as the `created_by` sweep — "not an error,
+   * not a missing column, just empty" — and it is the reason the shape is worth
+   * refusing rather than tidying. Throwing hands it to the route's error
+   * boundary, which says something is broken instead of quietly lying.
+   *
+   * Only 4 of 103 services in this repo check `error`; this is the house pattern
+   * where it is checked (`lib/hr/*-service.ts`), not a new invention.
+   */
+  if (error) throw new Error(`Could not load styles: ${error.message}`);
 
   return withCreators(((data ?? []) as unknown as GarmentStyle[]).map((r) => ({
     ...r,
