@@ -9,13 +9,14 @@
 // cannot disagree, which makes this file the only place that agreement is
 // actually demonstrated rather than asserted in a comment.
 //
-// The screen itself cannot be exercised here: migration 0392 adds the columns
-// these rules read (`unit_kind`) and is not applied, so /orders/styles does not
-// load. `rules.ts` imports nothing, which is what lets it be proved anyway.
+// `rules.ts` imports nothing at all, which is what lets these be proved without
+// a database, a browser or a test framework — and why every rule the Style
+// screen enforces lives there rather than in the component.
 //
 // Exits non-zero on the first mismatch so it can gate a commit if wanted.
 
 import {
+  componentRowStarted,
   coordinateLimit,
   filledCoordinates,
   orphanComponents,
@@ -164,6 +165,24 @@ check(
   sections({ unit_kind: "set", coordinates: [coord(TOP), coord(BOTTOM)], components: [comp(TOP), comp(SLEEVE_SET)] }),
   ["components"],
 );
+
+// ---------- has this component row been STARTED? ----------
+//
+// Two readers: the save path drops a row this calls false, and the screen marks
+// a row's mandatory cells required only when it calls true. They are the same
+// question from opposite ends, so a disagreement is either a caged operator on
+// a row about to be discarded, or a half-filled component vanishing silently.
+check("an untouched row is not started", componentRowStarted({}), false);
+check("all-null is not started",
+  componentRowStarted({ coordinate_id: null, component_id: null, item_id: null }), false);
+check("whitespace-only comp_type is not started", componentRowStarted({ comp_type: "   " }), false);
+check("an empty process list is not started", componentRowStarted({ processes: [] }), false);
+check("a coordinate starts it", componentRowStarted({ coordinate_id: TOP }), true);
+check("a component starts it", componentRowStarted({ component_id: TOP }), true);
+check("a fabric starts it", componentRowStarted({ item_id: TOP }), true);
+check("a structure starts it", componentRowStarted({ structure_id: TOP }), true);
+check("a comp_type starts it", componentRowStarted({ comp_type: "Circular" }), true);
+check("a process alone starts it", componentRowStarted({ processes: [{}] }), true);
 
 // ---------- THE PICKER AND THE RULE CANNOT DRIFT ----------
 //

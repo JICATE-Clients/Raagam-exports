@@ -42,6 +42,7 @@ import {
   UNIT_KIND_OPTIONS,
   coordinateLimit,
   isUnitKind,
+  componentRowStarted,
   styleCoordinateIds,
   styleProblems,
 } from "@/lib/orders/styles/rules";
@@ -750,6 +751,32 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     },
   ];
 
+  /**
+   * WHICH COMPONENT CELLS ARE COMPULSORY (client 2026-08-10: red = compulsory,
+   * blue = optional).
+   *
+   * Declared on the PICKERS, not through `ChildGridColumn.required` — this grid
+   * renders `renderMobileRow`, which those columns never reach (child-grid.tsx
+   * says so where the prop is defined), so a star declared there would be
+   * decoration with no hold behind it. `material-attribute-master-screen.tsx`
+   * records the same finding.
+   *
+   * ONLY ON A ROW THE OPERATOR HAS STARTED. `ChildGrid` seeds a blank row, and
+   * the save path drops any row holding nothing — so requiring a field on an
+   * untouched row would cage them on a row that is about to be discarded. Both
+   * ends read `componentRowStarted`, deliberately one function.
+   */
+  const compRequired = (r: CompRow) => componentRowStarted(r);
+
+  /**
+   * Coordinate is compulsory too — a Set style has to say whether a sleeve
+   * belongs to the Top or the Bottom — BUT ONLY WHEN THERE IS ONE TO PICK.
+   * With no coordinates entered yet the list is empty, and a hold on a field
+   * that cannot be filled is a cage with no keyboard way out. The section hint
+   * already says "Add coordinates first"; that is the honest answer there.
+   */
+  const coordRequired = (r: CompRow) => compRequired(r) && coordinateIds.size > 0;
+
   const compColumns: ChildGridColumn<CompRow>[] = [
     {
       header: "Coordinate",
@@ -770,7 +797,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
            * are added on the Coordinates tab, the only place that changes what
            * this list holds. Omitting `quickCreateClassId` is what withholds it.
            */
-          canCreate={false} canEdit={false} compact
+          canCreate={false} canEdit={false} required={coordRequired(r)} compact
         />
       ),
     },
@@ -784,6 +811,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           items={componentOpts}
           value={r.component_id}
           onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, component_id: id } : x)))}
+          required={compRequired(r)}
           compact
         />
       ),
@@ -835,6 +863,10 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           items={data.fabrics}
           value={r.item_id ?? ""}
           onChange={(v) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, item_id: v || null } : x)))}
+          // "Every component must be mapped to a specific material selected
+          // from the Fabric Master" (client 2026-08-10) — the one field the
+          // spec names as compulsory in so many words.
+          required={compRequired(r)}
           compact
         />
       ),

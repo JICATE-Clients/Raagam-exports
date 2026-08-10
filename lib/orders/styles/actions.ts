@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { garmentStyleInput, type GarmentStyleInput } from "./types";
+import { componentRowStarted } from "./rules";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -83,15 +84,10 @@ function normalizeComponents(data: GarmentStyleInput) {
         .filter((p) => !!p.process_id)
         .map((p, i) => ({ process_id: p.process_id as string, sno: i + 1 })),
     }))
-    .filter(
-      (c) =>
-        c.row.coordinate_id ||
-        c.row.component_id ||
-        c.row.structure_id ||
-        c.row.comp_type ||
-        c.row.item_id ||
-        c.processes.length > 0,
-    )
+    // Same predicate the screen marks its mandatory cells with — see
+    // `componentRowStarted`. Two copies of "is this row real?" would cage the
+    // operator on a row this drops, or drop a row whose fields it required.
+    .filter((c) => componentRowStarted({ ...c.row, processes: c.processes }))
     .map((c, i) => ({ ...c, row: { ...c.row, sno: i + 1 } }));
 }
 

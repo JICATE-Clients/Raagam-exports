@@ -108,6 +108,40 @@ export function orphanComponents(
 }
 
 /**
+ * Has the operator STARTED this component row?
+ *
+ * ONE PREDICATE, TWO READERS, and they must not drift. The save path drops a
+ * component row that holds nothing (`normalizeComponents`), and the screen marks
+ * a row's mandatory cells `required` only once it is started. Those are the same
+ * question asked from opposite ends: require a field on a row that will be
+ * dropped and the operator is caged on a row they never meant to add; drop a row
+ * whose fields were required and a half-filled component vanishes silently.
+ *
+ * The trailing blank row is the case this exists for. `ChildGrid` seeds one, and
+ * `material-attribute-master-screen.tsx` learned the same lesson with its star
+ * row: "requiring it would cage the operator on a row they never meant to add".
+ */
+export type ComponentRowLike = {
+  coordinate_id?: string | null;
+  component_id?: string | null;
+  structure_id?: string | null;
+  comp_type?: string | null;
+  item_id?: string | null;
+  processes?: readonly unknown[];
+};
+
+export function componentRowStarted(r: ComponentRowLike): boolean {
+  return !!(
+    r.coordinate_id ||
+    r.component_id ||
+    r.structure_id ||
+    (r.comp_type && r.comp_type.trim()) ||
+    r.item_id ||
+    (r.processes?.length ?? 0) > 0
+  );
+}
+
+/**
  * A problem, tagged with the rail section that can fix it.
  *
  * The section key is the load-bearing part and the reason this returns objects

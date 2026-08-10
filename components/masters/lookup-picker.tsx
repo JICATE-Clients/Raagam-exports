@@ -99,6 +99,7 @@ export function ItemPicker({
   onChange,
   usedIds,
   clearable = true,
+  required = false,
   placeholder,
   compact = false,
   quickCreateClassId,
@@ -122,6 +123,16 @@ export function ItemPicker({
    */
   usedIds?: Iterable<string> | null;
   clearable?: boolean;
+  /**
+   * Draws the red `*` AND holds the cursor while the field is blank — one
+   * declaration, both halves, same as every other picker.
+   *
+   * This is the SANCTIONED route for a cell inside a grid that renders
+   * `renderMobileRow`: `ChildGridColumn.required` never reaches those rows
+   * (child-grid.tsx says so where the prop is defined), so declaring it
+   * there would draw a star with nothing behind it.
+   */
+  required?: boolean;
   placeholder?: string;
   /** Trigger-only (no label) for dense grid rows — as `LookupDialogPicker`. */
   compact?: boolean;
@@ -229,6 +240,7 @@ export function ItemPicker({
         onChange={(v) => onChange(v ?? "")}
         usedIds={usedIds}
         clearable={clearable}
+        required={required}
         compact={compact}
         manage={manage}
         onAddOverride={
