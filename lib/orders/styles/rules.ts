@@ -127,7 +127,6 @@ export type ComponentRowLike = {
   structure_id?: string | null;
   comp_type?: string | null;
   item_id?: string | null;
-  processes?: readonly unknown[];
 };
 
 export function componentRowStarted(r: ComponentRowLike): boolean {
@@ -136,8 +135,7 @@ export function componentRowStarted(r: ComponentRowLike): boolean {
     r.component_id ||
     r.structure_id ||
     (r.comp_type && r.comp_type.trim()) ||
-    r.item_id ||
-    (r.processes?.length ?? 0) > 0
+    r.item_id
   );
 }
 

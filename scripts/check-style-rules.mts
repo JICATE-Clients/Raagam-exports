@@ -176,13 +176,11 @@ check("an untouched row is not started", componentRowStarted({}), false);
 check("all-null is not started",
   componentRowStarted({ coordinate_id: null, component_id: null, item_id: null }), false);
 check("whitespace-only comp_type is not started", componentRowStarted({ comp_type: "   " }), false);
-check("an empty process list is not started", componentRowStarted({ processes: [] }), false);
 check("a coordinate starts it", componentRowStarted({ coordinate_id: TOP }), true);
 check("a component starts it", componentRowStarted({ component_id: TOP }), true);
 check("a fabric starts it", componentRowStarted({ item_id: TOP }), true);
 check("a structure starts it", componentRowStarted({ structure_id: TOP }), true);
 check("a comp_type starts it", componentRowStarted({ comp_type: "Circular" }), true);
-check("a process alone starts it", componentRowStarted({ processes: [{}] }), true);
 
 // ---------- THE PICKER AND THE RULE CANNOT DRIFT ----------
 //

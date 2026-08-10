@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Shirt, SlidersHorizontal, Palette, Boxes, Ruler, X } from "lucide-react";
+import { Shirt, SlidersHorizontal, Palette, Boxes, Ruler } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -63,8 +63,6 @@ interface Props {
 
 // ---- editable child-row shapes ----
 type CoordRow = { key: string; coordinate_id: string | null };
-/** One process on a component — the nested grid's row. */
-type CompProcRow = { key: string; process_id: string | null };
 type CompRow = {
   key: string;
   coordinate_id: string | null;
@@ -73,7 +71,6 @@ type CompRow = {
   comp_type: string;
   /** The fabric: an `items` row of class FABRIC. */
   item_id: string | null;
-  processes: CompProcRow[];
 };
 type SizeRow = { key: string; size_id: string | null };
 
@@ -477,7 +474,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     structure_id: null,
     comp_type: "",
     item_id: null,
-    processes: [],
   });
   const blankSize = (): SizeRow => ({ key: newKey(), size_id: null });
 
@@ -533,10 +529,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         structure_id: c.structure_id,
         comp_type: c.comp_type ?? "",
         item_id: c.item_id,
-        processes: (c.processes ?? []).map((p) => ({
-          key: newKey(),
-          process_id: p.process_id,
-        })),
       })),
     );
     setSizes(r.sizes.map((s) => ({ key: newKey(), size_id: s.size_id })));
@@ -584,7 +576,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         structure_id: c.structure_id,
         comp_type: c.comp_type || null,
         item_id: c.item_id,
-        processes: c.processes.map((p) => ({ sno: 0, process_id: p.process_id })),
       })),
       sizes: sizes.map((s) => ({ sno: 0, size_id: s.size_id })),
     };
@@ -868,38 +859,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           // spec names as compulsory in so many words.
           required={compRequired(r)}
           compact
-        />
-      ),
-    },
-  ];
-
-  /**
-   * A component's processes — printing, embroidery, and anything else the
-   * `processes` master flags `for_components`.
-   *
-   * A NESTED grid, because one part can need both printing and embroidery, so
-   * this is a list per row rather than a column on it. `lib/focus.ts` already
-   * treats a row's nested grid as part of the row: Tab walks into it
-   * (`tabFieldsIn`), an empty one opens its first row (`enterNestedGrid`), and
-   * ↑/↓ hand off across the boundary (`fromChildGrid`).
-   */
-  const procColumns: ChildGridColumn<CompProcRow>[] = [
-    {
-      header: "Process",
-      cell: (p) => (
-        <RecordPicker
-          label="Process"
-          compact
-          items={data.processes}
-          value={p.process_id}
-          onChange={(id) =>
-            mutComps((xs) =>
-              xs.map((x) => ({
-                ...x,
-                processes: x.processes.map((q) => (q.key === p.key ? { ...q, process_id: id } : q)),
-              })),
-            )
-          }
         />
       ),
     },
@@ -1231,80 +1190,25 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               : "What each coordinate is built from, its fabric, and any extra process it needs. Coordinate offers only the ones on the Coordinates tab."
           }
         >
-          {/* CARDS, NOT A TABLE — because each component owns a LIST of
-              processes, and a list cannot live in a table cell. This is the
-              same shape Material Attributes uses for its values
-              (`forceCards listRows frameless` + `renderMobileRow`), which is
-              the one arrangement `lib/focus.ts` already understands as "a row
-              with a nested grid": Tab walks into the panel (`tabFieldsIn`), an
-              empty one opens its first row (`enterNestedGrid`), and ↑/↓ hand
-              off across the boundary (`fromChildGrid`).
+          {/* A TABLE AGAIN.
 
-              `compColumns` is still declared and is not dead: it is the
-              fallback if this grid is ever switched back to a table. */}
+              This grid was `forceCards listRows frameless` + `renderMobileRow`
+              for exactly one reason: each component owned a LIST of processes,
+              and a list cannot live in a table cell. The process sub-grid was
+              removed on 2026-08-10 (client: the legacy Components grid has no
+              process column), so the card layout was scaffolding holding up
+              something that no longer exists.
+
+              A table is also what the legacy screen shows, and it is denser —
+              five columns on one line instead of a stacked card per component.
+              `ChildGrid` still falls back to cards on a narrow viewport by
+              itself; `forceCards` is what made it do so at every width. */}
           <ChildGrid<CompRow>
             columns={compColumns}
             rows={comps}
-            forceCards
-            listRows
-            frameless
             onAdd={() => mutComps((xs) => [...xs, blankComp()])}
             onRemove={(r) => mutComps((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add component"
-            renderMobileRow={(c, i) => (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                    #{i + 1}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove
-                    className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => mutComps((xs) => xs.filter((x) => x.key !== c.key))}
-                    aria-label="Remove component"
-                  >
-                    <X className="h-4 w-4 shrink-0" />
-                  </Button>
-                </div>
-                <FieldGrid>
-                  {compColumns.map((col) => (
-                    <Field key={col.header} label={col.header} size="sm">
-                      {col.cell(c, i)}
-                    </Field>
-                  ))}
-                </FieldGrid>
-                {/* The nested grid. `frameless` so it does not draw a second
-                    border inside the component's own row. */}
-                <ChildGrid<CompProcRow>
-                  label="Processes"
-                  columns={procColumns}
-                  rows={c.processes}
-                  frameless
-                  onAdd={() =>
-                    mutComps((xs) =>
-                      xs.map((x) =>
-                        x.key === c.key
-                          ? { ...x, processes: [...x.processes, { key: newKey(), process_id: null }] }
-                          : x,
-                      ),
-                    )
-                  }
-                  onRemove={(p) =>
-                    mutComps((xs) =>
-                      xs.map((x) =>
-                        x.key === c.key
-                          ? { ...x, processes: x.processes.filter((q) => q.key !== p.key) }
-                          : x,
-                      ),
-                    )
-                  }
-                  addLabel="+ Add process"
-                />
-              </div>
-            )}
           />
         </SectionBody>
       ),

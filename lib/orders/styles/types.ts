@@ -62,7 +62,13 @@ export interface GarmentStyleComponent {
   /** Withdrawn from the form 2026-08-10; the columns and their values remain. */
   trims: boolean;
   trims_category_id: string | null;
-  /** Printing / embroidery / … from the `processes` master. */
+  /** Printing / embroidery / … from the `processes` master.
+   *
+   *  WITHDRAWN FROM THE FORM 2026-08-10 (client: the legacy grid has no process
+   *  column). Still embedded by the service and still read back — but note this
+   *  is a CHILD of a child, and `writeChildren` deletes and recreates every
+   *  component on each save, so these rows cascade away with their parent
+   *  whatever the schema says. Nothing is lost today: the table is empty. */
   processes: GarmentStyleComponentProcess[];
 }
 
@@ -144,7 +150,11 @@ export const styleComponentInput = z.object({
    *  round trip, and a rule that needs one does not belong in a schema. */
   item_id: uuidN,
   // `trims` / `trims_category_id` are deliberately absent — see the header.
-  processes: z.array(styleComponentProcessInput).default([]),
+  // `processes` left on 2026-08-10 too: the legacy Components grid has no
+  // process column, so the client had the sub-grid removed. The TABLE
+  // `garment_style_component_processes` (0392) and this file's
+  // `styleComponentProcessInput` both remain, so restoring it is a UI change
+  // rather than a migration.
 });
 
 export const styleSizeInput = z.object({

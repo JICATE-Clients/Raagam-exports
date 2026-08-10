@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useEditorOpen } from "@/lib/editor-presence";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
@@ -82,6 +83,21 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       return next;
     });
   }
+
+  /**
+   * A full-page record editor takes the whole width.
+   *
+   * The editor carries its own section rail, so leaving this up gives the
+   * operator two vertical navigations with the form squeezed between them
+   * (client 2026-08-10). Returning null rather than adding a `hidden` class so
+   * the nav's own scroll position and expanded-group state are rebuilt fresh on
+   * the way back — a hidden-but-mounted sidebar would keep a scroll offset from
+   * before the editor opened.
+   *
+   * Mobile is unaffected: this is `md:flex` and `MobileNav` is the nav there.
+   */
+  const editorOpen = useEditorOpen();
+  if (editorOpen) return null;
 
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface md:flex">

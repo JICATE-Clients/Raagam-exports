@@ -62,33 +62,25 @@ function normalizeCoordinates(data: GarmentStyleInput) {
 }
 
 /**
- * Components, each carrying its own process list.
- *
- * The processes are kept ATTACHED here rather than flattened, because they can
- * only be written once the component row exists and has an id — see
- * `writeChildren`. `trims` / `trims_category_id` are no longer produced: they
- * left the Zod input on 2026-08-10, so there is nothing to read, and the stored
- * column values are left alone.
+ * Components. `trims` / `trims_category_id` are no longer produced (they left
+ * the Zod input on 2026-08-10) and neither are `processes` (same date, same
+ * reason: the legacy grid has no process column). The stored column values are
+ * left alone in both cases.
  */
 function normalizeComponents(data: GarmentStyleInput) {
   return data.components
     .map((c) => ({
-      row: {
-        coordinate_id: c.coordinate_id ?? null,
-        component_id: c.component_id ?? null,
-        structure_id: c.structure_id ?? null,
-        comp_type: clean(c.comp_type),
-        item_id: c.item_id ?? null,
-      },
-      processes: (c.processes ?? [])
-        .filter((p) => !!p.process_id)
-        .map((p, i) => ({ process_id: p.process_id as string, sno: i + 1 })),
+      coordinate_id: c.coordinate_id ?? null,
+      component_id: c.component_id ?? null,
+      structure_id: c.structure_id ?? null,
+      comp_type: clean(c.comp_type),
+      item_id: c.item_id ?? null,
     }))
     // Same predicate the screen marks its mandatory cells with — see
     // `componentRowStarted`. Two copies of "is this row real?" would cage the
     // operator on a row this drops, or drop a row whose fields it required.
-    .filter((c) => componentRowStarted({ ...c.row, processes: c.processes }))
-    .map((c, i) => ({ ...c, row: { ...c.row, sno: i + 1 } }));
+    .filter(componentRowStarted)
+    .map((c, i) => ({ ...c, sno: i + 1 }));
 }
 
 function normalizeSizes(data: GarmentStyleInput) {
@@ -126,44 +118,22 @@ async function writeChildren(
   }
 
   /**
-   * COMPONENTS AND THEIR PROCESSES — the one child that cannot be a blind insert.
+   * Components are a plain insert again.
    *
-   * `garment_style_component_processes.component_id` points at a component row,
-   * and this function deletes and recreates every component on every save. So
-   * the ids the processes must reference DO NOT EXIST until the components are
-   * inserted, and they are different ids each time.
-   *
-   * Hence `.select("id")`: PostgREST returns the inserted rows in the order
-   * they were sent, so index i of the response is index i of the payload. Write
-   * the processes with a stale or guessed id and every one of them silently
-   * disappears on the second save — the failure would only ever show up as
-   * "the processes I entered are gone", one save later, with nothing logged.
+   * This used to `.select("id")` and pair the returned ids positionally with the
+   * payload, because `garment_style_component_processes` had to reference
+   * component rows that only exist after the insert — and are different ids on
+   * every save. The process sub-grid was removed on 2026-08-10, so that pairing,
+   * and the length-mismatch guard that protected it, have nothing left to
+   * protect. Restoring the sub-grid means restoring both; see git history rather
+   * than reinventing it.
    */
   const comps = normalizeComponents(data);
   if (comps.length) {
-    const { data: created, error } = await s
+    const { error } = await s
       .from("garment_style_components")
-      .insert(comps.map((c) => ({ ...c.row, style_id: styleId })))
-      .select("id");
+      .insert(comps.map((c) => ({ ...c, style_id: styleId })));
     if (error) return fail(error.message);
-
-    const rows = created ?? [];
-    if (rows.length !== comps.length) {
-      // Never observed, but the id↔payload pairing below is positional, so a
-      // length mismatch means the pairing is wrong and the processes would be
-      // attached to the wrong components. Refuse rather than mis-attach.
-      return fail("Component rows did not round-trip; processes were not saved.");
-    }
-
-    const procRows = comps.flatMap((c, i) =>
-      c.processes.map((p) => ({ ...p, component_id: (rows[i] as { id: string }).id })),
-    );
-    if (procRows.length) {
-      const { error: pErr } = await s
-        .from("garment_style_component_processes")
-        .insert(procRows);
-      if (pErr) return fail(pErr.message);
-    }
   }
 
   return { ok: true };
