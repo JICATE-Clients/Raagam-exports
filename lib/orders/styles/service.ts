@@ -134,6 +134,60 @@ async function getFabricRows(): Promise<FabricRow[]> {
 }
 
 /**
+ * Coordinates — `items` under item class GARMENTS.
+ *
+ * A COORDINATE IS A GARMENT (0396). A Set style is two to six garments sold
+ * together, so TOP / BOTTOM / INNER / OUTER / PIECES are `items` of class GAR,
+ * not values of a `coordinate` lookup. That lookup held two rows named "1" and
+ * "2" and nothing had ever maintained it.
+ *
+ * Scoped HERE, not in the screen — the same cascading-picker rule `getFabricRows`
+ * follows, and for the same reason: `ItemPicker` has no class filter of its own.
+ * The disable flag rides along so a coordinate a style already holds still
+ * resolves after someone switches it off.
+ */
+async function getGarmentRows(): Promise<FabricRow[]> {
+  const s = await createClient();
+  const { data: classes } = await s
+    .from("config_lookups")
+    .select("id, code")
+    .eq("kind", "item_class");
+  const garIds = new Set(
+    ((classes ?? []) as { id: string; code: string | null }[])
+      .filter((c) => (c.code ?? "").toUpperCase() === "GAR")
+      .map((c) => c.id),
+  );
+  if (garIds.size === 0) return [];
+
+  const { data } = await s
+    .from("items")
+    .select("id, code, name, item_class_id, is_active")
+    .order("name");
+  return ((data ?? []) as FabricRow[]).filter(
+    (i) => i.item_class_id && garIds.has(i.item_class_id),
+  );
+}
+
+/**
+ * Components — the real `components` master (0228), whose own header calls
+ * itself a promotion of the "too thin" flat `component` lookup kind. The Style
+ * screen was pointed at a THIRD list, kind 'style_component', which held zero
+ * rows (0396).
+ *
+ * `short_name` is the master's display field; `blocked` is its disable flag.
+ */
+async function getComponentRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("components")
+    .select("id, short_name, blocked")
+    .order("short_name");
+  return ((data ?? []) as { id: string; short_name: string; blocked: boolean | null }[]).map(
+    (c) => ({ id: c.id, code: null, name: c.short_name, inactive: c.blocked ?? false }),
+  );
+}
+
+/**
  * Processes offered on a component line.
  *
  * `for_components` is the master's own applicability flag (0227) — the same
@@ -178,6 +232,10 @@ export type StyleFormData = {
    * Class, exactly as material-master-screen.tsx does — the cascade is a
    * client concern because the class changes without a round trip.
    */
+  /** Coordinates: `items` of class GARMENTS (0396). */
+  garments: FabricRow[];
+  /** The `components` master (0228), not the empty lookup kind. */
+  componentRows: PickerRow[];
   categories: Category[];
   /**
    * Only here to reach `CategoryQuickCreateSheet`. `CategoryPicker` switches
@@ -191,7 +249,7 @@ export type StyleFormData = {
 
 /** Every picker option list the Style editor needs, fetched in parallel. */
 export async function getStyleFormData(): Promise<StyleFormData> {
-  const [customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups, categories, levies] =
+  const [customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups, categories, levies, garments, componentRows] =
     await Promise.all([
       listCustomers(),
       listCountries(),
@@ -203,9 +261,11 @@ export async function getStyleFormData(): Promise<StyleFormData> {
       listSizeGroups(),
       listCategories(),
       listLevies(),
+      getGarmentRows(),
+      getComponentRows(),
     ]);
   return {
     customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups,
-    categories, levies,
+    categories, levies, garments, componentRows,
   };
 }

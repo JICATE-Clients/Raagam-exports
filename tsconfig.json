@@ -47,6 +47,7 @@
     "scripts/check-keyboard-holds.mts",
     "scripts/check-module-groups.mts",
     "scripts/check-style-rules.mts",
+    "scripts/check-picker-identity.mts",
     "scripts/mine-name-vocabularies.mts",
     "scripts/vocab-sources/**/*.mts"
   ]

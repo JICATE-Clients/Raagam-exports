@@ -6,6 +6,7 @@ import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/d
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { quickCreateMaterial, renameMaterial, deleteMaterial } from "@/lib/masters/material-actions";
 import { YarnQuickCreateSheet } from "@/components/masters/yarn-quick-create-sheet";
+import { GarmentQuickCreateSheet } from "@/components/masters/garment-quick-create-sheet";
 import { CategoryQuickCreateSheet } from "@/components/masters/category-quick-create-sheet";
 import type { ConfigLookup, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
@@ -105,6 +106,7 @@ export function ItemPicker({
   canEdit = false,
   canDelete = false,
   yarnQuickCreate,
+  garmentQuickCreate,
 }: {
   label: string;
   title?: string;
@@ -137,6 +139,26 @@ export function ItemPicker({
     yarnTypes: ConfigLookup[];
     categories: Category[];
     kgUnitId?: string | null;
+  };
+  /**
+   * The same door as `yarnQuickCreate`, for item class GARMENTS: when set
+   * (together with `quickCreateClassId`) "+ Add" opens the full garment
+   * mini-form instead of the inline name-only one. `categories` must already
+   * be GARMENTS-scoped by the caller, exactly as the yarn one must be
+   * YARN-scoped.
+   *
+   * TWO PROPS RATHER THAN ONE GENERIC `quickCreate`, deliberately: the two
+   * classes need genuinely different forms (a yarn has Count and Purity, a
+   * garment has neither), and `MATERIAL_FORMS` says the same thing about the
+   * five classes generally. A single prop would have to carry the union of
+   * every class's lists and then decide at runtime which half is real.
+   */
+  garmentQuickCreate?: {
+    categories: Category[];
+    uoms: { id: string; code: string | null; name: string; inactive?: boolean }[];
+    levies: Levy[];
+    fabricStructures: ConfigLookup[];
+    itemClasses: ConfigLookup[];
   };
 }) {
   const router = useRouter();
@@ -194,6 +216,7 @@ export function ItemPicker({
       : undefined;
 
   const useYarnQc = !!yarnQuickCreate && !!quickCreateClassId;
+  const useGarmentQc = !useYarnQc && !!garmentQuickCreate && !!quickCreateClassId;
 
   return (
     <>
@@ -209,7 +232,7 @@ export function ItemPicker({
         compact={compact}
         manage={manage}
         onAddOverride={
-          useYarnQc
+          useYarnQc || useGarmentQc
             ? (commit) => {
                 qcCommit.current = commit;
                 setQcOpen(true);
@@ -235,6 +258,25 @@ export function ItemPicker({
           yarnTypes={yarnQuickCreate!.yarnTypes}
           categories={yarnQuickCreate!.categories}
           kgUnitId={yarnQuickCreate!.kgUnitId}
+          perms={{ canCreate, canEdit, canDelete }}
+        />
+      )}
+      {useGarmentQc && (
+        <GarmentQuickCreateSheet
+          open={qcOpen}
+          onClose={() => setQcOpen(false)}
+          onCreated={({ id, code, name }) => {
+            // Same optimistic flow as the yarn sheet above.
+            setExtra((xs) => [...xs, { id, code, name }]);
+            (qcCommit.current ?? onChange)(id);
+            router.refresh();
+          }}
+          garmentClassId={quickCreateClassId!}
+          categories={garmentQuickCreate!.categories}
+          uoms={garmentQuickCreate!.uoms}
+          levies={garmentQuickCreate!.levies}
+          fabricStructures={garmentQuickCreate!.fabricStructures}
+          itemClasses={garmentQuickCreate!.itemClasses}
           perms={{ canCreate, canEdit, canDelete }}
         />
       )}

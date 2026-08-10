@@ -265,9 +265,25 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       ),
     [data.categories, garmentClassId, form.style_category_id],
   );
-  const coordinateOpts = useMemo(() => lookups.filter((l) => l.kind === "coordinate"), [lookups]);
-  const componentOpts = useMemo(() => lookups.filter((l) => l.kind === "style_component"), [lookups]);
-  const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
+  /**
+   * COORDINATES, COMPONENTS AND STRUCTURE COME FROM THEIR REAL MASTERS (0396).
+   *
+   * All three used to read a `config_lookups` kind that shadowed a master
+   * sitting right beside it, and every one of those kinds was empty or junk —
+   * `coordinate` held two rows named "1" and "2", `style_component` and
+   * `structure` held none at all. So the fields rendered dropdowns over
+   * nothing, exactly as Style Category did before 0394. One pattern, four
+   * fields.
+   *
+   * A COORDINATE IS A GARMENT: a Set style is two to six garments sold
+   * together, so TOP / BOTTOM / INNER / OUTER / PIECES are `items` of class
+   * GARMENTS. The data was always right; the FK pointed at the wrong list.
+   */
+  const coordinateOpts = data.garments;
+  const componentOpts = data.componentRows;
+  /** Structure needed no FK change — 'fabric_structure' rows ARE config_lookups.
+   *  Only the kind moved, which is why there is no third repoint in 0396. */
+  const structureOpts = fabricStructureOpts;
   const sizeOpts = useMemo(() => lookups.filter((l) => l.kind === "size"), [lookups]);
 
   // ---- the Components tab reads the Coordinates tab --------------------------
@@ -307,8 +323,8 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
    * `is_active: false`, which is how the app already says "you may keep this,
    * you may not re-pick it": `DataPicker` greys it and excludes it from new
    * selections without any new mechanism. The name carries the reason, because
-   * the default tag would read "(inactive)" — and the coordinate master row is
-   * perfectly active. It is this STYLE that no longer has it.
+   * the default tag would read "(inactive)" — and the garment row is perfectly
+   * active. It is this STYLE that no longer has it.
    */
   const compCoordinateOpts = (held: string | null) => {
     if (!held || coordinateIds.has(held)) return styleCoordinateOpts;
@@ -687,13 +703,12 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     {
       header: "Coordinate",
       cell: (r) => (
-        <LookupDialogPicker
-          kind="coordinate"
+        <ItemPicker
           label="Coordinate"
-          options={coordinateOpts}
-          value={r.coordinate_id}
+          items={coordinateOpts}
+          value={r.coordinate_id ?? ""}
           onChange={(id) =>
-            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))
+            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id || null } : x)))
           }
           /**
            * PICK-ONCE. A style cannot have TOP twice, and a duplicate is not
@@ -710,6 +725,25 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             .filter((x) => x.key !== r.key)
             .map((x) => x.coordinate_id)
             .filter((id): id is string => !!id)}
+          /**
+           * "+ Add" OPENS THE GARMENT MINI-FORM, not a name-only box (client
+           * 2026-08-10). `quickCreateClassId` + `garmentQuickCreate` is the same
+           * door `yarnQuickCreate` uses on the Materials screen — see
+           * `GarmentQuickCreateSheet` for why form C makes a complete mini-form
+           * possible in four fields.
+           */
+          quickCreateClassId={garmentClassId ?? undefined}
+          garmentQuickCreate={
+            garmentClassId
+              ? {
+                  categories: scopedCategories,
+                  uoms: data.uoms,
+                  levies: data.levies,
+                  fabricStructures: fabricStructureOpts,
+                  itemClasses: itemClassOpts,
+                }
+              : undefined
+          }
           canCreate={masterPerms.canCreate}
           canEdit={masterPerms.canEdit}
           compact
@@ -735,21 +769,21 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     {
       header: "Coordinate",
       cell: (r) => (
-        <LookupDialogPicker
-          kind="coordinate" label="Coordinate"
-          // Scoped to the style's own coordinates — NOT `coordinateOpts`.
-          options={compCoordinateOpts(r.coordinate_id)}
-          value={r.coordinate_id}
-          onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))}
+        <ItemPicker
+          label="Coordinate"
+          // Scoped to the style's own coordinates — NOT the whole garment list.
+          items={compCoordinateOpts(r.coordinate_id)}
+          value={r.coordinate_id ?? ""}
+          onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id || null } : x)))}
           /**
            * NO ADD, NO MODIFY, and this is the half that is easy to get wrong.
            *
-           * Inline Add here would write a row to the `coordinate` MASTER, which
-           * does not give this style that coordinate — so the value the operator
-           * just created would still not appear in this list. A control whose
-           * success is indistinguishable from failure is worse than no control.
-           * Coordinates are added on the Coordinates tab, which is the only
-           * place that changes what this list holds.
+           * Inline Add here would create a GARMENT, which does not give this
+           * style that coordinate — so the value the operator just created would
+           * still not appear in this list. A control whose success is
+           * indistinguishable from failure is worse than no control. Coordinates
+           * are added on the Coordinates tab, the only place that changes what
+           * this list holds. Omitting `quickCreateClassId` is what withholds it.
            */
           canCreate={false} canEdit={false} compact
         />
@@ -758,11 +792,14 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     {
       header: "Component",
       cell: (r) => (
-        <LookupDialogPicker
-          kind="style_component" label="Component" options={componentOpts}
+        <RecordPicker
+          label="Component"
+          // The `components` master (0228), not the empty 'style_component'
+          // lookup kind this used to read (0396).
+          items={componentOpts}
           value={r.component_id}
           onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, component_id: id } : x)))}
-          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+          compact
         />
       ),
     },
@@ -770,7 +807,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       header: "Structure",
       cell: (r) => (
         <LookupDialogPicker
-          kind="structure" label="Structure" options={structureOpts}
+          kind="fabric_structure" label="Structure" options={structureOpts}
           value={r.structure_id}
           onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, structure_id: id } : x)))}
           canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
