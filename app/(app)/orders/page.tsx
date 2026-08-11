@@ -6,7 +6,7 @@ import {
   getBuyers,
   getLocations,
 } from "@/lib/orders/service";
-import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
+import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -49,9 +49,23 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   cancelled: "Cancelled",
 };
 
+/**
+ * QTY AND VER. WERE WITHDRAWN from this list (client 2026-08-11).
+ *
+ * Display only — `sales_orders.order_qty` and `current_version` are untouched,
+ * still selected by `getOrders`, and still read elsewhere: `order_qty` is what
+ * seeds an amendment, and the version drives the revision history. Dropping a
+ * COLUMN from a list is not the same withdrawal as dropping a FIELD from a form,
+ * where the field must also leave the Zod input or every save writes null over
+ * it (0392). There is nothing to guard here — a list writes nothing.
+ *
+ * Created Date / Created User are NOT in this array: `withCreatedColumns`
+ * splices them on at the end, which is what keeps their wording and order the
+ * same on every listing in the app.
+ */
 const columns: Column<OrderWithBuyer>[] = [
   {
-    header: "Order #",
+    header: "SC No",
     cell: (row) => (
       <Link
         href={`/orders/${row.id}`}
@@ -65,13 +79,6 @@ const columns: Column<OrderWithBuyer>[] = [
     header: "Buyer",
     cell: (row) => (
       <span className="text-sm">{row.buyers?.name ?? "—"}</span>
-    ),
-  },
-  {
-    header: "Qty",
-    align: "right",
-    cell: (row) => (
-      <span className="tabular-nums text-sm">{fmtNumber(row.order_qty)}</span>
     ),
   },
   {
@@ -95,15 +102,6 @@ const columns: Column<OrderWithBuyer>[] = [
       <StatusPill tone={orderStatusTone(row.status)}>
         {ORDER_STATUS_LABELS[row.status]}
       </StatusPill>
-    ),
-  },
-  {
-    header: "Ver.",
-    align: "center",
-    cell: (row) => (
-      <span className="text-xs text-muted-foreground">
-        v{row.current_version}
-      </span>
     ),
   },
 ];
