@@ -64,7 +64,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
   const customers = useMemo(() => {
     const m = new Map<string, string>();
     rows.forEach((r) => {
-      if (r.buyer) m.set(r.buyer.id, r.buyer.name);
+      if (r.customer) m.set(r.customer.id, r.customer.name);
     });
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [rows]);
@@ -75,11 +75,11 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
     const q = search.trim().toLowerCase();
     return rows.filter(dt.matches).filter((r) => {
       if (statusFilter !== "all" && r.approval_status !== statusFilter) return false;
-      if (customerFilter !== "all" && r.buyer?.id !== customerFilter) return false;
+      if (customerFilter !== "all" && r.customer?.id !== customerFilter) return false;
       if (q) {
         const hay = [
           r.sales_order?.order_number,
-          r.buyer?.name,
+          r.customer?.name,
           r.po_no,
           r.code,
         ]
@@ -138,7 +138,7 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
     { header: "SC No", cell: (r) => <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span> },
     { header: "SC Dt", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.sales_order?.ship_date ?? null)}</span> },
     { header: "Order No", cell: (r) => <span className="text-sm">{r.po_no ?? "—"}</span> },
-    { header: "Customer", cell: (r) => <span className="text-sm">{r.buyer?.name ?? "—"}</span> },
+    { header: "Customer", cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span> },
     { header: "Delivery Dt", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.delivery_date)}</span> },
     // With its Incoterm, as the amendment's own Ship Type picker showed it.
     {

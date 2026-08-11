@@ -43,7 +43,7 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     .from("garment_order_amendments")
     .select(
       "*, sales_order:sales_orders(id,order_number,location_id), " +
-        "buyer:buyers(id,code,name), " +
+        "customer:customers(id,code,name), " +
         "charges:garment_order_amendment_charges(*), " +
         "style_prices:garment_order_amendment_style_prices(*), " +
         "styles:garment_order_amendment_styles(*), " +
@@ -137,12 +137,28 @@ async function getOrderRows(): Promise<OrderPickerRow[]> {
  * one of these ever grows an embed, it needs the check at the same moment.
  */
 
-/** Buyers for the "Customer" picker (the order's party). */
-async function getBuyerRows(): Promise<PickerRow[]> {
+/**
+ * Customers for the "Customer" picker (the order's party).
+ *
+ * IT READS THE CUSTOMER MASTER NOW (0404). It used to read `buyers`, the
+ * scaffold's thin party table — so the field said "Customer", stored a buyer,
+ * and offered four DEMO rows beside the two real ones while ASMARA and OXBOW,
+ * entered on the Customer master, could not be picked at all (client
+ * 2026-08-11, from the screen).
+ *
+ * `inactive` rides along and is NOT filtered in SQL: a customer a saved order
+ * already names must still resolve, or the field renders empty and the next save
+ * blanks the FK ("Disabled rows"). The picker hides the switched-off ones itself.
+ *
+ * This also unblocks the Style picker's customer half — `garment_styles.customer_id`
+ * points at `customers` too, so the two finally key on one table. Turning that
+ * narrowing on is a separate, deliberate change; see `style-options.ts`.
+ */
+async function getCustomerRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
-    .from("buyers")
-    .select("id, code, name, is_active")
+    .from("customers")
+    .select("id, code, name, inactive")
     .order("name");
   return (data ?? []) as PickerRow[];
 }
@@ -232,9 +248,44 @@ export type StylePickerRow = {
   article_no: string | null;
   style_category: string | null;
   style_description: string | null;
-  /** The style's own UoM (`garment_styles.unit_id` -> `uoms`). Seeds BOTH the
-   *  Order Unit and the Plan Unit on the order line, which is what "these units
-   *  pull from the General tab of the Style Entry" means (client 2026-08-10). */
+  /**
+   * SELECTED AND CARRIED, BUT NOT FILTERED ON — deliberately, and not a TODO to
+   * close without fixing the data first.
+   *
+   * A `public.customers` row. The order header's "Customer" is a `buyers` row,
+   * and the `buyers.customer_id` bridge (0380) is nullable and set for NONE of
+   * the 6 buyers in the database — so any filter over it either shows no styles
+   * at all or silently shows every style. `style-options.ts` carries the full
+   * account and what unblocks it. Kept here so turning the filter on is a small
+   * edit once the bridge is filled.
+   */
+  customer_id: string | null;
+  /**
+   * The column the Style picker DOES narrow on (`styleOptions`). Free text
+   * (0124), compared trimmed and case-folded; nullable, and a null means
+   * "unassigned" rather than excluded.
+   */
+  season: string | null;
+  /**
+   * PIECE OR SET — the line's Order Unit (`garment_styles.unit_kind`, 0392).
+   *
+   * The one unit question a garment order asks (client 2026-08-11: "Order Unit
+   * (PCS/SET) is sufficient"), and the same value that caps the style's
+   * Coordinates grid. Rendered through `orderUnitLabel`; NULL on every style
+   * predating 0392 and shown blank rather than guessed.
+   */
+  unit_kind: string | null;
+  /**
+   * The style's old Stock Unit (`garment_styles.unit_id` -> `uoms`).
+   *
+   * FROZEN, NOT REMOVED. It seeded the Order Unit and the Plan Unit while both
+   * were `uoms` pickers; the client withdrew Plan Unit and replaced Order Unit
+   * with `unit_kind` above, and the Style screen withdrew the field that FILLS
+   * this on 2026-08-11 — so it is null on every style entered from now on. It
+   * stays selected because `pickStyle` still seeds the two FK columns from it:
+   * `writeChildren` deletes and reinserts a grid wholesale, so a column dropped
+   * from the payload is NULLED on the next save rather than left alone.
+   */
   unit_id: string | null;
   /** Free-text remarks from Style Entry; seeds the line's Description. */
   description: string | null;
@@ -243,26 +294,22 @@ export type StylePickerRow = {
 };
 
 /**
- * A colour for the Color/Print dyeing pickers. color_card_colors is the only
- * colour data in the app (there is no global colour master) — each colour belongs
- * to a colour card, which belongs to a buyer, so we carry buyer_id to scope the
- * picker to the amendment's buyer. See doc/masters-open-questions.md.
+ * NO COLOUR OPTION LIST IS FETCHED HERE ANY MORE (0403).
+ *
+ * `DyeColorRow` and `getDyeColorRows()` fed the Color/Print tab's Colour
+ * pickers out of `color_card_colors`, the app's only colour data. Colour Cards
+ * was withdrawn as a screen on 2026-08-11, so that list could only ever be
+ * empty and unfillable — the cell is free text now and needs no options. The
+ * TABLES are untouched (0403's header says why); this drops the query, not the
+ * data.
  */
-export type DyeColorRow = {
-  id: string;
-  code: string | null;
-  name: string;
-  buyer_id: string | null;
-  card_label: string | null;
-};
-
 /** Garment styles for the Style(s) tab picker (+ context for auto-fill). */
 async function getStyleRows(): Promise<StylePickerRow[]> {
   const s = await createClient();
   const { data, error } = await s
     .from("garment_styles")
     .select(
-      "id, code, style_name, article_no, style_description, description, unit_id, blocked, " +
+      "id, code, style_name, article_no, style_description, description, customer_id, season, unit_kind, unit_id, blocked, " +
         // `categories`, NOT `config_lookups`. 0394 repointed
         // `garment_styles.style_category_id` at the Garment master and left the
         // constraint NAME unchanged, so this embed kept naming a relationship
@@ -285,6 +332,9 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     article_no: string | null;
     style_description: string | null;
     description: string | null;
+    customer_id: string | null;
+    season: string | null;
+    unit_kind: string | null;
     unit_id: string | null;
     blocked: boolean;
     category?: { name: string } | null;
@@ -295,13 +345,27 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     article_no: r.article_no,
     style_category: r.category?.name ?? null,
     style_description: r.style_description,
+    customer_id: r.customer_id,
+    season: r.season,
+    unit_kind: r.unit_kind,
     unit_id: r.unit_id,
     description: r.description,
     blocked: r.blocked,
   }));
 }
 
-/** Units of measure for the Order Unit / Plan Unit pickers. */
+/**
+ * Units of measure — FETCHED BUT NO LONGER READ BY THE SCREEN (2026-08-11).
+ *
+ * It fed the Order Unit and Plan Unit pickers. Plan Unit was withdrawn and
+ * Order Unit became PCS/SET off the style's `unit_kind`, so nothing on the
+ * amendment screen looks at `data.uoms` any more.
+ *
+ * KEPT, not deleted, because `uoms` is still what `order_unit_id` and
+ * `plan_unit_id` point AT — those columns and their rows are frozen, not
+ * dropped, and the next screen that needs to render one has its list here. It
+ * is one small indexed read. Delete it and the field together, or not at all.
+ */
 async function getUomRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
@@ -321,34 +385,9 @@ async function getLocationRows(): Promise<PickerRow[]> {
   return (data ?? []) as PickerRow[];
 }
 
-/** Colour-card colours for the dyeing pickers (+ buyer scope + card label). */
-async function getDyeColorRows(): Promise<DyeColorRow[]> {
-  const s = await createClient();
-  const { data, error } = await s
-    .from("color_card_colors")
-    .select("id, name, code, card:color_cards(buyer_id, name, code)")
-    .order("sort_order");
-  // Same rule, same reason: the `card` embed is what the Color/Print tab reads to
-  // scope colours to the order's buyer, and a silent [] would leave that tab
-  // looking like the buyer simply has no colour card.
-  if (error) throw new Error(`Could not load colours: ${error.message}`);
-  return ((data ?? []) as unknown as {
-    id: string;
-    name: string | null;
-    code: string | null;
-    card?: { buyer_id: string | null; name: string | null; code: string | null } | null;
-  }[]).map((r) => ({
-    id: r.id,
-    code: r.code,
-    name: r.name ?? "(unnamed colour)",
-    buyer_id: r.card?.buyer_id ?? null,
-    card_label: r.card?.name ?? r.card?.code ?? null,
-  }));
-}
-
 export type AmendmentFormData = {
   orders: OrderPickerRow[];
-  buyers: PickerRow[];
+  customers: PickerRow[];
   merchandisers: PickerRow[];
   contacts: PickerRow[];
   countries: Country[];
@@ -367,7 +406,6 @@ export type AmendmentFormData = {
   consignees: PickerRow[];
   warehouses: PickerRow[];
   ports: PickerRow[];
-  dyeColors: DyeColorRow[];
   /**
    * The Unit the SC No is numbered under — 0395 counts per (location, fiscal
    * year). `is_active` is SELECTED and not filtered in SQL, so `RecordPicker`
@@ -382,7 +420,7 @@ export type AmendmentFormData = {
 export async function getAmendmentFormData(): Promise<AmendmentFormData> {
   const [
     orders,
-    buyers,
+    customers,
     merchandisers,
     contacts,
     countries,
@@ -391,14 +429,13 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     paymentTermRows,
     styles,
     uoms,
-    dyeColors,
     locations,
     consignees,
     warehouses,
     ports,
   ] = await Promise.all([
     getOrderRows(),
-    getBuyerRows(),
+    getCustomerRows(),
     getMerchandiserRows(),
     getContactRows(),
     listCountries(),
@@ -407,7 +444,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     listPaymentTerms(),
     getStyleRows(),
     getUomRows(),
-    getDyeColorRows(),
     getLocationRows(),
     getConsigneeRows(),
     getWarehouseRows(),
@@ -415,7 +451,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
   ]);
   return {
     orders,
-    buyers,
+    customers,
     merchandisers,
     contacts,
     countries,
@@ -424,7 +460,6 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     paymentTerms: paymentTermsAsLookups(paymentTermRows),
     styles,
     uoms,
-    dyeColors,
     locations,
     consignees,
     warehouses,
