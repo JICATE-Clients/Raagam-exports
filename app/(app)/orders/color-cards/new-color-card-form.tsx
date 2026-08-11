@@ -1,20 +1,24 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
 import { createColorCard } from "@/lib/orders/color-cards/actions";
 import { useToast } from "@/components/ui/toast";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import type { Buyer } from "@/lib/masters/types";
 
-type ColorRow = { name: string; code: string; hex: string };
+/** `key` is what `ChildGrid` identifies a row by. These used to be keyed on the
+ *  array index, which React reuses across a removal — delete the second of three
+ *  colours and the third inherited the second's DOM node, so a focused input kept
+ *  focus while its value changed underneath the cursor. */
+type ColorRow = { key: string; name: string; code: string; hex: string };
 
 interface Props {
   buyers: Pick<Buyer, "id" | "name" | "code" | "currency_code">[];
@@ -35,18 +39,29 @@ export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
   useUnsavedGuard(open || isPending);
   useCreateIntent(() => setOpen(true));
 
+  const keySeq = useRef(0);
+  const newKey = () => `k${keySeq.current++}`;
+  const blankColor = (): ColorRow => ({ key: newKey(), name: "", code: "", hex: "" });
+
   const [buyerId, setBuyerId] = useState(fixedBuyer?.id ?? "");
   const [name, setName] = useState("");
   const [season, setSeason] = useState("");
   const [notes, setNotes] = useState("");
-  const [colors, setColors] = useState<ColorRow[]>([{ name: "", code: "", hex: "" }]);
+  // Starts EMPTY and the grid seeds it — `ChildGrid`'s `seedRow` adds the first
+  // row through `onAdd`. A lazy `useState(() => [blankColor()])` would read
+  // `keySeq` during render, which `react-hooks/refs` rejects and which is the
+  // real hazard it is guarding: a ref read in a render is not stable across a
+  // re-render React discards.
+  const [colors, setColors] = useState<ColorRow[]>([]);
 
   function resetForm() {
     setBuyerId(fixedBuyer?.id ?? "");
     setName("");
     setSeason("");
     setNotes("");
-    setColors([{ name: "", code: "", hex: "" }]);
+    // Empty, not one blank row — `seedRow` puts the row back, which keeps one
+    // rule in one place instead of two things both deciding what "fresh" means.
+    setColors([]);
   }
 
   function handleClose() {
@@ -55,16 +70,72 @@ export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
   }
 
   function addColor() {
-    setColors((cs) => [...cs, { name: "", code: "", hex: "" }]);
+    setColors((cs) => [...cs, blankColor()]);
   }
 
-  function removeColor(i: number) {
-    setColors((cs) => cs.filter((_, idx) => idx !== i));
+  function removeColor(key: string) {
+    setColors((cs) => cs.filter((c) => c.key !== key));
   }
 
-  function updateColor(i: number, field: keyof ColorRow, val: string) {
-    setColors((cs) => cs.map((c, idx) => (idx === i ? { ...c, [field]: val } : c)));
+  function updateColor(key: string, field: keyof ColorRow, val: string) {
+    setColors((cs) => cs.map((c) => (c.key === key ? { ...c, [field]: val } : c)));
   }
+
+  const colorColumns: ChildGridColumn<ColorRow>[] = [
+    {
+      header: "Colour name",
+      cell: (r) => (
+        <Input
+          placeholder="e.g. Navy"
+          uppercase
+          value={r.name}
+          onChange={(e) => updateColor(r.key, "name", e.target.value)}
+          className="h-8"
+        />
+      ),
+    },
+    {
+      header: "Ref / Pantone",
+      cell: (r) => (
+        <Input
+          placeholder="e.g. 19-3920 TCX"
+          uppercase
+          value={r.code}
+          onChange={(e) => updateColor(r.key, "code", e.target.value)}
+          className="h-8"
+        />
+      ),
+    },
+    {
+      header: "Hex",
+      cell: (r) => (
+        <Input
+          placeholder="#1B2A4A"
+          value={r.hex}
+          onChange={(e) => updateColor(r.key, "hex", e.target.value)}
+          className="h-8"
+        />
+      ),
+    },
+    {
+      // The swatch only appears once the hex parses, so a half-typed "#1B" shows
+      // nothing rather than a misleading colour. `aria-hidden` because the value
+      // beside it already says what it is.
+      header: "",
+      width: "3rem",
+      align: "center",
+      cell: (r) => {
+        const swatch = HEX_RE.test(r.hex.trim()) ? r.hex.trim() : null;
+        return (
+          <span
+            className="inline-block h-5 w-5 rounded border border-border align-middle"
+            style={swatch ? { backgroundColor: swatch } : undefined}
+            aria-hidden
+          />
+        );
+      },
+    },
+  ];
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -123,21 +194,31 @@ export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
           <CardTitle>New colour card</CardTitle>
         </CardHeader>
         <CardBody>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <form
+            onSubmit={handleSubmit}
+            // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()` is
+            // false, Tab keeps native order and leaves the form. See the
+            // `raagam-keyboard-contract` skill.
+            data-focus-scope
+            className="space-y-4"
+          >
+            {/* `FieldGrid`, not a hand-rolled `grid-cols-*` — a screen composes
+                primitives, it does not draw (LAYOUT.md §3). */}
+            <FieldGrid>
               {fixedBuyer ? (
-                <div>
-                  <Label htmlFor="cc-buyer">Customer</Label>
-                  <div
-                    id="cc-buyer"
-                    className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground"
-                  >
-                    {fixedBuyer.name}
-                  </div>
-                </div>
+                // Opened from a customer's own page: the buyer is settled, so it
+                // reads back rather than being asked for. `Input readOnly` rather
+                // than a styled `<div>` — the div was a value the primitives
+                // could not see, and readOnly brings the right look, keeps it in
+                // the accessibility tree and sets `tabIndex={-1}` so it stays off
+                // the typing path.
+                <Field label="Customer" size="sm" htmlFor="cc-buyer">
+                  <Input id="cc-buyer" value={fixedBuyer.name} readOnly />
+                </Field>
               ) : (
-                <div>
-                  <Label htmlFor="cc-buyer">Buyer *</Label>
+                // `required` on the Field, not a `*` typed into the label — one
+                // prop draws the star AND holds the cursor on a blank box.
+                <Field label="Buyer" required size="sm" htmlFor="cc-buyer">
                   <Select
                     id="cc-buyer"
                     value={buyerId}
@@ -151,118 +232,52 @@ export function NewColorCardForm({ buyers, fixedBuyer }: Props) {
                       </option>
                     ))}
                   </Select>
-                </div>
+                </Field>
               )}
-              <div>
-                <Label htmlFor="cc-name">Card name *</Label>
+              <Field label="Card name" required size="sm" htmlFor="cc-name">
                 <Input
                   id="cc-name"
+                  uppercase
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. SS26 Core Palette"
                   required
                 />
-              </div>
-              <div>
-                <Label htmlFor="cc-season">Season</Label>
+              </Field>
+              <Field label="Season" size="sm" htmlFor="cc-season">
                 <Input
                   id="cc-season"
+                  uppercase
                   value={season}
                   onChange={(e) => setSeason(e.target.value)}
                   placeholder="e.g. SS26"
                 />
-              </div>
-              <div>
-                <Label htmlFor="cc-notes">Notes</Label>
+              </Field>
+              <Field label="Notes" size="sm" htmlFor="cc-notes">
                 <Input
                   id="cc-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Optional"
                 />
-              </div>
-            </div>
+              </Field>
+            </FieldGrid>
 
-            {/* Colours */}
+            {/* Colours — `ChildGrid`, not the hand-rolled <table> this carried.
+                That one drew its own header and its own ✕, so it inherited
+                neither Ctrl+Del nor `data-row-remove`; its remove control was a
+                bare `×` character that Tab stopped on. Four columns fit, so it
+                keeps the table layout rather than wrapping. */}
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <Label className="mb-0">Colours</Label>
-                <Button type="button" variant="subtle" size="sm" onClick={addColor}>
-                  + Add colour
-                </Button>
-              </div>
-
-              <div className="overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-surface-muted">
-                      <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted-foreground">
-                        Colour name
-                      </th>
-                      <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted-foreground">
-                        Ref / Pantone
-                      </th>
-                      <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted-foreground">
-                        Hex
-                      </th>
-                      <th className="w-10 px-3 py-1.5" />
-                      <th className="w-8" />
-                    </tr>
-                  </thead>
-                  {/* ↓/↑ walk a column across colour rows — gridKeyNav, see
-                      components/masters/child-grid.tsx. */}
-                  <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addColor)}>
-                    {colors.map((c, i) => {
-                      const swatch = HEX_RE.test(c.hex.trim()) ? c.hex.trim() : null;
-                      return (
-                        <tr key={i} data-grid-row className="border-b border-border last:border-0">
-                          <td className="px-3 py-1">
-                            <Input
-                              placeholder="e.g. Navy"
-                              value={c.name}
-                              onChange={(e) => updateColor(i, "name", e.target.value)}
-                              className="h-7 text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-1">
-                            <Input
-                              placeholder="e.g. 19-3920 TCX"
-                              value={c.code}
-                              onChange={(e) => updateColor(i, "code", e.target.value)}
-                              className="h-7 text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-1">
-                            <Input
-                              placeholder="#1B2A4A"
-                              value={c.hex}
-                              onChange={(e) => updateColor(i, "hex", e.target.value)}
-                              className="h-7 text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-1">
-                            <span
-                              className="inline-block h-5 w-5 rounded border border-border align-middle"
-                              style={swatch ? { backgroundColor: swatch } : undefined}
-                              aria-hidden
-                            />
-                          </td>
-                          <td className="px-2 py-1">
-                            <button
-                              type="button"
-                              onClick={() => removeColor(i)}
-                              className="text-muted-foreground hover:text-danger"
-                              aria-label="Remove colour"
-                            >
-                              ×
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <ChildGrid<ColorRow>
+                label="Colours"
+                columns={colorColumns}
+                rows={colors}
+                seedRow
+                onAdd={addColor}
+                onRemove={(r) => removeColor(r.key)}
+                addLabel="+ Add colour"
+              />
               <p className="mt-1 text-xs text-muted-foreground">
                 Rows with no colour name are ignored. You can add more colours later.
               </p>
