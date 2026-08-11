@@ -41,11 +41,14 @@ export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
 
 export interface SalesOrder {
   id: string;
+  /** The SC No — HO/RE/2627/0001. Assigned by the DB on insert (0395). */
   order_number: string | null;
   buyer_id: string;
   opportunity_id: string | null;
   quote_id: string | null;
   location_id: string | null;
+  /** Document date from the order header. Decides the SC No's fiscal year. */
+  order_date: string;
   currency_code: string | null;
   order_qty: number;
   fob_price: number;
@@ -114,7 +117,24 @@ export const salesOrderInput = z.object({
   buyer_id: z.string().uuid(),
   opportunity_id: z.string().uuid().optional().nullable(),
   quote_id: z.string().uuid().optional().nullable(),
-  location_id: z.string().uuid().optional().nullable(),
+  /**
+   * MANDATORY since 0395, and this is the schema half of that rule.
+   *
+   * The SC No counts per (location, fiscal year), so an order with no location
+   * has no counter to draw from — the trigger refuses it rather than invent a
+   * shared bucket. Catching it here turns a Postgres exception into the ordinary
+   * "Location is required" the operator can act on, and — the half that actually
+   * matters — `lib/data-io` imports parse with this same schema and reach the
+   * action directly, so a screen-only check would let a spreadsheet through.
+   */
+  location_id: z.string().uuid({ message: "Location is required" }),
+  /**
+   * The document date. Decides which fiscal year the SC No numbers into, so
+   * back-dating an order to March files it under the previous year.
+   * Defaults to today at the DB level; sent explicitly so what the operator saw
+   * in the header is what the number is built from.
+   */
+  order_date: z.string().min(1, "Order date is required"),
   currency_code: z.string().optional().nullable(),
   fob_price: z.coerce.number().nonnegative().default(0),
   order_qty: z.coerce.number().nonnegative().default(0),

@@ -14,6 +14,7 @@
     "check:amendment-diff": "node --experimental-strip-types scripts/check-amendment-diff.mts",
     "check:style-rules": "node --experimental-strip-types scripts/check-style-rules.mts",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
+    "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",
     "lint": "eslint"
   },
   "dependencies": {

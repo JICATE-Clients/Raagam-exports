@@ -60,9 +60,14 @@ export interface GroupChild {
    * the screen is offered to nav search exactly once.
    *
    * This is how a sub-module lists a screen its work depends on without
-   * claiming it: Order Entry shows Order Amendment because an operator raising
-   * one is working in Order Entry, but the row stays under Amendments beside
-   * the other three amendment screens.
+   * claiming it: Amendments shows Order Amendment, because raising one is
+   * amendment work — but the ROW is Order Entry ▸ Garment Order, since that one
+   * screen is where a garment order is entered in the first place.
+   *
+   * That example ran the other way round until 2026-08-11, and the reversal is
+   * the point: which group owns the row is a claim about what the screen IS,
+   * and it moved when the answer did. The flag is what let it move without the
+   * screen leaving the flow group beside the other three amendment screens.
    */
   cardOnly?: boolean;
   /**
@@ -277,13 +282,33 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Order Entry",
         description: "Raise garment orders, book them, set pack ratios and record excess quantities",
         children: [
-          // The module root, listed as a CARD — not as a sidebar row. Order Entry
-          // without the screen an order is actually entered on sent the operator
-          // looking for it (client 2026-08-08); the "no row duplicates its module
-          // root" rule is about two SIDEBAR ROWS opening one page, and this is one
-          // row and one card. `owningNavHref` skips it so /orders still highlights
-          // the Orders row rather than this group.
-          { href: "/orders", label: "Garment Orders", description: "All confirmed orders — create one from an accepted quote" },
+          // THE SCREEN AN ORDER IS ACTUALLY ENTERED ON (client 2026-08-11).
+          //
+          // Its row used to sit under Amendments, labelled "Order Amendment",
+          // because that is the document it writes — while Order Entry's first
+          // child was `/orders`, an eight-field generic scaffold. So the row
+          // named Order Entry opened a stand-in and the real legacy screen (the
+          // SCNo · Date · Initiated · Type · Customer … header and the ten
+          // section rail, dictated tab by tab on 2026-08-10) was filed under a
+          // name that says it CHANGES an order rather than raises one.
+          //
+          // The row moves; the route does not. `/orders/amendments` still
+          // answers, and Amendments still lists it as a `cardOnly` card, so
+          // raising an amendment is one click from the flow group that owns
+          // that work. Exactly one row owns the route, which is what assertion
+          // 5 checks — see the flag's own note on `GroupChild`.
+          { href: "/orders/amendments", label: "Garment Order", description: "Raise a garment order — styles, colours, prices, packing, quantities and logistics" },
+          // The module root, listed as a CARD — not as a sidebar row. The "no
+          // row duplicates its module root" rule is about two SIDEBAR ROWS
+          // opening one page, and this is one row and one card. `owningNavHref`
+          // skips it so /orders still highlights the Orders row rather than this
+          // group.
+          //
+          // It was labelled "Garment Orders" while it was the only order screen
+          // here. Now that the entry screen is the row above, this is the LIST —
+          // and two children reading "Garment Order" and "Garment Orders" would
+          // be the same confusion one level down.
+          { href: "/orders", label: "All Orders", description: "Every confirmed order, with its SC No and status" },
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
           { href: "/orders/excess-orders", label: "Excess Orders", description: "Supplementary quantities beyond the planned order, size-wise" },
@@ -300,7 +325,13 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Amendments",
         description: "Raise and approve changes to a confirmed order",
         children: [
-          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a confirmed order across styles, prices, packing and logistics" },
+          // A CARD, NOT A ROW (client 2026-08-11) — its row is Order Entry ▸
+          // Garment Order, because this one screen both raises an order and
+          // amends one. Listing it here keeps raising an amendment beside the
+          // other three amendment screens without giving the screen a second
+          // owner or a second search hit; `owningNavHref` and `moduleLeafItems`
+          // both skip a `cardOnly` child for exactly that reason.
+          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a confirmed order across styles, prices, packing and logistics", cardOnly: true },
           { href: "/orders/material-bom-amendment", label: "Material BOM Amendment", description: "Amend an accepted order's material BOM — items, processes and calculated quantities" },
           { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
           { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },

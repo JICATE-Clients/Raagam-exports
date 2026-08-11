@@ -140,6 +140,7 @@ export function NewCancellationForm({ orders, buyers }: Props) {
               </div>
               <RecordPicker
                 label="SC No"
+                identity="code"
                 items={orderItems}
                 value={orderId}
                 onChange={onSelectOrder}

@@ -314,6 +314,7 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
               </div>
               <RecordPicker
                 label="Enquiry No"
+                identity="code"
                 items={data.enquiries as PickerRow[]}
                 value={form.opportunity_id}
                 onChange={onPickEnquiry}

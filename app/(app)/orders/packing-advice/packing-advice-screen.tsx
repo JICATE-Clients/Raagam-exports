@@ -444,7 +444,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
                     <td className="px-2 py-1"><Input value={r.ctn_to} onChange={(e) => updateLine(r.key, { ctn_to: e.target.value })} className="h-8 w-20" /></td>
                     <td className="px-2 py-1"><Input type="number" value={r.ctns} onChange={(e) => updateLine(r.key, { ctns: e.target.value })} className="h-8 w-20 text-right" /></td>
                     <td className="px-2 py-1 min-w-[180px]">
-                      <RecordPicker label="SC No" compact items={orderItems} value={r.sc_no_id} onChange={(id) => updateLine(r.key, { sc_no_id: id })} />
+                      <RecordPicker label="SC No" compact identity="code" items={orderItems} value={r.sc_no_id} onChange={(id) => updateLine(r.key, { sc_no_id: id })} />
                     </td>
                     <td className="px-2 py-1"><Input value={r.po_no} onChange={(e) => updateLine(r.key, { po_no: e.target.value })} className="h-8 w-28" /></td>
                     <td className="px-2 py-1 min-w-[160px]">

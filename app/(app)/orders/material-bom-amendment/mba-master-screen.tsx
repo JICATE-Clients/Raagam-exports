@@ -457,6 +457,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
           </div>
           <RecordPicker
             label="SC No / Order"
+            identity="code"
             items={orderItems}
             value={form.sales_order_id}
             onChange={(id) => set({ sales_order_id: id })}

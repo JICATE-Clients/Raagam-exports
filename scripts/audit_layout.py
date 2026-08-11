@@ -779,6 +779,10 @@ FLAGLESS_PICKERS = {
     "app/(app)/orders/packing-advice/packing-advice-screen.tsx#orderItems": "sales_orders: document",
     # `color_card_colors` is a child of a colour card -- no flag of its own.
     "app/(app)/orders/amendments/amendment-screen.tsx#dyeColorItems": "color_card_colors: no flag",
+    # Not a master at all: the Style(s) TAB'S OWN ROWS, offered to the Prices tab
+    # so a price names a line of this PO. They are grid rows the operator typed a
+    # moment ago -- there is no stored row to switch off.
+    "app/(app)/orders/amendments/amendment-screen.tsx#styleLineItems": "the document's own grid rows",
     # Filter, not a field: this picker narrows the order list on a landing page,
     # and `getBuyers()` already filters inactive buyers server-side.
     "app/(app)/orders/advised-items/page.tsx#customerItems": "filter, not a field",

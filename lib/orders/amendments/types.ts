@@ -15,6 +15,61 @@ import { z } from "zod";
 // Fixed dropdowns — legacy option lists (confirm exact values via screenshots).
 export const INITIATED_OPTIONS = ["By Customer", "By Us"] as const;
 export const AMEND_TYPE_OPTIONS = ["Garment", "Fabric", "Made-ups"] as const;
+/**
+ * How a style's price is broken down (client 2026-08-10). "The most critical
+ * field in this tab, as it determines how the pricing grid behaves":
+ *
+ *   Style-wise — one price for the style, whatever the colour or size.
+ *   Color-wise — a price per colourway; a neon combo can cost more than a white.
+ *   Size-wise  — a price per size; 2XL can cost more than S.
+ *
+ * Stored as text in `garment_order_amendment_price_details.price_type`, which is
+ * why this is a plain tuple and not a config_lookups kind: three fixed modes the
+ * business does not add to, like SHIP_MODES and PAY_MODES below.
+ */
+/**
+ * How finished garments are sorted into cartons (client 2026-08-10). Four
+ * standard industry methods, and the two axes are independent: colour solid or
+ * assorted, size solid or assorted.
+ *
+ *   Solid Colour / Solid Size   one colour, one size per carton
+ *   Solid Colour / Assort Size  one colour, mixed sizes
+ *   Assort Colour / Solid Size  mixed colours, one size
+ *   Assort Colour / Assort Size mixed colours AND mixed sizes
+ *
+ * ONE DECLARATION, because the list is named in two places: the Pack type(s) tab
+ * defines it and the Quantities tab picks one per destination. Two hand-written
+ * copies of a four-item list is how they start disagreeing about the wording,
+ * and the wording is what the Packing List prints.
+ *
+ * STORED SINCE 0399, and the legacy screen answered the question this comment
+ * used to leave open: the tab is a GRID, so an order declares the pack methods
+ * it uses and may declare more than one. Not a header column, and not (yet) a
+ * column on the quantities child.
+ *
+ * ALSO SEEDED AS DATA, ONCE (0400). The same four names are rows under
+ * `config_lookups` kind `assortment_type`, which is what the Quantities tab's
+ * Assortment Type picks from — so the two tabs ask the same question in the
+ * same words. The tie is the WORDING and nothing enforces it: that kind is
+ * operator-maintained through the picker's inline Add, deliberately, so
+ * re-wording a method here means a NEW migration re-wording the row too
+ * (editing 0400 changes nothing — it has already run). Nothing breaks if they
+ * drift; the two tabs just stop reading alike.
+ *
+ * A ROW MAY HOLD A VALUE THAT IS NOT IN THIS TUPLE. `pack_type` is text with no
+ * CHECK, so re-wording an option here does not invalidate what is already
+ * saved — but a `<Select>` matches on VALUE, so a stale row would render blank
+ * (the same trap RECEIPT_MODES records below). The screen keeps a held
+ * off-tuple value on its own option list rather than silently dropping it.
+ */
+export const PACK_TYPE_OPTIONS = [
+  "Solid Colour / Solid Size",
+  "Solid Colour / Assort Size",
+  "Assort Colour / Solid Size",
+  "Assort Colour / Assort Size",
+] as const;
+
+export const PRICE_TYPE_OPTIONS = ["Style-wise", "Color-wise", "Size-wise"] as const;
 export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
 // Reused from the Applicant/Customer masters (see doc/masters-open-questions.md).
 export const SHIP_MODES = ["AIR", "ROAD", "SEA"] as const;
@@ -131,6 +186,44 @@ export interface AmendmentApprovalQty {
   approval_qty: number;
 }
 
+/**
+ * Pack type(s) tab (0399) — one row per packing method the order uses.
+ *
+ * The whole row is its own value: there is nothing to say about a pack method
+ * beyond naming it, which is why this is the only child with a single data
+ * column. `pack_type` is one of `PACK_TYPE_OPTIONS`, stored as text.
+ */
+export interface AmendmentPackType {
+  id: string;
+  amendment_id: string;
+  sno: number;
+  pack_type: string | null;
+}
+
+/**
+ * Quantities tab (0398) — how the order's quantity splits across countries,
+ * consignees and delivery dates.
+ *
+ * `style_ref_no` + `style_no` are the Orders module key, carried as TEXT like
+ * every sibling child table; see the migration header for why this is not a
+ * `garment_styles` FK.
+ */
+export interface AmendmentQuantity {
+  id: string;
+  amendment_id: string;
+  sno: number;
+  country_id: string | null;
+  style_ref_no: string | null;
+  style_no: string | null;
+  consignee_id: string | null;
+  assortment_type_id: string | null;
+  po_qty: number;
+  delivery_date: string | null;
+  earlier_shipment_date: string | null;
+  warehouse_id: string | null;
+  discharge_port_id: string | null;
+}
+
 /** Country/Sizewise tab — a style + countrywise flag row. */
 export interface AmendmentCountrySize {
   id: string;
@@ -192,7 +285,7 @@ export interface GarmentOrderAmendment {
   created_at: string;
   updated_at: string;
   // embedded for display / edit
-  sales_order?: { id: string; order_number: string | null } | null;
+  sales_order?: { id: string; order_number: string | null; location_id: string | null } | null;
   buyer?: { id: string; code: string | null; name: string } | null;
   charges: AmendmentCharge[];
   style_prices: AmendmentStylePrice[];
@@ -203,6 +296,8 @@ export interface GarmentOrderAmendment {
   combos: AmendmentCombo[];
   price_details: AmendmentPriceDetail[];
   approval_qtys: AmendmentApprovalQty[];
+  pack_types: AmendmentPackType[];
+  quantities: AmendmentQuantity[];
   country_sizes: AmendmentCountrySize[];
 }
 
@@ -278,6 +373,35 @@ export const amendmentApprovalQtyInput = z.object({
   approval_qty: num,
 });
 
+/**
+ * NOT `z.enum(PACK_TYPE_OPTIONS)`. The column has no CHECK for the reason given
+ * above, and a Zod enum here would put the constraint back one layer up — a
+ * document saved under an older wording would fail validation on every save,
+ * with a message naming a field the operator cannot see is wrong. Same
+ * reasoning as `price_type`, which is `nullableText` beside it.
+ */
+export const amendmentPackTypeInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  pack_type: nullableText,
+});
+
+export const amendmentQuantityInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  country_id: uuidN,
+  style_ref_no: nullableText,
+  style_no: nullableText,
+  consignee_id: uuidN,
+  assortment_type_id: uuidN,
+  po_qty: num,
+  // Dates are plain ISO strings here, as everywhere in this module — the input
+  // is `<input type="date">`, whose value is always ISO regardless of the
+  // browser's display locale.
+  delivery_date: nullableText,
+  earlier_shipment_date: nullableText,
+  warehouse_id: uuidN,
+  discharge_port_id: uuidN,
+});
+
 export const amendmentCountrySizeInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   style_ref_no: nullableText,
@@ -289,11 +413,45 @@ export const amendmentCountrySizeInput = z.object({
 export const amendmentInput = z.object({
   is_draft: z.boolean().default(false),
   // order header
-  sales_order_id: uuidN,
+  /**
+   * THE SC NO IS MINTED, NOT PICKED (client 2026-08-11).
+   *
+   * This was `z.string().uuid("Select the SC No")` while the screen's SCNo was a
+   * dropdown of orders that already existed — which is amendment behaviour. It
+   * is the garment order ENTRY screen, so its SC No is its own identity and the
+   * operator cannot supply it: `createAmendment` creates the `sales_orders` row,
+   * the 0395 trigger numbers it, and the id comes back here.
+   *
+   * Null on CREATE, always set afterwards. `location_id` below carries the
+   * requiredness this field used to carry — see its note for why it has to.
+   */
+  sales_order_id: z.string().uuid().nullable().default(null),
+  /**
+   * NOT A COLUMN on `garment_order_amendments` — `headerOnly()` strips it. It
+   * exists to reach `sales_orders.location_id`, and it is mandatory because
+   * 0395 numbers per (location, fiscal year): `assign_order_number()` refuses a
+   * blank one rather than invent a shared bucket, so without this the insert
+   * fails with a raw `23502` instead of a message the operator can act on.
+   *
+   * This is where SCNo's old requiredness went. A `readOnly` field never holds
+   * the cursor (AGENTS.md, "Mandatory fields"), so an auto SC No cannot carry a
+   * `*` — the rule is to require its SOURCES instead, exactly as a composed
+   * name does.
+   *
+   * NULLABLE HERE, REQUIRED WHERE IT IS ACTUALLY NEEDED — inside
+   * `createAmendment`, on the branch that mints a number. Typed non-nullable it
+   * would cage the operator on an EDIT: a document whose order predates the
+   * per-location numbering has `sales_orders.location_id` null, the field is
+   * read-only once saved, and the record would fail validation on every save
+   * with nothing on screen they could change. Requiring a value that only the
+   * create path consumes is the "requiring a hidden field" failure AGENTS.md
+   * names, one step removed.
+   */
+  location_id: z.string().uuid().nullable().default(null),
   amend_date: z.string().min(1, "Date is required"),
   initiated: nullableText,
   amend_type: nullableText,
-  buyer_id: uuidN,
+  buyer_id: z.string().uuid("Customer is required"),
   po_no: nullableText,
   po_date: nullableText,
   merchandiser_id: uuidN,
@@ -342,6 +500,8 @@ export const amendmentInput = z.object({
   combos: z.array(amendmentComboInput).default([]),
   price_details: z.array(amendmentPriceDetailInput).default([]),
   approval_qtys: z.array(amendmentApprovalQtyInput).default([]),
+  pack_types: z.array(amendmentPackTypeInput).default([]),
+  quantities: z.array(amendmentQuantityInput).default([]),
 });
 export type AmendmentInput = z.infer<typeof amendmentInput>;
 
