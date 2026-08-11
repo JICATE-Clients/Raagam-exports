@@ -122,6 +122,26 @@ export function MaterialAttributeMasterScreen({
   const NAME_SEPARATOR = " / ";
   const [lines, setLines] = useState<LineRow[]>([]);
   /**
+   * The line and value keys that were ALREADY SAVED when this record opened.
+   *
+   * A stored row cannot be removed; one added since can (client 2026-08-10).
+   * `ChildGrid.lockExisting` implements that for every other Master Data grid,
+   * but this screen hand-rolls its own ✕ inside `renderMobileRow` — which those
+   * columns never reach — so the same rule has to be stated here or this screen
+   * alone would keep allowing what the other 26 now refuse. That remainder is
+   * the "~22 screens hand-roll a grid row" lesson, one component along.
+   *
+   * Captured where the rows are BUILT from the stored record, so it is exact
+   * rather than inferred: `openAdd` clears both, because a new record has
+   * nothing saved yet.
+   *
+   * STATE, NOT A REF: these are written in an event handler and read while
+   * rendering, which is what state is for. A ref read during render is the
+   * `react-hooks/refs` shape and can tear across a concurrent render.
+   */
+  const [storedLineKeys, setStoredLineKeys] = useState<Set<string>>(new Set());
+  const [storedOptionKeys, setStoredOptionKeys] = useState<Set<string>>(new Set());
+  /**
    * Which attribute lines are showing their value list. A SET — any number at
    * once, like the legacy grid's ⊟/⊞ (screenshot 2026-07-27).
    *
@@ -264,6 +284,9 @@ export function MaterialAttributeMasterScreen({
     setItemClassId("");
     setCategoryId("");
     const first = blankLine();
+    // Nothing is saved on a new record, so every row stays removable.
+    setStoredLineKeys(new Set());
+    setStoredOptionKeys(new Set());
     setLines([first]);
     setExpandedKeys(new Set([first.key]));
     setOpen(true);
@@ -297,6 +320,8 @@ export function MaterialAttributeMasterScreen({
             options_edited: (l.options ?? []).length > 0,
           }))
         : [];
+    setStoredLineKeys(new Set(built.map((l) => l.key)));
+    setStoredOptionKeys(new Set(built.flatMap((l) => l.options.map((op) => op.key))));
     setLines(withStarRow(built));
     // A stepped line with NO stored values re-derives them so the list shows
     // immediately. One that HAS them keeps them — see `options_edited`: those
@@ -1095,6 +1120,7 @@ export function MaterialAttributeMasterScreen({
                                     // the row type, the payload and the DB (0346), so
                                     // a value blocked before that change stays
                                     // blocked rather than being silently re-offered.
+                                    !storedOptionKeys.has(o.key) && (
                                     <Button
                                       type="button"
                                       variant="ghost"
@@ -1106,6 +1132,7 @@ export function MaterialAttributeMasterScreen({
                                     >
                                       <X className="h-4 w-4" />
                                     </Button>
+                                    )
                                   )}
                                 </div>
                               </div>
@@ -1181,6 +1208,7 @@ export function MaterialAttributeMasterScreen({
               <DetailSection label="Attributes">
                 {headerStrip}
                 <ChildGrid<LineRow>
+                  lockExisting
                 label=""
                 forceCards
                 listRows
@@ -1293,7 +1321,7 @@ export function MaterialAttributeMasterScreen({
                         {flagCell(l, "mandatory")}
                         {flagCell(l, "inactive")}
                         <div className="flex min-h-9 items-center justify-center">
-                          {!isStar && (
+                          {!isStar && !storedLineKeys.has(l.key) && (
                             <Button
                               type="button"
                               variant="ghost"

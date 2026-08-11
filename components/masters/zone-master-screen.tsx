@@ -386,6 +386,7 @@ export function ZoneMasterScreen({
                 scroll-in-a-box (client 2026-07-25). Keyboard nav comes with the
                 component, so the local gridKeyNav wiring goes too. */}
             <ChildGrid<{ key: string; area_name: string }>
+              lockExisting
               label="Areas"
               rows={childRows}
               onAdd={addChildRow}

@@ -1538,6 +1538,7 @@ export function VendorMasterScreen({
             header on desktop and by nothing at all on mobile; they carry real
             labels now. */}
         <ChildGrid<AddressRow>
+          lockExisting
           label="Address Detail"
           rows={addresses}
           onAdd={addAddress}
@@ -1683,6 +1684,7 @@ export function VendorMasterScreen({
             LAYOUT.md §6 says stop inlining — so a card per row. Every one of the
             six pickers is a real master: nothing here is free text. */}
         <ChildGrid<ItemCatRow>
+          lockExisting
           label="Item Category Detail"
           rows={itemCats}
           onAdd={addItemCat}
@@ -1801,6 +1803,7 @@ export function VendorMasterScreen({
         hint="The processes this vendor is paid to do, and the VAT that applies. Legacy shows this tab only for a Processor."
       >
         <ChildGrid<ProcessRow>
+          lockExisting
           label="Vendor Process Detail"
           rows={procRows}
           onAdd={() => addRowTo(setProcRows, blankProcess)}
@@ -1867,6 +1870,7 @@ export function VendorMasterScreen({
         hint="The services this vendor provides, and on what terms. Legacy shows this tab only for a Service Provider."
       >
         <ChildGrid<ServiceRow>
+          lockExisting
           label="Service Detail"
           rows={svcRows}
           onAdd={() => addRowTo(setSvcRows, blankService)}
@@ -1918,6 +1922,7 @@ export function VendorMasterScreen({
         {/* The Process grid without VAT — legacy asks a sub-contractor only which
             process and on what terms, over the same Process master. */}
         <ChildGrid<SubcontractRow>
+          lockExisting
           label="Vendor SubContractor Detail"
           rows={subRows}
           onAdd={() => addRowTo(setSubRows, blankSubcontract)}

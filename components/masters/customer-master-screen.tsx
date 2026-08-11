@@ -1352,6 +1352,7 @@ export function CustomerMasterScreen({
                     {/* contacts */}
                     <div className="mt-6">
                       <ChildGrid<ContactRow>
+                        lockExisting
                         label="Contacts"
                         pageSize={10}
                         rows={contacts}
@@ -1436,6 +1437,7 @@ export function CustomerMasterScreen({
             content: (
                   <SectionBody title="Agents" hint="Brokers / agents who represent this customer.">
                     <ChildGrid<AgentRow>
+                      lockExisting
                       label="Customer Agents"
                       pageSize={10}
                       rows={agents}
@@ -1619,6 +1621,7 @@ export function CustomerMasterScreen({
                     {/* Marking grid */}
                     <div className="mt-6">
                       <ChildGrid<MarkRow>
+                        lockExisting
                         label="Marking"
                         pageSize={10}
                         rows={markings}
@@ -1760,6 +1763,7 @@ function CategoryGrid({
   );
   return (
     <ChildGrid<CatRowT>
+      lockExisting
       label={title}
       pageSize={10}
       forceCards
@@ -1814,6 +1818,7 @@ function VendorGrid({
   );
   return (
     <ChildGrid<VendorRowT>
+      lockExisting
       label={title}
       pageSize={10}
       forceCards

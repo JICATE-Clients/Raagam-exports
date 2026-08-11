@@ -358,6 +358,7 @@ export function GarmentRejectionRuleMasterScreen({
             from the component now instead of being re-typed here.
           */}
           <ChildGrid
+            lockExisting
             label="Details"
             rows={lines}
             onAdd={addLine}

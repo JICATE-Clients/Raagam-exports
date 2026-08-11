@@ -821,6 +821,7 @@ export function CategoryMasterScreen({
             {showSubCategories && nameEntered && form.has_sub_categories && (
               <div className="sm:col-span-2">
                 <ChildGrid<SubRow>
+                  lockExisting
                   label="Sub Categories"
                   rows={subs}
                   onAdd={addSub}

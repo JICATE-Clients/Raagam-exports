@@ -433,6 +433,7 @@ export function OutDocumentTermMasterScreen({
           <div className="space-y-4">
           {/* Description grid */}
           <ChildGrid<LineRow>
+            lockExisting
             label="Description"
             pageSize={10}
             forceCards

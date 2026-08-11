@@ -414,6 +414,7 @@ export function CertificationMasterScreen({
                 mode; `pageSize` replaces the scroll-in-a-box (client
                 2026-07-25). Keyboard nav comes with the component. */}
             <ChildGrid<{ key: string; valid_from: string; valid_to: string }>
+              lockExisting
               label="Validity Periods"
               rows={childRows}
               onAdd={addChildRow}

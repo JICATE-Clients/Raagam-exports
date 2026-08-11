@@ -23,12 +23,21 @@ export function CustomerPicker({
   onChange,
   label = "Customer",
   compact = false,
+  id,
 }: {
   customers: Customer[];
   value: string | null;
   onChange: (id: string | null) => void;
   label?: string;
   compact?: boolean;
+  /**
+   * Anchors the field for `goToSection(..., { fieldId })` — a blocked Save
+   * jumps to the section AND focuses the offending control, and that lookup is
+   * a plain `querySelector("#id")`, so an id that does not reach the DOM makes
+   * the jump silently do nothing. Straight through to `DataPicker`, which puts
+   * it on the real `<input>`.
+   */
+  id?: string;
 }) {
   const rows: PickerRow[] = useMemo(
     () =>
@@ -39,6 +48,6 @@ export function CustomerPicker({
   );
 
   return (
-    <DataPicker label={label} rows={rows} value={value} onChange={onChange} compact={compact} />
+    <DataPicker id={id} label={label} rows={rows} value={value} onChange={onChange} compact={compact} />
   );
 }

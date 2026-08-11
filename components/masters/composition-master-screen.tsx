@@ -509,6 +509,7 @@ export function CompositionMasterScreen({
               `inlineCards` ignores it by contract, and a second copy of the
               cells was only ever there to keep the card mode in step. */}
           <ChildGrid<LineRow>
+            lockExisting
             label="Mixing"
             badge={
               <span className={`text-xs tabular-nums ${pctTotal === 100 ? "text-success" : "text-muted-foreground"}`}>

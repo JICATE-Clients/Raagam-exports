@@ -272,6 +272,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
               Row ORDER is the size order, so no sort column: the operator reads
               S · M · L down the grid and that is what a style gets filled with. */}
           <ChildGrid<ChildRow>
+            lockExisting
             columns={childColumns}
             rows={childRows}
             frameless

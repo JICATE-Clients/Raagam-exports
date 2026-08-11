@@ -33,6 +33,12 @@ export interface GarmentStyleCoordinate {
   style_id: string;
   sno: number;
   coordinate_id: string | null;
+  /** Withdrawn from the form and the input 2026-08-10 (client): a coordinate
+   *  is now just a name from the master. The COLUMN remains and still reads
+   *  back — but note this is a CHILD table that `writeChildren` deletes and
+   *  reinserts on every save, so unlike a withdrawn HEADER field (0392) the
+   *  stored value does not survive the next save of its style. Nothing is
+   *  lost today: the table is empty. */
   mlist_no: string | null;
 }
 
@@ -56,7 +62,13 @@ export interface GarmentStyleComponent {
   /** Withdrawn from the form 2026-08-10; the columns and their values remain. */
   trims: boolean;
   trims_category_id: string | null;
-  /** Printing / embroidery / … from the `processes` master. */
+  /** Printing / embroidery / … from the `processes` master.
+   *
+   *  WITHDRAWN FROM THE FORM 2026-08-10 (client: the legacy grid has no process
+   *  column). Still embedded by the service and still read back — but note this
+   *  is a CHILD of a child, and `writeChildren` deletes and recreates every
+   *  component on each save, so these rows cascade away with their parent
+   *  whatever the schema says. Nothing is lost today: the table is empty. */
   processes: GarmentStyleComponentProcess[];
 }
 
@@ -79,7 +91,13 @@ export interface GarmentStyle {
   season: string | null;
   style_year: number | null;
   article_no: string | null;
+  /** A `categories` row, NOT a config_lookup (0394). The Style Category comes
+   *  from the Garment master, scoped by `item_class_id` below. */
   style_category_id: string | null;
+  /** The Item Class the operator chose; scopes the Category picker. Stored
+   *  rather than derived from the category, so a draft saved before a category
+   *  is picked still reopens on the right class (0394). */
+  item_class_id: string | null;
   style_description: string | null;
   tech_pack: string | null;
   unit_id: string | null;
@@ -112,7 +130,8 @@ const uuidN = z.string().uuid().nullable().default(null);
 export const styleCoordinateInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   coordinate_id: uuidN,
-  mlist_no: nullableText,
+  // `mlist_no` withdrawn 2026-08-10 (client): "not needed". Absent from the
+  // schema, not just the form — see the note on the interface above.
 });
 
 export const styleComponentProcessInput = z.object({
@@ -131,7 +150,11 @@ export const styleComponentInput = z.object({
    *  round trip, and a rule that needs one does not belong in a schema. */
   item_id: uuidN,
   // `trims` / `trims_category_id` are deliberately absent — see the header.
-  processes: z.array(styleComponentProcessInput).default([]),
+  // `processes` left on 2026-08-10 too: the legacy Components grid has no
+  // process column, so the client had the sub-grid removed. The TABLE
+  // `garment_style_component_processes` (0392) and this file's
+  // `styleComponentProcessInput` both remain, so restoring it is a UI change
+  // rather than a migration.
 });
 
 export const styleSizeInput = z.object({
@@ -150,6 +173,7 @@ export const garmentStyleInput = z
     style_year: z.coerce.number().int().nullable().default(null),
     article_no: nullableText,
     style_category_id: uuidN,
+    item_class_id: uuidN,
     style_description: nullableText,
     unit_id: uuidN,
     /** Piece or Set. NULLABLE on purpose: every style predating 0392 has none,
@@ -177,13 +201,23 @@ export const garmentStyleInput = z
    * `path` is set to the child array so the message lands on the offending
    * section rather than at the root, matching how `materialInput`'s mixing
    * refinement reports.
+   *
+   * The rail's section keys and the child array names are the same words, so
+   * the mapping is a membership test rather than a lookup table — but it is a
+   * TEST rather than a bare cast, because a section that is not a child array
+   * ("style", "general") must land at the root, not invent a path key nothing
+   * in the payload has. Written as a set so adding a rule on a new child is one
+   * word here instead of another `===` branch nobody remembers to extend; the
+   * previous form hard-coded "coordinates" and would have filed this commit's
+   * components problem at the root.
    */
   .superRefine((v, ctx) => {
+    const childArrays = new Set(["coordinates", "components", "sizes"]);
     for (const p of styleProblems(v)) {
       ctx.addIssue({
         code: "custom",
         message: p.message,
-        path: p.section === "coordinates" ? ["coordinates"] : [],
+        path: childArrays.has(p.section) ? [p.section] : [],
       });
     }
   });

@@ -6,6 +6,7 @@ import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/d
 import { createCategory, updateCategory, deleteCategory } from "@/lib/masters/category-actions";
 import { quickCreateMaterial, renameMaterial, deleteMaterial } from "@/lib/masters/material-actions";
 import { YarnQuickCreateSheet } from "@/components/masters/yarn-quick-create-sheet";
+import { GarmentQuickCreateSheet } from "@/components/masters/garment-quick-create-sheet";
 import { CategoryQuickCreateSheet } from "@/components/masters/category-quick-create-sheet";
 import type { ConfigLookup, AttributeValue } from "@/lib/masters/extras-types";
 import type { Levy } from "@/lib/masters/levy-types";
@@ -98,6 +99,7 @@ export function ItemPicker({
   onChange,
   usedIds,
   clearable = true,
+  required = false,
   placeholder,
   compact = false,
   quickCreateClassId,
@@ -105,6 +107,7 @@ export function ItemPicker({
   canEdit = false,
   canDelete = false,
   yarnQuickCreate,
+  garmentQuickCreate,
 }: {
   label: string;
   title?: string;
@@ -120,6 +123,16 @@ export function ItemPicker({
    */
   usedIds?: Iterable<string> | null;
   clearable?: boolean;
+  /**
+   * Draws the red `*` AND holds the cursor while the field is blank — one
+   * declaration, both halves, same as every other picker.
+   *
+   * This is the SANCTIONED route for a cell inside a grid that renders
+   * `renderMobileRow`: `ChildGridColumn.required` never reaches those rows
+   * (child-grid.tsx says so where the prop is defined), so declaring it
+   * there would draw a star with nothing behind it.
+   */
+  required?: boolean;
   placeholder?: string;
   /** Trigger-only (no label) for dense grid rows — as `LookupDialogPicker`. */
   compact?: boolean;
@@ -137,6 +150,26 @@ export function ItemPicker({
     yarnTypes: ConfigLookup[];
     categories: Category[];
     kgUnitId?: string | null;
+  };
+  /**
+   * The same door as `yarnQuickCreate`, for item class GARMENTS: when set
+   * (together with `quickCreateClassId`) "+ Add" opens the full garment
+   * mini-form instead of the inline name-only one. `categories` must already
+   * be GARMENTS-scoped by the caller, exactly as the yarn one must be
+   * YARN-scoped.
+   *
+   * TWO PROPS RATHER THAN ONE GENERIC `quickCreate`, deliberately: the two
+   * classes need genuinely different forms (a yarn has Count and Purity, a
+   * garment has neither), and `MATERIAL_FORMS` says the same thing about the
+   * five classes generally. A single prop would have to carry the union of
+   * every class's lists and then decide at runtime which half is real.
+   */
+  garmentQuickCreate?: {
+    categories: Category[];
+    uoms: { id: string; code: string | null; name: string; inactive?: boolean }[];
+    levies: Levy[];
+    fabricStructures: ConfigLookup[];
+    itemClasses: ConfigLookup[];
   };
 }) {
   const router = useRouter();
@@ -194,6 +227,7 @@ export function ItemPicker({
       : undefined;
 
   const useYarnQc = !!yarnQuickCreate && !!quickCreateClassId;
+  const useGarmentQc = !useYarnQc && !!garmentQuickCreate && !!quickCreateClassId;
 
   return (
     <>
@@ -206,10 +240,11 @@ export function ItemPicker({
         onChange={(v) => onChange(v ?? "")}
         usedIds={usedIds}
         clearable={clearable}
+        required={required}
         compact={compact}
         manage={manage}
         onAddOverride={
-          useYarnQc
+          useYarnQc || useGarmentQc
             ? (commit) => {
                 qcCommit.current = commit;
                 setQcOpen(true);
@@ -235,6 +270,25 @@ export function ItemPicker({
           yarnTypes={yarnQuickCreate!.yarnTypes}
           categories={yarnQuickCreate!.categories}
           kgUnitId={yarnQuickCreate!.kgUnitId}
+          perms={{ canCreate, canEdit, canDelete }}
+        />
+      )}
+      {useGarmentQc && (
+        <GarmentQuickCreateSheet
+          open={qcOpen}
+          onClose={() => setQcOpen(false)}
+          onCreated={({ id, code, name }) => {
+            // Same optimistic flow as the yarn sheet above.
+            setExtra((xs) => [...xs, { id, code, name }]);
+            (qcCommit.current ?? onChange)(id);
+            router.refresh();
+          }}
+          garmentClassId={quickCreateClassId!}
+          categories={garmentQuickCreate!.categories}
+          uoms={garmentQuickCreate!.uoms}
+          levies={garmentQuickCreate!.levies}
+          fabricStructures={garmentQuickCreate!.fabricStructures}
+          itemClasses={garmentQuickCreate!.itemClasses}
           perms={{ canCreate, canEdit, canDelete }}
         />
       )}
@@ -267,6 +321,9 @@ export function CategoryPicker({
   canDelete = false,
   levies,
   fabricStructures,
+  itemClasses,
+  compact = false,
+  id,
 }: {
   label: string;
   /**
@@ -309,6 +366,23 @@ export function CategoryPicker({
    *  mini-child instead of the inline name-only form. */
   levies?: Levy[];
   fabricStructures?: ConfigLookup[];
+  /** Pass this and the quick-create sheet ASKS for the Item Class itself,
+   *  driving its own class-dependent fields from the answer. Omit it and the
+   *  class comes from `itemClassId`, which is what a caller whose form already
+   *  asked (the Material child) must do — two forms asking one question drift. */
+  itemClasses?: ConfigLookup[];
+  /** Trigger-only (no label) for a dense grid row or a `<Field>` that already
+   *  draws the label. Straight through to `DataPicker`, same as every other
+   *  adapter — without it a caller wrapping this in `<Field label>` gets the
+   *  label twice. */
+  compact?: boolean;
+  /**
+   * Anchors the field for `goToSection(..., { fieldId })` — a blocked Save jumps
+   * to the section AND focuses the offending control, and that lookup is a plain
+   * `querySelector("#id")`, so an id that never reaches the DOM makes the jump
+   * silently do nothing. Straight through to `DataPicker`.
+   */
+  id?: string;
 }) {
   const router = useRouter();
   const [extra, setExtra] = useState<Category[]>([]);
@@ -471,6 +545,8 @@ export function CategoryPicker({
         usedIds={usedIds}
         clearable={clearable}
         required={required}
+        compact={compact}
+        id={id}
         manage={manage}
         onAddOverride={
           useFullQc
@@ -495,6 +571,7 @@ export function CategoryPicker({
           }}
           itemClassId={itemClassId!}
           selectedClassCode={selectedClassCode ?? null}
+          itemClasses={itemClasses}
           levies={levies!}
           fabricStructures={fabricStructures!}
           perms={{ canCreate, canEdit, canDelete }}

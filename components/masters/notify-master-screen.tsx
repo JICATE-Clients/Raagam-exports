@@ -855,6 +855,7 @@ export function NotifyMasterScreen({
                 line. Replaces a hand-rolled list with its own header band, `#`
                 column, remove button and `max-h-56` scroller. */}
             <ChildGrid<ContactRow>
+              lockExisting
               label="Contact"
               rows={contacts}
               onAdd={addContact}

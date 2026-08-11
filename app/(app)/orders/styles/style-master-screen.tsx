@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Shirt, SlidersHorizontal, Palette, Boxes, Ruler, X } from "lucide-react";
+import { Shirt, SlidersHorizontal, Palette, Boxes, Ruler } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import {
   createGarmentStyle,
   updateGarmentStyle,
   deleteGarmentStyle,
+  previewStyleCode,
 } from "@/lib/orders/styles/actions";
 import {
   SEASON_OPTIONS,
@@ -41,9 +42,11 @@ import {
   UNIT_KIND_OPTIONS,
   coordinateLimit,
   isUnitKind,
+  componentRowStarted,
+  styleCoordinateIds,
   styleProblems,
 } from "@/lib/orders/styles/rules";
-import { ItemPicker } from "@/components/masters/lookup-picker";
+import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { sectionValidity, type Problem } from "@/lib/screens/validity";
 import type { StyleFormData } from "@/lib/orders/styles/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -59,9 +62,7 @@ interface Props {
 }
 
 // ---- editable child-row shapes ----
-type CoordRow = { key: string; coordinate_id: string | null; mlist_no: string };
-/** One process on a component — the nested grid's row. */
-type CompProcRow = { key: string; process_id: string | null };
+type CoordRow = { key: string; coordinate_id: string | null };
 type CompRow = {
   key: string;
   coordinate_id: string | null;
@@ -70,7 +71,6 @@ type CompRow = {
   comp_type: string;
   /** The fabric: an `items` row of class FABRIC. */
   item_id: string | null;
-  processes: CompProcRow[];
 };
 type SizeRow = { key: string; size_id: string | null };
 
@@ -130,10 +130,66 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
+
+  /**
+   * The record's serial (STL-2627-81), for the read-only field on General.
+   *
+   * READ OFF THE ROW, NOT HELD IN `HeaderForm`. The DB trigger owns `code` and
+   * `garmentStyleInput` has no key for it, so a value that never enters `form`
+   * can never be sent by accident — now or after a future refactor of the
+   * payload, which is assembled field by field. Reading `rows` also means a
+   * newly created style's number appears on its own: `router.refresh()` already
+   * brings the saved row back.
+   *
+   * Null on a new record, because the trigger assigns on INSERT — there is no
+   * serial yet, and `previewCode` below answers for that case instead.
+   */
+  const editingCode = rows.find((r) => r.id === editId)?.code ?? null;
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [coords, setCoords] = useState<CoordRow[]>([]);
   const [comps, setComps] = useState<CompRow[]>([]);
   const [sizes, setSizes] = useState<SizeRow[]>([]);
+
+  /**
+   * What the serial WILL be, shown while a new style is being entered.
+   *
+   * KEYED ON `style_date`, not on nothing: the fiscal year comes from that field
+   * (`assign_garment_style_code`), so back-dating a style into last March moves
+   * it into the previous year's numbering. A preview that ignored the date would
+   * be wrong for exactly the entries most likely to be checked.
+   *
+   * Only for a NEW record — an existing style has a real code and must never be
+   * shown a predicted one.
+   *
+   * A PREDICTION, NOT A RESERVATION. `peek_garment_style_code` (0393) does not
+   * consume the counter, so opening this form and abandoning it burns no
+   * numbers; the cost is that two operators entering at once see the same next
+   * number and only the first to save gets it. The trigger stays the sole
+   * authority, so what is STORED is always right. Reserving instead would issue
+   * numbers to records that may never exist, and those gaps are what an audit
+   * asks about.
+   *
+   * `cancelled` guards the response, not the request: an operator retyping the
+   * date fires several of these and they can land out of order, which would
+   * leave the field showing the answer to a date that is no longer in the box.
+   *
+   * The effect only FETCHES; clearing is done by `openAdd`/`openEdit`, which is
+   * where this screen resets all its other state too. Clearing here instead
+   * would be a synchronous setState in an effect body — the cascading-render
+   * shape `react-hooks/set-state-in-effect` exists to catch, and an event
+   * handler is the honest place for "the operator opened a different record".
+   */
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (mode !== "edit" || editId) return;
+    let cancelled = false;
+    previewStyleCode(form.style_date).then((c) => {
+      if (!cancelled) setPreviewCode(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, editId, form.style_date]);
   /**
    * Has the operator actually changed anything since this record was opened.
    *
@@ -161,11 +217,120 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
-  const styleCategories = useMemo(() => lookups.filter((l) => l.kind === "style_category"), [lookups]);
-  const coordinateOpts = useMemo(() => lookups.filter((l) => l.kind === "coordinate"), [lookups]);
-  const componentOpts = useMemo(() => lookups.filter((l) => l.kind === "style_component"), [lookups]);
-  const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
+  /**
+   * STYLE CATEGORY COMES FROM THE GARMENT MASTER, NOT A LIST OF ITS OWN.
+   *
+   * This was `lookups.filter(kind === "style_category")` — a config_lookups kind
+   * that has never held a single row, so the field was a dropdown over an empty
+   * list and read as a bare text box (client 2026-08-10). 0394 repoints
+   * `garment_styles.style_category_id` at `public.categories`, the same master
+   * the Material child classifies against.
+   *
+   * The kind itself stays declared in the CHECK constraint: it holds nothing,
+   * and removing it would mean re-listing every other kind for no gain. It is
+   * simply unreferenced now, like `trims_category` after 0392.
+   */
+  const itemClassOpts = useMemo(() => lookups.filter((l) => l.kind === "item_class"), [lookups]);
+  const fabricStructureOpts = useMemo(
+    () => lookups.filter((l) => l.kind === "fabric_structure"),
+    [lookups],
+  );
+
+  /** The GARMENTS class — a style is a garment, so its category comes from
+   *  there. Resolved by CODE, not by a hardcoded id: the seven classes are
+   *  seeded rows whose ids differ per environment. */
+  const garmentClassId = useMemo(
+    () => itemClassOpts.find((c) => (c.code ?? "").toUpperCase() === "GAR")?.id ?? null,
+    [itemClassOpts],
+  );
+
+  /**
+   * The Style Category list: GARMENTS categories, plus whatever this style
+   * already holds.
+   *
+   * THE HELD VALUE ALWAYS SURVIVES THE FILTER — the standing "Disabled rows"
+   * rule, and it earns its place here for a second reason. The quick-create
+   * sheet lets the operator pick a different Item Class, so a category can be
+   * created outside GARMENTS; without this it would be selectable at the moment
+   * of creation and then vanish on the next refresh, blanking the FK on the
+   * following save. Keeping it visible is what makes that merely unusual rather
+   * than data loss.
+   */
+  const scopedCategories = useMemo(
+    () =>
+      data.categories.filter(
+        (c) => c.item_class_id === garmentClassId || c.id === form.style_category_id,
+      ),
+    [data.categories, garmentClassId, form.style_category_id],
+  );
+  /**
+   * COORDINATES, COMPONENTS AND STRUCTURE COME FROM THEIR REAL MASTERS (0396).
+   *
+   * All three used to read a `config_lookups` kind that shadowed a master
+   * sitting right beside it, and every one of those kinds was empty or junk —
+   * `coordinate` held two rows named "1" and "2", `style_component` and
+   * `structure` held none at all. So the fields rendered dropdowns over
+   * nothing, exactly as Style Category did before 0394. One pattern, four
+   * fields.
+   *
+   * A COORDINATE IS A GARMENT: a Set style is two to six garments sold
+   * together, so TOP / BOTTOM / INNER / OUTER / PIECES are `items` of class
+   * GARMENTS. The data was always right; the FK pointed at the wrong list.
+   */
+  const coordinateOpts = data.garments;
+  const componentOpts = data.componentRows;
+  /** Structure needed no FK change — 'fabric_structure' rows ARE config_lookups.
+   *  Only the kind moved, which is why there is no third repoint in 0396. */
+  const structureOpts = fabricStructureOpts;
   const sizeOpts = useMemo(() => lookups.filter((l) => l.kind === "size"), [lookups]);
+
+  // ---- the Components tab reads the Coordinates tab --------------------------
+
+  /**
+   * THE COORDINATES THIS STYLE HAS — the only ones a component may be filed
+   * under.
+   *
+   * Components used to be offered `coordinateOpts`, the entire `config_lookups`
+   * kind: the same list the Coordinates tab picks FROM, with nothing scoping it
+   * to what this style declared. So a Piece style capped at one coordinate still
+   * offered every coordinate in the database, and a component could be filed
+   * under a BOTTOM the style does not own.
+   *
+   * That is the client's "green arrow — data pulled from a previous tab", and
+   * `raagam-masters-picker-wiring`'s cascading rule: a downstream picker is
+   * filtered by its parent's value, never handed the global list.
+   *
+   * Membership comes from `styleCoordinateIds` in `lib/orders/styles/rules.ts`,
+   * which is also what `orphanComponents` judges by — deliberately one function,
+   * because two would drift into a picker offering a value the rule rejects.
+   */
+  const coordinateIds = useMemo(() => styleCoordinateIds(coords), [coords]);
+
+  const styleCoordinateOpts = useMemo(
+    () => coordinateOpts.filter((o) => coordinateIds.has(o.id)),
+    [coordinateOpts, coordinateIds],
+  );
+
+  /**
+   * The options for ONE component row: the style's coordinates, plus the value
+   * this row already holds if that has fallen out of them.
+   *
+   * THE HELD VALUE ALWAYS SURVIVES THE FILTER. Dropping it would render a filled
+   * field as empty and blank the FK on the next save — AGENTS.md's "Disabled
+   * rows" rule, which exists for exactly this shape. It comes back marked
+   * `is_active: false`, which is how the app already says "you may keep this,
+   * you may not re-pick it": `DataPicker` greys it and excludes it from new
+   * selections without any new mechanism. The name carries the reason, because
+   * the default tag would read "(inactive)" — and the garment row is perfectly
+   * active. It is this STYLE that no longer has it.
+   */
+  const compCoordinateOpts = (held: string | null) => {
+    if (!held || coordinateIds.has(held)) return styleCoordinateOpts;
+    const row = coordinateOpts.find((o) => o.id === held);
+    return row
+      ? [...styleCoordinateOpts, { ...row, name: `${row.name} (not in this style)`, is_active: false }]
+      : styleCoordinateOpts;
+  };
 
   // ---- size group fill ------------------------------------------------------
 
@@ -231,15 +396,38 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       { section: "style", id: "st-name", label: "Style", required: true, empty: (f) => !f.style_name.trim() },
       { section: "style", id: "st-date", label: "Date", required: true, empty: (f) => !f.style_date },
       { section: "general", id: "st-unitkind", label: "Unit Type", required: true, empty: (f) => !f.unit_kind },
+      /**
+       * THE OTHER THREE COMPULSORY FIELDS (client 2026-08-10, read off the
+       * legacy screen's red ⓘ markers).
+       *
+       * Each of these needs BOTH halves. Marking the control alone gives a star
+       * and a cursor hold with Save still enabled; adding only the entry here
+       * gives a dead Save with nothing on screen to explain it. Country is the
+       * proof: `CountryPicker` defaults `required = true`, so it has been
+       * holding the cursor since the field was added while Save stayed live —
+       * exactly the third-enforcer gap `country-picker.tsx` warns about, where
+       * requiredness buried in a shared picker is invisible to the audit.
+       */
+      { section: "style", id: "st-customer", label: "Customer", required: true, empty: (f) => !f.customer_id },
+      { section: "general", id: "st-category", label: "Style Category", required: true, empty: (f) => !f.style_category_id },
+      { section: "general", id: "st-country", label: "Country", required: true, empty: (f) => !f.country_id },
     ],
     extra: styleProblems({
       style_name: form.style_name,
       style_date: form.style_date,
       unit_kind: form.unit_kind,
       coordinates: coords,
+      // Without this the orphan rule is silent on the screen while STILL firing
+      // in `garmentStyleInput`'s superRefine — Save would be enabled, the action
+      // would refuse, and the rail would show nothing. A rule enforced in one
+      // half of the pair is worse than one enforced in neither.
+      components: comps,
     }).map<Problem>((p) => ({
       section: p.section,
-      label: "Coordinates",
+      // Was hard-coded "Coordinates", which was true while coordinates were the
+      // only cross-tab rule. The label names the section the problem belongs to,
+      // so it has to be derived from it.
+      label: p.section === "components" ? "Components" : "Coordinates",
       message: p.message,
       kind: "custom",
     })),
@@ -284,15 +472,23 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     setDirty(true);
   };
 
-  const blankCoord = (): CoordRow => ({ key: newKey(), coordinate_id: null, mlist_no: "" });
+  const blankCoord = (): CoordRow => ({ key: newKey(), coordinate_id: null });
+  /** A new component starts on the style's coordinate when there is only ONE it
+   *  could belong to — always the case for a Piece, and for a Set until the
+   *  second coordinate is entered. Answering the question before it is asked;
+   *  with two or more there is a real choice, so it stays blank. */
+  const soleCoordinateId = (): string | null => {
+    const ids = [...coordinateIds];
+    return ids.length === 1 ? ids[0] : null;
+  };
+
   const blankComp = (): CompRow => ({
     key: newKey(),
-    coordinate_id: null,
+    coordinate_id: soleCoordinateId(),
     component_id: null,
     structure_id: null,
     comp_type: "",
     item_id: null,
-    processes: [],
   });
   const blankSize = (): SizeRow => ({ key: newKey(), size_id: null });
 
@@ -302,6 +498,9 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     setCoords([blankCoord()]);
     setComps([blankComp()]);
     setSizes([blankSize()]);
+    // Dropped, not kept: the previous form's predicted serial was for whatever
+    // date was in that box. The effect refills it for today's.
+    setPreviewCode(null);
     // Seeding a record is not an edit — the three blank rows above are the
     // screen's doing, not the operator's.
     setDirty(false);
@@ -309,6 +508,8 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   }
 
   function openEdit(r: GarmentStyle) {
+    // An existing style has a real code; it must never be shown a predicted one.
+    setPreviewCode(null);
     setEditId(r.id);
     setForm({
       blocked: r.blocked,
@@ -333,7 +534,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       r.coordinates.map((c) => ({
         key: newKey(),
         coordinate_id: c.coordinate_id,
-        mlist_no: c.mlist_no ?? "",
       })),
     );
     setComps(
@@ -344,10 +544,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         structure_id: c.structure_id,
         comp_type: c.comp_type ?? "",
         item_id: c.item_id,
-        processes: (c.processes ?? []).map((p) => ({
-          key: newKey(),
-          process_id: p.process_id,
-        })),
       })),
     );
     setSizes(r.sizes.map((s) => ({ key: newKey(), size_id: s.size_id })));
@@ -368,6 +564,15 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       style_year: form.style_year ? Number(form.style_year) : null,
       article_no: form.article_no || null,
       style_category_id: form.style_category_id,
+      /**
+       * DERIVED, NOT ASKED. The Item Class question moved inside the
+       * quick-create sheet (client 2026-08-10), so the form no longer holds an
+       * answer — but the column is still worth writing: it records which class
+       * the chosen category belongs to without the operator answering twice,
+       * and a second field asking it is how the two would drift apart.
+       */
+      item_class_id:
+        data.categories.find((c) => c.id === form.style_category_id)?.item_class_id ?? null,
       style_description: form.style_description || null,
       unit_id: form.unit_id,
       unit_kind: isUnitKind(form.unit_kind) ? form.unit_kind : null,
@@ -378,7 +583,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       coordinates: coords.map((c) => ({
         sno: 0,
         coordinate_id: c.coordinate_id,
-        mlist_no: c.mlist_no || null,
       })),
       components: comps.map((c) => ({
         sno: 0,
@@ -387,7 +591,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         structure_id: c.structure_id,
         comp_type: c.comp_type || null,
         item_id: c.item_id,
-        processes: c.processes.map((p) => ({ sno: 0, process_id: p.process_id })),
       })),
       sizes: sizes.map((s) => ({ sno: 0, size_id: s.size_id })),
     };
@@ -422,7 +625,11 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   if (mode === "list") {
     const columns: Column<GarmentStyle>[] = [
       {
-        header: "Code",
+        // "Serial No", matching the field on General. `Code` is the word this
+        // app hides from operators everywhere else (codes are backend-only,
+        // client 2026-07-23) — this column survived because the value here IS
+        // the human identifier, so it should be named the way the form names it.
+        header: "Serial No",
         cell: (r) => (
           <button
             type="button"
@@ -500,14 +707,50 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const coordColumns: ChildGridColumn<CoordRow>[] = [
     {
       header: "Coordinate",
+      // Same reason as Sizes — one column, a short value. Wider because a
+      // coordinate reads "NECK AND SHOULDER RIB", not "XXL".
+      width: "20rem",
       cell: (r) => (
-        <LookupDialogPicker
-          kind="coordinate"
+        <ItemPicker
           label="Coordinate"
-          options={coordinateOpts}
-          value={r.coordinate_id}
+          items={coordinateOpts}
+          value={r.coordinate_id ?? ""}
           onChange={(id) =>
-            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))
+            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id || null } : x)))
+          }
+          /**
+           * PICK-ONCE. A style cannot have TOP twice, and a duplicate is not
+           * merely untidy here — it makes the two rules below disagree with what
+           * the operator sees. `filledCoordinates` would count two toward the
+           * Piece/Set cap while the Components list offers one entry, so a
+           * Piece style could hold two rows and still look correct.
+           *
+           * `usedIds` is `DataPicker`'s existing prop for exactly this and is
+           * safe to hand the row's own value: it excludes the siblings, not the
+           * current cell.
+           */
+          usedIds={coords
+            .filter((x) => x.key !== r.key)
+            .map((x) => x.coordinate_id)
+            .filter((id): id is string => !!id)}
+          /**
+           * "+ Add" OPENS THE GARMENT MINI-FORM, not a name-only box (client
+           * 2026-08-10). `quickCreateClassId` + `garmentQuickCreate` is the same
+           * door `yarnQuickCreate` uses on the Materials screen — see
+           * `GarmentQuickCreateSheet` for why form C makes a complete mini-form
+           * possible in four fields.
+           */
+          quickCreateClassId={garmentClassId ?? undefined}
+          garmentQuickCreate={
+            garmentClassId
+              ? {
+                  categories: scopedCategories,
+                  uoms: data.uoms,
+                  levies: data.levies,
+                  fabricStructures: fabricStructureOpts,
+                  itemClasses: itemClassOpts,
+                }
+              : undefined
           }
           canCreate={masterPerms.canCreate}
           canEdit={masterPerms.canEdit}
@@ -515,41 +758,70 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         />
       ),
     },
-    {
-      header: "M.List No",
-      width: "12rem",
-      cell: (r) => (
-        <Input
-          value={r.mlist_no}
-          onChange={(e) =>
-            mutCoords((xs) => xs.map((x) => (x.key === r.key ? { ...x, mlist_no: e.target.value } : x)))
-          }
-          className="h-8"
-        />
-      ),
-    },
   ];
+
+  /**
+   * WHICH COMPONENT CELLS ARE COMPULSORY (client 2026-08-10: red = compulsory,
+   * blue = optional).
+   *
+   * Declared on the PICKERS, not through `ChildGridColumn.required` — this grid
+   * renders `renderMobileRow`, which those columns never reach (child-grid.tsx
+   * says so where the prop is defined), so a star declared there would be
+   * decoration with no hold behind it. `material-attribute-master-screen.tsx`
+   * records the same finding.
+   *
+   * ONLY ON A ROW THE OPERATOR HAS STARTED. `ChildGrid` seeds a blank row, and
+   * the save path drops any row holding nothing — so requiring a field on an
+   * untouched row would cage them on a row that is about to be discarded. Both
+   * ends read `componentRowStarted`, deliberately one function.
+   */
+  const compRequired = (r: CompRow) => componentRowStarted(r);
+
+  /**
+   * Coordinate is compulsory too — a Set style has to say whether a sleeve
+   * belongs to the Top or the Bottom — BUT ONLY WHEN THERE IS ONE TO PICK.
+   * With no coordinates entered yet the list is empty, and a hold on a field
+   * that cannot be filled is a cage with no keyboard way out. The section hint
+   * already says "Add coordinates first"; that is the honest answer there.
+   */
+  const coordRequired = (r: CompRow) => compRequired(r) && coordinateIds.size > 0;
 
   const compColumns: ChildGridColumn<CompRow>[] = [
     {
       header: "Coordinate",
       cell: (r) => (
-        <LookupDialogPicker
-          kind="coordinate" label="Coordinate" options={coordinateOpts}
-          value={r.coordinate_id}
-          onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id } : x)))}
-          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+        <ItemPicker
+          label="Coordinate"
+          // Scoped to the style's own coordinates — NOT the whole garment list.
+          items={compCoordinateOpts(r.coordinate_id)}
+          value={r.coordinate_id ?? ""}
+          onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, coordinate_id: id || null } : x)))}
+          /**
+           * NO ADD, NO MODIFY, and this is the half that is easy to get wrong.
+           *
+           * Inline Add here would create a GARMENT, which does not give this
+           * style that coordinate — so the value the operator just created would
+           * still not appear in this list. A control whose success is
+           * indistinguishable from failure is worse than no control. Coordinates
+           * are added on the Coordinates tab, the only place that changes what
+           * this list holds. Omitting `quickCreateClassId` is what withholds it.
+           */
+          canCreate={false} canEdit={false} required={coordRequired(r)} compact
         />
       ),
     },
     {
       header: "Component",
       cell: (r) => (
-        <LookupDialogPicker
-          kind="style_component" label="Component" options={componentOpts}
+        <RecordPicker
+          label="Component"
+          // The `components` master (0228), not the empty 'style_component'
+          // lookup kind this used to read (0396).
+          items={componentOpts}
           value={r.component_id}
           onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, component_id: id } : x)))}
-          canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
+          required={compRequired(r)}
+          compact
         />
       ),
     },
@@ -557,7 +829,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       header: "Structure",
       cell: (r) => (
         <LookupDialogPicker
-          kind="structure" label="Structure" options={structureOpts}
+          kind="fabric_structure" label="Structure" options={structureOpts}
           value={r.structure_id}
           onChange={(id) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, structure_id: id } : x)))}
           canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
@@ -600,39 +872,11 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           items={data.fabrics}
           value={r.item_id ?? ""}
           onChange={(v) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, item_id: v || null } : x)))}
+          // "Every component must be mapped to a specific material selected
+          // from the Fabric Master" (client 2026-08-10) — the one field the
+          // spec names as compulsory in so many words.
+          required={compRequired(r)}
           compact
-        />
-      ),
-    },
-  ];
-
-  /**
-   * A component's processes — printing, embroidery, and anything else the
-   * `processes` master flags `for_components`.
-   *
-   * A NESTED grid, because one part can need both printing and embroidery, so
-   * this is a list per row rather than a column on it. `lib/focus.ts` already
-   * treats a row's nested grid as part of the row: Tab walks into it
-   * (`tabFieldsIn`), an empty one opens its first row (`enterNestedGrid`), and
-   * ↑/↓ hand off across the boundary (`fromChildGrid`).
-   */
-  const procColumns: ChildGridColumn<CompProcRow>[] = [
-    {
-      header: "Process",
-      cell: (p) => (
-        <RecordPicker
-          label="Process"
-          compact
-          items={data.processes}
-          value={p.process_id}
-          onChange={(id) =>
-            mutComps((xs) =>
-              xs.map((x) => ({
-                ...x,
-                processes: x.processes.map((q) => (q.key === p.key ? { ...q, process_id: id } : q)),
-              })),
-            )
-          }
         />
       ),
     },
@@ -641,6 +885,10 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const sizeColumns: ChildGridColumn<SizeRow>[] = [
     {
       header: "Size",
+      // Declared so the table HUGS instead of stretching: `ChildGrid` switches
+      // to `w-auto` once every column has a width. A size is "S" or "XXL";
+      // without this it inherited all the grid's slack.
+      width: "14rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="size" label="Size" options={sizeOpts}
@@ -698,6 +946,36 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       content: (
         <SectionBody title="Style" hint="What this style is, and who it is for.">
           <FieldGrid>
+            {/**
+              * THE SERIAL — STL-<fy><fy+1>-<n>, e.g. STL-2627-81.
+              *
+              * FIRST FIELD ON THE FIRST SECTION (client 2026-08-10): the number
+              * the record is known by reads before anything that describes it.
+              * It was previously rendered in exactly one place, the list's
+              * "Code" column, so an operator who opened a style could not see it
+              * at all.
+              *
+              * `readOnly` is doing three jobs at once, all of them house rules:
+              * `Input` sets `tabIndex={-1}` on a readOnly field itself, so this
+              * leaves the Tab path, the arrows and the focus trap without a
+              * per-screen opt-out; `useRequiredHold` is gated on `!readOnly`, so
+              * it can never become a cage with no keyboard way out; and a
+              * read-only auto field is CAPS-exempt, hence no `uppercase`.
+              *
+              * On an EXISTING style this is the stored code. On a NEW one it is
+              * `previewCode` — what the trigger WOULD assign — which is a
+              * prediction and not a reservation: see `previewStyleCode`. The
+              * "(auto)" placeholder survives only as the fallback for when the
+              * database cannot answer.
+              */}
+            <Field label="Serial No" size="sm" htmlFor="st-code">
+              <Input
+                id="st-code"
+                readOnly
+                value={editingCode ?? previewCode ?? ""}
+                placeholder="(auto)"
+              />
+            </Field>
             <Field label="Style" required size="sm" htmlFor="st-name">
               <Input
                 id="st-name"
@@ -719,8 +997,15 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 asked for, and no longer written — it left the Zod input too. */}
             {/* Customer no longer clears a Contact on change — the Contact
                 field was withdrawn, so there is no dependent value to reset. */}
-            <Field label="Customer" size="sm">
+            {/* COMPULSORY — red ⓘ on the legacy header (client 2026-08-10).
+                `CustomerPicker` has no `required` prop of its own, so the
+                declaration goes on the wrapper: the inner `DataPicker` ORs
+                `RequiredScope` context, which is the same route CurrencyPicker
+                takes on the amendment screen. `htmlFor` so a blocked Save can
+                land the cursor here via `goToSection(..., { fieldId })`. */}
+            <Field label="Customer" required size="sm" htmlFor="st-customer">
               <CustomerPicker
+                id="st-customer"
                 customers={data.customers}
                 value={form.customer_id}
                 onChange={(id) => set({ customer_id: id })}
@@ -790,15 +1075,39 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             <Field label="Article No." size="sm" htmlFor="st-article">
               <Input id="st-article" value={form.article_no} onChange={(e) => set({ article_no: e.target.value })} />
             </Field>
-            <Field label="Style Category" size="sm">
-              <LookupDialogPicker
-                kind="style_category"
+            {/**
+              * STYLE CATEGORY — the Garment master, scoped to the class above.
+              *
+              * `CategoryPicker`, not `LookupDialogPicker`: passing `levies` and
+              * `fabricStructures` is what makes its "+ Add" open the full
+              * class-aware `CategoryQuickCreateSheet` instead of the name-only
+              * inline form (`useFullQc`, lookup-picker.tsx). Omitting either one
+              * silently downgrades the control to a Name box with no error
+              * anywhere — which is the whole thing the client asked to fix.
+              *
+              * `scopedCategories` is empty until a class is chosen, so the field
+              * offers nothing rather than the whole master.
+              */}
+            {/* COMPULSORY — red ⓘ on the legacy General tab. */}
+            <Field label="Style Category" required size="sm" htmlFor="st-category">
+              <CategoryPicker
+                id="st-category"
                 label="Style Category"
-                options={styleCategories}
-                value={form.style_category_id}
-                onChange={(id) => set({ style_category_id: id })}
+                required
+                categories={scopedCategories}
+                value={form.style_category_id ?? ""}
+                onChange={(v) => set({ style_category_id: v || null })}
+                itemClassId={garmentClassId ?? ""}
+                selectedClassCode="GAR"
+                levies={data.levies}
+                fabricStructures={fabricStructureOpts}
+                // Handing the class list over is what makes "+ Add" ASK for
+                // the Item Class and render the form for it, rather than
+                // silently creating under GARMENTS.
+                itemClasses={itemClassOpts}
                 canCreate={masterPerms.canCreate}
                 canEdit={masterPerms.canEdit}
+                canDelete={masterPerms.canEdit}
                 compact
               />
             </Field>
@@ -843,8 +1152,16 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 onChange={(e) => set({ style_description: e.target.value })}
               />
             </Field>
-            <Field label="Country" size="sm">
+            {/* COMPULSORY — red ⓘ on the legacy General tab, and ALREADY
+                enforced: `CountryPicker` defaults `required = true`, so this has
+                been drawing a star and holding the cursor all along. What was
+                missing is the Save gate — see the `sectionValidity` entry. No
+                prop is added here on purpose: passing `required` explicitly
+                would imply the default is not to be relied on, and 19 other
+                Country fields rely on it. */}
+            <Field label="Country" size="sm" htmlFor="st-country">
               <CountryPicker
+                id="st-country"
                 countries={data.countries}
                 value={form.country_id}
                 onChange={(id) => set({ country_id: id })}
@@ -876,7 +1193,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       key: "coordinates",
       label: "Coordinates",
       icon: Palette,
-      done: coords.some((c) => c.coordinate_id || c.mlist_no.trim()),
+      done: coords.some((c) => c.coordinate_id),
       problems: validity.bySection.coordinates,
       content: (
         <SectionBody title="Coordinates" hint={coordHint}>
@@ -887,7 +1204,11 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               exactly one component"), and it does two things at once: it removes
               the button AND makes Enter on the last row DECLINE rather than grow
               the grid, so the keyboard cannot get past the limit either. */}
+          {/* `narrow` for the same reason as Sizes — this became a one-column
+              grid when M.List No was withdrawn, and a lone Coordinate picker
+              has no business spanning the section. */}
           <ChildGrid<CoordRow>
+            narrow
             columns={coordColumns}
             rows={coords}
             hideAdd={!!coordCap && coords.length >= coordCap.max}
@@ -907,82 +1228,31 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       content: (
         <SectionBody
           title="Components"
-          hint="What each coordinate is built from, its fabric, and any extra process it needs."
+          hint={
+            coordinateIds.size === 0
+              ? "Add coordinates first — a component is a part of one of them."
+              : "What each coordinate is built from, its fabric, and any extra process it needs. Coordinate offers only the ones on the Coordinates tab."
+          }
         >
-          {/* CARDS, NOT A TABLE — because each component owns a LIST of
-              processes, and a list cannot live in a table cell. This is the
-              same shape Material Attributes uses for its values
-              (`forceCards listRows frameless` + `renderMobileRow`), which is
-              the one arrangement `lib/focus.ts` already understands as "a row
-              with a nested grid": Tab walks into the panel (`tabFieldsIn`), an
-              empty one opens its first row (`enterNestedGrid`), and ↑/↓ hand
-              off across the boundary (`fromChildGrid`).
+          {/* A TABLE AGAIN.
 
-              `compColumns` is still declared and is not dead: it is the
-              fallback if this grid is ever switched back to a table. */}
+              This grid was `forceCards listRows frameless` + `renderMobileRow`
+              for exactly one reason: each component owned a LIST of processes,
+              and a list cannot live in a table cell. The process sub-grid was
+              removed on 2026-08-10 (client: the legacy Components grid has no
+              process column), so the card layout was scaffolding holding up
+              something that no longer exists.
+
+              A table is also what the legacy screen shows, and it is denser —
+              five columns on one line instead of a stacked card per component.
+              `ChildGrid` still falls back to cards on a narrow viewport by
+              itself; `forceCards` is what made it do so at every width. */}
           <ChildGrid<CompRow>
             columns={compColumns}
             rows={comps}
-            forceCards
-            listRows
-            frameless
             onAdd={() => mutComps((xs) => [...xs, blankComp()])}
             onRemove={(r) => mutComps((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add component"
-            renderMobileRow={(c, i) => (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                    #{i + 1}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove
-                    className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => mutComps((xs) => xs.filter((x) => x.key !== c.key))}
-                    aria-label="Remove component"
-                  >
-                    <X className="h-4 w-4 shrink-0" />
-                  </Button>
-                </div>
-                <FieldGrid>
-                  {compColumns.map((col) => (
-                    <Field key={col.header} label={col.header} size="sm">
-                      {col.cell(c, i)}
-                    </Field>
-                  ))}
-                </FieldGrid>
-                {/* The nested grid. `frameless` so it does not draw a second
-                    border inside the component's own row. */}
-                <ChildGrid<CompProcRow>
-                  label="Processes"
-                  columns={procColumns}
-                  rows={c.processes}
-                  frameless
-                  onAdd={() =>
-                    mutComps((xs) =>
-                      xs.map((x) =>
-                        x.key === c.key
-                          ? { ...x, processes: [...x.processes, { key: newKey(), process_id: null }] }
-                          : x,
-                      ),
-                    )
-                  }
-                  onRemove={(p) =>
-                    mutComps((xs) =>
-                      xs.map((x) =>
-                        x.key === c.key
-                          ? { ...x, processes: x.processes.filter((q) => q.key !== p.key) }
-                          : x,
-                      ),
-                    )
-                  }
-                  addLabel="+ Add process"
-                />
-              </div>
-            )}
           />
         </SectionBody>
       ),
@@ -1040,7 +1310,10 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 : `${unmatchedSizes.length} of this group’s sizes are not in the Sizes list yet (${unmatchedSizes.join(", ")}) — add them with “+ Add” on a row.`}
             </p>
           )}
+          {/* `narrow`: one column holding a two-character value. Without it the
+              Size picker stretched the full width of the section. */}
           <ChildGrid<SizeRow>
+            narrow
             columns={sizeColumns}
             rows={sizes}
             onAdd={() => mutSizes((xs) => [...xs, blankSize()])}

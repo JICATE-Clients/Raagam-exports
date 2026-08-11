@@ -41,6 +41,7 @@ export function CategoryQuickCreateSheet({
   onCreated,
   itemClassId,
   selectedClassCode,
+  itemClasses,
   fabricStructures,
   perms,
 }: {
@@ -50,8 +51,20 @@ export function CategoryQuickCreateSheet({
   onCreated: (cat: Category) => void;
   /** config_lookups id of the parent item class — scopes the record + dup check. */
   itemClassId: string;
-  /** Parent item class CODE (YARN/FABRIC/GEN/…) — drives which fields render. */
+  /** Parent item class CODE (YARN/FABRIC/GEN/…) — drives which fields render.
+   *  When `itemClasses` is supplied this is only the STARTING value; the
+   *  operator's choice inside the sheet wins from then on. */
   selectedClassCode: string | null;
+  /**
+   * Supply this and the sheet ASKS FOR THE ITEM CLASS ITSELF, as its first
+   * field, with everything below driven by the answer (client 2026-08-10).
+   *
+   * Omit it — as material-master-screen.tsx does — and the class comes from
+   * the parent form, which already asked. Two forms asking the same question
+   * is how the answers drift, so this is opt-in rather than always-on: a
+   * caller that KNOWS the class must not re-ask it.
+   */
+  itemClasses?: ConfigLookup[];
   /** Still accepted, deliberately unused: Levy Description was hidden from both
    *  Category forms (client 2026-08-01, see category-master-screen.tsx). Kept in
    *  the signature so re-showing the picker — here or on a child — is one line
@@ -65,6 +78,14 @@ export function CategoryQuickCreateSheet({
   const [name, setName] = useState("");
   const [made, setMade] = useState<"" | MadeType>("");
   const [fabricStructureId, setFabricStructureId] = useState("");
+  /**
+   * The class this category is being created under.
+   *
+   * Seeded from the prop so a caller that already knows it (the Material
+   * child) is unaffected, and so a caller that asks still opens on a sensible
+   * default rather than blank.
+   */
+  const [classId, setClassId] = useState(itemClassId);
 
   // Fresh form every time the sheet opens.
   useEffect(() => {
@@ -72,15 +93,22 @@ export function CategoryQuickCreateSheet({
       setName("");
       setMade("");
       setFabricStructureId("");
+      // Re-seed from the prop on every open: the parent may have changed
+      // class since, and a stale class here would file the new category
+      // under the previous one.
+      setClassId(itemClassId);
       // No `setUserDefined` — the User Defined question was dropped from this
       // sheet (client 2026-07-30) and `user_defined` is hardcoded false in the
       // payload below. The setter outlived its state and broke the typecheck.
       // Same story now for `setLevyId` — the Levy field is hidden, so the state
       // went with it rather than sitting here holding a permanent "".
     }
-  }, [open]);
+  }, [open, itemClassId]);
 
-  const code = selectedClassCode?.toUpperCase() ?? null;
+  /** Drives which fields render. Reads the CHOSEN class when the sheet asked
+   *  for one, falling back to the caller's when it did not. */
+  const chosenClass = itemClasses?.find((c) => c.id === classId) ?? null;
+  const code = (chosenClass?.code ?? selectedClassCode)?.toUpperCase() ?? null;
   const showMade = code === "YARN";
   const showFabricStructure = code === "FABRIC";
 
@@ -93,8 +121,8 @@ export function CategoryQuickCreateSheet({
   const dupError = useDuplicateCheck({
     table: "categories",
     name,
-    scope: { item_class_id: itemClassId || null },
-    enabled: open && !!(name && itemClassId),
+    scope: { item_class_id: classId || null },
+    enabled: open && !!(name && classId),
   });
 
   // No "did you mean?" suggestions on Name (client 2026-07-30) — the red
@@ -107,7 +135,7 @@ export function CategoryQuickCreateSheet({
     startTransition(async () => {
       const trimmed = name.trim();
       const payload: CategoryInput = {
-        item_class_id: itemClassId,
+        item_class_id: classId,
         short_name: trimmed || null, // merged: Short Name = Name (single field)
         // Required by the schema now; Save is gated on `!name.trim()`. The
         // `stub` below keeps `|| null` on purpose — it is a `Category` ROW,
@@ -143,7 +171,7 @@ export function CategoryQuickCreateSheet({
       // swaps in the real server row (with created_by/at) later.
       const stub: Category = {
         id: res.id,
-        item_class_id: itemClassId,
+        item_class_id: classId,
         short_name: trimmed || null,
         name: trimmed || null,
         short_spec: null,
@@ -189,7 +217,7 @@ export function CategoryQuickCreateSheet({
           <Button variant="outline" size="md" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="md" disabled={isPending || !name.trim() || !!dupError} onClick={save}>
+          <Button size="md" disabled={isPending || !classId || !name.trim() || !!dupError} onClick={save}>
             {isPending ? "Saving…" : "Save"}
           </Button>
         </>
@@ -209,6 +237,43 @@ export function CategoryQuickCreateSheet({
           * portal boundary: that reset only clears INHERITED requiredness, and a
           * `<Field required>` below it provides its own context, which wins.
           */}
+        {/**
+          * ITEM CLASS FIRST, AND ONLY WHEN THE CALLER DID NOT ALREADY ASK.
+          *
+          * The client's flow is "click Add, choose the class, and the form for
+          * that class opens" (2026-08-10). Everything below reads `code`, which
+          * follows this picker — so changing the class here swaps the
+          * class-dependent fields live rather than needing the sheet reopened.
+          *
+          * `required`: a category cannot exist outside a class, and creating one
+          * under the wrong class files it somewhere the operator will not find
+          * it again.
+          */}
+        {itemClasses && (
+          <Field label="Item Class" required>
+            <LookupDialogPicker
+              kind="item_class"
+              label="Item Class"
+              options={itemClasses}
+              value={classId}
+              onChange={(id) => {
+                // Class-dependent answers belong to the class that was showing
+                // when they were given. Keeping them would file a Yarn's
+                // "Category Type" against a Fabric.
+                setClassId(id);
+                setMade("");
+                setFabricStructureId("");
+              }}
+              // No inline Add: creating an ITEM CLASS from inside a category
+              // quick-create is two masters deep, and the class list is a fixed
+              // seven the business does not extend casually.
+              canCreate={false}
+              canEdit={false}
+              compact
+            />
+          </Field>
+        )}
+
         <Field label="Name" required htmlFor="cqc-name">
           <Input
             id="cqc-name"

@@ -21,6 +21,7 @@ import {
   registerContentEdge,
 } from "@/lib/focus";
 import { useRegisterShortcut } from "@/lib/shortcuts";
+import { useEditorPresence } from "@/lib/editor-presence";
 import {
   useModalGuard,
   useUnsavedGuard,
@@ -249,6 +250,17 @@ export function MasterFullScreen({
   // `isPending` — a reload landing mid-server-action loses the success toast and
   // leaves the operator unsure whether the save committed (AGENTS.md, STANDING).
   useUnsavedGuard(mount === "page" && (dirty || !!footer.isPending));
+
+  /**
+   * Stand the app sidebar down while a page-mounted editor is open, so the
+   * record gets the full width (client 2026-08-10).
+   *
+   * PAGE MOUNT ONLY. An overlay is drawn ON TOP of the shell, so the sidebar
+   * behind it is already covered — hiding it there would only make the scrim
+   * jump as it opens. `useEditorPresence` releases on unmount, so the sidebar
+   * cannot get stuck hidden.
+   */
+  useEditorPresence(mount === "page" && open);
 
   // Re-open always lands on the initial section.
   useEffect(() => {

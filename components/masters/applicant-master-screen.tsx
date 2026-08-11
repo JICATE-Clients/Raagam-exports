@@ -1022,6 +1022,7 @@ export function ApplicantMasterScreen({
                 PLACEHOLDER, which disappears the moment anyone types; they
                 carry real labels now (LAYOUT.md §7). */}
                 <ChildGrid<ContactRow>
+                  lockExisting
                 label="Contact"
                 rows={contacts}
                 onAdd={addContact}

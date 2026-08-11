@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RequiredScope } from "@/components/ui/field";
@@ -614,6 +614,8 @@ export function ChildGrid<T extends { key: string }>({
   frameless = false,
   keyboardNav = true,
   hideAdd = false,
+  narrow = false,
+  lockExisting = false,
   inlineCards = false,
   flushRows = false,
   listRows = false,
@@ -664,6 +666,53 @@ export function ChildGrid<T extends { key: string }>({
   /** Hide the trailing "+ Add" button — for grids capped at a fixed row count
    *  (e.g. Single Yarn fabric = exactly one component). */
   hideAdd?: boolean;
+  /**
+   * Every column holds a SHORT value — one picker, a size, a coordinate — so cap
+   * the grid's width instead of stretching it across the section.
+   *
+   * A `<table>` shares its slack among the columns, and `ChildGridColumn.width`
+   * cannot help: it is a CARD-mode track width and the table branch does not
+   * read it. So a one-column grid renders a two-character size in a 1200px
+   * control (client 2026-08-10). Legacy draws the same list in a narrow panel.
+   *
+   * THE CAP AND THE TABLE'S BREAKPOINT ARE COUPLED — this is the part to leave
+   * alone. The layout is chosen by a CONTAINER query on this component's own
+   * root, so capping the root's width also decides which layout it gets.
+   * `max-w-lg` (32rem) with the table showing from `@md` (28rem) leaves 4rem of
+   * headroom over the table's own `min-w-[420px]`. Tighten the cap below the
+   * breakpoint and the grid silently flips to stacked cards, which looks like a
+   * different bug entirely.
+   */
+  narrow?: boolean;
+  /**
+   * ROWS THAT WERE ALREADY SAVED CANNOT BE REMOVED — only ones added since this
+   * grid mounted (client 2026-08-10: "delete permission should not be allowed").
+   *
+   * Master Data child grids offered a ✕ on every row regardless of permission:
+   * 0 of 27 gated it, while 29 list screens already gated their row Delete. So
+   * the list half respected permissions and the grid half did not.
+   *
+   * WHY "ADDED SINCE MOUNT" AND NOT "HAS NO ID". Almost none of these row types
+   * carry the database id — the screens map stored rows onto fresh `key`s on
+   * load — so provenance is not representable per row without editing 27 row
+   * types and their mapping functions. The grid remembers the keys it was handed
+   * on its first render instead; those are the stored ones by construction,
+   * because every one of these sheets sets its rows in the same handler that
+   * opens it.
+   *
+   * THE ROW JUST ADDED STAYS REMOVABLE, and that is not a softening of the rule
+   * — it is what keeps it satisfiable. Ctrl+Del deletes a grid row by clicking
+   * the row's own ✕, and AGENTS.md keeps that exemption precisely so a blank
+   * MANDATORY cell in a row the operator should not have added is not a dead end
+   * they can neither fill, leave, nor delete. Lock a freshly added row and a
+   * required cell inside it becomes exactly that cage.
+   *
+   * The caveat, stated: a grid whose rows arrive AFTER mount would treat them as
+   * new and leave them removable. No masters sheet does that today; if one ever
+   * loads asynchronously it must pass its rows before the grid mounts, or this
+   * silently permits what it is meant to prevent.
+   */
+  lockExisting?: boolean;
   /** One flex row per record with a single shared header, honouring each
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
@@ -786,6 +835,42 @@ export function ChildGrid<T extends { key: string }>({
    */
   const hasTotals = columns.some((c) => c.total && c.total.kind !== "blank");
 
+  /**
+   * Every caller column has declared a width, so the TABLE CAN HUG ITS CONTENT
+   * instead of filling the section.
+   *
+   * `w-full` is right when the columns are open-ended — a description, a party
+   * name — because the slack has to go somewhere and spreading it is the least
+   * surprising choice. It is wrong when every column is a short value: a Size
+   * grid rendered "S" in a 490px control (client 2026-08-10) purely because it
+   * was the only column and inherited all the slack.
+   *
+   * The declaration is all-or-nothing on purpose. With one column sized and one
+   * open, `w-auto` would shrink-wrap the sized one and leave the other to fight
+   * for the remainder — a layout that depends on content length, which is the
+   * thing a fixed width is chosen to avoid.
+   *
+   * `w-fit` goes on the SCROLL WRAPPER, never on the `@container` root above:
+   * `container-type: inline-size` applies `contain: inline-size`, so a
+   * content-sized container query element is a cycle the browser resolves by
+   * collapsing it. The root stays parent-sized; only the bordered box hugs.
+   */
+  const hugsContent = columns.length > 0 && columns.every((c) => c.width);
+
+  /**
+   * The row keys this grid was handed on its FIRST render — the stored rows.
+   *
+   * A LAZY `useState` INITIALISER, not a ref. Both run once per mount, but a ref
+   * read during render is `react-hooks/refs` ("Cannot access refs during
+   * render") — the compiler cannot prove the value is stable, and this one is
+   * read in all three layout branches. State computed once is legal to read and
+   * says the same thing. There is no setter: the snapshot must never be
+   * recomputed, or every row would re-lock the instant it was added.
+   */
+  const [storedKeys] = useState<Set<string>>(() => new Set(rows.map((r) => r.key)));
+  /** Withhold the ✕ — and with it Ctrl+Del, which drives that same button. */
+  const locked = (row: T) => lockExisting && storedKeys.has(row.key);
+
   return (
     // Padding and rhythm are `DetailSection`'s, not this grid's own — they were
     // `p-3` / `space-y-3` against the section's `p-2.5 @2xl/editor:p-2`, so a
@@ -795,6 +880,7 @@ export function ChildGrid<T extends { key: string }>({
       className={cn(
         "@container space-y-2 @2xl/editor:space-y-1.5",
         !frameless && "rounded-lg border border-border p-2.5 @2xl/editor:p-2",
+        narrow && "max-w-lg",
       )}
     >
       {/* No caption row when there is nothing to put in it. A grid nested inside
@@ -815,9 +901,20 @@ export function ChildGrid<T extends { key: string }>({
       {/* wide-container table — only in `responsive` mode. The inline layout is
           a REPLACEMENT for this, not a companion to it. */}
       {mode === "responsive" && (
-      <div className="hidden overflow-x-auto rounded-lg border border-border @lg:block">
+      <div
+        className={cn(
+          "hidden overflow-x-auto rounded-lg border border-border",
+          // See `narrow`: the cap would otherwise push this below @lg and the
+          // grid would render as cards.
+          narrow ? "@md:block" : "@lg:block",
+          hugsContent && "w-fit max-w-full",
+        )}
+      >
         <table
-          className="w-full min-w-[420px] border-collapse text-sm"
+          className={cn(
+            "border-collapse text-sm",
+            hugsContent ? "w-auto" : "w-full min-w-[420px]",
+          )}
         >
           <thead>
             <tr className="border-b border-border bg-surface-muted">
@@ -825,6 +922,13 @@ export function ChildGrid<T extends { key: string }>({
               {columns.map((c, i) => (
                 <th
                   key={i}
+                  // The header carries the width for the whole column — a
+                  // `<td>` cannot widen past its `<th>` under `border-collapse`,
+                  // so declaring it once here is what makes `width` mean
+                  // anything in the table layout at all. It was previously read
+                  // ONLY by the card layouts, which is why setting it on a table
+                  // grid appeared to do nothing.
+                  style={c.width ? { width: c.width } : undefined}
                   className={cn(
                     "border-l border-border px-2 py-1.5 text-xs font-semibold text-muted-foreground",
                     align[c.align ?? "left"],
@@ -856,6 +960,7 @@ export function ChildGrid<T extends { key: string }>({
                   </td>
                 ))}
                 <td className="border-l border-border px-1 py-1.5 text-center">
+                  {!locked(row) && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -876,6 +981,7 @@ export function ChildGrid<T extends { key: string }>({
                   >
                     <X className="h-4 w-4 shrink-0" />
                   </Button>
+                  )}
                 </td>
               </tr>
               );
@@ -1006,6 +1112,7 @@ export function ChildGrid<T extends { key: string }>({
                   </RequiredScope>
                 </div>
               ))}
+              {!locked(row) && (
               <Button
                 type="button"
                 variant="ghost"
@@ -1017,6 +1124,7 @@ export function ChildGrid<T extends { key: string }>({
               >
                 <X className="h-4 w-4 shrink-0" />
               </Button>
+              )}
             </div>
             );
           })}
@@ -1057,7 +1165,7 @@ export function ChildGrid<T extends { key: string }>({
         data-grid-body
         className={cn(
           listRows ? "divide-y divide-border" : "space-y-2",
-          mode === "responsive" && "@lg:hidden",
+          mode === "responsive" && (narrow ? "@md:hidden" : "@lg:hidden"),
         )}
         onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
       >
@@ -1084,9 +1192,11 @@ export function ChildGrid<T extends { key: string }>({
                 {rowSummary && (
                   <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
                 )}
-                <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
-                  <X className="h-4 w-4 shrink-0" />
-                </Button>
+                {!locked(row) && (
+                  <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+                    <X className="h-4 w-4 shrink-0" />
+                  </Button>
+                )}
               </div>
             )}
             {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (

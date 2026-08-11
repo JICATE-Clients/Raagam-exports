@@ -591,6 +591,7 @@ export function ProcessMasterScreen({
             of three columns is exactly the thing that wants the whole sheet. */}
         {form.has_sub_categories && (
             <ChildGrid<SubRow>
+              lockExisting
               label="Sub Categories"
               pageSize={10}
               forceCards

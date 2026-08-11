@@ -4,10 +4,14 @@ import { listCustomers } from "@/lib/masters/customer-service";
 import { listCountries } from "@/lib/masters/country-service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
 import { listSizeGroups } from "@/lib/masters/size-group-service";
+import { listCategories } from "@/lib/masters/category-service";
+import { listLevies } from "@/lib/masters/levy-service";
 import type { Customer } from "@/lib/masters/customer-types";
 import type { Country } from "@/lib/masters/country-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { SizeGroup } from "@/lib/masters/size-group-types";
+import type { Category } from "@/lib/masters/category-types";
+import type { Levy } from "@/lib/masters/levy-types";
 import type { GarmentStyle } from "./types";
 import { withCreators } from "@/lib/created-by";
 
@@ -24,17 +28,37 @@ export type PickerRow = { id: string; code: string | null; name: string; inactiv
 /** All styles with embedded customer + child grids (mirrors listCustomers). */
 export async function getGarmentStyles(): Promise<GarmentStyle[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("garment_styles")
     .select(
       "*, customer:customers(id,code,name), " +
-        "coordinates:garment_style_coordinates(*), " +
         // The nested embed is what carries a component's processes (0392). The
         // grid is per-component, so they cannot be a flat child of the style.
+        "coordinates:garment_style_coordinates(*), " +
         "components:garment_style_components(*, processes:garment_style_component_processes(*)), " +
         "sizes:garment_style_sizes(*)",
     )
     .order("created_at", { ascending: false });
+
+  /**
+   * A FAILED QUERY IS NOT AN EMPTY TABLE.
+   *
+   * This was `const { data } = …` with `data ?? []` below, so any error became a
+   * list of zero styles — no error boundary, no console, nothing. It hid a real
+   * outage for days (found 2026-08-10): `garment_style_component_processes` does
+   * not exist until 0392 is applied, so the embed above returned HTTP 400 and
+   * EVERY request rendered an empty Style list. The screen looked like a shop
+   * with no styles entered yet.
+   *
+   * That is the same failure shape as the `created_by` sweep — "not an error,
+   * not a missing column, just empty" — and it is the reason the shape is worth
+   * refusing rather than tidying. Throwing hands it to the route's error
+   * boundary, which says something is broken instead of quietly lying.
+   *
+   * Only 4 of 103 services in this repo check `error`; this is the house pattern
+   * where it is checked (`lib/hr/*-service.ts`), not a new invention.
+   */
+  if (error) throw new Error(`Could not load styles: ${error.message}`);
 
   return withCreators(((data ?? []) as unknown as GarmentStyle[]).map((r) => ({
     ...r,
@@ -110,6 +134,60 @@ async function getFabricRows(): Promise<FabricRow[]> {
 }
 
 /**
+ * Coordinates — `items` under item class GARMENTS.
+ *
+ * A COORDINATE IS A GARMENT (0396). A Set style is two to six garments sold
+ * together, so TOP / BOTTOM / INNER / OUTER / PIECES are `items` of class GAR,
+ * not values of a `coordinate` lookup. That lookup held two rows named "1" and
+ * "2" and nothing had ever maintained it.
+ *
+ * Scoped HERE, not in the screen — the same cascading-picker rule `getFabricRows`
+ * follows, and for the same reason: `ItemPicker` has no class filter of its own.
+ * The disable flag rides along so a coordinate a style already holds still
+ * resolves after someone switches it off.
+ */
+async function getGarmentRows(): Promise<FabricRow[]> {
+  const s = await createClient();
+  const { data: classes } = await s
+    .from("config_lookups")
+    .select("id, code")
+    .eq("kind", "item_class");
+  const garIds = new Set(
+    ((classes ?? []) as { id: string; code: string | null }[])
+      .filter((c) => (c.code ?? "").toUpperCase() === "GAR")
+      .map((c) => c.id),
+  );
+  if (garIds.size === 0) return [];
+
+  const { data } = await s
+    .from("items")
+    .select("id, code, name, item_class_id, is_active")
+    .order("name");
+  return ((data ?? []) as FabricRow[]).filter(
+    (i) => i.item_class_id && garIds.has(i.item_class_id),
+  );
+}
+
+/**
+ * Components — the real `components` master (0228), whose own header calls
+ * itself a promotion of the "too thin" flat `component` lookup kind. The Style
+ * screen was pointed at a THIRD list, kind 'style_component', which held zero
+ * rows (0396).
+ *
+ * `short_name` is the master's display field; `blocked` is its disable flag.
+ */
+async function getComponentRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("components")
+    .select("id, short_name, blocked")
+    .order("short_name");
+  return ((data ?? []) as { id: string; short_name: string; blocked: boolean | null }[]).map(
+    (c) => ({ id: c.id, code: null, name: c.short_name, inactive: c.blocked ?? false }),
+  );
+}
+
+/**
  * Processes offered on a component line.
  *
  * `for_components` is the master's own applicability flag (0227) — the same
@@ -149,11 +227,29 @@ export type StyleFormData = {
   fabrics: FabricRow[];
   processes: PickerRow[];
   sizeGroups: SizeGroup[];
+  /**
+   * The Category master, UNSCOPED. The screen filters it to the chosen Item
+   * Class, exactly as material-master-screen.tsx does — the cascade is a
+   * client concern because the class changes without a round trip.
+   */
+  /** Coordinates: `items` of class GARMENTS (0396). */
+  garments: FabricRow[];
+  /** The `components` master (0228), not the empty lookup kind. */
+  componentRows: PickerRow[];
+  categories: Category[];
+  /**
+   * Only here to reach `CategoryQuickCreateSheet`. `CategoryPicker` switches
+   * its "+ Add" from the name-only inline form to the full class-aware sheet
+   * ONLY when handed both `levies` and `fabricStructures` (`useFullQc` in
+   * lookup-picker.tsx) — so omitting this silently downgrades the control the
+   * client asked for, with no error anywhere.
+   */
+  levies: Levy[];
 };
 
 /** Every picker option list the Style editor needs, fetched in parallel. */
 export async function getStyleFormData(): Promise<StyleFormData> {
-  const [customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups] =
+  const [customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups, categories, levies, garments, componentRows] =
     await Promise.all([
       listCustomers(),
       listCountries(),
@@ -163,6 +259,13 @@ export async function getStyleFormData(): Promise<StyleFormData> {
       getFabricRows(),
       getComponentProcessRows(),
       listSizeGroups(),
+      listCategories(),
+      listLevies(),
+      getGarmentRows(),
+      getComponentRows(),
     ]);
-  return { customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups };
+  return {
+    customers, countries, uoms, samples, lookups, fabrics, processes, sizeGroups,
+    categories, levies, garments, componentRows,
+  };
 }

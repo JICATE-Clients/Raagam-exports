@@ -788,6 +788,7 @@ export function CourierDeliveryAddressMasterScreen({
                 cell is the ragged edge that decision exists to remove. Kept in
                 step with notify-master-screen.tsx, same contact card. */}
             <ChildGrid<ContactRow>
+              lockExisting
               label="Contact"
               rows={contacts}
               onAdd={addContact}
