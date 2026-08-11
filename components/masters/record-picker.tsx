@@ -59,6 +59,7 @@ export function RecordPicker({
   disabled = false,
   id,
   identity = "name",
+  placeholder,
 }: {
   label: string;
   items: PickerItem[];
@@ -83,6 +84,13 @@ export function RecordPicker({
   id?: string;
   /** See `PickerIdentity`. Defaults to the name, which is the house rule. */
   identity?: PickerIdentity;
+  /**
+   * Replaces the default "— Select <noun> —" in the empty box. For a field whose
+   * emptiness has a REASON worth stating where there is no room for a line
+   * underneath — a narrowed-to-nothing vendor list in a grid cell. Straight
+   * through to `DataPicker`; a selected value always wins over it.
+   */
+  placeholder?: string;
 }) {
   const rows: PickerRow[] = useMemo(() => {
     const decorate = (i: PickerItem): PickerRow => ({
@@ -109,6 +117,7 @@ export function RecordPicker({
       required={required}
       disabled={disabled}
       id={id}
+      placeholder={placeholder}
     />
   );
 }

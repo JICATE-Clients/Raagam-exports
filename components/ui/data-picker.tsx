@@ -443,6 +443,50 @@ export function DataPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, mode]);
 
+  /**
+   * DISMISS WHEN THE CURSOR LEAVES THE FIELD — list mode only.
+   *
+   * `onTriggerKeyDown` already closes on Tab, and that covered the one exit
+   * anybody tested. It is not the only exit: **← and →** move between fields
+   * through `arrowNavigate`, which this handler never sees, and every
+   * PROGRAMMATIC move touches no keydown of ours at all — `cycleTab`'s
+   * `focusField`, a rail section switch, `goToSection`'s reveal, the duplicate
+   * catch-up yanking the cursor back. After any of those the panel hung over the
+   * form while the operator typed somewhere else, and opening the next field's
+   * list showed TWO lists at once (operator, 2026-08-10).
+   *
+   * So the rule is stated once, in terms of what actually decides it: a dropdown
+   * belongs to the field that has the cursor. The keydown branch stays — it
+   * closes on the same keystroke rather than one focus event later — but it is
+   * no longer the only thing standing between the app and a stuck panel.
+   *
+   * `focusin` on the document, deliberately, rather than `onBlur` on the trigger:
+   * blur's `relatedTarget` is null for a good half of these moves, and Chrome
+   * does not fire blur at all when a portal unmounts under the cursor (the whole
+   * reason `usePickerFocusReturn` exists). `focusin` names the element that
+   * actually received focus, which is the only reliable way to ask whether it is
+   * still ours.
+   *
+   * THE PANEL COUNTS AS OURS. On a coarse pointer the search box takes focus on
+   * open (`autoFocus` in `list` below), so a handler that closed on any focus
+   * outside the trigger would make the picker unopenable on a tablet.
+   *
+   * List mode only, matching the outside-click dismiss above: in form mode a
+   * stray focus change must not silently discard a typed draft, and the scrim
+   * owns the outside anyway.
+   */
+  useEffect(() => {
+    if (!open || mode !== "list") return;
+    function onFocusIn(e: FocusEvent) {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (rootRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      close();
+    }
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [open, mode]);
+
   function openList() {
     if (disabled) return;
     setQuery("");

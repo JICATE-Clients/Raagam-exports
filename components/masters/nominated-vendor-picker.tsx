@@ -19,6 +19,17 @@ import {
  * The hint is deliberately part of the field, not a toast: an empty dropdown
  * with no explanation reads as a broken screen, and the fix ("nominate the
  * vendor on the customer") is somewhere else entirely.
+ *
+ * WHERE it is part of the field depends on the room. A full-width field gets the
+ * paragraph underneath. A `compact` one is a ~150px grid cell on a one-line row,
+ * where that paragraph made Vendor three lines tall and knocked every other cell
+ * in the row out of line (operator, 2026-08-10) — so there the reason becomes the
+ * empty box's PLACEHOLDER instead. Same rule, same words, one line.
+ *
+ * This is NOT the hint being dropped. AGENTS.md "Nominated vendors" requires
+ * empty-and-explain — "a silent fallback makes the nomination list advisory and
+ * the operator never learns it needs filling in" — and an empty dropdown that
+ * says nothing at all is precisely what that forbids.
  */
 export function NominatedVendorPicker({
   label = "Vendor",
@@ -38,7 +49,7 @@ export function NominatedVendorPicker({
   disabled?: boolean;
   id?: string;
 }) {
-  const { items, hint } = useMemo(
+  const { items, hint, shortHint } = useMemo(
     () => nominatedVendorOptions({ ...rule, currentValue: value }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
@@ -52,6 +63,11 @@ export function NominatedVendorPicker({
     ],
   );
 
+  // In a grid cell the reason goes IN the box; anywhere else it goes under it.
+  // `shortHint` is set only when the list came back empty, so a field that has
+  // options keeps its normal "— Select Vendor —" either way.
+  const inline = compact && !!shortHint;
+
   return (
     <>
       <RecordPicker
@@ -63,8 +79,9 @@ export function NominatedVendorPicker({
         required={required}
         disabled={disabled}
         id={id}
+        placeholder={inline ? shortHint : undefined}
       />
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      {hint && !inline && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </>
   );
 }
