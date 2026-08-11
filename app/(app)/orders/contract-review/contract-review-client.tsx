@@ -4,43 +4,71 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
+import { RecordPicker } from "@/components/masters/record-picker";
 import { fmtDate, fmtMoney } from "@/lib/format";
+import { sectionValidity } from "@/lib/screens/validity";
 import { createContractReview, approveContractReview, rejectContractReview, sendToRevision, deleteContractReview } from "@/lib/orders/booking-actions";
 import { usePermission } from "@/lib/auth/permission-context";
 import type { ContractReviewRow } from "@/lib/orders/booking-service";
+import type { OrderOption } from "@/lib/orders/order-options";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const STATUS_TONE: Record<string, StatusTone> = { pending: "neutral", approved: "success", rejected: "danger", revision: "warning" };
 
-export function ContractReviewClient({ rows }: { rows: ContractReviewRow[] }) {
+const BLANK = {
+  sales_order_id: null as string | null,
+  review_date: new Date().toISOString().slice(0, 10),
+  order_no: "",
+  merchandiser_name: "",
+  currency_code: "USD",
+  ioc_value: "",
+  order_value: "",
+  remarks: "",
+};
+
+export function ContractReviewClient({
+  rows,
+  orders,
+}: {
+  rows: ContractReviewRow[];
+  orders: OrderOption[];
+}) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
   const canApprove = usePermission("orders", "approve");
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    sales_order_id: "",
-    review_date: new Date().toISOString().slice(0, 10),
-    order_no: "",
-    merchandiser_name: "",
-    currency_code: "USD",
-    ioc_value: "",
-    order_value: "",
-    remarks: "",
+  const [form, setForm] = useState(BLANK);
+
+  // Eight fields across two sections, no child grid → a Sheet, per the surface
+  // table in `raagam-screen-layout`. `canSave` is DERIVED from the same
+  // `required` declaration that draws the `*`.
+  const validity = sectionValidity({
+    sections: [{ key: "order" }, { key: "values" }],
+    values: form,
+    fields: [
+      {
+        section: "order",
+        id: "cr-order",
+        label: "Sales Order",
+        required: true,
+        empty: (f) => !f.sales_order_id,
+      },
+    ],
   });
 
   function submit() {
     startTransition(async () => {
       const res = await createContractReview({
-        sales_order_id: form.sales_order_id,
+        sales_order_id: form.sales_order_id ?? "",
         review_date: form.review_date,
         order_no: form.order_no || null,
         merchandiser_name: form.merchandiser_name || null,
@@ -93,21 +121,57 @@ export function ContractReviewClient({ rows }: { rows: ContractReviewRow[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button size="md" onClick={() => setOpen(true)}>+ New Review</Button></div>
+      <div className="flex justify-end"><Button size="md" onClick={() => { setForm(BLANK); setOpen(true); }}>+ New Review</Button></div>
       <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No contract reviews yet." />
-      <Sheet open={open} onClose={() => setOpen(false)} title="New Contract Review" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title="New Contract Review"
+        footer={
+          <>
+            <Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button size="md" disabled={isPending || !validity.canSave} onClick={submit}>
+              {isPending ? "Saving…" : "Save review"}
+            </Button>
+          </>
+        }
+      >
         <div className="space-y-4">
-          <DetailSection label="Order">
-            <div><Label>Sales Order ID *</Label><Input value={form.sales_order_id} onChange={(e) => setForm({ ...form, sales_order_id: e.target.value })} placeholder="UUID" /></div>
-            <div><Label>Order No</Label><Input value={form.order_no} onChange={(e) => setForm({ ...form, order_no: e.target.value })} /></div>
-            <div><Label>Review Date</Label><Input type="date" value={form.review_date} onChange={(e) => setForm({ ...form, review_date: e.target.value })} /></div>
-            <div><Label>Merchandiser</Label><Input value={form.merchandiser_name} onChange={(e) => setForm({ ...form, merchandiser_name: e.target.value })} /></div>
+          <DetailSection label="Order" cols={12}>
+            {/* PICKED, NOT TYPED — this was `<Input placeholder="UUID">`. */}
+            <Field size="sm">
+              <RecordPicker
+                id="cr-order"
+                label="Sales Order"
+                items={orders}
+                value={form.sales_order_id}
+                onChange={(id) => setForm({ ...form, sales_order_id: id })}
+                required
+              />
+            </Field>
+            <Field label="Order No" size="sm" htmlFor="cr-orderno">
+              <Input id="cr-orderno" uppercase value={form.order_no} onChange={(e) => setForm({ ...form, order_no: e.target.value })} />
+            </Field>
+            <Field label="Review Date" size="sm" htmlFor="cr-date">
+              <Input id="cr-date" type="date" value={form.review_date} onChange={(e) => setForm({ ...form, review_date: e.target.value })} />
+            </Field>
+            <Field label="Merchandiser" size="sm" htmlFor="cr-merch">
+              <Input id="cr-merch" uppercase value={form.merchandiser_name} onChange={(e) => setForm({ ...form, merchandiser_name: e.target.value })} />
+            </Field>
           </DetailSection>
-          <DetailSection label="Values">
-            <div><Label>Currency</Label><Input value={form.currency_code} onChange={(e) => setForm({ ...form, currency_code: e.target.value })} maxLength={3} /></div>
-            <div><Label>IOC Value (Cost)</Label><Input type="number" value={form.ioc_value} onChange={(e) => setForm({ ...form, ioc_value: e.target.value })} /></div>
-            <div><Label>Order Value (Revenue)</Label><Input type="number" value={form.order_value} onChange={(e) => setForm({ ...form, order_value: e.target.value })} /></div>
-            <div><Label>Remarks</Label><Input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></div>
+          <DetailSection label="Values" cols={12}>
+            <Field label="Currency" size="sm" htmlFor="cr-currency">
+              <Input id="cr-currency" uppercase value={form.currency_code} onChange={(e) => setForm({ ...form, currency_code: e.target.value })} maxLength={3} />
+            </Field>
+            <Field label="IOC Value (Cost)" size="sm" htmlFor="cr-ioc">
+              <Input id="cr-ioc" type="number" value={form.ioc_value} onChange={(e) => setForm({ ...form, ioc_value: e.target.value })} />
+            </Field>
+            <Field label="Order Value (Revenue)" size="sm" htmlFor="cr-value">
+              <Input id="cr-value" type="number" value={form.order_value} onChange={(e) => setForm({ ...form, order_value: e.target.value })} />
+            </Field>
+            <Field label="Remarks" size="sm" htmlFor="cr-remarks">
+              <Input id="cr-remarks" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
+            </Field>
           </DetailSection>
         </div>
       </Sheet>

@@ -8,7 +8,7 @@ import { cancelOrder } from "@/lib/orders/cancellations/actions";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -122,14 +122,27 @@ export function NewCancellationForm({ orders, buyers }: Props) {
           <CardTitle>Cancel a garment order</CardTitle>
         </CardHeader>
         <CardBody>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <Label htmlFor="goc-cancelno">Cancel No</Label>
-                <Input id="goc-cancelno" value="(auto)" disabled />
-              </div>
-              <div>
-                <Label htmlFor="goc-date">Date *</Label>
+          <form
+            onSubmit={handleSubmit}
+            // ONE MARKER, NEVER A HANDLER. Without it `isEditorScope()` is false,
+            // so Tab keeps native order, leaves the form and stops on the buttons
+            // below — one of the ~51 page-level editors AGENTS.md counts as
+            // missing this. See the `raagam-keyboard-contract` skill.
+            data-focus-scope
+            className="space-y-4"
+          >
+            {/* `FieldGrid`, not a hand-rolled `grid-cols-1 sm:grid-cols-2
+                lg:grid-cols-3` — a screen composes primitives, it does not draw
+                (LAYOUT.md §3). Every field is `sm`: 3 of 12, four per row. */}
+            <FieldGrid>
+              <Field label="Cancel No" size="sm" htmlFor="goc-cancelno">
+                <Input id="goc-cancelno" value="(auto)" readOnly />
+              </Field>
+              {/* `required` on the Field, not a `*` typed into the label. The
+                  same prop draws the star AND stamps `data-required-empty`, so
+                  the cursor actually holds on a blank box — typed by hand it was
+                  decoration and Tab walked straight past. */}
+              <Field label="Date" required size="sm" htmlFor="goc-date">
                 <Input
                   id="goc-date"
                   type="date"
@@ -137,41 +150,48 @@ export function NewCancellationForm({ orders, buyers }: Props) {
                   onChange={(e) => setCancelledDate(e.target.value)}
                   required
                 />
-              </div>
-              <RecordPicker
-                label="SC No"
-                items={orderItems}
-                value={orderId}
-                onChange={onSelectOrder}
-                required
-              />
-              <RecordPicker
-                label="Customer"
-                items={buyerItems}
-                value={customerId}
-                onChange={setCustomerId}
-              />
-              <div>
-                <Label htmlFor="goc-orderno">Order No</Label>
+              </Field>
+              {/* The picker draws its own label and its own `*`; `Field` is here
+                  for the span only, which is what its optional `label` is for. */}
+              <Field size="sm">
+                <RecordPicker
+                  id="goc-order"
+                  label="SC No"
+                  items={orderItems}
+                  value={orderId}
+                  onChange={onSelectOrder}
+                  required
+                />
+              </Field>
+              <Field size="sm">
+                <RecordPicker
+                  label="Customer"
+                  items={buyerItems}
+                  value={customerId}
+                  onChange={setCustomerId}
+                />
+              </Field>
+              <Field label="Order No" size="sm" htmlFor="goc-orderno">
                 <Input
                   id="goc-orderno"
+                  uppercase
                   value={orderNo}
                   onChange={(e) => setOrderNo(e.target.value)}
                   placeholder="Customer order / PO reference"
                 />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="goc-remarks">Remarks</Label>
-              <Textarea
-                id="goc-remarks"
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Optional"
-                rows={3}
-              />
-            </div>
+              </Field>
+              {/* `full` is not a field width — it is the row, which is what a
+                  textarea takes. */}
+              <Field label="Remarks" size="full" htmlFor="goc-remarks">
+                <Textarea
+                  id="goc-remarks"
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Optional"
+                  rows={3}
+                />
+              </Field>
+            </FieldGrid>
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={handleClose}>

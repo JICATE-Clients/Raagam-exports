@@ -1,11 +1,15 @@
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { listExcessOrders } from "@/lib/orders/pack-ratio-service";
+import { listOrderOptions } from "@/lib/orders/order-options";
 import { ExcessOrdersClient } from "./excess-orders-client";
 
 export default async function ExcessOrdersPage() {
   await requirePermission("orders", "view");
-  const rows = await listExcessOrders();
+  const [rows, orders] = await Promise.all([
+    listExcessOrders(),
+    listOrderOptions(),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -13,7 +17,7 @@ export default async function ExcessOrdersPage() {
         title="Excess Orders"
         description="Supplementary quantities beyond planned order with size-wise breakdown."
       />
-      <ExcessOrdersClient rows={rows} />
+      <ExcessOrdersClient rows={rows} orders={orders} />
     </div>
   );
 }
