@@ -916,6 +916,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 ))}
               </FieldGrid>
             )}
+            seedRow
             onAdd={() => mutItems((xs) => [...xs, blankItem(newKey())])}
             onRemove={(r) => mutItems((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add item"
@@ -933,6 +934,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
           <ChildGrid<ProcRow>
             columns={procColumns}
             rows={procs}
+            seedRow
             onAdd={() => mutProcs((xs) => [...xs, { key: newKey(), item_id: null }])}
             onRemove={(r) => mutProcs((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add process"

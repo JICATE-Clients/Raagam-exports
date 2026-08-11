@@ -444,6 +444,9 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     setCombos([]);
     setPriceDetails([]);
     setApprovalQtys([]);
+    // …and then one blank row into each, so the operator can type immediately.
+    // See `seedGrids`.
+    seedGrids();
     setPendingSeed(null);
     setSeeded(false);
     setMode("edit");
@@ -760,6 +763,55 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       ...xs,
       { key: newKey(), style_ref_no: "", style: "", article_no: "", approval_qty: "" },
     ]);
+  /** Lifted out of the Style Prices `GridCard`'s inline `onAdd` so `seedGrids`
+   *  below can reach it — a row's shape stays declared exactly once. */
+  const addStylePrice = () =>
+    setStylePrices((xs) => [
+      ...xs,
+      {
+        key: newKey(),
+        style_ref_no: "",
+        style: "",
+        price: "",
+        csp_type: "",
+        csp_price: "",
+        fob_buyer_price: "",
+        fob_selling_price: "",
+      },
+    ]);
+
+  /**
+   * EVERY GRID OPENS WITH ONE BLANK ROW (operator, 2026-08-11).
+   *
+   * An empty grid showed a header, a line of prose and an "+ Add row" button, so
+   * entering the first line cost a click on every grid of every document — and
+   * this screen has eight of them, so a new amendment began with eight clicks
+   * before a single value could be typed.
+   *
+   * It is also the keyboard rule behind AGENTS.md's `enterNestedGrid` note:
+   * "replacing a grid's permanently-open blank row with a button removes the
+   * keyboard's only way in". Tab lands on fields, and an empty grid has none.
+   *
+   * Through the SAME adders the "+ Add row" buttons use, never a second copy of
+   * each row's shape. Safe to call straight after the `set…([])` calls in
+   * `openAdd`: each adder is a functional update, so React applies the clear and
+   * then the append in order.
+   *
+   * `ChildGrid` grids elsewhere in Orders get this from its `seedRow` prop; this
+   * screen still hand-rolls its tables, so it seeds by hand until it is
+   * converted.
+   */
+  const seedGrids = () => {
+    addStyle();
+    addDyeing("yarn");
+    addDyeing("fabric");
+    addPrint();
+    addStructure();
+    addCombo();
+    addStylePrice();
+    addPriceDetail();
+    addApprovalQty();
+  };
 
   /**
    * Rail completion dots — "this section has data".
@@ -1194,21 +1246,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
           {/* Style-wise price grid */}
           <GridCard
             title="Style Prices"
-            onAdd={() =>
-              setStylePrices((xs) => [
-                ...xs,
-                {
-                  key: newKey(),
-                  style_ref_no: "",
-                  style: "",
-                  price: "",
-                  csp_type: "",
-                  csp_price: "",
-                  fob_buyer_price: "",
-                  fob_selling_price: "",
-                },
-              ])
-            }
+            onAdd={addStylePrice}
           >
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-sm">
