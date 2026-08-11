@@ -936,13 +936,33 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   // more importantly, meant `<Field>` never wrapped anything — so `required` had
   // nothing to bind to and both asterisks were literal text.
 
+  /**
+   * NO `problems` BADGE ON THE RAIL (operator, 2026-08-11) — see the
+   * `raagam-screen-layout` skill, "The operator's five". Every section passes
+   * `done` and none passes `problems`, so a section holding a blank mandatory
+   * field shows the quiet empty dot rather than a red count.
+   *
+   * The operator's reasoning: the field already draws a red `*`, and a second
+   * red thing counting the same fact is noise. What the count added that the
+   * star cannot is WHICH SECTION — only one is mounted at a time, so the stars
+   * in the other four are off screen.
+   *
+   * `footer.onBlockedSave` is what carries that now, and it is why removing the
+   * badge is safe HERE and would not be on a screen without it: Save stays
+   * clickable, names the missing field in a toast, and `goToSection` walks the
+   * cursor to it. Take the badge off a screen that does not wire it and you get
+   * a dead Save button with nothing on screen to explain it — the exact bug
+   * `sectionValidity` was built to end.
+   *
+   * `validity` itself stays: `canSave` must remain DERIVED. Only `bySection`
+   * goes unread.
+   */
   const sections: FullScreenSection[] = [
     {
       key: "style",
       label: "Style",
       icon: Shirt,
       done: !!form.style_name.trim(),
-      problems: validity.bySection.style,
       content: (
         <SectionBody title="Style" hint="What this style is, and who it is for.">
           <FieldGrid>
@@ -1051,7 +1071,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         !!form.article_no.trim() ||
         !!form.unit_id ||
         !!form.unit_kind,
-      problems: validity.bySection.general,
       content: (
         <SectionBody title="General" hint="Season, category and how this style is counted.">
           <FieldGrid>
@@ -1194,7 +1213,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       label: "Coordinates",
       icon: Palette,
       done: coords.some((c) => c.coordinate_id),
-      problems: validity.bySection.coordinates,
       content: (
         <SectionBody title="Coordinates" hint={coordHint}>
           {/* No `label` — the section heading above already names the grid, and a
@@ -1212,6 +1230,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             columns={coordColumns}
             rows={coords}
             hideAdd={!!coordCap && coords.length >= coordCap.max}
+            seedRow
             onAdd={() => mutCoords((xs) => [...xs, blankCoord()])}
             onRemove={(r) => mutCoords((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add coordinate"
@@ -1224,7 +1243,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       label: "Components",
       icon: Boxes,
       done: comps.some((c) => c.coordinate_id || c.component_id || c.structure_id),
-      problems: validity.bySection.components,
       content: (
         <SectionBody
           title="Components"
@@ -1250,6 +1268,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           <ChildGrid<CompRow>
             columns={compColumns}
             rows={comps}
+            seedRow
             onAdd={() => mutComps((xs) => [...xs, blankComp()])}
             onRemove={(r) => mutComps((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add component"
@@ -1262,7 +1281,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       label: "Sizes",
       icon: Ruler,
       done: sizes.some((s) => s.size_id),
-      problems: validity.bySection.sizes,
       content: (
         <SectionBody title="Sizes" hint="The size set this style is made in.">
           {/* THE GROUP IS A SHORTCUT, NOT THE SOURCE OF TRUTH. Picking one
@@ -1316,6 +1334,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             narrow
             columns={sizeColumns}
             rows={sizes}
+            seedRow
             onAdd={() => mutSizes((xs) => [...xs, blankSize()])}
             onRemove={(r) => mutSizes((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add size"
