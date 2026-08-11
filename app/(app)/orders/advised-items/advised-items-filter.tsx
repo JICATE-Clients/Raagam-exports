@@ -48,6 +48,7 @@ export function AdvisedItemsFilter({ customers, orders, current }: Props) {
           />
           <RecordPicker
             label="Order (SC No)"
+            identity="code"
             items={orders}
             value={order}
             onChange={setOrder}

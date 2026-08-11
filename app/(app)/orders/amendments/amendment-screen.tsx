@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Trash2,
@@ -18,14 +18,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
@@ -40,8 +41,11 @@ import {
 import { Field, FieldGrid } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useCreateIntent } from "@/lib/use-create-intent";
+import { isInactive } from "@/lib/masters/inactive";
+import { previewOrderNumber } from "@/lib/orders/actions";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { CountryPicker } from "@/components/masters/country-picker";
 import { CurrencyPicker } from "@/components/masters/currency-picker";
@@ -53,10 +57,12 @@ import {
   deleteAmendment,
   loadOrderSeed,
 } from "@/lib/orders/amendments/actions";
-import type { SeededAmendmentChildren } from "@/lib/orders/amendments/order-seed";
+import type { FabricTypeCounts, SeededAmendmentChildren } from "@/lib/orders/amendments/order-seed";
 import {
   INITIATED_OPTIONS,
   AMEND_TYPE_OPTIONS,
+  PACK_TYPE_OPTIONS,
+  PRICE_TYPE_OPTIONS,
   SEASON_OPTIONS,
   SHIP_MODES,
   PAY_MODES,
@@ -80,6 +86,8 @@ interface Props {
   perms: Perms;
   /** masters:create/edit — gates inline Add/Modify inside config-list pickers. */
   masterPerms: { canCreate: boolean; canEdit: boolean };
+  /** The operator's home Unit (`profiles.default_location_id`), or null. */
+  defaultLocationId: string | null;
 }
 
 // ---- editable child-row shapes ----
@@ -124,6 +132,25 @@ type PriceDetailRow = {
   price_type: string;
   unit: string;
   price: string;
+};
+/**
+ * Pack type(s) tab (0399) — the legacy grid is S No + Pack Type and nothing
+ * else, so the row is its one value.
+ */
+type PackTypeRow = { key: string; pack_type: string };
+/** Quantities tab (0398) — the legacy "Quantities Details" grid. */
+type QuantityRow = {
+  key: string;
+  country_id: string | null;
+  style_ref_no: string;
+  style_no: string;
+  consignee_id: string | null;
+  assortment_type_id: string | null;
+  po_qty: string;
+  delivery_date: string;
+  earlier_shipment_date: string;
+  warehouse_id: string | null;
+  discharge_port_id: string | null;
 };
 type ApprovalQtyRow = {
   key: string;
@@ -190,12 +217,34 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       ...styleCols(x),
       approval_qty: num(x.approval_qty),
     })),
+    // `?? []` like `quantities` below: the seed from an order never carries
+    // pack types (nothing on the order side records a packing method), so the
+    // key is genuinely absent on that path rather than an empty array.
+    packTypes: (src.packTypes ?? []).map((x): PackTypeRow => ({
+      key: newKey(),
+      pack_type: txt(x.pack_type),
+    })),
+    quantities: (src.quantities ?? []).map((x): QuantityRow => ({
+      key: newKey(),
+      country_id: x.country_id ?? null,
+      style_ref_no: txt(x.style_ref_no),
+      style_no: txt(x.style_no),
+      consignee_id: x.consignee_id ?? null,
+      assortment_type_id: x.assortment_type_id ?? null,
+      po_qty: num(x.po_qty),
+      delivery_date: txt(x.delivery_date),
+      earlier_shipment_date: txt(x.earlier_shipment_date),
+      warehouse_id: x.warehouse_id ?? null,
+      discharge_port_id: x.discharge_port_id ?? null,
+    })),
   };
 }
 
 type HeaderForm = {
   // order header
   sales_order_id: string | null;
+  /** The Unit the SC No is numbered under. Lives on `sales_orders`, not here. */
+  location_id: string | null;
   amend_date: string;
   initiated: string;
   amend_type: string;
@@ -234,6 +283,7 @@ type HeaderForm = {
 
 const BLANK: HeaderForm = {
   sales_order_id: null,
+  location_id: null,
   amend_date: "",
   initiated: "",
   amend_type: "",
@@ -271,7 +321,7 @@ const BLANK: HeaderForm = {
 const today = () => new Date().toISOString().slice(0, 10);
 const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
 
-export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
+export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocationId }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
@@ -288,8 +338,123 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   const [combos, setCombos] = useState<ComboRow[]>([]);
   const [priceDetails, setPriceDetails] = useState<PriceDetailRow[]>([]);
   const [approvalQtys, setApprovalQtys] = useState<ApprovalQtyRow[]>([]);
+  const [packTypes, setPackTypes] = useState<PackTypeRow[]>([]);
+  const [quantities, setQuantities] = useState<QuantityRow[]>([]);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
+
+  /**
+   * ONE BLANK ROW PER GRID, shared by the "+ Add" button and by the row every
+   * grid OPENS ON (see `openOneRow` below). Two copies of a row's blank shape is
+   * how a field added to one and not the other becomes `undefined` in half the
+   * rows — so the shape is stated once, here.
+   */
+  const blankStyle = (): StyleRow => ({
+    key: newKey(),
+    style_ref_no: "",
+    style_id: null,
+    article_no: "",
+    style_category: "",
+    style_description: "",
+    order_unit_id: null,
+    plan_unit_id: null,
+    po_qty: "",
+    description: "",
+  });
+  const blankDyeing = (section: "yarn" | "fabric"): DyeingRow => ({
+    key: newKey(),
+    section,
+    dye_type: "",
+    color_id: null,
+  });
+  const blankPrint = (): PrintRow => ({ key: newKey(), print_id: null });
+  const blankStructure = (): StructureRow => ({ key: newKey(), structure_id: null });
+  const blankCombo = (): ComboRow => ({
+    key: newKey(),
+    style_ref_no: "",
+    style: "",
+    article_no: "",
+  });
+  const blankPriceDetail = (): PriceDetailRow => ({
+    key: newKey(),
+    style_ref_no: "",
+    style: "",
+    article_no: "",
+    price_type: "",
+    unit: "",
+    price: "",
+  });
+  const blankQuantity = (): QuantityRow => ({
+    key: newKey(),
+    country_id: null,
+    style_ref_no: "",
+    style_no: "",
+    consignee_id: null,
+    assortment_type_id: null,
+    po_qty: "",
+    delivery_date: "",
+    earlier_shipment_date: "",
+    warehouse_id: null,
+    discharge_port_id: null,
+  });
+  const blankApprovalQty = (): ApprovalQtyRow => ({
+    key: newKey(),
+    style_ref_no: "",
+    style: "",
+    article_no: "",
+    approval_qty: "",
+  });
+  const blankPackType = (): PackTypeRow => ({ key: newKey(), pack_type: "" });
+  const blankStylePrice = (): StylePriceRow => ({
+    key: newKey(),
+    style_ref_no: "",
+    style: "",
+    price: "",
+    csp_type: "",
+    csp_price: "",
+    fob_buyer_price: "",
+    fob_selling_price: "",
+  });
+
+  /**
+   * EVERY GRID OPENS ON ONE BLANK ROW (client 2026-08-11).
+   *
+   * A tab whose only affordance is "+ Add" makes the operator click before they
+   * can type, on every tab, on every order — and Tab lands on FIELDS, so an
+   * empty grid has nothing to tab into and nothing to stand on and press Enter.
+   * That is the same trap AGENTS.md records under the keyboard contract:
+   * "replacing a grid's permanently-open blank row with a button removes the
+   * keyboard's only way in".
+   *
+   * SAFE BECAUSE THE SERVER ALREADY DROPS EMPTY ROWS. Every `normalize*` in
+   * `lib/orders/amendments/actions.ts` filters a row with nothing in it before
+   * insert ("A row the grid seeded and nobody answered is not a quantity"), so
+   * an untouched opening row is never stored. This adds no rule; it relies on
+   * one that is already there.
+   *
+   * TOPS UP, NEVER RESETS — `xs.length ? xs : [blank]`. Called after loading a
+   * saved document and after seeding from an order, where most grids already
+   * have rows and must not be disturbed.
+   */
+  const openOneRow = () => {
+    setStyles((xs) => (xs.length ? xs : [blankStyle()]));
+    // Two grids over ONE array: Color/Print shows Yarn and Fabric dyeing
+    // separately, so each section needs its own opening row.
+    setDyeings((xs) => {
+      const missing = (["yarn", "fabric"] as const).filter(
+        (sec) => !xs.some((d) => d.section === sec),
+      );
+      return missing.length ? [...xs, ...missing.map(blankDyeing)] : xs;
+    });
+    setPrints((xs) => (xs.length ? xs : [blankPrint()]));
+    setStructures((xs) => (xs.length ? xs : [blankStructure()]));
+    setCombos((xs) => (xs.length ? xs : [blankCombo()]));
+    setPriceDetails((xs) => (xs.length ? xs : [blankPriceDetail()]));
+    setApprovalQtys((xs) => (xs.length ? xs : [blankApprovalQty()]));
+    setPackTypes((xs) => (xs.length ? xs : [blankPackType()]));
+    setStylePrices((xs) => (xs.length ? xs : [blankStylePrice()]));
+    setQuantities((xs) => (xs.length ? xs : [blankQuantity()]));
+  };
 
   /**
    * An SCNo the operator picked whose data is waiting on their answer, because
@@ -304,8 +469,19 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   /** True once a seed has come back, so an empty tab can say WHY it is empty. */
   const [seeded, setSeeded] = useState(false);
 
+  /**
+   * What the order's fabrics are made of, for the Color/Print hint. Null on a
+   * SAVED amendment (`openEdit` builds its rows from stored children, not from a
+   * fresh read of the order) — which is honest: the order has moved on since,
+   * and the amendment records what was decided.
+   */
+  const [fabricTypes, setFabricTypes] = useState<FabricTypeCounts | null>(null);
+
   /** Push a set of child rows into the eight grids. One call, one mapping. */
   const applyRows = (src: SeededAmendmentChildren) => {
+    // Set here rather than at the four call sites, for the same reason the row
+    // mapping lives here: one call, one mapping.
+    setFabricTypes(src.fabricTypes ?? null);
     const r = toRows(src, newKey);
     setStyles(r.styles);
     setDyeings(r.dyeings);
@@ -314,23 +490,85 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     setCombos(r.combos);
     setPriceDetails(r.priceDetails);
     setApprovalQtys(r.approvalQtys);
+    setPackTypes(r.packTypes);
+    setQuantities(r.quantities);
+    // Covers BOTH callers — a saved document reopened, and a seed from an
+    // order. Tops up only the grids that came back empty.
+    openOneRow();
   };
 
-  /** Has the operator put anything in the eight data tabs worth protecting? */
-  const tabsHaveRows =
-    styles.length > 0 ||
-    dyeings.length > 0 ||
-    prints.length > 0 ||
-    structures.length > 0 ||
-    combos.length > 0 ||
-    priceDetails.length > 0 ||
-    approvalQtys.length > 0;
+  /**
+   * Has the operator put anything in the data tabs worth protecting?
+   *
+   * COUNTS FILLED ROWS, NOT ROWS. Every grid now OPENS on a blank row
+   * (`openOneRow`), so `length > 0` is true the instant the editor opens and
+   * would make all three readers of this flag lie at once: the discard prompt
+   * would challenge a form nobody has typed in, `dirty` would pin the reload
+   * guard on, and the order seed would ask permission to replace rows that hold
+   * nothing.
+   *
+   * `key` and `section` are excluded because neither is data the operator
+   * entered — `key` is the React identity and `section` is which of the two
+   * dyeing grids a row belongs to, both stamped by the blank factory itself.
+   */
+  const rowFilled = (r: Record<string, unknown>) =>
+    Object.entries(r).some(
+      ([k, v]) => k !== "key" && k !== "section" && v !== "" && v != null,
+    );
+  const tabsHaveRows = [
+    styles,
+    dyeings,
+    prints,
+    structures,
+    combos,
+    priceDetails,
+    approvalQtys,
+    packTypes,
+    quantities,
+  ].some((rows) => (rows as Record<string, unknown>[]).some(rowFilled));
 
   // Inline editor, not a Sheet / MasterFullScreen, so nothing registers it with
   // the reload guard automatically — see mba-master-screen.tsx for the full
   // reasoning. The stakes are highest here: this form carries a header plus
   // eight child grids, so a silent auto-update mid-amendment discards the lot.
   useUnsavedGuard(mode === "edit" || isPending);
+
+  /**
+   * THE SC NO BOX. Two sources, never both: a saved order shows its STORED
+   * number, a new one shows a prediction.
+   *
+   * `previewOrderNumber` shares `sales_order_no_format()` and
+   * `fiscal_year_segment()` with the trigger that assigns, which is what makes
+   * them impossible to drift apart — formatting `<loc>/RE/<fy>/<nnnn>` here
+   * would be a second implementation of both, and the box would confidently
+   * show a number different from the one saved.
+   *
+   * BOTH ARGUMENTS MOVE THE ANSWER: the counter is per (location, fiscal year),
+   * so a preview pinned to one Unit is wrong for exactly the branch orders that
+   * per-location numbering exists for. Hence both in the dependency list.
+   *
+   * A PREDICTION, NOT A RESERVATION — the peek does not consume the counter, so
+   * abandoning the form burns nothing, at the cost that two operators entering
+   * at once see the same number and only the first to save gets it. The trigger
+   * stays the sole authority, so the STORED value is always right.
+   */
+  const [savedOrderNo, setSavedOrderNo] = useState<string | null>(null);
+  const [previewNo, setPreviewNo] = useState<string | null>(null);
+  useEffect(() => {
+    if (mode !== "edit" || editId) return;
+    let cancelled = false;
+    // No `if (!location_id) setPreviewNo(null)` guard: `previewOrderNumber`
+    // already answers null for a blank Unit, so clearing the Unit clears the
+    // box through the SAME path that fills it. A synchronous setState in an
+    // effect body would cascade a render, and react-hooks flags it.
+    previewOrderNumber(form.location_id, form.amend_date || null).then((n) => {
+      if (!cancelled) setPreviewNo(n);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, editId, form.location_id, form.amend_date]);
+
 
   // config_lookups split by kind (one query, filtered per picker)
   const { lookups } = data;
@@ -339,7 +577,23 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   // `public.payment_terms` since 0375, and the lookup rows it used to read are
   // gone. Filtering `lookups` here would silently render an empty list.
   const payTermOpts = data.paymentTerms;
-  const structureOpts = useMemo(() => lookups.filter((l) => l.kind === "structure"), [lookups]);
+  /**
+   * `fabric_structure`, NOT `structure`.
+   *
+   * The `structure` kind holds 0 rows and always has; the real list is
+   * `fabric_structure` (Circular Knit / Flat Knit / Woven). 0396 diagnosed this
+   * across the Style screen and called it "a PATTERN rather than a one-off",
+   * then repointed only the Style side — leaving this picker as one of the
+   * "dropdowns over nothing" that migration was written to eliminate.
+   *
+   * No FK moves: `fabric_structure` rows ARE `config_lookups` rows, so only the
+   * kind the screen filters on changes. 0396 records that too, "because the next
+   * reader will otherwise look for the missing third statement".
+   */
+  const structureOpts = useMemo(
+    () => lookups.filter((l) => l.kind === "fabric_structure"),
+    [lookups],
+  );
   const printOpts = useMemo(() => lookups.filter((l) => l.kind === "roll_form_print"), [lookups]);
 
   // Style picker items {id, code, name}; keep the full rows for auto-fill lookup.
@@ -352,6 +606,41 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     for (const s of data.styles) m.set(s.id, s);
     return m;
   }, [data.styles]);
+
+  /**
+   * The Style(s) TAB'S ROWS as picker items — not the style master.
+   *
+   * Prices are per style LINE of this PO: with Mult. Ord on, the operator adds
+   * "a pricing row for every individual style included in the PO" (client
+   * 2026-08-10), and those are the lines above, not every style in the business.
+   */
+  const styleLineItems: PickerRow[] = useMemo(
+    () =>
+      styles.map((r) => ({
+        id: r.key,
+        code: r.style_ref_no || null,
+        name:
+          (r.style_id ? styleById.get(r.style_id)?.name : null) ??
+          (r.style_ref_no || "(unnamed line)"),
+      })),
+    [styles, styleById],
+  );
+
+  /**
+   * Which style line a price row names, resolved from the TEXT it stores.
+   *
+   * `price_details` keeps `style_ref_no` / `style` / `article_no` as text (0128),
+   * so a reopened amendment has the words but not the line's key. Matching on the
+   * ref no is what makes the picker show a selection after a round trip instead
+   * of looking empty over filled fields. A blank ref matches nothing on purpose —
+   * otherwise every unfilled row would claim the first line.
+   */
+  const styleLineKeyOf = (refNo: string) =>
+    refNo.trim() ? (styles.find((x) => x.style_ref_no.trim() === refNo.trim())?.key ?? null) : null;
+
+  /** The style line's Order Unit, as the text this tab stores. */
+  const unitTextOf = (r: StyleRow) =>
+    (r.order_unit_id ? data.uoms.find((u) => u.id === r.order_unit_id) : null)?.name ?? "";
 
   // Dye-colour picker items scoped to the amendment's buyer (colours belong to a
   // colour card, which belongs to a buyer). Falls back to all when no buyer yet.
@@ -366,6 +655,24 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     }));
   }, [data.dyeColors, form.buyer_id]);
 
+  /**
+   * UNREACHABLE SINCE 2026-08-11, AND KEPT ON PURPOSE.
+   *
+   * `orderItems` and `onSelectOrder` below fed the SCNo dropdown, and through it
+   * the whole order-seeding flow — `loadOrderSeed`, `pendingSeed`, the amber
+   * "replace the tabs" bar, `seeded`, `fabricTypes`. That dropdown is gone: the
+   * SC No is now MINTED on this screen (see the SCNo field in Order Info),
+   * because this is where a garment order is entered, and an order's number is
+   * its own identity rather than a pick from orders that already exist.
+   *
+   * What that removes is the AMENDMENT path: there is currently no way to point
+   * this screen at an existing order and amend it. Deleting the machinery would
+   * take `seedAmendmentFromOrder`, its eight-tab mapping and
+   * `scripts/check-amendment-diff.mts`'s only consumer with it, so it stays
+   * until the shape of amendments is decided — as a second mode here, or as its
+   * own screen. The two unused-variable warnings are the honest signal that a
+   * decision is outstanding; do not silence them with a `_` prefix.
+   */
   // SCNo picker items (normalized to {id, code: order#, name: buyer}).
   const orderItems: PickerRow[] = useMemo(
     () =>
@@ -376,6 +683,26 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       })),
     [data.orders],
   );
+
+  /**
+   * THE UNIT A NEW ORDER STARTS ON — so the SCNo box shows a real number the
+   * moment the form opens instead of "(auto)".
+   *
+   * The operator's own `profiles.default_location_id` first; failing that, the
+   * first ACTIVE unit. That fallback is a guess, and it is a safe one here for a
+   * reason specific to this field: the SC No's FIRST SEGMENT IS THE UNIT CODE,
+   * so a prefilled unit announces itself in the very box the operator is reading
+   * — `HO/RE/2627/0008` says "HO" more loudly than an empty Unit picker does.
+   * Changing the Unit re-previews, so a wrong guess is visible and one click to
+   * correct, before anything is saved.
+   *
+   * `isInactive` rather than reading `is_active` by hand: the flag is spelled
+   * three ways across the schema and only that helper knows all three.
+   */
+  const startingLocationId = useMemo(() => {
+    if (defaultLocationId) return defaultLocationId;
+    return data.locations.find((l) => !isInactive(l))?.id ?? null;
+  }, [defaultLocationId, data.locations]);
 
   const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -435,7 +762,9 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
 
   function openAdd() {
     setEditId(null);
-    setForm({ ...BLANK, amend_date: today() });
+    setSavedOrderNo(null);
+    setPreviewNo(null);
+    setForm({ ...BLANK, amend_date: today(), location_id: startingLocationId });
     setStylePrices([]);
     setStyles([]);
     setDyeings([]);
@@ -444,17 +773,43 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     setCombos([]);
     setPriceDetails([]);
     setApprovalQtys([]);
+    // Every grid the editor holds is cleared here, and the list has to stay
+    // complete: `setQuantities` was missing, so opening a saved amendment and
+    // then clicking + Add carried the previous document's quantity rows into a
+    // blank form — where they read as data the operator entered.
+    setPackTypes([]);
+    setQuantities([]);
     setPendingSeed(null);
     setSeeded(false);
+    openOneRow();
     setMode("edit");
   }
 
+  /**
+   * The ＋ quick action and the command palette both navigate to `?new=1`, and
+   * this hook is what turns that into an open form. Without it the action was
+   * DEAD — it landed on the list and did nothing, which reads as the app being
+   * broken rather than as a missing feature.
+   *
+   * DECLARED AFTER `openAdd` ON PURPOSE. It used to sit up with the other hooks
+   * and the React Compiler lint rejected it: `openAdd` now closes over
+   * `openOneRow` and `startingLocationId`, both `const`, so reading it earlier
+   * would capture a binding that has not been initialised yet. A hook still runs
+   * on every render from here, which is the only rule that matters.
+   */
+  useCreateIntent(() => {
+    if (perms.canCreate) openAdd();
+  });
+
   function openEdit(r: GarmentOrderAmendment) {
+    setSavedOrderNo(r.sales_order?.order_number ?? null);
+    setPreviewNo(null);
     setPendingSeed(null);
     setSeeded(false);
     setEditId(r.id);
     setForm({
       sales_order_id: r.sales_order_id,
+      location_id: r.sales_order?.location_id ?? null,  // Unit is read-only from here on
       amend_date: r.amend_date ?? today(),
       initiated: r.initiated ?? "",
       amend_type: r.amend_type ?? "",
@@ -511,14 +866,37 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       combos: r.combos,
       priceDetails: r.price_details,
       approvalQtys: r.approval_qtys,
+      packTypes: r.pack_types,
+      quantities: r.quantities,
     });
     setMode("edit");
   }
 
   function submit(asDraft: boolean) {
+    /**
+     * The narrowing guard for the two mandatory FKs.
+     *
+     * Not belt-and-braces for its own sake: `amendmentInput` now types them as
+     * `string`, and the compiler refused the payload until this existed — which
+     * is the type system pointing out that `canSave` is a BUTTON state, and a
+     * button state is not a proof. Ctrl+S, a stale click and a future caller all
+     * reach `submit` without passing through it.
+     *
+     * A toast rather than a silent return, because a save that does nothing and
+     * says nothing reads as the app being broken.
+     */
+    if (!form.location_id || !form.buyer_id) {
+      toastError(
+        !form.location_id
+          ? "Pick the Unit — the SC No is numbered under it."
+          : "Customer is required.",
+      );
+      return;
+    }
     const payload = {
       is_draft: asDraft,
       sales_order_id: form.sales_order_id,
+      location_id: form.location_id,
       amend_date: form.amend_date,
       initiated: form.initiated || null,
       amend_type: form.amend_type || null,
@@ -595,6 +973,24 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         price_type: r.price_type || null,
         unit: r.unit || null,
         price: numOrNull(r.price) ?? 0,
+      })),
+      // Sent whatever the Pack toggle says. The tab HIDES when Pack is off, and
+      // hiding a grid is not the same as emptying it — a document packed, then
+      // un-ticked by accident, then saved would lose its methods with nothing on
+      // screen to show what went. The operator removes a row by removing it.
+      pack_types: packTypes.map((r) => ({ sno: 0, pack_type: r.pack_type || null })),
+      quantities: quantities.map((r) => ({
+        sno: 0,
+        country_id: r.country_id,
+        style_ref_no: r.style_ref_no || null,
+        style_no: r.style_no || null,
+        consignee_id: r.consignee_id,
+        assortment_type_id: r.assortment_type_id,
+        po_qty: Number(r.po_qty) || 0,
+        delivery_date: r.delivery_date || null,
+        earlier_shipment_date: r.earlier_shipment_date || null,
+        warehouse_id: r.warehouse_id,
+        discharge_port_id: r.discharge_port_id,
       })),
       approval_qtys: approvalQtys.map((r) => ({
         sno: 0,
@@ -679,18 +1075,24 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
 
     return (
       <div className="space-y-4">
+        {/* NAMED FOR WHAT THIS SCREEN IS (client 2026-08-11). It is the garment
+            order screen — the legacy header and the ten-section rail — and its
+            sidebar row is now Order Entry ▸ Garment Order. A row reading
+            "Garment Order" over a page headed "Garment Order Amendment" would
+            leave half the reported confusion in place. The route, the table and
+            the Amendments card are all unchanged. */}
         <PageHeader
-          title="Garment Order Amendment"
-          description="Amend a confirmed garment order across styles, prices, packing, quantities & logistics — and record why."
+          title="Garment Orders"
+          description="Garment orders — styles, colours, prices, packing, quantities & logistics."
           actions={
-            perms.canCreate ? <Button onClick={openAdd}>New Amendment</Button> : undefined
+            perms.canCreate ? <Button onClick={openAdd}>New Garment Order</Button> : undefined
           }
         />
         <DataTable
           columns={withCreatedColumns(columns, rows)}
           rows={rows}
           getKey={(r) => r.id}
-          empty="No amendments yet. Use 'New Amendment' to create the first."
+          empty="No garment orders yet. Use 'New Garment Order' to create the first."
         />
       </div>
     );
@@ -698,7 +1100,8 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
 
   // ---------------- EDIT MODE ----------------
   /**
-   * The five Logistics fields the client made mandatory gate Save too.
+   * Every mandatory field gates Save too — SCNo and Customer (client
+   * 2026-08-10) and the five Logistics fields.
    *
    * `required` on the field holds the CURSOR, which stops an operator tabbing
    * past a blank one — but it cannot stop someone who never focused it at all.
@@ -706,6 +1109,8 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
    * calls the two "enforcers" of one declaration.
    */
   const canSave =
+    !!form.location_id &&
+    !!form.buyer_id &&
     !!form.amend_date &&
     !!form.ship_type_id &&
     !!form.ship_mode &&
@@ -716,23 +1121,26 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
   // ---- Phase 2 grid row updaters / adders / removers ----
   const updateStyle = (key: string, patch: Partial<StyleRow>) =>
     setStyles((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-  const addStyle = () =>
-    setStyles((xs) => [
-      ...xs,
-      {
-        key: newKey(),
-        style_ref_no: "",
-        style_id: null,
-        article_no: "",
-        style_category: "",
-        style_description: "",
-        order_unit_id: null,
-        plan_unit_id: null,
-        po_qty: "",
-        description: "",
-      },
-    ]);
-  /** Picking a Style auto-fills article / category / description (legacy behaviour). */
+  const addStyle = () => setStyles((xs) => [...xs, blankStyle()]);
+  /**
+   * Picking a Style fills everything the Style Entry already knows, so the
+   * operator types only what the buyer's order sheet adds (client 2026-08-10).
+   *
+   * ORDER UNIT AND PLAN UNIT BOTH COME FROM THE STYLE'S ONE UNIT. `garment_styles`
+   * carries a single `unit_id` (-> `uoms`, the same master these two pickers read),
+   * defined on the Style Entry's General tab; an order line splits it into the
+   * unit the goods are ORDERED in and the unit they are PLANNED in, which are the
+   * same until someone says otherwise. Seeding both is a PREFILL, not a lock —
+   * either can be changed on the line, which is the distinction Fabric's Base UoM
+   * had to relearn three times.
+   *
+   * PO Qty is deliberately NOT seeded: it is the one number that comes off the
+   * buyer's order sheet and nowhere else.
+   *
+   * Clearing the Style clears what it filled. Leaving a previous style's article
+   * number and units behind on a line that now names a different style is worse
+   * than a blank row, because it reads as data.
+   */
   const pickStyle = (key: string, id: string | null) => {
     const s = id ? styleById.get(id) : null;
     updateStyle(key, {
@@ -740,26 +1148,60 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       article_no: s?.article_no ?? "",
       style_category: s?.style_category ?? "",
       style_description: s?.style_description ?? "",
+      // `?? null` rather than `?? ""`: these are FK columns, and "" is not a uuid.
+      order_unit_id: s?.unit_id ?? null,
+      plan_unit_id: s?.unit_id ?? null,
+      // The line's Description is the style's remarks, falling back to its
+      // description — the two fields legacy shows as "Style Description".
+      description: s ? (s.description ?? s.style_description ?? "") : "",
     });
   };
 
   const addDyeing = (section: "yarn" | "fabric") =>
-    setDyeings((xs) => [...xs, { key: newKey(), section, dye_type: "", color_id: null }]);
-  const addPrint = () => setPrints((xs) => [...xs, { key: newKey(), print_id: null }]);
-  const addStructure = () =>
-    setStructures((xs) => [...xs, { key: newKey(), structure_id: null }]);
-  const addCombo = () =>
-    setCombos((xs) => [...xs, { key: newKey(), style_ref_no: "", style: "", article_no: "" }]);
-  const addPriceDetail = () =>
-    setPriceDetails((xs) => [
-      ...xs,
-      { key: newKey(), style_ref_no: "", style: "", article_no: "", price_type: "", unit: "", price: "" },
-    ]);
-  const addApprovalQty = () =>
-    setApprovalQtys((xs) => [
-      ...xs,
-      { key: newKey(), style_ref_no: "", style: "", article_no: "", approval_qty: "" },
-    ]);
+    setDyeings((xs) => [...xs, blankDyeing(section)]);
+  const addPrint = () => setPrints((xs) => [...xs, blankPrint()]);
+  const addStructure = () => setStructures((xs) => [...xs, blankStructure()]);
+  const addCombo = () => setCombos((xs) => [...xs, blankCombo()]);
+  const addPriceDetail = () => setPriceDetails((xs) => [...xs, blankPriceDetail()]);
+  const addApprovalQty = () => setApprovalQtys((xs) => [...xs, blankApprovalQty()]);
+
+  /**
+   * THE ONE GRID WITH A CEILING. There are four packing methods and a method
+   * named twice says nothing the first row did not, so a fifth row could only
+   * ever hold a duplicate or a blank.
+   *
+   * `return false` is `ChildGrid`'s own decline protocol (`gridKeyNav`'s
+   * `addRow`), which is why the cap lives here rather than in a disabled
+   * button: Enter off the last cell adds a row too, and a guard on the button
+   * alone would leave the keyboard path uncapped.
+   */
+  const addPackType = () => {
+    if (packTypes.length >= PACK_TYPE_OPTIONS.length) return false;
+    setPackTypes((xs) => [...xs, blankPackType()]);
+  };
+
+  /**
+   * The methods this row may choose: the four, minus what OTHER rows took.
+   *
+   * Filtering at the source is what makes the duplicate impossible rather than
+   * merely rejected — the operator never picks a method twice, so the unique
+   * index (0399) and `normalizePackTypes` are backstops for the import path,
+   * not error messages anyone reads.
+   *
+   * A HELD VALUE ALWAYS SURVIVES THE FILTER, including one this build no longer
+   * names. A `<Select>` matches on value, so an unlisted value renders as blank
+   * — a filled cell showing empty, blanked on the next save. Same rule as
+   * "Disabled rows": the row that survives is the one the record already holds.
+   */
+  const packTypeOptions = (row: PackTypeRow): string[] => {
+    const taken = new Set(
+      packTypes.filter((x) => x.key !== row.key).map((x) => x.pack_type).filter(Boolean),
+    );
+    const free: string[] = PACK_TYPE_OPTIONS.filter((o) => !taken.has(o));
+    if (row.pack_type && !free.includes(row.pack_type)) free.push(row.pack_type);
+    return free;
+  };
+
 
   /**
    * Rail completion dots — "this section has data".
@@ -768,16 +1210,24 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
    * strip could not tell the operator where anything was. It reads the SAME
    * state `tabsHaveRows` above reads, so the two cannot drift.
    *
-   * `packtypes` / `quantities` are the two placeholder sections and are
-   * deliberately absent — a dot claiming a not-yet-wired tab holds data would
-   * lie about the one thing the operator most needs to know is missing.
+   * Every section is keyed now — `packtypes` (0399) was the last placeholder,
+   * and while a tab was unwired it was deliberately ABSENT from this map rather
+   * than given a `false`: a dot claiming a not-yet-built tab holds data lies
+   * about the one thing the operator most needs to know is missing.
    */
+  const has = (rows: unknown[]) =>
+    (rows as Record<string, unknown>[]).some(rowFilled);
   const sectionDone: Record<string, boolean> = {
-    styles: styles.length > 0,
-    colors: dyeings.length > 0 || prints.length > 0 || structures.length > 0,
-    combos: combos.length > 0,
-    prices: priceDetails.length > 0,
-    approvalqty: approvalQtys.length > 0,
+    // `has(...)`, not `.length > 0` — a grid's opening blank row is not data,
+    // and a dot over an untouched tab is exactly the confident lie the rail was
+    // built to remove.
+    styles: has(styles),
+    colors: has(dyeings) || has(prints) || has(structures),
+    combos: has(combos),
+    prices: has(priceDetails),
+    approvalqty: has(approvalQtys),
+    packtypes: has(packTypes),
+    quantities: has(quantities),
     // Was `charges.length > 0`, and the charges are gone. The five fields
     // the client made mandatory are the honest signal now.
     logistic:
@@ -785,67 +1235,763 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       !!form.pay_terms_id && !!form.currency_code,
   };
 
+  /**
+   * Styles Details, as COLUMNS rather than as a table.
+   *
+   * The grid below renders these through `FieldGrid`/`Field` in a card per row
+   * (LAYOUT.md §6: past ~5 real inputs a row runs out of width, and this one has
+   * six). Keeping them as a `columns` array rather than inlining the fields is
+   * what lets the card and the table fallback describe the same row — the shape
+   * `style-master-screen.tsx` uses for the same reason.
+   */
+  const styleColumns: ChildGridColumn<StyleRow>[] = [
+    {
+      header: "Style Ref No",
+      cell: (r) => (
+        <Input
+          value={r.style_ref_no}
+          onChange={(e) => updateStyle(r.key, { style_ref_no: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Style",
+      // A line with no style is not a line. Red ⓘ on the legacy grid.
+      required: true,
+      cell: (r) => (
+        <div className="space-y-1">
+          <RecordPicker
+            label="Style"
+            compact
+            items={styleItems}
+            value={r.style_id}
+            onChange={(id) => pickStyle(r.key, id)}
+          />
+          {/* Article No and Category are DERIVED by `pickStyle`, never typed, so
+              they are not columns — they are what the picked style IS. Legacy
+              agrees: its header is two rows deep, pairing "Style / Article No"
+              and "Style Category / Style Description" in single columns. The app
+              had flattened those pairs into four columns, which is most of why
+              the table needed `min-w-[1000px]` and scrolled sideways. */}
+          {(r.article_no || r.style_category) && (
+            <p className="text-xs text-muted-foreground">
+              {[r.article_no, r.style_category].filter(Boolean).join(" · ")}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      header: "Order Unit",
+      // The PO Qty is meaningless without the unit it is counted in. Costs the
+      // operator nothing — `pickStyle` fills it from the Style Entry.
+      required: true,
+      cell: (r) => (
+        <RecordPicker
+          label="Order Unit"
+          compact
+          items={data.uoms}
+          value={r.order_unit_id}
+          onChange={(id) => updateStyle(r.key, { order_unit_id: id })}
+        />
+      ),
+    },
+    {
+      header: "Plan Unit",
+      required: true,
+      cell: (r) => (
+        <RecordPicker
+          label="Plan Unit"
+          compact
+          items={data.uoms}
+          value={r.plan_unit_id}
+          onChange={(id) => updateStyle(r.key, { plan_unit_id: id })}
+        />
+      ),
+    },
+    {
+      header: "PO Qty",
+      align: "right",
+      // The one number that comes off the buyer’s order sheet and nowhere else,
+      // which is exactly why nothing can seed it and why it must be asked for.
+      required: true,
+      cell: (r) => (
+        <Input
+          type="number"
+          className="text-right"
+          value={r.po_qty}
+          onChange={(e) => updateStyle(r.key, { po_qty: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Description",
+      cell: (r) => (
+        <Input
+          value={r.description}
+          onChange={(e) => updateStyle(r.key, { description: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Process",
+      cell: () => (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled
+          title="Nested Process screen — awaiting spec"
+        >
+          Process
+        </Button>
+      ),
+    },
+  ];
+
+  /**
+   * Yarn / Fabric dyeing, prints and structures — one or two inputs a row, which
+   * LAYOUT.md §6 puts in the "<=3 -> inlineCards" band: a flex row per record
+   * under one shared header, never a stacked card. Carding a two-input row would
+   * be worse than the table it replaces.
+   */
+  const dyeColumns: ChildGridColumn<DyeingRow>[] = [
+    {
+      header: "Type",
+      width: "10rem",
+      cell: (r) => (
+        <Input
+          value={r.dye_type}
+          onChange={(e) =>
+            setDyeings((xs) => xs.map((x) => (x.key === r.key ? { ...x, dye_type: e.target.value } : x)))
+          }
+        />
+      ),
+    },
+    {
+      header: "Colour",
+      cell: (r) => (
+        <RecordPicker
+          label="Colour"
+          compact
+          items={dyeColorItems}
+          value={r.color_id}
+          onChange={(id) =>
+            setDyeings((xs) => xs.map((x) => (x.key === r.key ? { ...x, color_id: id } : x)))
+          }
+        />
+      ),
+    },
+  ];
+
+  const printColumns: ChildGridColumn<PrintRow>[] = [
+    {
+      header: "Print",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="roll_form_print"
+          label="Print"
+          compact
+          options={printOpts}
+          value={r.print_id}
+          onChange={(id) => setPrints((xs) => xs.map((x) => (x.key === r.key ? { ...x, print_id: id } : x)))}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+        />
+      ),
+    },
+  ];
+
+  const structureColumns: ChildGridColumn<StructureRow>[] = [
+    {
+      header: "Structure",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="fabric_structure"
+          label="Structure"
+          compact
+          options={structureOpts}
+          value={r.structure_id}
+          onChange={(id) =>
+            setStructures((xs) => xs.map((x) => (x.key === r.key ? { ...x, structure_id: id } : x)))
+          }
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+        />
+      ),
+    },
+  ];
+
+  /** Combos — three text inputs, LAYOUT.md §6's "<=3 -> inlineCards" band. */
+  const comboColumns: ChildGridColumn<ComboRow>[] = (
+    [
+      ["Style Ref No", "style_ref_no"],
+      ["Style", "style"],
+      ["Article No", "article_no"],
+    ] as [string, keyof ComboRow][]
+  ).map(([header, field]) => ({
+    header,
+    cell: (r: ComboRow) => (
+      <Input
+        value={String(r[field] ?? "")}
+        onChange={(e) =>
+          setCombos((xs) => xs.map((x) => (x.key === r.key ? { ...x, [field]: e.target.value } : x)))
+        }
+      />
+    ),
+  }));
+
+  /**
+   * Price Details.
+   *
+   * WAS six free-text boxes, including three that restated the Style(s) tab and
+   * a Price Type the operator had to remember the wording of. The client's spec
+   * is explicit that the first three are "read-only and automatically wired from
+   * the Style(s) tab" (2026-08-10), so they stop being inputs: one picker over
+   * the PO's own style lines fills all three, and Unit comes with them.
+   *
+   * That leaves THREE real inputs — style, price type, price — which moves this
+   * grid out of LAYOUT.md §6's "6-8 -> stacked card" band into "<=3 ->
+   * inlineCards": one row per price, which is also what bulk entry wants.
+   */
+  const priceDetailColumns: ChildGridColumn<PriceDetailRow>[] = [
+    {
+      header: "Style",
+      required: true,
+      width: "16rem",
+      cell: (r) => (
+        <div className="space-y-1">
+          <RecordPicker
+            label="Style"
+            compact
+            items={styleLineItems}
+            identity="code"
+            value={styleLineKeyOf(r.style_ref_no)}
+            onChange={(key) => {
+              const line = key ? styles.find((x) => x.key === key) : null;
+              setPriceDetails((xs) =>
+                xs.map((x) =>
+                  x.key === r.key
+                    ? {
+                        ...x,
+                        style_ref_no: line?.style_ref_no ?? "",
+                        style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
+                        article_no: line?.article_no ?? "",
+                        // "Unit ... is pulled from the Order Unit established in
+                        // the initial Style Entry" — so it arrives with the line
+                        // rather than being asked for again.
+                        unit: line ? unitTextOf(line) : "",
+                      }
+                    : x,
+                ),
+              );
+            }}
+          />
+          {(r.article_no || r.unit) && (
+            <p className="text-xs text-muted-foreground">
+              {[r.article_no, r.unit && `per ${r.unit}`].filter(Boolean).join(" · ")}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      header: "Price Type",
+      required: true,
+      width: "11rem",
+      cell: (r) => (
+        <Select
+          value={r.price_type}
+          onChange={(e) =>
+            setPriceDetails((xs) =>
+              xs.map((x) => (x.key === r.key ? { ...x, price_type: e.target.value } : x)),
+            )
+          }
+        >
+          <option value="">—</option>
+          {PRICE_TYPE_OPTIONS.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Price",
+      align: "right",
+      required: true,
+      width: "8rem",
+      // The rate off the buyer's order sheet. Its CURRENCY is the document's,
+      // set on the Logistic tab — there is deliberately no per-row currency.
+      cell: (r) => (
+        <Input
+          type="number"
+          className="text-right"
+          value={r.price}
+          onChange={(e) =>
+            setPriceDetails((xs) =>
+              xs.map((x) => (x.key === r.key ? { ...x, price: e.target.value } : x)),
+            )
+          }
+        />
+      ),
+    },
+  ];
+
+  /**
+   * Approval Quantity — the production TARGET, not just a sample count.
+   *
+   *     PO Qty + Excess Qty + Approval Qty = Total Production Qty
+   *
+   * (client 2026-08-10). Only the middle term was ever asked for on screen; the
+   * other three are derived, which is why this grid has two real inputs and not
+   * five — §6's "<=3 -> inlineCards" band.
+   *
+   * EXCESS ROUNDS UP, deliberately and for the reason `rejectionFor` already
+   * records: "shipping 59 when 60 were needed is precisely the failure this rule
+   * exists to prevent. The cost of the other direction is at most one garment."
+   * Two allowances on one order must not round opposite ways.
+   */
+  const excessPct = Number(form.excess_pct) || 0;
+  /** The PO Qty of the Style(s) line this row names. 0 when it names none. */
+  const poQtyOf = (r: ApprovalQtyRow) => {
+    const key = r.style_ref_no.trim();
+    if (!key) return 0;
+    return Number(styles.find((x) => x.style_ref_no.trim() === key)?.po_qty) || 0;
+  };
+  const excessQtyOf = (r: ApprovalQtyRow) => Math.ceil((poQtyOf(r) * excessPct) / 100);
+  const approvalOf = (r: ApprovalQtyRow) => Number(r.approval_qty) || 0;
+  const totalQtyOf = (r: ApprovalQtyRow) => poQtyOf(r) + excessQtyOf(r) + approvalOf(r);
+
+  /** A derived figure, shown as text — never an input, so it cannot be edited
+   *  into disagreeing with the sum it comes from. */
+  const derivedCell = (n: number) => (
+    <span className="block text-right text-sm tabular-nums text-muted-foreground">
+      {fmtNumber(n)}
+    </span>
+  );
+
+  // ---------------- Pack type(s) (0399) ----------------
+
+  /**
+   * ONE column, because the legacy grid has one: S No + Pack Type.
+   *
+   * `required`, so a row that exists names a method — the tab's entire content
+   * is this cell, and a blank one is a row that says nothing. The hold is
+   * satisfiable with the keyboard alone: `keyFills` lets ↓ open a `<select>`'s
+   * list and the arrows pick within it, and Ctrl+Del still removes a row the
+   * operator should not have added (AGENTS.md, "Mandatory fields").
+   *
+   * A `<Select>` and not a picker: four fixed options, no master behind them,
+   * nothing to search — the same call the Prices tab's Price Type makes.
+   */
+  const packTypeColumns: ChildGridColumn<PackTypeRow>[] = [
+    {
+      header: "Pack Type",
+      required: true,
+      cell: (r) => (
+        <Select
+          value={r.pack_type}
+          onChange={(e) =>
+            setPackTypes((xs) =>
+              xs.map((x) => (x.key === r.key ? { ...x, pack_type: e.target.value } : x)),
+            )
+          }
+        >
+          <option value="">—</option>
+          {packTypeOptions(r).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+  ];
+
+  // ---------------- Quantities (0398) ----------------
+
+  /**
+   * Ref No offers THIS AMENDMENT'S OWN STYLES, not the style master.
+   *
+   * `(sales_order_id, style_ref_no)` is the Orders module key, so a quantity row
+   * must name a style the amendment actually carries — otherwise nothing
+   * downstream can resolve it. Same rule as Style ▸ Components ▸ Coordinate, and
+   * the client's "green arrow: data from a previous tab".
+   *
+   * The value a row already holds SURVIVES the list even if that style is later
+   * removed from the Styles tab: dropping it would show a filled cell as empty
+   * and blank it on the next save.
+   */
+  const refNoOptions = (held: string) => {
+    const rows = styles
+      .filter((x) => x.style_ref_no.trim())
+      .map((x) => ({ id: x.style_ref_no, code: null, name: x.style_ref_no }));
+    if (held && !rows.some((r) => r.id === held)) {
+      rows.push({ id: held, code: null, name: `${held} (not on Styles)` });
+    }
+    return rows;
+  };
+
+  /** The style NAME behind a ref no, read off the Styles tab so the two cannot
+   *  disagree. Empty when the ref names no style the amendment carries. */
+  const styleNoForRef = (ref: string) =>
+    data.styles.find(
+      (st) => st.id === styles.find((x) => x.style_ref_no === ref)?.style_id,
+    )?.name ?? "";
+
+  const setQty = (key: string, patch: Partial<QuantityRow>) =>
+    setQuantities((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+
+  const assortmentTypes = lookups.filter((l) => l.kind === "assortment_type");
+
+  const quantityColumns: ChildGridColumn<QuantityRow>[] = [
+    {
+      header: "Country",
+      width: "9rem",
+      cell: (r) => (
+        <CountryPicker
+          countries={data.countries}
+          value={r.country_id}
+          onChange={(id) => setQty(r.key, { country_id: id })}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          required={false}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Ref No",
+      width: "8rem",
+      cell: (r) => (
+        <RecordPicker
+          label="Ref No"
+          compact
+          items={refNoOptions(r.style_ref_no)}
+          value={r.style_ref_no || null}
+          // Style No follows the ref, so the two are answered once.
+          onChange={(v) =>
+            setQty(r.key, { style_ref_no: v ?? "", style_no: styleNoForRef(v ?? "") })
+          }
+        />
+      ),
+    },
+    {
+      header: "Consignee",
+      width: "12rem",
+      cell: (r) => (
+        <RecordPicker
+          label="Consignee"
+          compact
+          items={data.consignees}
+          value={r.consignee_id}
+          onChange={(id) => setQty(r.key, { consignee_id: id })}
+        />
+      ),
+    },
+    {
+      header: "Assortment Type",
+      width: "12rem",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="assortment_type"
+          label="Assortment Type"
+          options={assortmentTypes}
+          value={r.assortment_type_id}
+          onChange={(id) => setQty(r.key, { assortment_type_id: id })}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          compact
+        />
+      ),
+    },
+    {
+      header: "PO Qty",
+      align: "right",
+      width: "7rem",
+      total: { kind: "sum", of: (r) => Number(r.po_qty) || 0 },
+      cell: (r) => (
+        <Input
+          className="h-8 text-right"
+          inputMode="decimal"
+          value={r.po_qty}
+          onChange={(e) => setQty(r.key, { po_qty: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Delivery Dt",
+      width: "10rem",
+      cell: (r) => (
+        <Input
+          type="date"
+          className="h-8"
+          value={r.delivery_date}
+          onChange={(e) => setQty(r.key, { delivery_date: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Earlier Shipment Dt",
+      width: "10rem",
+      cell: (r) => (
+        <Input
+          type="date"
+          className="h-8"
+          value={r.earlier_shipment_date}
+          onChange={(e) => setQty(r.key, { earlier_shipment_date: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Style No",
+      width: "12rem",
+      // Filled by Ref No. `readOnly` takes it out of the Tab path on its own and
+      // can never hold the cursor, which is what a derived field must do.
+      cell: (r) => <Input readOnly className="h-8" value={r.style_no} placeholder="—" />,
+    },
+    {
+      header: "WareHouse",
+      width: "10rem",
+      cell: (r) => (
+        <RecordPicker
+          label="WareHouse"
+          compact
+          items={data.warehouses}
+          value={r.warehouse_id}
+          onChange={(id) => setQty(r.key, { warehouse_id: id })}
+        />
+      ),
+    },
+    {
+      header: "Discharge Port",
+      width: "10rem",
+      cell: (r) => (
+        <RecordPicker
+          label="Discharge Port"
+          compact
+          items={data.ports}
+          value={r.discharge_port_id}
+          onChange={(id) => setQty(r.key, { discharge_port_id: id })}
+        />
+      ),
+    },
+  ];
+
+  const approvalQtyColumns: ChildGridColumn<ApprovalQtyRow>[] = [
+    {
+      header: "Style",
+      required: true,
+      width: "16rem",
+      cell: (r) => (
+        <div className="space-y-1">
+          <RecordPicker
+            label="Style"
+            compact
+            items={styleLineItems}
+            identity="code"
+            value={styleLineKeyOf(r.style_ref_no)}
+            onChange={(key) => {
+              const line = key ? styles.find((x) => x.key === key) : null;
+              setApprovalQtys((xs) =>
+                xs.map((x) =>
+                  x.key === r.key
+                    ? {
+                        ...x,
+                        style_ref_no: line?.style_ref_no ?? "",
+                        style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
+                        article_no: line?.article_no ?? "",
+                      }
+                    : x,
+                ),
+              );
+            }}
+          />
+          {r.article_no && <p className="text-xs text-muted-foreground">{r.article_no}</p>}
+        </div>
+      ),
+    },
+    {
+      header: "PO Qty",
+      align: "right",
+      width: "7rem",
+      cell: (r) => derivedCell(poQtyOf(r)),
+      total: { kind: "derived", value: (rows) => fmtNumber(rows.reduce((a, r) => a + poQtyOf(r), 0)) },
+    },
+    {
+      header: `Excess (${excessPct || 0}%)`,
+      align: "right",
+      width: "7rem",
+      cell: (r) => derivedCell(excessQtyOf(r)),
+      total: { kind: "derived", value: (rows) => fmtNumber(rows.reduce((a, r) => a + excessQtyOf(r), 0)) },
+    },
+    {
+      header: "Approval Qty",
+      align: "right",
+      width: "8rem",
+      // The one figure nothing can derive: pieces for buyer testing and office
+      // records. Not `required` — zero is a legitimate answer.
+      cell: (r) => (
+        <Input
+          type="number"
+          className="text-right"
+          value={r.approval_qty}
+          onChange={(e) =>
+            setApprovalQtys((xs) =>
+              xs.map((x) => (x.key === r.key ? { ...x, approval_qty: e.target.value } : x)),
+            )
+          }
+        />
+      ),
+      // `of` returns a number: the row holds the half-typed STRING from the box.
+      total: { kind: "sum", of: approvalOf },
+    },
+    {
+      header: "Total Production",
+      align: "right",
+      width: "9rem",
+      cell: (r) => (
+        <span className="block text-right text-sm font-medium tabular-nums text-foreground">
+          {fmtNumber(totalQtyOf(r))}
+        </span>
+      ),
+      total: { kind: "derived", value: (rows) => fmtNumber(rows.reduce((a, r) => a + totalQtyOf(r), 0)) },
+    },
+  ];
+
+  /**
+   * Style Prices — SEVEN real inputs, the widest row on the screen and squarely
+   * in §6's "6-8 -> stacked card per row" band. It was an 820px table.
+   */
+  const stylePriceColumns: ChildGridColumn<StylePriceRow>[] = (
+    [
+      ["Style Ref No", "style_ref_no", "text"],
+      ["Style", "style", "text"],
+      ["Price", "price", "number"],
+      ["CSP Type", "csp_type", "text"],
+      ["CSP Price", "csp_price", "number"],
+      ["FOB Buyer", "fob_buyer_price", "number"],
+      ["FOB Selling", "fob_selling_price", "number"],
+    ] as [string, keyof StylePriceRow, string][]
+  ).map(([header, field, kind]) => ({
+    header,
+    align: kind === "number" ? ("right" as const) : ("left" as const),
+    cell: (r: StylePriceRow) => (
+      <Input
+        type={kind === "number" ? "number" : undefined}
+        className={kind === "number" ? "text-right" : undefined}
+        value={String(r[field] ?? "")}
+        onChange={(e) =>
+          setStylePrices((xs) =>
+            xs.map((x) => (x.key === r.key ? { ...x, [field]: e.target.value } : x)),
+          )
+        }
+      />
+    ),
+  }));
+
+  /** One blank Style Prices row. Was written out three times — the caption's
+   *  onAdd, the grid's keyboard add, and nothing else agreed with either. */
   const tabs: TabItem[] = [
     // ---------------- Style(s) ----------------
     {
       key: "styles",
       label: "Style(s)",
       content: (
-        <GridCard title="Styles Details" onAdd={addStyle}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1000px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">Style Ref No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Style</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Article No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Category</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Order Unit</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Plan Unit</th>
-                  <th className="px-2 py-1.5 text-right font-medium">PO Qty</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Description</th>
-                  <th className="px-2 py-1.5 text-center font-medium">Process</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addStyle)}>
-                {styles.map((r) => (
-                  <tr key={r.key} data-grid-row className="border-b border-border align-top last:border-0">
-                    <td className="px-2 py-1">
-                      <Input value={r.style_ref_no} onChange={(e) => updateStyle(r.key, { style_ref_no: e.target.value })} className="h-8 min-w-[120px]" />
-                    </td>
-                    <td className="px-2 py-1 min-w-[200px]">
-                      <RecordPicker label="Style" compact items={styleItems} value={r.style_id} onChange={(id) => pickStyle(r.key, id)} />
-                    </td>
-                    <td className="px-2 py-1 text-xs text-muted-foreground">{r.article_no || "—"}</td>
-                    <td className="px-2 py-1 text-xs text-muted-foreground">{r.style_category || "—"}</td>
-                    <td className="px-2 py-1 min-w-[140px]">
-                      <RecordPicker label="Order Unit" compact items={data.uoms} value={r.order_unit_id} onChange={(id) => updateStyle(r.key, { order_unit_id: id })} />
-                    </td>
-                    <td className="px-2 py-1 min-w-[140px]">
-                      <RecordPicker label="Plan Unit" compact items={data.uoms} value={r.plan_unit_id} onChange={(id) => updateStyle(r.key, { plan_unit_id: id })} />
-                    </td>
-                    <td className="px-2 py-1">
-                      <Input type="number" value={r.po_qty} onChange={(e) => updateStyle(r.key, { po_qty: e.target.value })} className="h-8 w-24 text-right" />
-                    </td>
-                    <td className="px-2 py-1">
-                      <Input value={r.description} onChange={(e) => updateStyle(r.key, { description: e.target.value })} className="h-8 min-w-[140px]" />
-                    </td>
-                    <td className="px-2 py-1 text-center">
-                      <Button type="button" variant="outline" size="sm" disabled title="Nested Process screen — awaiting spec">
-                        Process
-                      </Button>
-                    </td>
-                    <td className="px-2 py-1">
-                      <RowRemove onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))} />
-                    </td>
-                  </tr>
-                ))}
-                {styles.length === 0 && <EmptyRow cols={10} label="styles" seeded={seeded} />}
-              </tbody>
-            </table>
-          </div>
-        </GridCard>
+        <>
+          {/* CARDS, NOT A TABLE. Six real inputs per row, which LAYOUT.md §6 puts
+              in the "6-8 -> stacked card per row" band; the table this replaces
+              was `min-w-[1000px]` inside an `overflow-x-auto` and scrolled
+              sideways inside the section rail (client 2026-08-10). `listRows`
+              means this row draws its own header, which is why the #N band and
+              the remove button are rendered below rather than by the grid.
+
+              `pageSize` rather than an inner scrollbar — "no scroll-in-a-box"
+              (client 2026-07-25); it self-hides when everything fits. */}
+          <ChildGrid<StyleRow>
+            label="Styles Details"
+            badge={
+              form.mult_ord ? (
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  Multiple styles on this PO
+                </span>
+              ) : (
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  One style per PO · tick Mult. Ord to add more
+                </span>
+              )
+            }
+            columns={styleColumns}
+            rows={styles}
+            forceCards
+            listRows
+            pageSize={5}
+            /**
+             * MULT. ORD IS THE CAP, and this is the whole of its meaning.
+             *
+             * A buyer's PO names one style in ~98% of cases; occasionally one PO
+             * covers several distinct styles (a Men's and a Women's tee). Mult.
+             * Ord = Yes is the operator saying "this PO is one of those", and
+             * until they do, the grid holds exactly one line.
+             *
+             * `hideAdd` rather than a check inside `addStyle`, because it does
+             * two things at once: it removes the button AND makes Enter on the
+             * last field DECLINE instead of growing the grid, so the keyboard
+             * cannot get past the cap either. Same prop, same reason, as the
+             * "Single Yarn fabric = exactly one component" cap on Style master.
+             *
+             * NON-DESTRUCTIVE ON THE WAY BACK. Un-ticking Mult. Ord on an order
+             * that already lists three styles caps further ADDS; it never drops
+             * the rows already entered. Silently deleting two styles because a
+             * checkbox changed is data loss dressed up as a rule.
+             */
+            hideAdd={!form.mult_ord && styles.length >= 1}
+            onAdd={addStyle}
+            onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add style"
+            renderMobileRow={(r, i) => (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    #{i + 1}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-row-remove
+                    className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
+                    onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
+                    aria-label="Remove style"
+                  >
+                    <Trash2 className="h-4 w-4 shrink-0" />
+                  </Button>
+                </div>
+                {/* `required={col.required}` is not optional plumbing: with
+                    `renderMobileRow` supplied, ChildGrid stops wrapping cells in
+                    its own `RequiredScope` (child-grid.tsx:1119), so this Field
+                    is the ONLY place a column's declaration can reach. Drop it
+                    and the `*` and the cursor hold both silently vanish while
+                    the column still reads `required: true`. */}
+                <FieldGrid>
+                  {styleColumns.map((col) => (
+                    <Field
+                      key={col.header}
+                      label={col.header}
+                      required={col.required}
+                      size="sm"
+                    >
+                      {col.cell(r, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              </div>
+            )}
+          />
+          <EmptyNote rows={styles.length} label="styles" seeded={seeded} />
+        </>
       ),
     },
     // ---------------- Color / Print Details ----------------
@@ -854,74 +2000,88 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       label: "Color/Print Details",
       content: (
         <div className="space-y-4">
+          {/* WHAT THE ORDER'S FABRICS NEED — said, never enforced.
+              Melange takes its colour from the purchased yarn and yarn-dyed is
+              coloured before knitting, so neither needs a dyeing row. But
+              `item_sub_type` is per FABRIC ROW, so a mixed order is normal and
+              both grids stay fully usable; hiding one would strand rows already
+              saved on a grid that no longer renders (client 2026-08-10). */}
+          <FabricTypeHint counts={fabricTypes} />
+          {/* THE COLOUR LIST HAS NO CREATE ROUTE FROM HERE, so an empty one has to
+              say where it is filled. Colour is buyer-scoped: it lives on the
+              buyer's Colour Cards, which is how palettes are actually issued
+              (there is no global colour master — `public.colors` was dropped by
+              0382 as "not applicable to the business process"). Print and
+              Structure need no equivalent: both are LookupDialogPickers and can
+              be added inline. */}
+          {dyeColorItems.length === 0 && (
+            <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+              No colours to pick yet.{" "}
+              {form.buyer_id
+                ? "This customer has no Colour Card entries — add them under Orders ▸ Colour Cards, then reopen this tab."
+                : "Pick a Customer first, or add entries under Orders ▸ Colour Cards."}
+            </p>
+          )}
           {/* Yarn dyeing */}
-          <GridCard title="Yarn Dyeing" onAdd={() => addDyeing("yarn")}>
-            <DyeTable
+          <div>
+            <ChildGrid<DyeingRow>
+              label="Yarn Dyeing"
+              columns={dyeColumns}
               rows={dyeings.filter((d) => d.section === "yarn")}
-              colorItems={dyeColorItems}
-              onUpdate={(key, patch) => setDyeings((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)))}
-              onRemove={(key) => setDyeings((xs) => xs.filter((x) => x.key !== key))}
+              inlineCards
+              onAdd={() => addDyeing("yarn")}
+              onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add yarn dyeing"
             />
-          </GridCard>
+            <EmptyNote
+              rows={dyeings.filter((d) => d.section === "yarn").length}
+              label="yarn dyeing"
+              seeded={seeded}
+            />
+          </div>
           {/* Fabric dyeing */}
-          <GridCard title="Fabric Dyeing" onAdd={() => addDyeing("fabric")}>
-            <DyeTable
+          <div>
+            <ChildGrid<DyeingRow>
+              label="Fabric Dyeing"
+              columns={dyeColumns}
               rows={dyeings.filter((d) => d.section === "fabric")}
-              colorItems={dyeColorItems}
-              onUpdate={(key, patch) => setDyeings((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)))}
-              onRemove={(key) => setDyeings((xs) => xs.filter((x) => x.key !== key))}
+              inlineCards
+              onAdd={() => addDyeing("fabric")}
+              onRemove={(r) => setDyeings((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add fabric dyeing"
             />
-          </GridCard>
+            <EmptyNote
+              rows={dyeings.filter((d) => d.section === "fabric").length}
+              label="fabric dyeing"
+              seeded={seeded}
+            />
+          </div>
           {/* Roll-form prints */}
-          <GridCard title="Roll Form Prints" onAdd={addPrint}>
-            <div className="space-y-2">
-              {prints.map((r) => (
-                <div key={r.key} className="flex items-center gap-2">
-                  <div className="min-w-[240px] flex-1">
-                    <LookupDialogPicker
-                      kind="roll_form_print"
-                      label="Print"
-                      compact
-                      options={printOpts}
-                      value={r.print_id}
-                      onChange={(id) => setPrints((xs) => xs.map((x) => (x.key === r.key ? { ...x, print_id: id } : x)))}
-                      canCreate={masterPerms.canCreate}
-                      canEdit={masterPerms.canEdit}
-                    />
-                  </div>
-                  <RowRemove onClick={() => setPrints((xs) => xs.filter((x) => x.key !== r.key))} />
-                </div>
-              ))}
-              {prints.length === 0 && (
-                <p className="py-4 text-center text-xs text-muted-foreground">{seeded ? "This order records no prints." : "No prints."} Use “Add row”.</p>
-              )}
-            </div>
-          </GridCard>
+          <div>
+            <ChildGrid<PrintRow>
+              label="Roll Form Prints"
+              columns={printColumns}
+              rows={prints}
+              inlineCards
+              onAdd={addPrint}
+              onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add print"
+            />
+            <EmptyNote rows={prints.length} label="prints" seeded={seeded} />
+          </div>
           {/* Structures */}
-          <GridCard title="Structures" onAdd={addStructure}>
-            <div className="space-y-2">
-              {structures.map((r) => (
-                <div key={r.key} className="flex items-center gap-2">
-                  <div className="min-w-[240px] flex-1">
-                    <LookupDialogPicker
-                      kind="structure"
-                      label="Structure"
-                      compact
-                      options={structureOpts}
-                      value={r.structure_id}
-                      onChange={(id) => setStructures((xs) => xs.map((x) => (x.key === r.key ? { ...x, structure_id: id } : x)))}
-                      canCreate={masterPerms.canCreate}
-                      canEdit={masterPerms.canEdit}
-                    />
-                  </div>
-                  <RowRemove onClick={() => setStructures((xs) => xs.filter((x) => x.key !== r.key))} />
-                </div>
-              ))}
-              {structures.length === 0 && (
-                <p className="py-4 text-center text-xs text-muted-foreground">{seeded ? "This order records no structures." : "No structures."} Use “Add row”.</p>
-              )}
-            </div>
-          </GridCard>
+          <div>
+            <ChildGrid<StructureRow>
+              label="Structures"
+              columns={structureColumns}
+              rows={structures}
+              inlineCards
+              onAdd={addStructure}
+              onRemove={(r) => setStructures((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add structure"
+            />
+            <EmptyNote rows={structures.length} label="structures" seeded={seeded} />
+          </div>
         </div>
       ),
     },
@@ -930,35 +2090,18 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       key: "combos",
       label: "Combos",
       content: (
-        <GridCard title="Combos Details" onAdd={addCombo}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">Style Ref No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Style</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Article No</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addCombo)}>
-                {combos.map((r) => {
-                  const upd = (patch: Partial<ComboRow>) =>
-                    setCombos((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
-                  return (
-                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                      <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><RowRemove onClick={() => setCombos((xs) => xs.filter((x) => x.key !== r.key))} /></td>
-                    </tr>
-                  );
-                })}
-                {combos.length === 0 && <EmptyRow cols={4} label="combos" seeded={seeded} />}
-              </tbody>
-            </table>
-          </div>
-        </GridCard>
+        <>
+          <ChildGrid<ComboRow>
+            label="Combos Details"
+            columns={comboColumns}
+            rows={combos}
+            inlineCards
+            onAdd={addCombo}
+            onRemove={(r) => setCombos((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add combo"
+          />
+          <EmptyNote rows={combos.length} label="combos" seeded={seeded} />
+        </>
       ),
     },
     // ---------------- Prices ----------------
@@ -966,81 +2109,153 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
       key: "prices",
       label: "Prices",
       content: (
-        <GridCard title="Price Details" onAdd={addPriceDetail}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">Style Ref No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Style</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Article No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Price Type</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Unit</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Price</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addPriceDetail)}>
-                {priceDetails.map((r) => {
-                  const upd = (patch: Partial<PriceDetailRow>) =>
-                    setPriceDetails((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
-                  return (
-                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                      <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.price_type} onChange={(e) => upd({ price_type: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.unit} onChange={(e) => upd({ unit: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input type="number" value={r.price} onChange={(e) => upd({ price: e.target.value })} className="h-8 w-28 text-right" /></td>
-                      <td className="px-2 py-1"><RowRemove onClick={() => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))} /></td>
-                    </tr>
-                  );
-                })}
-                {priceDetails.length === 0 && <EmptyRow cols={7} label="prices" seeded={seeded} />}
-              </tbody>
-            </table>
-          </div>
-        </GridCard>
+        <>
+          {/* THREE real inputs now that Style/Article/Unit are wired from the
+              Style(s) tab rather than typed — LAYOUT.md §6's "<=3 -> inlineCards"
+              band. It was `forceCards` while it had six, which is the point of
+              choosing by input count rather than by habit: the same grid moves
+              band when its content changes. */}
+          <ChildGrid<PriceDetailRow>
+            label="Price Details"
+            columns={priceDetailColumns}
+            rows={priceDetails}
+            inlineCards
+            onAdd={addPriceDetail}
+            onRemove={(r) => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add price"
+          />
+          <EmptyNote rows={priceDetails.length} label="prices" seeded={seeded} />
+        </>
       ),
     },
-    placeholderTab("packtypes", "Pack type(s)"),
-    placeholderTab("quantities", "Quantities"),
+    /**
+     * Pack type(s) is GATED ON THE Pack TOGGLE (client 2026-08-10): the tab is
+     * where solid vs assorted sizes/colours are defined, and that question only
+     * arises once the operator says this order is packed to a scheme.
+     *
+     * The section stays in the rail either way rather than appearing and
+     * disappearing as a checkbox is ticked — a rail whose sections come and go
+     * loses the operator their place. It says which switch turns it on instead.
+     */
+    form.pack
+      ? {
+          key: "packtypes",
+          label: "Pack type(s)",
+          content: (
+            <>
+              {/* ONE real input, so §6's "<=3 -> inlineCards" band — and this is
+                  the extreme of it: a card per row would be a card around a
+                  single dropdown. The `badge` carries the ceiling, because a
+                  "+ Add" that declines silently on the fifth click reads as a
+                  broken button; "3 of 4 methods" says why before it happens. */}
+              <ChildGrid<PackTypeRow>
+                label="Pack Type(s)"
+                badge={
+                  <span className="text-xs text-muted-foreground">
+                    {packTypes.filter((r) => r.pack_type).length} of{" "}
+                    {PACK_TYPE_OPTIONS.length} methods
+                  </span>
+                }
+                columns={packTypeColumns}
+                rows={packTypes}
+                inlineCards
+                onAdd={addPackType}
+                onRemove={(r) => setPackTypes((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add pack type"
+              />
+              {/* WHAT THE FOUR MEAN, under the grid rather than in it. The names
+                  are the trade's and the colour and size axes are independent,
+                  which is not obvious from the wording alone — and the operator
+                  is choosing on behalf of a Packing List they cannot see from
+                  here. Static text, so it is not a second place the vocabulary
+                  is declared: it reads PACK_TYPE_OPTIONS for the names. */}
+              <p className="mt-3 text-xs text-muted-foreground">
+                How finished garments are sorted into cartons — the colour and
+                size axes are independent. <strong>Solid</strong> means one per
+                carton, <strong>Assort</strong> means mixed:{" "}
+                {PACK_TYPE_OPTIONS.join(" · ")}.
+              </p>
+            </>
+          ),
+        }
+      : {
+          key: "packtypes",
+          label: "Pack type(s)",
+          content: (
+            <div className="rounded-md border border-dashed border-border bg-surface-muted/40 px-4 py-10 text-center">
+              <p className="text-sm font-medium text-foreground">Pack type(s)</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                This order is not packed to a scheme, so there are no pack types
+                to define (solid vs assorted sizes and colours).
+              </p>
+              {/* THE NOTE USED TO NAME A CHECKBOX ON ANOTHER SECTION and leave the
+                  operator to go and find it — which read as the tab being broken
+                  rather than switched off (2026-08-11). The button IS that
+                  checkbox: it sets the same header field, so `Pack` in Order Info
+                  ticks itself and this panel becomes the grid in place. Nothing
+                  navigates, so nothing typed on this section is left behind. */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => set({ pack: true })}
+              >
+                Turn Pack on
+              </Button>
+            </div>
+          ),
+        },
+    // ---------------- Quantities ----------------
+    {
+      key: "quantities",
+      label: "Quantities",
+      content: (
+        <>
+          {/* Ten columns at ~100rem, so it SCROLLS horizontally inside
+              ChildGrid's own `overflow-x-auto` rather than squeezing — which is
+              what the legacy grid does too. The widths are honoured because
+              every column declares one, which puts the table into `table-fixed`;
+              under the default auto layout they are only suggestions and all ten
+              collapse to "— S…". `Assort` — the legacy
+              [Click] that opens a size breakdown — is deliberately not here yet
+              (client 2026-08-11); the table and its Zod type carry no trace of
+              it, so adding it later is additive. */}
+          <ChildGrid<QuantityRow>
+            label="Quantities Details"
+            columns={quantityColumns}
+            rows={quantities}
+            totalsLabel="Total PO Qty"
+            onAdd={() => setQuantities((xs) => [...xs, blankQuantity()])}
+            onRemove={(r) => setQuantities((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add quantity"
+          />
+          <EmptyNote rows={quantities.length} label="quantities" seeded={seeded} />
+        </>
+      ),
+    },
     // ---------------- Approval Qty ----------------
     {
       key: "approvalqty",
       label: "Approval Qty",
       content: (
-        <GridCard title="Approval Quantity" onAdd={addApprovalQty}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">Style Ref No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Style</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Article No</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Approval Qty</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addApprovalQty)}>
-                {approvalQtys.map((r) => {
-                  const upd = (patch: Partial<ApprovalQtyRow>) =>
-                    setApprovalQtys((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
-                  return (
-                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                      <td className="px-2 py-1"><Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input value={r.article_no} onChange={(e) => upd({ article_no: e.target.value })} className="h-8" /></td>
-                      <td className="px-2 py-1"><Input type="number" value={r.approval_qty} onChange={(e) => upd({ approval_qty: e.target.value })} className="h-8 w-28 text-right" /></td>
-                      <td className="px-2 py-1"><RowRemove onClick={() => setApprovalQtys((xs) => xs.filter((x) => x.key !== r.key))} /></td>
-                    </tr>
-                  );
-                })}
-                {approvalQtys.length === 0 && <EmptyRow cols={5} label="approval quantities" seeded={seeded} />}
-              </tbody>
-            </table>
-          </div>
-        </GridCard>
+        <>
+          {/* Two real inputs (style, approval qty) — §6's inlineCards band. The
+              totals band is `ChildGridColumn.total`, which sums over EVERY row
+              rather than the visible page, so the production target is right on a
+              paginated grid. */}
+          <ChildGrid<ApprovalQtyRow>
+            label="Approval Quantity"
+            columns={approvalQtyColumns}
+            rows={approvalQtys}
+            inlineCards
+            totalsLabel="Production target"
+            onAdd={addApprovalQty}
+            onRemove={(r) => setApprovalQtys((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add approval qty"
+          />
+          <EmptyNote rows={approvalQtys.length} label="approval quantities" seeded={seeded} />
+        </>
       ),
     },
     // Country/Sizewise WITHDRAWN 2026-08-10 (client): the information is
@@ -1055,39 +2270,70 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         <div className="space-y-4">
           {/* Logistic scalars */}
           <Card>
-            <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* FieldGrid, not a hand-written `grid-cols-1 sm:grid-cols-2
+                lg:grid-cols-3`: the 12-column track and the gap are the
+                primitive's, decided once, so this section lines up with the
+                Order Info fields above rather than agreeing with them by
+                coincidence (raagam-screen-layout: a screen composes, it does
+                not draw). */}
+            <CardBody>
+              <FieldGrid>
               {/* Department, Agent and Received (mode) withdrawn 2026-08-10
                   (client). Their columns and stored values remain; they left the
                   Zod input too, which is what stops a save nulling them. */}
-              <LookupDialogPicker
-                kind="ship_type"
-                label="Ship Type"
-                options={shipTypeOpts}
-                value={form.ship_type_id}
-                onChange={(id) => set({ ship_type_id: id })}
-                required
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-              />
-              <RecordPicker
-                label="Contact"
-                items={data.contacts}
-                value={form.contact_id}
-                onChange={(id) => set({ contact_id: id })}
-              />
-              <div>
-                <Label htmlFor="lg-podate">PO Date</Label>
+              {/* ONE SIZE, EVERY FIELD — `size="sm"` (3 of 12), four per row, so
+                  these 12 fields fill three flush rows and line up with the
+                  Order Info section rather than agreeing with it by coincidence.
+                  The `FieldGrid` above was never the problem: a span comes ONLY
+                  from `<Field size>`, so a child that is not a sized `Field`
+                  takes ONE of the 12 columns. Nine of these were bare pickers and
+                  hand-rolled `<div><Label/><Input/></div>` pairs and rendered
+                  ~90px wide, clipping their own values ("— Sel", "dd-m…"), while
+                  the three real `<Field>`s passed no `size` and fell back to the
+                  retired `md` (4 of 12) and sprawled. Row 1 summed to exactly 12
+                  and row 2 to 9, which is where the trailing gap came from
+                  (client 2026-08-11).
+
+                  Every picker takes `compact` so the `Field` draws the only
+                  label — and `required` MOVES onto the Field with it, because
+                  `data-picker.tsx` renders the red `*` inside the same
+                  `!compact` branch as the label. Each picker keeps its own
+                  `required` too; `DataPicker` ORs the prop with the
+                  `RequiredScope` context, so the cursor hold is unchanged. */}
+              <Field label="Ship Type" required size="sm">
+                <LookupDialogPicker
+                  kind="ship_type"
+                  label="Ship Type"
+                  compact
+                  options={shipTypeOpts}
+                  value={form.ship_type_id}
+                  onChange={(id) => set({ ship_type_id: id })}
+                  required
+                  canCreate={masterPerms.canCreate}
+                  canEdit={masterPerms.canEdit}
+                />
+              </Field>
+              <Field label="Contact" size="sm">
+                <RecordPicker
+                  label="Contact"
+                  compact
+                  items={data.contacts}
+                  value={form.contact_id}
+                  onChange={(id) => set({ contact_id: id })}
+                />
+              </Field>
+              <Field label="PO Date" size="sm" htmlFor="lg-podate">
                 <Input
                   id="lg-podate"
                   type="date"
                   value={form.logi_po_date}
                   onChange={(e) => set({ logi_po_date: e.target.value })}
                 />
-              </div>
+              </Field>
               {/* `<Field required>` rather than a bare Label: a `<Select>` reads
                   requiredness from context (`select.tsx` → `useRequiredHold`), so
                   the star and the cursor hold both come from this one prop. */}
-              <Field label="Ship Mode" required htmlFor="lg-shipmode">
+              <Field label="Ship Mode" required size="sm" htmlFor="lg-shipmode">
                 <Select
                   id="lg-shipmode"
                   value={form.ship_mode}
@@ -1099,18 +2345,26 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   ))}
                 </Select>
               </Field>
-              <CountryPicker
-                countries={data.countries}
-                value={form.country_id}
-                onChange={(id) => set({ country_id: id })}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-              />
+              {/* `CountryPicker`'s own `required` DEFAULTS TO TRUE, so the star
+                  this field has always drawn appears nowhere in the call site.
+                  `compact` suppresses that label and its star together, which is
+                  why the wrapper has to say `required` out loud — leaving it off
+                  would quietly unmark a mandatory field (a122adc). */}
+              <Field label="Country" required size="sm">
+                <CountryPicker
+                  compact
+                  countries={data.countries}
+                  value={form.country_id}
+                  onChange={(id) => set({ country_id: id })}
+                  canCreate={masterPerms.canCreate}
+                  canEdit={masterPerms.canEdit}
+                />
+              </Field>
               {/* `CurrencyPicker` has no `required` prop of its own, so the
                   scope comes from the wrapper — its inner `DataPicker` ORs the
                   context (`data-picker.tsx:292`). `compact` because the Field
                   now draws the label. */}
-              <Field label="Currency" required>
+              <Field label="Currency" required size="sm">
                 <CurrencyPicker
                   label="Currency"
                   compact
@@ -1121,25 +2375,23 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   canEdit={masterPerms.canEdit}
                 />
               </Field>
-              <div>
-                <Label htmlFor="lg-exrate">Ex-Rate</Label>
+              <Field label="Ex-Rate" size="sm" htmlFor="lg-exrate">
                 <Input
                   id="lg-exrate"
                   type="number"
                   value={form.ex_rate}
                   onChange={(e) => set({ ex_rate: e.target.value })}
                 />
-              </div>
-              <div>
-                <Label htmlFor="lg-recdate">Received</Label>
+              </Field>
+              <Field label="Received" size="sm" htmlFor="lg-recdate">
                 <Input
                   id="lg-recdate"
                   type="date"
                   value={form.received_date}
                   onChange={(e) => set({ received_date: e.target.value })}
                 />
-              </div>
-              <Field label="Pay Mode" required htmlFor="lg-paymode">
+              </Field>
+              <Field label="Pay Mode" required size="sm" htmlFor="lg-paymode">
                 <Select
                   id="lg-paymode"
                   value={form.pay_mode}
@@ -1151,33 +2403,35 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
                   ))}
                 </Select>
               </Field>
-              <PaymentTermPicker
-                label="Pay Terms"
-                required
-                options={payTermOpts}
-                value={form.pay_terms_id}
-                onChange={(id) => set({ pay_terms_id: id })}
-                canCreate={masterPerms.canCreate}
-                canEdit={masterPerms.canEdit}
-              />
-              <div>
-                <Label htmlFor="lg-avgrate">Avg Rate</Label>
+              <Field label="Pay Terms" required size="sm">
+                <PaymentTermPicker
+                  label="Pay Terms"
+                  compact
+                  required
+                  options={payTermOpts}
+                  value={form.pay_terms_id}
+                  onChange={(id) => set({ pay_terms_id: id })}
+                  canCreate={masterPerms.canCreate}
+                  canEdit={masterPerms.canEdit}
+                />
+              </Field>
+              <Field label="Avg Rate" size="sm" htmlFor="lg-avgrate">
                 <Input
                   id="lg-avgrate"
                   type="number"
                   value={form.avg_rate}
                   onChange={(e) => set({ avg_rate: e.target.value })}
                 />
-              </div>
-              <div>
-                <Label htmlFor="lg-gross">Gross Value</Label>
+              </Field>
+              <Field label="Gross Value" size="sm" htmlFor="lg-gross">
                 <Input
                   id="lg-gross"
                   type="number"
                   value={form.gross_value}
                   onChange={(e) => set({ gross_value: e.target.value })}
                 />
-              </div>
+              </Field>
+              </FieldGrid>
             </CardBody>
           </Card>
 
@@ -1192,101 +2446,56 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
               existing amendment leaves the stored charges exactly as they are
               rather than wiping them. */}
           {/* Style-wise price grid */}
-          <GridCard
-            title="Style Prices"
-            onAdd={() =>
-              setStylePrices((xs) => [
-                ...xs,
-                {
-                  key: newKey(),
-                  style_ref_no: "",
-                  style: "",
-                  price: "",
-                  csp_type: "",
-                  csp_price: "",
-                  fob_buyer_price: "",
-                  fob_selling_price: "",
-                },
-              ])
-            }
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                    <th className="px-2 py-1.5 text-left font-medium">Style Ref No</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Style</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Price</th>
-                    <th className="px-2 py-1.5 text-left font-medium">CSP Type</th>
-                    <th className="px-2 py-1.5 text-right font-medium">CSP Price</th>
-                    <th className="px-2 py-1.5 text-right font-medium">FOB Buyer</th>
-                    <th className="px-2 py-1.5 text-right font-medium">FOB Selling</th>
-                    <th className="w-10" />
-                  </tr>
-                </thead>
-                <tbody
-                  data-grid-body
-                  onKeyDown={(e) =>
-                    gridKeyNav(e, () =>
-                      setStylePrices((xs) => [
-                        ...xs,
-                        {
-                          key: newKey(),
-                          style_ref_no: "",
-                          style: "",
-                          price: "",
-                          csp_type: "",
-                          csp_price: "",
-                          fob_buyer_price: "",
-                          fob_selling_price: "",
-                        },
-                      ]),
-                    )
-                  }
-                >
-                  {stylePrices.map((r) => {
-                    const upd = (patch: Partial<StylePriceRow>) =>
-                      setStylePrices((xs) => xs.map((x) => (x.key === r.key ? { ...x, ...patch } : x)));
-                    return (
-                      <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                        <td className="px-2 py-1">
-                          <Input value={r.style_ref_no} onChange={(e) => upd({ style_ref_no: e.target.value })} className="h-8" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <Input value={r.style} onChange={(e) => upd({ style: e.target.value })} className="h-8" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <Input type="number" value={r.price} onChange={(e) => upd({ price: e.target.value })} className="h-8 text-right" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <Input value={r.csp_type} onChange={(e) => upd({ csp_type: e.target.value })} className="h-8" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <Input type="number" value={r.csp_price} onChange={(e) => upd({ csp_price: e.target.value })} className="h-8 text-right" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <Input type="number" value={r.fob_buyer_price} onChange={(e) => upd({ fob_buyer_price: e.target.value })} className="h-8 text-right" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <Input type="number" value={r.fob_selling_price} onChange={(e) => upd({ fob_selling_price: e.target.value })} className="h-8 text-right" />
-                        </td>
-                        <td className="px-2 py-1">
-                          <RowRemove onClick={() => setStylePrices((xs) => xs.filter((x) => x.key !== r.key))} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {stylePrices.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="px-2 py-6 text-center text-xs text-muted-foreground">
-                        No style prices. Use “Add row”.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </GridCard>
+          <>
+            <ChildGrid<StylePriceRow>
+              label="Style Prices"
+              columns={stylePriceColumns}
+              rows={stylePrices}
+              forceCards
+              listRows
+              pageSize={5}
+              onAdd={() => setStylePrices((xs) => [...xs, blankStylePrice()])}
+              onRemove={(r) => setStylePrices((xs) => xs.filter((x) => x.key !== r.key))}
+              addLabel="+ Add style price"
+              renderMobileRow={(r, i) => (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-xs font-medium text-muted-foreground">#{i + 1}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-row-remove
+                      className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
+                      onClick={() => setStylePrices((xs) => xs.filter((x) => x.key !== r.key))}
+                      aria-label="Remove style price"
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" />
+                    </Button>
+                  </div>
+                  {/* `required={col.required}` is not optional plumbing: with
+                    `renderMobileRow` supplied, ChildGrid stops wrapping cells in
+                    its own `RequiredScope` (child-grid.tsx:1119), so this Field
+                    is the ONLY place a column's declaration can reach. Drop it
+                    and the `*` and the cursor hold both silently vanish while
+                    the column still reads `required: true`. */}
+                <FieldGrid>
+                    {stylePriceColumns.map((col) => (
+                      <Field
+                        key={col.header}
+                        label={col.header}
+                        required={col.required}
+                        size="sm"
+                      >
+                        {col.cell(r, i)}
+                      </Field>
+                    ))}
+                  </FieldGrid>
+                </div>
+              )}
+            />
+            <EmptyNote rows={stylePrices.length} label="style prices" seeded={seeded} />
+          </>
         </div>
       ),
     },
@@ -1361,7 +2570,9 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     key: "orderinfo",
     label: "Order Info",
     icon: ClipboardList,
-    done: !!form.sales_order_id,
+    // The SC No is minted, so it cannot be what marks this section done —
+    // Unit and Customer are what the operator actually supplies.
+    done: !!form.location_id && !!form.buyer_id,
     content: (
       <SectionBody
         title="Order Info"
@@ -1370,13 +2581,41 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
         {/* ONE FieldGrid for the whole section — SectionBody has no grid of its
             own, and two stacked grids agree on the left edge but not the row gap. */}
         <FieldGrid>
-          <Field label="SCNo" size="sm">
+          {/* AUTO, NOT PICKED (client 2026-08-11).
+              This was a dropdown of orders that already existed — amendment
+              behaviour on the screen an order is ENTERED on. The SC No is now
+              this order's own identity: `assign_order_number()` (0395) stamps
+              it on insert, and `previewOrderNumber` shows what it will be.
+
+              `readOnly`, never `disabled` — `Input` sets `tabIndex={-1}` on a
+              readOnly field itself, so it leaves the Tab path with no
+              per-screen opt-out, and it stays selectable so the number can be
+              copied. And NOT `required`: a readOnly field has no exit, so a
+              hold on it would cage the operator. The requiredness moved to
+              Unit and Date, the two fields the number is built from — the same
+              shape a composed name uses (AGENTS.md, "Mandatory fields"). */}
+          <Field label="SCNo" size="sm" htmlFor="hd-scno">
+            <Input
+              id="hd-scno"
+              readOnly
+              value={savedOrderNo ?? previewNo ?? ""}
+              placeholder="(auto)"
+            />
+          </Field>
+          {/* REQUIRED because the SC No cannot be built without it — 0395 counts
+              per (location, fiscal year) and the trigger refuses a blank one
+              rather than invent a shared bucket. READ-ONLY once saved: the
+              number is stamped on insert only, so changing the Unit afterwards
+              would leave an HO/… number on a different unit's order. */}
+          <Field label="Unit" required={!editId} size="sm">
             <RecordPicker
-              label="SCNo"
+              label="Unit"
+              identity="code"
               compact
-              items={orderItems}
-              value={form.sales_order_id}
-              onChange={onSelectOrder}
+              disabled={!!editId && !!form.location_id}
+              items={data.locations}
+              value={form.location_id}
+              onChange={(id) => set({ location_id: id })}
             />
           </Field>
           <Field label="Date" required size="sm" htmlFor="hd-date">
@@ -1398,7 +2637,11 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
               ))}
             </Select>
           </Field>
-          <Field label="Customer" size="sm">
+          {/* REQUIRED (client 2026-08-10). Costs the operator nothing in the normal
+              flow: `onSelectOrder` fills it from the picked order, so choosing an
+              SCNo satisfies this field too. It still has to be declared, because
+              the Customer can be cleared by hand after the order is picked. */}
+          <Field label="Customer" required size="sm">
             <RecordPicker
               label="Customer"
               compact
@@ -1485,7 +2728,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms }: Props) {
     // the footer above a strip of empty page.
     <div className="flex h-full flex-col gap-4">
       <PageHeader
-        title={editId ? "Edit Amendment" : "New Amendment"}
+        title={editId ? "Edit Garment Order" : "New Garment Order"}
         description="Pick an SCNo to load the order, then amend across the tabs. Wire each ⓘ field from stored data."
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>
@@ -1605,128 +2848,56 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
 
 // ---------- small building blocks ----------
 
-/** A not-yet-wired tab — its screenshot hasn't been provided. Never dropped. */
-function placeholderTab(key: string, label: string): TabItem {
-  return {
-    key,
-    label,
-    content: (
-      <div className="rounded-md border border-dashed border-border bg-surface-muted/40 px-4 py-10 text-center">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Awaiting the legacy screenshot — this tab will be wired (fields + data
-          connectivity) when the {label} screen is shared.
-        </p>
-      </div>
-    ),
-  };
-}
+// `placeholderTab()` lived here and is GONE: Pack type(s) (0399) was the last
+// tab waiting on a legacy screenshot, so every section of this document is now
+// wired and the helper had no callers left. It is in the history if a new tab
+// ever has to wait again.
 
-/** The Logistic "Less" / "Add" charge block: fixed + free-label rows. */
-function GridCard({
-  title,
-  onAdd,
-  children,
-}: {
-  title: string;
-  onAdd: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardBody>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <Button type="button" variant="subtle" size="sm" onClick={onAdd}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-          </Button>
-        </div>
-        {children}
-      </CardBody>
-    </Card>
-  );
-}
-
-function RowRemove({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Remove row"
-      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-    >
-      <Trash2 className="h-4 w-4" />
-    </button>
-  );
-}
-
-/** A spanning "no rows yet" placeholder line inside a grid table body. */
 /**
- * `seeded` distinguishes the two ways a tab is empty, and they read identically
- * without it: nothing picked yet, versus an order that genuinely records no
- * rows of this kind. A correct seed on a thin order otherwise looks like a
- * seed that failed — which is exactly how a working feature gets reported
- * broken.
+ * One line naming what the order's fabrics are, above the dyeing grids.
+ *
+ * Renders nothing when the order has no fabric rows or none of them declares a
+ * type — a hint that says "0 solid, 0 melange" is noise, and on a saved
+ * amendment there is no order read to derive it from at all.
  */
-function EmptyRow({ cols, label, seeded }: { cols: number; label: string; seeded?: boolean }) {
+function FabricTypeHint({ counts }: { counts: FabricTypeCounts | null }) {
+  if (!counts) return null;
+  const named = [
+    counts.solid && `${counts.solid} solid`,
+    counts.yarn_dyed && `${counts.yarn_dyed} yarn-dyed`,
+    counts.melange && `${counts.melange} melange`,
+  ].filter(Boolean) as string[];
+  if (named.length === 0) return null;
+
+  const notes: string[] = [];
+  if (counts.melange) notes.push("melange takes its colour from the yarn");
+  if (counts.yarn_dyed) notes.push("yarn-dyed is coloured before knitting, so it skips fabric dyeing");
+
   return (
-    <tr>
-      <td colSpan={cols} className="px-2 py-6 text-center text-xs text-muted-foreground">
-        {seeded ? <>This order records no {label}. Use “Add row”.</> : <>No {label}. Use “Add row”.</>}
-      </td>
-    </tr>
+    <p className="rounded-md border border-border bg-surface-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">This order: {named.join(", ")}.</span>
+      {notes.length > 0 && <> {notes.join("; ")} — no dyeing row needed for {counts.melange && counts.yarn_dyed ? "those" : "that"}.</>}
+    </p>
   );
 }
 
-/** The Yarn / Fabric dyeing grid (Type + colour picker), shared by both sections. */
-function DyeTable({
-  rows,
-  colorItems,
-  onUpdate,
-  onRemove,
-}: {
-  rows: DyeingRow[];
-  colorItems: PickerRow[];
-  onUpdate: (key: string, patch: Partial<DyeingRow>) => void;
-  onRemove: (key: string) => void;
-}) {
+/**
+ * "Nothing here yet", for a grid that is empty.
+ *
+ * `ChildGrid` renders no empty state of its own — an empty `rows` array simply
+ * maps to nothing — so this carries over what the hand-rolled `EmptyRow` said,
+ * including the distinction that matters:
+ *
+ * `seeded` separates the two ways a tab is empty, and they read identically
+ * without it: nothing picked yet, versus an order that genuinely records no rows
+ * of this kind. A correct seed on a thin order otherwise looks like a seed that
+ * failed — which is exactly how a working feature gets reported broken.
+ */
+function EmptyNote({ rows, label, seeded }: { rows: number; label: string; seeded?: boolean }) {
+  if (rows > 0) return null;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[420px] text-sm">
-        <thead>
-          <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-            <th className="px-2 py-1.5 text-left font-medium">Type</th>
-            <th className="px-2 py-1.5 text-left font-medium">Colour</th>
-            <th className="w-10" />
-          </tr>
-        </thead>
-        <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => {})}>
-          {rows.map((r) => (
-            <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-              <td className="px-2 py-1">
-                <Input
-                  value={r.dye_type}
-                  onChange={(e) => onUpdate(r.key, { dye_type: e.target.value })}
-                  className="h-8 min-w-[140px]"
-                />
-              </td>
-              <td className="px-2 py-1 min-w-[240px]">
-                <RecordPicker
-                  label="Colour"
-                  compact
-                  items={colorItems}
-                  value={r.color_id}
-                  onChange={(id) => onUpdate(r.key, { color_id: id })}
-                />
-              </td>
-              <td className="px-2 py-1">
-                <RowRemove onClick={() => onRemove(r.key)} />
-              </td>
-            </tr>
-          ))}
-          {rows.length === 0 && <EmptyRow cols={3} label="rows" />}
-        </tbody>
-      </table>
-    </div>
+    <p className="px-1 pt-1 text-xs text-muted-foreground">
+      {seeded ? <>This order records no {label}.</> : <>No {label} yet.</>}
+    </p>
   );
 }

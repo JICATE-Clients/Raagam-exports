@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn, type RowMenuItem } from "@/components/ui/row-actions";
+import { RowActions, type RowMenuItem } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import {
   RecordViewSheet,
   type ViewPair,

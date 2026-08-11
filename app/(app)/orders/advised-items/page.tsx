@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import type { PickerItem } from "@/components/masters/record-picker";
 import { AdvisedItemsFilter } from "./advised-items-filter";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 const columns: Column<AdvisedOrderRow>[] = [
   {
     header: "SC No / Order No",
@@ -49,6 +50,13 @@ const columns: Column<AdvisedOrderRow>[] = [
       </Link>
     ),
   },
+  /* View + Edit, the Master Data cluster. Edit is a LINK because this page is a
+     SERVER component: an `onEdit` closure cannot cross the RSC boundary, a href can.
+     Delete is deliberately absent — no delete action exists for this record, and an
+     order is retired through Order Closure, not removed. */
+  rowActionsColumn((row) => (
+    <RowActions label={row.order_number} editHref={`/orders/advised-items/${row.id}`} />
+  )),
 ];
 
 export default async function AdvisedItemsPage({

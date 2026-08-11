@@ -33,7 +33,8 @@ import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid, SectionColumn, IdentityRow } from "@/components/masters/section-grid";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { MaterialViewSheet } from "@/components/masters/material-view-sheet";
 import {

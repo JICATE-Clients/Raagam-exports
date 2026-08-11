@@ -188,7 +188,12 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/orders/styles": ["New Style"],
   "/orders/color-cards": ["New Colour Card"],
   "/orders/internal-work-orders": ["New Work Order"],
-  "/orders/amendments": ["New Amendment"],
+  // Named for what the screen IS, not for the table it writes: its sidebar row
+  // is Order Entry ▸ Garment Order (see lib/nav/module-groups.ts). Kept as a
+  // key rather than renamed away — mobile-nav falls back to
+  // `New ${singularize(label)}` when a href has no entry, which would re-invent
+  // a differently-worded action rather than remove one.
+  "/orders/amendments": ["New Garment Order"],
   "/orders/process-amendments": ["New Amendment"],
   // Advised Items landing is an accepted-order selector (no create form);
   // create happens on the per-order editor's "New advised item" button.

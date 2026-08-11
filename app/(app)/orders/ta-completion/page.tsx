@@ -12,7 +12,8 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { NewTaCompletionForm } from "./new-ta-completion-form";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 const columns: Column<TaCompletionRow>[] = [
   {
     header: "Completion No",
@@ -57,6 +58,10 @@ const columns: Column<TaCompletionRow>[] = [
       </span>
     ),
   },
+  /* View only. This list has no detail route to edit into, and no delete action
+     exists for the record — the eye still earns its place: it answers "what is in
+     this row?" without opening anything. */
+  rowActionsColumn((row) => <RowActions label={row.code} />),
 ];
 
 export default async function TaCompletionPage() {

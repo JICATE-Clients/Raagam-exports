@@ -1,0 +1,88 @@
+-- ============================================================================
+-- Raagam ERP — SC No cutover: where each location's numbering RESUMES
+--
+-- RUN THIS ONCE, AFTER 0395 AND BEFORE THE FIRST REAL ORDER IS ENTERED.
+-- It is a seed, not a migration, because the numbers in it are a fact about the
+-- legacy system on the day you switch — not something a fresh database or a CI
+-- run should ever apply.
+--
+-- ---------------------------------------------------------------------------
+-- THE PROBLEM IT SOLVES.
+--
+-- `sales_order_no_counters` starts empty, so the first order raised at Head
+-- Office in 2026-27 is numbered HO/RE/2627/0001. But RP Software has been
+-- issuing SC Nos under that same format all year — HO/RE/2627/0001 is already
+-- written on a real order, a real PO and a real invoice. The new system would
+-- mint a second document with an identifier 500+ people already associate with
+-- a different order, and every report keyed on the SC No would silently merge
+-- two orders into one.
+--
+-- Seeding `last_no` is what prevents that. The counter is per (location, fy),
+-- so this needs ONE ROW PER LOCATION that has issued numbers this year — a
+-- single company-wide figure would restart every branch except one.
+--
+-- Nothing here renumbers anything. Existing rows in `sales_orders` keep their
+-- old SO-#### codes (0395's header explains why); this only decides where the
+-- NEW series picks up.
+--
+-- ---------------------------------------------------------------------------
+-- FIND THE NUMBERS FIRST. In RP Software, per location, for the current
+-- financial year, the highest running number issued so far:
+--
+--   HO/RE/2627/0847  → location 'HO', fy '2627', last_no 847
+--
+-- Take the HIGHEST issued, not the count of orders — a cancelled or deleted
+-- order still consumed its number, and reusing it is the duplicate this file
+-- exists to prevent.
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- TODO (Roja) — fill in one row per location, then run.
+--
+-- The shape is below; `last_no` is the last number ALREADY ISSUED, so the next
+-- order gets last_no + 1. `on conflict … do update` makes the file re-runnable:
+-- correcting a figure and running again is safe.
+--
+-- Three ways to answer this, and the choice is yours because it is about how
+-- you want the year to read, not about what the code can do:
+--
+--   1. RESUME  — last_no = the legacy high-water mark (847 → next is 0848).
+--      One unbroken series per location for the year. Cleanest on a report;
+--      requires knowing the exact figure per location.
+--
+--   2. JUMP    — last_no = a round number above it (e.g. 999 → next is 1000).
+--      Leaves a visible gap, so anyone looking at an SC No can tell instantly
+--      whether it came from the old system or the new one. Costs a
+--      discontinuity that an auditor will ask about, so write down why.
+--
+--   3. RESTART — leave this file unrun (last_no stays 0 → next is 0001).
+--      ONLY correct if the switch happens on 1 April, or if the legacy system
+--      never used this format at that location. During a parallel run it means
+--      two live documents share an identifier.
+--
+-- If you are unsure of a location's figure, DO NOT GUESS LOW — guessing high
+-- leaves a gap, guessing low mints a duplicate, and only one of those is
+-- recoverable.
+-- ---------------------------------------------------------------------------
+
+-- insert into public.sales_order_no_counters (location_id, fy, last_no)
+-- select l.id, v.fy, v.last_no
+--   from (values
+--          ('HO', '2627',   0),   -- TODO: last SC No issued at Head Office this FY
+--          ('U2', '2627',   0)    -- TODO: … and at each other location
+--        ) as v(code, fy, last_no)
+--   join public.locations l on l.code = v.code
+--     on conflict (location_id, fy) do update set last_no = excluded.last_no;
+
+-- ---------------------------------------------------------------------------
+-- After running, check what the next number will be at each location. This
+-- reads the counter without consuming it, so it is safe to run as often as you
+-- like — and it is the same function the New Order form shows in its SC No box,
+-- so what you see here is exactly what the operator will see.
+-- ---------------------------------------------------------------------------
+-- select l.code,
+--        l.name,
+--        public.peek_sales_order_number(l.id, current_date) as next_sc_no
+--   from public.locations l
+--  where l.is_active
+--  order by l.code;

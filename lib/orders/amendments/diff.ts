@@ -161,6 +161,8 @@ type StructureRow = Children["structures"][number];
 type ComboRow = Children["combos"][number];
 type PriceRow = Children["priceDetails"][number];
 type QtyRow = Children["approvalQtys"][number];
+type QuantityRow = Children["quantities"][number];
+type PackTypeRow = NonNullable<Children["packTypes"]>[number];
 type CountryRow = NonNullable<Children["countrySizes"]>[number];
 
 const styleName = (r: { style_ref_no: string | null }) => r.style_ref_no?.trim() || "(no style)";
@@ -237,6 +239,57 @@ const APPROVAL_QTYS: TabSpec<QtyRow> = {
   fields: [{ field: "approval_qty", label: "Approval Qty" }],
 };
 
+/**
+ * Quantities (0398).
+ *
+ * KEYED ON ref no + sno, not on ref no alone. Every other tab has at most one
+ * row per style, so `styleKey` is a unique key there — this tab exists precisely
+ * to SPLIT a style across countries, consignees and dates, so several rows share
+ * a ref. Keying on the style alone would make the second row look like an edit
+ * of the first, and "Delivery Dt 30/09 → 15/10" would appear on an approval
+ * queue for a row nobody touched.
+ *
+ * The uuid columns are diffed as ids rather than names: `diff.ts` takes no
+ * database, and an id that changed IS a change even when the label reads the
+ * same. `display` renders a null as "—".
+ */
+const QUANTITIES: TabSpec<QuantityRow> = {
+  tab: "quantities",
+  label: "Quantities",
+  key: (r) => `${norm(r.style_ref_no)}#${r.sno}`,
+  rowLabel: styleName,
+  fields: [
+    { field: "po_qty", label: "PO Qty" },
+    { field: "delivery_date", label: "Delivery Dt" },
+    { field: "earlier_shipment_date", label: "Earlier Shipment Dt" },
+    { field: "country_id", label: "Country" },
+    { field: "consignee_id", label: "Consignee" },
+    { field: "assortment_type_id", label: "Assortment Type" },
+    { field: "warehouse_id", label: "WareHouse" },
+    { field: "discharge_port_id", label: "Discharge Port" },
+  ],
+};
+
+/**
+ * Pack type(s) (0399).
+ *
+ * NO `fields`, deliberately — this is the third tab where the VALUE IS THE KEY,
+ * alongside Dyeings and Prints, and here it is not a simplification but the
+ * whole row: there is nothing about a pack method to change except which one it
+ * is. So swapping a method reads as one removed and one added, which is the
+ * honest summary and the one an approver can act on. Giving it a `fields` entry
+ * would need a key to hang it off, and the only candidate is `sno` — a row's
+ * POSITION, which changes whenever an earlier row is deleted, so re-ordering
+ * the list would report changes nobody made.
+ */
+const PACK_TYPES: TabSpec<PackTypeRow> = {
+  tab: "packTypes",
+  label: "Pack type(s)",
+  key: (r) => norm(r.pack_type),
+  rowLabel: (r) => r.pack_type?.trim() || "(no method)",
+  fields: [],
+};
+
 const COUNTRY_SIZES: TabSpec<CountryRow> = {
   tab: "countrySizes",
   label: "Country/Sizewise",
@@ -262,6 +315,8 @@ export function diffAmendment(
     diffTab(COMBOS, before.combos, after.combos),
     diffTab(PRICES, before.priceDetails, after.priceDetails),
     diffTab(APPROVAL_QTYS, before.approvalQtys, after.approvalQtys),
+    diffTab(QUANTITIES, before.quantities ?? [], after.quantities ?? []),
+    diffTab(PACK_TYPES, before.packTypes ?? [], after.packTypes ?? []),
     // The tab was withdrawn from the SCREEN on 2026-08-10; the seed still
     // produces these rows and check-amendment-diff.mts still asserts on them.
     diffTab(COUNTRY_SIZES, before.countrySizes ?? [], after.countrySizes ?? []),

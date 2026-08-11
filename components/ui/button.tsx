@@ -38,30 +38,47 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: Size;
 }
 
+/**
+ * The button's class string, on its own.
+ *
+ * Extracted so a control that must be an `<a>` rather than a `<button>` can look
+ * identical without restating the list — the same reason `lib/ui/sizes.ts` was
+ * pulled out of `field.tsx`. `RowActions`'s `editHref` is the first caller: a
+ * list rendered by a SERVER component cannot be handed an `onEdit` closure, so
+ * its Edit control has to be a link, and a hand-copied class list is how the two
+ * drift apart on the next focus-ring change.
+ *
+ * Nesting a `<button>` inside an `<a>` was the alternative and is not one: it is
+ * invalid HTML and puts two stops in the Tab path for one control.
+ */
+export function buttonClasses({
+  variant = "primary",
+  size = "md",
+  className,
+}: { variant?: Variant; size?: Size; className?: string } = {}): string {
+  return cn(
+    "inline-flex items-center justify-center font-medium transition-colors",
+    // Icons inside a button are sized and pinned by the button, never by
+    // whatever the caller passed — an unconstrained svg stretches to fill
+    // and reads as a distorted icon (client 2026-07-24 #6).
+    "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+    // Focus: a plain 2px ring, no offset. `ring-offset-1` was leaving a 1px
+    // gap in Tailwind's default offset colour — WHITE — so a focused button
+    // read as 1px white + 2px indigo while a focused Input read as a solid
+    // 2px indigo. Correct-looking on a white card, wrong on any tinted
+    // surface, and broken outright once dark mode is wired (client
+    // 2026-07-25). Matches input.tsx / select.tsx / combobox.tsx exactly.
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    "disabled:pointer-events-none disabled:opacity-50",
+    variants[variant],
+    sizes[size],
+    className,
+  );
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "primary", size = "md", ...props }, ref) => (
-    <button
-      ref={ref}
-      className={cn(
-        "inline-flex items-center justify-center font-medium transition-colors",
-        // Icons inside a button are sized and pinned by the button, never by
-        // whatever the caller passed — an unconstrained svg stretches to fill
-        // and reads as a distorted icon (client 2026-07-24 #6).
-        "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-        // Focus: a plain 2px ring, no offset. `ring-offset-1` was leaving a 1px
-        // gap in Tailwind's default offset colour — WHITE — so a focused button
-        // read as 1px white + 2px indigo while a focused Input read as a solid
-        // 2px indigo. Correct-looking on a white card, wrong on any tinted
-        // surface, and broken outright once dark mode is wired (client
-        // 2026-07-25). Matches input.tsx / select.tsx / combobox.tsx exactly.
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "disabled:pointer-events-none disabled:opacity-50",
-        variants[variant],
-        sizes[size],
-        className,
-      )}
-      {...props}
-    />
+    <button ref={ref} className={buttonClasses({ variant, size, className })} {...props} />
   ),
 );
 Button.displayName = "Button";

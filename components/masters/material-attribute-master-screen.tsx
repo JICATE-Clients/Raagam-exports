@@ -30,7 +30,8 @@ import { CategoryPicker, AttributePicker } from "@/components/masters/lookup-pic
 import { ChildGrid, gridKeyNav } from "@/components/masters/child-grid";
 import { IdentityRow } from "@/components/masters/section-grid";
 import { DetailSection } from "@/components/masters/detail-section";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; isSuperAdmin: boolean; canExport?: boolean };

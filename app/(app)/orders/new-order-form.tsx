@@ -19,6 +19,10 @@ type Location = { id: string; code: string; name: string };
 
 type LineRow = { color: string; size: string; quantity: string };
 
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 interface Props {
   quotes: QuoteWithContext[];
   buyers: Pick<Buyer, "id" | "name" | "code" | "currency_code">[];
@@ -50,6 +54,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
   const [orderQty, setOrderQty] = useState("");
   const [currencyCode, setCurrencyCode] = useState("USD");
   const [locationId, setLocationId] = useState("");
+  const [orderDate, setOrderDate] = useState(today());
   const [shipDate, setShipDate] = useState("");
 
   // line items
@@ -63,6 +68,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
     setOrderQty("");
     setCurrencyCode("USD");
     setLocationId("");
+    setOrderDate(today());
     setShipDate("");
     setLines([]);
   }
@@ -104,7 +110,8 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
       buyer_id: buyerId,
       opportunity_id: selectedQuote?.opportunity_id ?? null,
       quote_id: mode === "quote" && selectedQuoteId ? selectedQuoteId : null,
-      location_id: locationId || null,
+      location_id: locationId,
+      order_date: orderDate,
       currency_code: currencyCode || null,
       fob_price: parseFloat(fobPrice) || 0,
       order_qty: parseFloat(orderQty) || 0,
@@ -199,6 +206,23 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
             )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* The document date. Required because `sales_orders.order_date`
+                  is NOT NULL (0395) — it is also what decides the order
+                  number's financial year, but that belongs to the DB, not to a
+                  caption on this generic form. */}
+              <div>
+                <Label htmlFor="order-date">
+                  Date <span className="text-danger">*</span>
+                </Label>
+                <Input
+                  id="order-date"
+                  type="date"
+                  required
+                  value={orderDate}
+                  onChange={(e) => setOrderDate(e.target.value)}
+                />
+              </div>
+
               {/* Buyer (editable even when quote mode) */}
               <div>
                 <Label htmlFor="buyer">Buyer</Label>
@@ -217,17 +241,26 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                 </Select>
               </div>
 
+              {/* MANDATORY since 0395 — not a style choice. The SC No's running
+                  number counts per (location, financial year), so an order with
+                  no location has no counter to draw from and the DB refuses to
+                  number it. The `*` holds the cursor here (useRequiredHold),
+                  which is right: leaving it blank is not a save that fails
+                  validation, it is a save that cannot produce an identifier. */}
               <div>
-                <Label htmlFor="location">Location</Label>
+                <Label htmlFor="location">
+                  Location <span className="text-danger">*</span>
+                </Label>
                 <Select
                   id="location"
+                  required
                   value={locationId}
                   onChange={(e) => setLocationId(e.target.value)}
                 >
                   <option value="">— select location —</option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.name}
+                      {l.code} — {l.name}
                     </option>
                   ))}
                 </Select>
@@ -364,7 +397,11 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
               <Button type="button" variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending}>
+              {/* One declaration, four enforcers: the `*`, the cursor hold, THIS
+                  button, and `salesOrderInput`. Location and Date are the two
+                  the SC No is built from, so a save without them has no
+                  identifier to produce. */}
+              <Button type="submit" disabled={isPending || !locationId || !orderDate}>
                 {isPending ? "Creating…" : "Create order"}
               </Button>
             </div>

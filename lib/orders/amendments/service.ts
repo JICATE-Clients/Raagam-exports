@@ -39,10 +39,10 @@ export type OrderPickerRow = {
 /** All amendments with embedded order/buyer + child grids. */
 export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("garment_order_amendments")
     .select(
-      "*, sales_order:sales_orders(id,order_number), " +
+      "*, sales_order:sales_orders(id,order_number,location_id), " +
         "buyer:buyers(id,code,name), " +
         "charges:garment_order_amendment_charges(*), " +
         "style_prices:garment_order_amendment_style_prices(*), " +
@@ -53,9 +53,28 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         "combos:garment_order_amendment_combos(*), " +
         "price_details:garment_order_amendment_price_details(*), " +
         "approval_qtys:garment_order_amendment_approval_qtys(*), " +
+        "pack_types:garment_order_amendment_pack_types(*), " +
+        "quantities:garment_order_amendment_quantities(*), " +
         "country_sizes:garment_order_amendment_country_sizes(*)",
     )
     .order("created_at", { ascending: false });
+
+  /**
+   * A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — the same rule `getStyleRows`
+   * below already carries, and this is the function it was missed on.
+   *
+   * THIRTEEN EMBEDS, so this is the query in the module most able to fail
+   * wholesale: PostgREST resolves every relationship before returning a row, and
+   * ONE unresolvable name fails all of them. That is not hypothetical
+   * (2026-08-11) — the `quantities` and `pack_types` embeds named tables whose
+   * migrations had not been applied, PostgREST answered 400 / PGRST200, and
+   * `data ?? []` turned it into a Garment Order list with no rows, no error and
+   * nothing on screen to say the schema was behind the code. It read exactly
+   * like "there are no orders yet".
+   */
+  if (error) {
+    throw new Error(`Could not load garment orders: ${error.message}`);
+  }
 
   const bySno = <T extends { sno: number }>(rows: T[] | undefined): T[] =>
     [...(rows ?? [])].sort((a, b) => a.sno - b.sno);
@@ -71,6 +90,8 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     combos: bySno(r.combos),
     price_details: bySno(r.price_details),
     approval_qtys: bySno(r.approval_qtys),
+    pack_types: bySno(r.pack_types),
+    quantities: bySno(r.quantities),
     country_sizes: bySno(r.country_sizes),
   })));
 }
@@ -78,10 +99,14 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
 /** Confirmed sales orders for the SCNo picker (+ context for auto-load). */
 async function getOrderRows(): Promise<OrderPickerRow[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("sales_orders")
     .select("id, order_number, buyer_id, currency_code, ship_date, buyers(name)")
     .order("created_at", { ascending: false });
+  // Embeds `buyers`, so it fails wholesale the same way — and an empty return here
+  // is an SCNo picker with nothing to pick, which is precisely the shape the
+  // Style picker failed in before `getStyleRows` was fixed.
+  if (error) throw new Error(`Could not load orders for the SCNo picker: ${error.message}`);
   return ((data ?? []) as unknown as {
     id: string;
     order_number: string | null;
@@ -99,12 +124,61 @@ async function getOrderRows(): Promise<OrderPickerRow[]> {
   }));
 }
 
+/**
+ * THE FLAT PICKER QUERIES BELOW DELIBERATELY DO NOT CHECK `error`.
+ *
+ * The rule the four checked queries follow is narrow: a query carrying an EMBED
+ * fails wholesale when one relationship cannot be resolved, so `data ?? []`
+ * converts a schema fault into an empty list that reads as "no rows yet". A flat
+ * `select("id, code, name")` has no relationship to break — it fails only if the
+ * table itself is gone, which takes the page down anyway.
+ *
+ * Left as a follow-up rather than swept, so the distinction stays legible: if
+ * one of these ever grows an embed, it needs the check at the same moment.
+ */
+
 /** Buyers for the "Customer" picker (the order's party). */
 async function getBuyerRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("buyers")
     .select("id, code, name, is_active")
+    .order("name");
+  return (data ?? []) as PickerRow[];
+}
+
+/**
+ * The three masters the Quantities grid points at (0398).
+ *
+ * `is_active` / `inactive` ride along and are NOT filtered in SQL — a row a
+ * saved quantity already references must still resolve, or the field renders
+ * empty and the next save blanks the FK ("Disabled rows"). The picker hides the
+ * switched-off ones itself.
+ *
+ * WareHouse is `stores`, not the `warehouse` config_lookups kind: that kind
+ * exists in the CHECK and holds no rows, while `stores` is the live master.
+ * Pointing at the empty one would reproduce the defect 0396 just fixed.
+ */
+async function getConsigneeRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("consignees")
+    .select("id, code, name, inactive")
+    .order("name");
+  return (data ?? []) as PickerRow[];
+}
+
+async function getWarehouseRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s.from("stores").select("id, code, name").order("name");
+  return (data ?? []) as PickerRow[];
+}
+
+async function getPortRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("ports")
+    .select("id, code, name, inactive")
     .order("name");
   return (data ?? []) as PickerRow[];
 }
@@ -158,6 +232,12 @@ export type StylePickerRow = {
   article_no: string | null;
   style_category: string | null;
   style_description: string | null;
+  /** The style's own UoM (`garment_styles.unit_id` -> `uoms`). Seeds BOTH the
+   *  Order Unit and the Plan Unit on the order line, which is what "these units
+   *  pull from the General tab of the Style Entry" means (client 2026-08-10). */
+  unit_id: string | null;
+  /** Free-text remarks from Style Entry; seeds the line's Description. */
+  description: string | null;
   /** `garment_styles` spells its disable flag `blocked` (0124). */
   blocked: boolean;
 };
@@ -179,19 +259,33 @@ export type DyeColorRow = {
 /** Garment styles for the Style(s) tab picker (+ context for auto-fill). */
 async function getStyleRows(): Promise<StylePickerRow[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("garment_styles")
     .select(
-      "id, code, style_name, article_no, style_description, blocked, " +
-        "category:config_lookups!garment_styles_style_category_id_fkey(name)",
+      "id, code, style_name, article_no, style_description, description, unit_id, blocked, " +
+        // `categories`, NOT `config_lookups`. 0394 repointed
+        // `garment_styles.style_category_id` at the Garment master and left the
+        // constraint NAME unchanged, so this embed kept naming a relationship
+        // that no longer exists — PostgREST could not resolve it and failed the
+        // WHOLE query. With the error swallowed below that surfaced as an empty
+        // Style picker on the amendment screen: nothing to pick, no error, and
+        // the Style(s) tab simply unusable.
+        "category:categories!garment_styles_style_category_id_fkey(name)",
     )
     .order("created_at", { ascending: false });
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — the same rule commit 37fcde8
+  // applied to the Style master, and the reason the defect above went unseen for
+  // as long as it did. `data ?? []` turns a broken relationship into a picker
+  // that looks merely unpopulated.
+  if (error) throw new Error(`Could not load styles for the picker: ${error.message}`);
   return ((data ?? []) as unknown as {
     id: string;
     code: string | null;
     style_name: string | null;
     article_no: string | null;
     style_description: string | null;
+    description: string | null;
+    unit_id: string | null;
     blocked: boolean;
     category?: { name: string } | null;
   }[]).map((r) => ({
@@ -201,6 +295,8 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     article_no: r.article_no,
     style_category: r.category?.name ?? null,
     style_description: r.style_description,
+    unit_id: r.unit_id,
+    description: r.description,
     blocked: r.blocked,
   }));
 }
@@ -215,13 +311,27 @@ async function getUomRows(): Promise<PickerRow[]> {
   return (data ?? []) as PickerRow[];
 }
 
+/** Units the SC No is numbered under. `is_active` selected, never filtered. */
+async function getLocationRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("locations")
+    .select("id, code, name, is_active")
+    .order("code");
+  return (data ?? []) as PickerRow[];
+}
+
 /** Colour-card colours for the dyeing pickers (+ buyer scope + card label). */
 async function getDyeColorRows(): Promise<DyeColorRow[]> {
   const s = await createClient();
-  const { data } = await s
+  const { data, error } = await s
     .from("color_card_colors")
     .select("id, name, code, card:color_cards(buyer_id, name, code)")
     .order("sort_order");
+  // Same rule, same reason: the `card` embed is what the Color/Print tab reads to
+  // scope colours to the order's buyer, and a silent [] would leave that tab
+  // looking like the buyer simply has no colour card.
+  if (error) throw new Error(`Could not load colours: ${error.message}`);
   return ((data ?? []) as unknown as {
     id: string;
     name: string | null;
@@ -253,7 +363,19 @@ export type AmendmentFormData = {
   paymentTerms: ConfigLookup[];
   styles: StylePickerRow[];
   uoms: PickerRow[];
+  /** Quantities grid (0398). */
+  consignees: PickerRow[];
+  warehouses: PickerRow[];
+  ports: PickerRow[];
   dyeColors: DyeColorRow[];
+  /**
+   * The Unit the SC No is numbered under — 0395 counts per (location, fiscal
+   * year). `is_active` is SELECTED and not filtered in SQL, so `RecordPicker`
+   * can hide switched-off units while still resolving one an existing order
+   * already holds ("Disabled rows": filtering in SQL satisfies half the rule
+   * and breaks the other half).
+   */
+  locations: PickerRow[];
 };
 
 /** Every picker option list the amendment editor needs, fetched in parallel. */
@@ -270,6 +392,10 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     styles,
     uoms,
     dyeColors,
+    locations,
+    consignees,
+    warehouses,
+    ports,
   ] = await Promise.all([
     getOrderRows(),
     getBuyerRows(),
@@ -282,6 +408,10 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getStyleRows(),
     getUomRows(),
     getDyeColorRows(),
+    getLocationRows(),
+    getConsigneeRows(),
+    getWarehouseRows(),
+    getPortRows(),
   ]);
   return {
     orders,
@@ -295,5 +425,9 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     styles,
     uoms,
     dyeColors,
+    locations,
+    consignees,
+    warehouses,
+    ports,
   };
 }

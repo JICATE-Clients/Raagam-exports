@@ -3,7 +3,8 @@ import { getAmendments, getAmendmentFormData } from "@/lib/orders/amendments/ser
 import { AmendmentScreen } from "./amendment-screen";
 
 export default async function AmendmentsPage() {
-  await requirePermission("orders", "view");
+  // Returns the AppUser, so the operator's home Unit costs no extra query.
+  const user = await requirePermission("orders", "view");
 
   const [rows, data, canCreate, canEdit, canDelete, mCreate, mEdit] =
     await Promise.all([
@@ -21,6 +22,7 @@ export default async function AmendmentsPage() {
       rows={rows}
       data={data}
       perms={{ canCreate, canEdit, canDelete }}
+      defaultLocationId={user.defaultLocationId}
       masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
     />
   );
