@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 const columns: Column<CustomerCardSummary>[] = [
   {
@@ -51,6 +52,13 @@ const columns: Column<CustomerCardSummary>[] = [
       </Link>
     ),
   },
+  /* View + Edit, the Master Data cluster. Edit is a LINK because this page is a
+     SERVER component: an `onEdit` closure cannot cross the RSC boundary, a href can.
+     Delete is deliberately absent — no delete action exists for this record, and an
+     order is retired through Order Closure, not removed. */
+  rowActionsColumn((row) => (
+    <RowActions label={row.code} editHref={`/orders/color-cards/customer/${row.id}`} />
+  )),
 ];
 
 export default async function ColorCardsPage() {

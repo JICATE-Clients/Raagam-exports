@@ -15,6 +15,7 @@ import type { OrderWithBuyer } from "@/lib/orders/service";
 import type { OrderStatus } from "@/lib/orders/types";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 // This page is the module root AND the All Orders screen — no card grid.
 //
@@ -104,6 +105,13 @@ const columns: Column<OrderWithBuyer>[] = [
       </StatusPill>
     ),
   },
+  /* View + Edit, the Master Data cluster. Edit is a LINK because this page is a
+     SERVER component: an `onEdit` closure cannot cross the RSC boundary, a href can.
+     Delete is deliberately absent — no delete action exists for this record, and an
+     order is retired through Order Closure, not removed. */
+  rowActionsColumn((row) => (
+    <RowActions label={row.order_number} editHref={`/orders/${row.id}`} />
+  )),
 ];
 
 export default async function OrdersPage() {

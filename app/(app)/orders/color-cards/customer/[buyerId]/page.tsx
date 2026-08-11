@@ -14,6 +14,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { NewColorCardForm } from "../../new-color-card-form";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 const columns: Column<ColorCardWithBuyer>[] = [
   {
@@ -56,6 +57,13 @@ const columns: Column<ColorCardWithBuyer>[] = [
       </span>
     ),
   },
+  /* View + Edit, the Master Data cluster. Edit is a LINK because this page is a
+     SERVER component: an `onEdit` closure cannot cross the RSC boundary, a href can.
+     Delete is deliberately absent — no delete action exists for this record, and an
+     order is retired through Order Closure, not removed. */
+  rowActionsColumn((row) => (
+    <RowActions label={row.code} editHref={`/orders/color-cards/${row.id}`} />
+  )),
 ];
 
 export default async function CustomerColorCardsPage({

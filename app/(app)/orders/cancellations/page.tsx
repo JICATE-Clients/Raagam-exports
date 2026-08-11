@@ -12,6 +12,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { NewCancellationForm } from "./new-cancellation-form";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 const columns: Column<CancellationRow>[] = [
   {
@@ -57,6 +58,10 @@ const columns: Column<CancellationRow>[] = [
       </span>
     ),
   },
+  /* View only. This list has no detail route to edit into, and no delete action
+     exists for the record — the eye still earns its place: it answers "what is in
+     this row?" without opening anything. */
+  rowActionsColumn((row) => <RowActions label={row.code} />),
 ];
 
 export default async function OrderCancellationsPage() {

@@ -1,8 +1,9 @@
 "use client";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Eye, Pencil, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import type { Column } from "@/components/ui/data-table";
@@ -101,6 +102,7 @@ export function RowActions({
   label,
   onView,
   onEdit,
+  editHref,
   onDelete,
   canEdit = true,
   canDelete = true,
@@ -126,6 +128,17 @@ export function RowActions({
    * wins over the automatic one.
    */
   onView?: () => void;
+  /**
+   * Edit as a LINK rather than a handler — for a list rendered by a SERVER
+   * component, which cannot hand a client component an `onEdit` closure
+   * (functions do not cross the RSC boundary; a string does).
+   *
+   * This is what lets the Orders module's `page.tsx` listings carry the same
+   * View + Edit cluster as Master Data without each one being rewritten as a
+   * client component first. Ignored when `onEdit` is given — a screen that can
+   * run a handler should, since that is the richer control.
+   */
+  editHref?: string;
   /**
    * The record, when `rowActionsColumn` is not what rendered this cell (a
    * hand-rolled `<td>`, a card footer). Normally inferred from context.
@@ -157,6 +170,8 @@ export function RowActions({
   const contextRow = useContext(RowRecordContext);
 
   const showEdit = !!onEdit && canEdit;
+  /** The link form, only when there is no handler to prefer. */
+  const showEditLink = !onEdit && !!editHref && canEdit && !editDisabled;
   const showDelete = !!onDelete && canDelete;
   const suffix = label ? ` ${label}` : "";
 
@@ -224,6 +239,21 @@ export function RowActions({
           >
             <Pencil />
           </Button>
+        </Tooltip>
+      )}
+      {showEditLink && (
+        <Tooltip label="Edit">
+          {/* A LINK wearing the button's classes, not a Button wrapping a Link:
+              nesting the two is invalid HTML and puts two stops in the Tab path
+              for one control. `buttonClasses` is the shared string so this
+              cannot drift from the real buttons beside it. */}
+          <Link
+            href={editHref!}
+            aria-label={`Edit${suffix}`}
+            className={buttonClasses({ variant: "ghost", size: "icon" })}
+          >
+            <Pencil />
+          </Link>
         </Tooltip>
       )}
       {showDelete && (

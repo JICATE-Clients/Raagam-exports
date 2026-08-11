@@ -16,6 +16,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { NewIwoForm } from "./new-iwo-form";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 
 const columns: Column<IwoWithOrder>[] = [
   {
@@ -70,6 +71,13 @@ const columns: Column<IwoWithOrder>[] = [
       </span>
     ),
   },
+  /* View + Edit, the Master Data cluster. Edit is a LINK because this page is a
+     SERVER component: an `onEdit` closure cannot cross the RSC boundary, a href can.
+     Delete is deliberately absent — no delete action exists for this record, and an
+     order is retired through Order Closure, not removed. */
+  rowActionsColumn((row) => (
+    <RowActions label={row.code} editHref={`/orders/internal-work-orders/${row.id}`} />
+  )),
 ];
 
 export default async function InternalWorkOrdersPage() {
