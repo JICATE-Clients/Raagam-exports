@@ -12,6 +12,8 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { DetailSection } from "@/components/masters/detail-section";
+import { RecordPicker } from "@/components/masters/record-picker";
+import type { OrderOption } from "@/lib/orders/order-options";
 import { fmtDate } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { createPackRatio, deletePackRatio, addPackRatioLine } from "@/lib/orders/pack-ratio-actions";
@@ -20,7 +22,13 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 
 const SIZE_LABELS = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"];
 
-export function PackRatiosClient({ rows }: { rows: PackRatioRow[] }) {
+export function PackRatiosClient({
+  rows,
+  orders,
+}: {
+  rows: PackRatioRow[];
+  orders: OrderOption[];
+}) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -168,7 +176,21 @@ export function PackRatiosClient({ rows }: { rows: PackRatioRow[] }) {
       <Sheet open={open} onClose={() => setOpen(false)} title="New Pack Ratio" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Order">
-            <div><Label>Sales Order ID *</Label><Input value={form.sales_order_id} onChange={(e) => setForm({ ...form, sales_order_id: e.target.value })} placeholder="UUID" /></div>
+            {/* THE ORDER IS PICKED, NOT TYPED. Was `<Input placeholder="UUID">`,
+                which asked the operator for a 36-character id and so could not
+                be filled in at all. The rest of this screen's layout conversion
+                is a later batch; the field is fixed now because an unusable form
+                is not worth leaving in production for it. */}
+            <div>
+              <RecordPicker
+                id="pr-order"
+                label="Sales Order"
+                items={orders}
+                value={form.sales_order_id || null}
+                onChange={(id) => setForm({ ...form, sales_order_id: id ?? "" })}
+                required
+              />
+            </div>
             <div><Label>Style No</Label><Input value={form.style_no} onChange={(e) => setForm({ ...form, style_no: e.target.value })} /></div>
             <div><Label>Assortment Type</Label><Input value={form.assortment_type} onChange={(e) => setForm({ ...form, assortment_type: e.target.value })} /></div>
             <div><Label>Delivery Date</Label><Input type="date" value={form.delivery_date} onChange={(e) => setForm({ ...form, delivery_date: e.target.value })} /></div>

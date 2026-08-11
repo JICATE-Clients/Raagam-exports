@@ -8,7 +8,7 @@ import { createTaCompletion } from "@/lib/orders/ta-completion/actions";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -122,14 +122,23 @@ export function NewTaCompletionForm({ orders, buyers }: Props) {
           <CardTitle>Record a TA completion</CardTitle>
         </CardHeader>
         <CardBody>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <Label htmlFor="tac-complno">Completion No</Label>
-                <Input id="tac-complno" value="(auto)" disabled />
-              </div>
-              <div>
-                <Label htmlFor="tac-date">Date *</Label>
+          <form
+            onSubmit={handleSubmit}
+            // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()`
+            // is false, Tab keeps native order and leaves the form.
+            // See the `raagam-keyboard-contract` skill.
+            data-focus-scope
+            className="space-y-4"
+          >
+            {/* `FieldGrid`, not a hand-rolled `grid-cols-*` — a screen composes
+                primitives, it does not draw (LAYOUT.md §3). */}
+            <FieldGrid>
+              <Field label="Completion No" size="sm" htmlFor="tac-complno">
+                <Input id="tac-complno" value="(auto)" readOnly />
+              </Field>
+              {/* `required` on the Field, not a `*` typed into the label — the
+                  same prop draws the star AND holds the cursor on a blank box. */}
+              <Field label="Date" required size="sm" htmlFor="tac-date">
                 <Input
                   id="tac-date"
                   type="date"
@@ -137,42 +146,49 @@ export function NewTaCompletionForm({ orders, buyers }: Props) {
                   onChange={(e) => setCompletionDate(e.target.value)}
                   required
                 />
-              </div>
-              <RecordPicker
-                label="SC No"
-                identity="code"
-                items={orderItems}
-                value={orderId}
-                onChange={onSelectOrder}
-                required
-              />
-              <RecordPicker
-                label="Customer"
-                items={buyerItems}
-                value={customerId}
-                onChange={setCustomerId}
-              />
-              <div>
-                <Label htmlFor="tac-orderno">Order No</Label>
+              </Field>
+              {/* The picker draws its own label and `*`; `Field` carries the span.
+                  `identity="code"` is master's fix and is kept: on an SC No the
+                  CODE is the identity and the name is the customer. */}
+              <Field size="sm">
+                <RecordPicker
+                  id="tac-order"
+                  label="SC No"
+                  identity="code"
+                  items={orderItems}
+                  value={orderId}
+                  onChange={onSelectOrder}
+                  required
+                />
+              </Field>
+              <Field size="sm">
+                <RecordPicker
+                  label="Customer"
+                  items={buyerItems}
+                  value={customerId}
+                  onChange={setCustomerId}
+                />
+              </Field>
+              <Field label="Order No" size="sm" htmlFor="tac-orderno">
                 <Input
                   id="tac-orderno"
+                  uppercase
                   value={orderNo}
                   onChange={(e) => setOrderNo(e.target.value)}
                   placeholder="Customer order / PO reference"
                 />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="tac-remarks">Remarks</Label>
-              <Textarea
-                id="tac-remarks"
+              </Field>
+              {/* `full` is the row, which is what a textarea takes. */}
+              <Field label="Remarks" size="full" htmlFor="tac-remarks">
+                <Textarea
+                  id="tac-remarks"
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 placeholder="Optional"
                 rows={3}
-              />
-            </div>
+                />
+              </Field>
+            </FieldGrid>
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={handleClose}>

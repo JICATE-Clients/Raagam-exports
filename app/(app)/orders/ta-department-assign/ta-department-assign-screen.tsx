@@ -181,7 +181,11 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
         <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Label>Entry No</Label>
-            <Input value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"} disabled />
+            {/* `readOnly`, not `disabled` — see the twin note in
+                ta-plan-screen.tsx. `disabled` greys an auto value at
+                `opacity-50` so it reads as switched off, and drops it from the
+                accessibility tree. */}
+            <Input value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"} readOnly />
           </div>
           <div>
             <Label htmlFor="tda-date">Entered Dt *</Label>

@@ -304,7 +304,14 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
         <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Label>No</Label>
-            <Input value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"} disabled />
+            {/* `readOnly`, NOT `disabled` — the legacy TA Plan shows its number
+                in a normal box, and `disabled` renders it at `opacity-50`
+                (input.tsx), so an auto value read as switched off rather than as
+                filled in (operator, 2026-08-11). `readOnly` also keeps the value
+                in the accessibility tree, which `disabled` removes, and `Input`
+                already sets `tabIndex={-1}` on a readOnly field so it stays off
+                the typing path. */}
+            <Input value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"} readOnly />
           </div>
           <div>
             <Label htmlFor="tap-date">Dt *</Label>

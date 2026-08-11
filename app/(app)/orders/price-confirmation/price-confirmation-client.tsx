@@ -6,7 +6,6 @@ import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -18,6 +17,8 @@ import { fmtDate } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { createPriceConfirmation, confirmPriceConf, amendPriceConf, deletePriceConf, addPcPurchaseItem, addPcProcess } from "@/lib/orders/pricing-actions";
 import { ITEM_CLASS_TYPES, PROCESS_TYPES } from "@/lib/orders/pricing-types";
+import { RecordPicker } from "@/components/masters/record-picker";
+import type { OrderOption } from "@/lib/orders/order-options";
 import type { PriceConfirmationRow } from "@/lib/orders/pricing-service";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
@@ -141,7 +142,13 @@ function CategoryTab({ pcId, type, kind }: { pcId: string; type: string; kind: "
 // Main Component
 // ---------------------------------------------------------------------------
 
-export function PriceConfirmationClient({ rows }: { rows: PriceConfirmationRow[] }) {
+export function PriceConfirmationClient({
+  rows,
+  orders,
+}: {
+  rows: PriceConfirmationRow[];
+  orders: OrderOption[];
+}) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -218,7 +225,19 @@ export function PriceConfirmationClient({ rows }: { rows: PriceConfirmationRow[]
       <Sheet open={open} onClose={() => setOpen(false)} title="New Price Confirmation" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
           <DetailSection label="Details">
-            <div><Label>Sales Order ID *</Label><Input value={form.sales_order_id} onChange={(e) => setForm({ ...form, sales_order_id: e.target.value })} placeholder="UUID" /></div>
+            {/* THE ORDER IS PICKED, NOT TYPED. Was `<Input placeholder="UUID">`.
+                This screen's full layout conversion is a later batch; the field
+                is fixed now because the form could not be filled in at all. */}
+            <div>
+              <RecordPicker
+                id="pc-order"
+                label="Sales Order"
+                items={orders}
+                value={form.sales_order_id || null}
+                onChange={(id) => setForm({ ...form, sales_order_id: id ?? "" })}
+                required
+              />
+            </div>
             <div><Label>Notes</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
           </DetailSection>
         </div>

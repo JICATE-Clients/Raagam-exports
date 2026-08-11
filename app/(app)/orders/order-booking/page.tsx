@@ -1,6 +1,7 @@
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { listOrderBookings } from "@/lib/orders/booking-service";
+import { listOrderOptions } from "@/lib/orders/order-options";
 import { OrderBookingClient } from "./order-booking-client";
 
 export default async function OrderBookingPage() {
@@ -10,7 +11,10 @@ export default async function OrderBookingPage() {
   // the section with it — a picker whose only source of options is gone offers
   // nothing and can never be filled. `order_booking_certifications` still holds
   // whatever earlier bookings recorded.
-  const rows = await listOrderBookings();
+  const [rows, orders] = await Promise.all([
+    listOrderBookings(),
+    listOrderOptions(),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -18,7 +22,7 @@ export default async function OrderBookingPage() {
         title="Order Booking"
         description="Formal order confirmations with shipping terms."
       />
-      <OrderBookingClient rows={rows} />
+      <OrderBookingClient rows={rows} orders={orders} />
     </div>
   );
 }

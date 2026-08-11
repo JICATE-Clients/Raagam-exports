@@ -14,7 +14,7 @@ import type { ColorCardDetail as ColorCardDetailType } from "@/lib/orders/color-
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -162,30 +162,38 @@ export function ColorCardDetail({ card, colors, canEdit, canDelete }: Props) {
           </div>
         </CardHeader>
         <CardBody>
-          <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-4">
-            <div>
-              <dt className="text-xs text-muted-foreground">Code</dt>
-              <dd className="font-mono font-medium">{card.code ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Buyer</dt>
-              <dd className="font-medium">{card.buyers?.name ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Season</dt>
-              <dd className="font-medium">{card.season ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Created</dt>
-              <dd className="tabular-nums font-medium">{fmtDate(card.created_at)}</dd>
-            </div>
+          {/* A READ-ONLY BAND ON THE FIELD TRACK, not its own `grid-cols-2
+              sm:grid-cols-4`. `Field` gives the label and the ~280px slot; the
+              children stay plain text rather than becoming `readOnly` inputs,
+              because these are facts being reported, not values being edited,
+              and boxing them would invite a click that does nothing.
+
+              This costs the `<dl>/<dt>/<dd>` grouping. `Field` renders a real
+              `<Label>` against its content, so each pair is still announced as a
+              labelled value — what is lost is only that the four are announced
+              as ONE list. Worth it to have every band on this screen sharing the
+              left edge and the width of the fields below it. */}
+          <FieldGrid>
+            <Field label="Code" size="sm">
+              <div className="font-mono text-sm font-medium">{card.code ?? "—"}</div>
+            </Field>
+            <Field label="Buyer" size="sm">
+              <div className="text-sm font-medium">{card.buyers?.name ?? "—"}</div>
+            </Field>
+            <Field label="Season" size="sm">
+              <div className="text-sm font-medium">{card.season ?? "—"}</div>
+            </Field>
+            <Field label="Created" size="sm">
+              <div className="text-sm font-medium tabular-nums">{fmtDate(card.created_at)}</div>
+            </Field>
             {card.notes && (
-              <div className="col-span-2 sm:col-span-4">
-                <dt className="text-xs text-muted-foreground">Notes</dt>
-                <dd className="text-sm">{card.notes}</dd>
-              </div>
+              // `full` is the row — a note runs long and reads badly in a
+              // quarter of one.
+              <Field label="Notes" size="full">
+                <div className="text-sm">{card.notes}</div>
+              </Field>
             )}
-          </dl>
+          </FieldGrid>
         </CardBody>
       </Card>
 
@@ -210,54 +218,63 @@ export function ColorCardDetail({ card, colors, canEdit, canDelete }: Props) {
           {canEdit && formOpen && (
             <form
               onSubmit={handleAdd}
-              className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface-muted p-3"
+              // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()` is
+              // false, Tab keeps native order and leaves the form. See the
+              // `raagam-keyboard-contract` skill.
+              data-focus-scope
+              className="space-y-3 rounded-md border border-border bg-surface-muted p-3"
             >
-              <div>
-                <Label htmlFor="add-name" className="mb-0.5">
-                  Colour name *
-                </Label>
-                <Input
-                  id="add-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Navy"
-                  required
-                  className="w-36"
-                />
-              </div>
-              <div>
-                <Label htmlFor="add-code" className="mb-0.5">
-                  Ref / Pantone
-                </Label>
-                <Input
-                  id="add-code"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="19-3920 TCX"
-                  className="w-36"
-                />
-              </div>
-              <div>
-                <Label htmlFor="add-hex" className="mb-0.5">
-                  Hex
-                </Label>
-                <Input
-                  id="add-hex"
-                  value={hex}
-                  onChange={(e) => setHex(e.target.value)}
-                  placeholder="#1B2A4A"
-                  className="w-28"
-                />
-              </div>
-              <span
-                className="mb-1 inline-block h-8 w-8 rounded border border-border"
-                style={
-                  HEX_RE.test(hex.trim())
-                    ? { backgroundColor: hex.trim() }
-                    : undefined
-                }
-                aria-hidden
-              />
+              {/* `FieldGrid` and one field width, in place of a
+                  `flex flex-wrap items-end gap-3` of `w-36` / `w-28` boxes.
+                  Sizing each control to its own data is what LAYOUT.md §3 fixes
+                  a field at ~280px to avoid: nothing lined up with the grid
+                  above it. */}
+              <FieldGrid>
+                {/* `required` on the Field, not a `*` typed into the label — one
+                    prop draws the star AND holds the cursor on a blank box. */}
+                <Field label="Colour name" required size="sm" htmlFor="add-name">
+                  <Input
+                    id="add-name"
+                    uppercase
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Navy"
+                    required
+                  />
+                </Field>
+                <Field label="Ref / Pantone" size="sm" htmlFor="add-code">
+                  <Input
+                    id="add-code"
+                    uppercase
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="19-3920 TCX"
+                  />
+                </Field>
+                <Field label="Hex" size="sm" htmlFor="add-hex">
+                  <Input
+                    id="add-hex"
+                    value={hex}
+                    onChange={(e) => setHex(e.target.value)}
+                    placeholder="#1B2A4A"
+                  />
+                </Field>
+                {/* An unlabelled cell that still takes a slot on the track, so
+                    the swatch sits beside Hex instead of breaking the row. It
+                    only fills once the value parses, so a half-typed "#1B" shows
+                    nothing rather than a misleading colour. */}
+                <Field size="sm">
+                  <span
+                    className="inline-block h-9 w-9 rounded border border-border"
+                    style={
+                      HEX_RE.test(hex.trim())
+                        ? { backgroundColor: hex.trim() }
+                        : undefined
+                    }
+                    aria-hidden
+                  />
+                </Field>
+              </FieldGrid>
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={isPending || !name.trim()}>
                   {isPending ? "Adding…" : "Add"}
