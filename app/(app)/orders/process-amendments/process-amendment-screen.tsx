@@ -2,18 +2,24 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus } from "lucide-react";
+import { ClipboardList, Shirt, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs } from "@/components/ui/tabs";
-import { Card, CardBody } from "@/components/ui/card";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import {
+  MasterFullScreen,
+  SectionBody,
+  type FullScreenSection,
+  type MasterFullScreenHandle,
+} from "@/components/masters/master-full-screen";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
 import {
   createProcessAmendment,
@@ -21,10 +27,7 @@ import {
   deleteProcessAmendment,
 } from "@/lib/orders/process-amendments/actions";
 import type { GarmentProcessAmendment, GpaTab } from "@/lib/orders/process-amendments/types";
-import type {
-  GpaFormData,
-  StyleRow,
-} from "@/lib/orders/process-amendments/service";
+import type { GpaFormData, StyleRow } from "@/lib/orders/process-amendments/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -52,11 +55,25 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
   const [orderNo, setOrderNo] = useState("");
   const [component, setComponent] = useState<LineRow[]>([]);
   const [garment, setGarment] = useState<LineRow[]>([]);
+
+  /**
+   * Unsaved work — real edits, not "is the editor open".
+   *
+   * It was `useUnsavedGuard(mode === "edit" || isPending)`, which pinned the
+   * silent PWA auto-update off for as long as the operator sat on the screen and
+   * made every Escape ask. The overlay mount below needs this to be honest for a
+   * second reason: `MasterFullScreen` calls `useModalGuard` on an overlay and
+   * `confirmDiscard()` deliberately does not read that one, so THIS is what
+   * stands between Escape and a silently discarded amendment.
+   */
+  const [dirty, setDirty] = useState(false);
+
+  /** Lets a blocked Save switch section and land on the offending field. */
+  const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
-  // Inline editor, not a Sheet / MasterFullScreen — see mba-master-screen.tsx.
-  useUnsavedGuard(mode === "edit" || isPending);
+  useUnsavedGuard(dirty || isPending);
 
   const styleById = useMemo(() => {
     const m = new Map<string, StyleRow>();
@@ -77,6 +94,11 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
     [data.styles],
   );
 
+  // Every mutation marks the record dirty in the same breath as changing it, so
+  // the flag cannot drift from the state it describes.
+  const mutComponent = (fn: (xs: LineRow[]) => LineRow[]) => { setComponent(fn); setDirty(true); };
+  const mutGarment = (fn: (xs: LineRow[]) => LineRow[]) => { setGarment(fn); setDirty(true); };
+
   function openAdd() {
     setEditId(null);
     setAmendDate(today());
@@ -86,6 +108,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
     setOrderNo("");
     setComponent([{ key: newKey(), style_id: null }]);
     setGarment([{ key: newKey(), style_id: null }]);
+    setDirty(false);
     setMode("edit");
   }
 
@@ -102,11 +125,13 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
     setGarment(
       r.lines.filter((l) => l.tab === "garment").map((l) => ({ key: newKey(), style_id: l.style_id })),
     );
+    setDirty(false);
     setMode("edit");
   }
 
   function onPickOrder(id: string | null) {
     setOrderId(id);
+    setDirty(true);
     // auto-fill Customer from the picked order's buyer (legacy behaviour)
     if (id) {
       const o = data.orders.find((x) => x.id === id);
@@ -133,6 +158,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
         : await createProcessAmendment(payload);
       if (res.ok) {
         success(editId ? "Amendment updated" : "Amendment created");
+        setDirty(false);
         setMode("list");
         router.refresh();
       } else {
@@ -154,209 +180,300 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
     });
   }
 
-  // ---------------- LIST ----------------
-  if (mode === "list") {
-    const columns: Column<GarmentProcessAmendment>[] = [
+  // ---------------- THE LIST ----------------
+  // Rendered unconditionally, with the editor as an OVERLAY above it —
+  // `MasterFullScreen` returns null while `open` is false.
+  const columns: Column<GarmentProcessAmendment>[] = [
+    {
+      header: "Entry No",
+      cell: (r) => (
+        <button
+          type="button"
+          onClick={() => perms.canEdit && openEdit(r)}
+          className="font-mono text-xs font-medium text-primary hover:underline"
+        >
+          {r.code ?? "—"}
+        </button>
+      ),
+    },
+    { header: "Date", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.amend_date)}</span> },
+    { header: "Customer", cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span> },
+    {
+      header: "SC No",
+      cell: (r) => <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>,
+    },
+    { header: "Order No", cell: (r) => <span className="text-sm">{r.order_no ?? "—"}</span> },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onEdit={() => openEdit(r)}
+        canEdit={perms.canEdit}
+        onDelete={() => del(r)}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
+  ];
+
+  // ---------------- THE EDITOR ----------------
+  const entryCode = editId ? (rows.find((r) => r.id === editId)?.code ?? null) : null;
+  const customerName = buyerItems.find((b) => b.id === customerId)?.name ?? null;
+  const orderNumber = orderItems.find((o) => o.id === orderId)?.code ?? null;
+
+  /**
+   * DERIVED, never hand-assembled. It was `!amendDate` inline on the button.
+   * `fields` mirrors the `required` prop below, so the red `*`, the cursor hold
+   * and the Save gate cannot disagree.
+   *
+   * No rule about the line grids: blank rows are ignored on save (the screen's
+   * own description says so), so an amendment with none is not an incomplete
+   * record — adding a rule here would be a behaviour change dressed up as a
+   * layout change.
+   */
+  const validity = sectionValidity({
+    sections: [{ key: "amendment" }, { key: "component" }, { key: "garment" }],
+    values: { amendDate },
+    fields: [
       {
-        header: "Entry No",
-        cell: (r) => (
-          <button
-            type="button"
-            onClick={() => perms.canEdit && openEdit(r)}
-            className="font-mono text-xs font-medium text-primary hover:underline"
-          >
-            {r.code ?? "—"}
-          </button>
-        ),
+        section: "amendment",
+        id: "gpa-date",
+        label: "Date",
+        required: true,
+        empty: (v) => !v.amendDate,
       },
-      { header: "Date", cell: (r) => <span className="tabular-nums text-xs">{fmtDate(r.amend_date)}</span> },
-      { header: "Customer", cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span> },
-      {
-        header: "SC No",
-        cell: (r) => (
-          <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>
-        ),
-      },
-      { header: "Order No", cell: (r) => <span className="text-sm">{r.order_no ?? "—"}</span> },
-      rowActionsColumn((r) => (
-        <RowActions
-          label={r.code}
-          onEdit={() => openEdit(r)}
-          canEdit={perms.canEdit}
-          onDelete={() => del(r)}
-          canDelete={perms.canDelete}
-          isPending={isPending}
+    ],
+  });
+
+  const revealFirstProblem = () => {
+    const p = validity.first;
+    if (!p) return;
+    toastError(p.message);
+    shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
+  };
+
+  /**
+   * One column list for both grids — the two tabs differ only in which array
+   * they hold, so a second copy is a second thing to keep true.
+   *
+   * Four columns (the `#` and the remove ✕ are the component's), which fits the
+   * editor width comfortably — so this keeps the table layout. `forceCards` is
+   * for the grids that would otherwise need a sideways scrollbar; see rule 4 in
+   * the `raagam-screen-layout` skill.
+   */
+  const lineColumns = (
+    setRows: (fn: (xs: LineRow[]) => LineRow[]) => void,
+  ): ChildGridColumn<LineRow>[] => [
+    {
+      header: "Style Ref No",
+      cell: (r) => (
+        <RecordPicker
+          label="Style Ref No"
+          items={styleItems}
+          value={r.style_id}
+          onChange={(id) => setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, style_id: id } : x)))}
+          compact
         />
-      )),
-    ];
-    return (
+      ),
+    },
+    {
+      header: "Style",
+      cell: (r) => {
+        const st = r.style_id ? styleById.get(r.style_id) : undefined;
+        return <span className="text-sm">{st?.style_name ?? "—"}</span>;
+      },
+    },
+    {
+      header: "Article No",
+      cell: (r) => {
+        const st = r.style_id ? styleById.get(r.style_id) : undefined;
+        return <span className="text-sm text-muted-foreground">{st?.article_no ?? "—"}</span>;
+      },
+    },
+  ];
+
+  /**
+   * THREE RAIL ROWS, THE SCREEN'S OWN NAME FIRST.
+   *
+   * The header fields — Entry No, Date, Customer, SC No — were a full-bleed
+   * `CardBody` above a `<Tabs>` strip, hand-rolling `<div><Label/><Input/></div>`
+   * pairs and a literal `"Date *"`. That asterisk drew a red star with nothing
+   * behind it, so the mandatory-field hold never ran here. They are a SECTION
+   * now, on the same `<Field>` convention as everything else.
+   *
+   * No `problems` badge (operator, 2026-08-11) — `onBlockedSave` carries the
+   * "which section" job instead. See "The operator's five" in the skill.
+   */
+  const sections: FullScreenSection[] = [
+    {
+      key: "amendment",
+      label: "Garment Process Amendment",
+      icon: ClipboardList,
+      done: !!amendDate && !!orderId,
+      content: (
+        <SectionBody
+          title="Garment Process Amendment"
+          hint="Which order is being amended, and when."
+        >
+          <FieldGrid>
+            {/* `Input readOnly` sets `tabIndex={-1}` itself, which is what keeps
+                an auto field off the typing path — no `skipTab` needed. It also
+                replaces `disabled`, which would have taken the value out of the
+                accessibility tree entirely. */}
+            <Field label="Entry No" size="sm" htmlFor="gpa-entry">
+              <Input id="gpa-entry" readOnly value={entryCode ?? "(auto)"} className="font-mono" />
+            </Field>
+            <Field label="Date" required size="sm" htmlFor="gpa-date">
+              <Input
+                id="gpa-date"
+                type="date"
+                value={amendDate}
+                onChange={(e) => { setAmendDate(e.target.value); setDirty(true); }}
+              />
+            </Field>
+            {/* The picker draws its own label; `Field` is here for the span. */}
+            <Field size="sm">
+              <RecordPicker
+                label="Customer"
+                items={buyerItems}
+                value={customerId}
+                onChange={(id) => { setCustomerId(id); setDirty(true); }}
+              />
+            </Field>
+            <Field size="sm">
+              <RecordPicker label="SC No" items={orderItems} value={orderId} onChange={onPickOrder} />
+            </Field>
+            <Field label="Amend S No" size="sm" htmlFor="gpa-sno">
+              <Input
+                id="gpa-sno"
+                type="number"
+                value={amendSno}
+                onChange={(e) => { setAmendSno(e.target.value); setDirty(true); }}
+              />
+            </Field>
+            <Field label="Order No" size="sm" htmlFor="gpa-order">
+              <Input
+                id="gpa-order"
+                uppercase
+                value={orderNo}
+                onChange={(e) => { setOrderNo(e.target.value); setDirty(true); }}
+              />
+            </Field>
+          </FieldGrid>
+        </SectionBody>
+      ),
+    },
+    {
+      key: "component",
+      label: "Component Process",
+      icon: SlidersHorizontal,
+      done: component.some((r) => r.style_id),
+      content: (
+        <SectionBody
+          title="Component Process"
+          hint="Styles whose component process this amendment changes. Blank rows are ignored."
+        >
+          {/* `ChildGrid`, not the hand-rolled <table> this screen carried — that
+              one drew its own S No cell and its own Trash2 button, so it
+              inherited neither Ctrl+Del nor `data-row-remove`. */}
+          <ChildGrid<LineRow>
+            columns={lineColumns(mutComponent)}
+            rows={component}
+            seedRow
+            onAdd={() => mutComponent((xs) => [...xs, { key: newKey(), style_id: null }])}
+            onRemove={(r) => mutComponent((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add style"
+          />
+        </SectionBody>
+      ),
+    },
+    {
+      key: "garment",
+      label: "Garment Process",
+      icon: Shirt,
+      done: garment.some((r) => r.style_id),
+      content: (
+        <SectionBody
+          title="Garment Process"
+          hint="Styles whose garment process this amendment changes. Blank rows are ignored."
+        >
+          <ChildGrid<LineRow>
+            columns={lineColumns(mutGarment)}
+            rows={garment}
+            seedRow
+            onAdd={() => mutGarment((xs) => [...xs, { key: newKey(), style_id: null }])}
+            onRemove={(r) => mutGarment((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add style"
+          />
+        </SectionBody>
+      ),
+    },
+  ];
+
+  return (
+    <>
       <div className="space-y-4">
         <PageHeader
           title="Garment Process Amendment"
           description="Amend the component / garment process of styles on an order."
           actions={perms.canCreate ? <Button onClick={openAdd}>New Amendment</Button> : undefined}
         />
-        <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No amendments yet." />
+        <DataTable
+          columns={withCreatedColumns(columns, rows)}
+          rows={rows}
+          getKey={(r) => r.id}
+          empty="No amendments yet."
+        />
       </div>
-    );
-  }
 
-  // ---------------- EDIT ----------------
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title={editId ? "Edit Amendment" : "New Amendment"}
-        description="Pick styles on the Component / Garment process tabs. Blank rows are ignored."
-        actions={
-          <Button variant="outline" size="md" onClick={() => setMode("list")}>
-            ← Back to list
-          </Button>
+      {/* A FULL-SCREEN TAKEOVER, not a page pane: the module sidebar beside a
+          section rail is two navigation lists on one screen. */}
+      <MasterFullScreen
+        ref={shellRef}
+        mount="overlay"
+        open={mode === "edit"}
+        onClose={() => setMode("list")}
+        modeLabel={
+          <>
+            {editId ? "Editing" : "New"}{" "}
+            <span className="font-semibold text-foreground">garment process amendment</span>
+          </>
         }
+        // An overlay covers the route's PageHeader, so without this band nothing
+        // on screen names the record being edited.
+        header={{
+          initials: "GP",
+          title: orderNumber ?? (editId ? "Garment Process Amendment" : "New amendment"),
+          badges: dirty ? (
+            <span className="text-[11px] font-medium text-warning">● Unsaved</span>
+          ) : null,
+          meta: (
+            <>
+              <span>
+                {entryCode ? (
+                  <span className="font-mono font-semibold text-foreground">{entryCode}</span>
+                ) : (
+                  "Entry No auto"
+                )}
+              </span>
+              {customerName && <span>· {customerName}</span>}
+              {amendDate && <span>· {fmtDate(amendDate)}</span>}
+            </>
+          ),
+        }}
+        sections={sections}
+        footer={{
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New amendment",
+          onCancel: () => setMode("list"),
+          onSave: submit,
+          saveLabel: "Save amendment",
+          canSave: validity.canSave,
+          // Keeps Save clickable when blocked so it names the missing field and
+          // steers there — and so Ctrl+S and Enter-off-the-last-field reach the
+          // same handler.
+          onBlockedSave: revealFirstProblem,
+          isPending,
+        }}
       />
-
-      <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <Label>Entry No</Label>
-            <Input value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"} disabled />
-          </div>
-          <div>
-            <Label htmlFor="gpa-date">Date *</Label>
-            <Input id="gpa-date" type="date" value={amendDate} onChange={(e) => setAmendDate(e.target.value)} />
-          </div>
-          <RecordPicker label="Customer" items={buyerItems} value={customerId} onChange={setCustomerId} />
-          <RecordPicker label="SC No" items={orderItems} value={orderId} onChange={onPickOrder} />
-          <div>
-            <Label htmlFor="gpa-sno">Amend S No</Label>
-            <Input id="gpa-sno" type="number" value={amendSno} onChange={(e) => setAmendSno(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="gpa-order">Order No</Label>
-            <Input id="gpa-order" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
-          </div>
-        </CardBody>
-      </Card>
-
-      <Tabs
-        items={[
-          {
-            key: "component",
-            label: "Component Process",
-            content: (
-              <StyleGrid
-                title="Component Process Details"
-                rows={component}
-                setRows={setComponent}
-                styleItems={styleItems}
-                styleById={styleById}
-                newKey={newKey}
-              />
-            ),
-          },
-          {
-            key: "garment",
-            label: "Garment Process",
-            content: (
-              <StyleGrid
-                title="Garment Process Details"
-                rows={garment}
-                setRows={setGarment}
-                styleItems={styleItems}
-                styleById={styleById}
-                newKey={newKey}
-              />
-            ),
-          },
-        ]}
-        defaultKey="component"
-      />
-
-      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 py-3 backdrop-blur">
-        <Button variant="outline" onClick={() => setMode("list")}>Cancel</Button>
-        <Button disabled={isPending || !amendDate} onClick={submit}>
-          {isPending ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function StyleGrid({
-  title,
-  rows,
-  setRows,
-  styleItems,
-  styleById,
-  newKey,
-}: {
-  title: string;
-  rows: LineRow[];
-  setRows: React.Dispatch<React.SetStateAction<LineRow[]>>;
-  styleItems: { id: string; code: string | null; name: string }[];
-  styleById: Map<string, StyleRow>;
-  newKey: () => string;
-}) {
-  return (
-    <Card>
-      <CardBody>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <Button
-            type="button"
-            variant="subtle"
-            size="sm"
-            onClick={() => setRows((xs) => [...xs, { key: newKey(), style_id: null }])}
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-          </Button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                <th className="w-12 px-3 py-1.5 text-left font-medium">S No</th>
-                <th className="px-3 py-1.5 text-left font-medium">Style Ref No</th>
-                <th className="px-3 py-1.5 text-left font-medium">Style</th>
-                <th className="px-3 py-1.5 text-left font-medium">Article No</th>
-                <th className="w-10" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => {
-                const st = r.style_id ? styleById.get(r.style_id) : undefined;
-                return (
-                  <tr key={r.key} className="border-b border-border last:border-0">
-                    <td className="px-3 py-1 text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="px-3 py-1">
-                      <RecordPicker
-                        label="Style Ref No"
-                        items={styleItems}
-                        value={r.style_id}
-                        onChange={(id) =>
-                          setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, style_id: id } : x)))
-                        }
-                        compact
-                      />
-                    </td>
-                    <td className="px-3 py-1 text-sm">{st?.style_name ?? "—"}</td>
-                    <td className="px-3 py-1 text-sm text-muted-foreground">{st?.article_no ?? "—"}</td>
-                    <td className="px-2 py-1">
-                      <button
-                        type="button"
-                        onClick={() => setRows((xs) => xs.filter((x) => x.key !== r.key))}
-                        aria-label="Remove row"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </CardBody>
-    </Card>
+    </>
   );
 }
