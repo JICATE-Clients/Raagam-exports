@@ -17,7 +17,8 @@ import {
 } from "@/components/masters/master-full-screen";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -855,6 +856,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
               <RecordPicker
                 id="mba-order"
                 label="SC No / Order"
+                identity="code"
                 items={orderItems}
                 value={form.sales_order_id}
                 onChange={(id) => set({ sales_order_id: id })}

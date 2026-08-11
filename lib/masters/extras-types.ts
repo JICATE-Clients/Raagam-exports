@@ -95,6 +95,8 @@ export const LOOKUP_KINDS = [
   "vendor_supply_type",
   // Associates ▸ Vendor ▸ Service grid (0372) — same reasoning as the two above.
   "vendor_service_type",
+  // Orders ▸ Amendment ▸ Quantities grid (0398)
+  "assortment_type",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -151,6 +153,7 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   vendor_item_form: "Vendor Item Forms",
   vendor_supply_type: "Vendor Supply Types",
   vendor_service_type: "Vendor Service Types",
+  assortment_type: "Assortment Types",
 };
 
 /**

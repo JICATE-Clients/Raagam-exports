@@ -9,6 +9,8 @@ import type {
   AmendmentPriceDetail,
   AmendmentApprovalQty,
   AmendmentCountrySize,
+  AmendmentPackType,
+  AmendmentQuantity,
 } from "./types";
 
 /**
@@ -53,12 +55,60 @@ export interface SeededAmendmentChildren {
   combos: Seeded<AmendmentCombo>[];
   priceDetails: Seeded<AmendmentPriceDetail>[];
   approvalQtys: Seeded<AmendmentApprovalQty>[];
+  /**
+   * Quantities (0398) — one row per style, carrying its ordered quantity.
+   *
+   * THE ONLY TAB WITH NO ORDER-SIDE TABLE TO RESTATE. `sales_orders` holds a
+   * single header `order_qty` / `delivery_date` / `ship_date` and no per-country
+   * or per-consignee split, so there is nothing to mirror the way the other tabs
+   * mirror their children. Seeding the per-style quantities off `order_pack_ratios`
+   * — the same source Approval Qty uses — is the closest honest starting point:
+   * the operator splits a row by country or consignee from there.
+   *
+   * Country, consignee, warehouse and port are left NULL rather than guessed.
+   * The order does not carry them, and a plausible wrong default on a shipping
+   * document is worse than an empty cell.
+   */
+  quantities: Seeded<AmendmentQuantity>[];
+  /**
+   * Pack type(s) (0399) — ALWAYS EMPTY FROM AN ORDER, and optional for that
+   * reason.
+   *
+   * Quantities at least had `order_pack_ratios` to start from. Nothing on the
+   * order side records a packing METHOD: `order_pack_ratios` holds the ratio
+   * lines, not whether the carton is solid or assorted. So there is nothing to
+   * restate and the tab starts on its one blank row.
+   *
+   * It is in this type all the same because `applyRows` maps a saved document
+   * through the SAME shape — the tab would otherwise be the one grid whose
+   * stored rows had no way back onto the screen.
+   */
+  packTypes?: Seeded<AmendmentPackType>[];
   /** Still seeded and still diffed (scripts/check-amendment-diff.mts), but the
    *  Country/Sizewise TAB was withdrawn on 2026-08-10, so the screen no longer
    *  consumes it. Optional rather than deleted: the diff vectors are the only
    *  remaining consumer and they should keep working. */
   countrySizes?: Seeded<AmendmentCountrySize>[];
+  /**
+   * How many of the order's fabrics are solid / yarn-dyed / melange.
+   *
+   * NOT ROWS, and deliberately not a tab: melange takes its colour from the
+   * purchased yarn and yarn-dyed is coloured before knitting, so both need no
+   * dyeing row — a fact the Color/Print tab should SAY rather than enforce.
+   * `order_fabrics.item_sub_type` is per fabric ROW, so "this order is melange"
+   * is not a well-formed statement and a mixed order is normal; hiding a grid on
+   * it would strand rows already saved on a grid that no longer renders.
+   */
+  fabricTypes?: FabricTypeCounts;
 }
+
+/** Counts by `order_fabrics.item_sub_type`; `other` covers null / unrecognised. */
+export type FabricTypeCounts = {
+  solid: number;
+  yarn_dyed: number;
+  melange: number;
+  other: number;
+};
 
 export const EMPTY_SEED: SeededAmendmentChildren = {
   styles: [],
@@ -68,6 +118,8 @@ export const EMPTY_SEED: SeededAmendmentChildren = {
   combos: [],
   priceDetails: [],
   approvalQtys: [],
+  packTypes: [],
+  quantities: [],
   countrySizes: [],
 };
 
@@ -150,7 +202,7 @@ export async function seedAmendmentFromOrder(
       .order("sno"),
     s
       .from("order_fabrics")
-      .select("id, sno, style_ref_no, style_no, combo, structure_name")
+      .select("id, sno, style_ref_no, style_no, combo, structure_name, item_sub_type")
       .eq("sales_order_id", salesOrderId)
       .order("sno"),
   ]);
@@ -188,13 +240,20 @@ export async function seedAmendmentFromOrder(
   const [{ data: styleRows }, { data: colorRows }, { data: lookupRows }] = await Promise.all([
     s
       .from("garment_styles")
-      .select("id, style_name, article_no, style_description, category:config_lookups!style_category_id(name)")
+      // `categories`, not `config_lookups` — 0394 repointed style_category_id and
+      // kept the constraint name, so the old embed named a relationship that no
+      // longer exists and failed the whole seed query (same defect as service.ts).
+      .select("id, style_name, article_no, style_description, category:categories!style_category_id(name)")
       .eq("blocked", false),
     s.from("color_card_colors").select("id, name"),
     s
       .from("config_lookups")
       .select("id, kind, name")
-      .in("kind", ["roll_form_print", "structure"])
+      // `fabric_structure`, not the empty `structure` kind — see 0396 and the
+      // note on `structureOpts` in amendment-screen.tsx. Matching
+      // `order_fabrics.structure_name` against an empty index is why every
+      // seeded structure row arrived with a null id and was dropped on save.
+      .in("kind", ["roll_form_print", "fabric_structure"])
       .eq("is_active", true),
   ]);
 
@@ -215,7 +274,7 @@ export async function seedAmendmentFromOrder(
   const colorByName = indexByName((colorRows ?? []) as { id: string; name: string | null }[]);
   const lookups = (lookupRows ?? []) as { id: string; kind: string; name: string | null }[];
   const printByName = indexByName(lookups.filter((l) => l.kind === "roll_form_print"));
-  const structureByName = indexByName(lookups.filter((l) => l.kind === "structure"));
+  const structureByName = indexByName(lookups.filter((l) => l.kind === "fabric_structure"));
 
   // ---- Style(s) ------------------------------------------------------------
   // No order-side styles TABLE exists, so the tab is derived: every distinct
@@ -278,15 +337,66 @@ export async function seedAmendmentFromOrder(
     prints.push({ sno: prints.length + 1, print_id: id });
   }
 
+  /**
+   * The structures the STYLE already declares, from its Components tab.
+   *
+   * "The system should automatically fill these rows based on the fabric
+   * structures already defined in the initial Style Entry … pulled directly from
+   * the Components tab of the Style setup" (client 2026-08-10). Listing them here
+   * is what makes them available to the Combos tab, where colours get mapped onto
+   * individual parts.
+   *
+   * FETCHED HERE RATHER THAN IN THE `Promise.all` ABOVE, because it is keyed on
+   * `styles[].style_id`, which does not exist until the derived Style(s) list has
+   * been resolved against `styleByName` a few lines up. One extra round trip, and
+   * only when the order resolved to at least one style master.
+   */
+  const styleIds = [
+    ...new Set(styles.map((x) => x.style_id).filter((x): x is string => !!x)),
+  ];
+  const { data: styleComponents } = styleIds.length
+    ? await s
+        .from("garment_style_components")
+        .select("structure_id")
+        .in("style_id", styleIds)
+    : { data: [] as { structure_id: string | null }[] };
+
   const structures: Seeded<AmendmentStructure>[] = [];
+  // TWO SOURCES, ONE LIST, SO DEDUPE HAS TO WORK IN BOTH CURRENCIES: the order's
+  // fabrics carry structure NAMES (free text on `order_fabrics`), the style's
+  // components carry structure IDS. A single text-keyed set would let the same
+  // structure in twice, once under each.
   const seenStructure = new Set<string>();
+  const seenStructureId = new Set<string>();
   for (const f of fabrics ?? []) {
     const text = f.structure_name?.trim();
     if (!text || seenStructure.has(text.toUpperCase())) continue;
     seenStructure.add(text.toUpperCase());
     const id = structureByName.get(text.toUpperCase()) ?? null;
     if (!id && !keepUnmatchedMaster("structure", text)) continue;
+    if (id) seenStructureId.add(id);
     structures.push({ sno: structures.length + 1, structure_id: id });
+  }
+  // UNION, NOT REPLACE. A PO can name a structure the style never mentioned —
+  // which is exactly what the spec's "+ Add structure provides manual
+  // flexibility" is for — so the order's own rows keep their place at the top.
+  for (const c of (styleComponents ?? []) as { structure_id: string | null }[]) {
+    const id = c.structure_id;
+    if (!id || seenStructureId.has(id)) continue;
+    seenStructureId.add(id);
+    structures.push({ sno: structures.length + 1, structure_id: id });
+  }
+
+  /**
+   * The dyeing hint's data. `items.fabric_type_id`'s validation message names the
+   * purpose exactly: "Fabric Type is required (Solid, Yarn-dyed or Melange) — it
+   * determines the dyeing PO type." This is the order-level echo of that.
+   */
+  const fabricTypes: FabricTypeCounts = { solid: 0, yarn_dyed: 0, melange: 0, other: 0 };
+  for (const f of fabrics ?? []) {
+    const t = (f as { item_sub_type?: string | null }).item_sub_type;
+    if (t === "solid" || t === "yarn_dyed" || t === "melange") fabricTypes[t] += 1;
+    else fabricTypes.other += 1;
   }
 
   // ---- Combos --------------------------------------------------------------
@@ -319,6 +429,7 @@ export async function seedAmendmentFromOrder(
   // Both come off `order_pack_ratios`: one row per style, its ordered quantity
   // and whether the order carries a country breakdown.
   const approvalQtys: Seeded<AmendmentApprovalQty>[] = [];
+  const quantities: Seeded<AmendmentQuantity>[] = [];
   const countrySizes: Seeded<AmendmentCountrySize>[] = [];
   const seenPackStyle = new Set<string>();
   for (const p of packs ?? []) {
@@ -336,7 +447,22 @@ export async function seedAmendmentFromOrder(
       ...label,
       countrywise: !!p.country_code?.trim(),
     });
+    quantities.push({
+      sno: quantities.length + 1,
+      country_id: null,
+      style_ref_no: p.style_ref_no,
+      // `styleLabel` names its column `style`; this table's is `style_no`,
+      // matching the order children it is keyed against.
+      style_no: p.style_no,
+      consignee_id: null,
+      assortment_type_id: null,
+      po_qty: Number(p.order_qty ?? 0),
+      delivery_date: null,
+      earlier_shipment_date: null,
+      warehouse_id: null,
+      discharge_port_id: null,
+    });
   }
 
-  return { styles, dyeings, prints, structures, combos, priceDetails, approvalQtys, countrySizes };
+  return { styles, dyeings, prints, structures, combos, priceDetails, approvalQtys, quantities, countrySizes, fabricTypes };
 }

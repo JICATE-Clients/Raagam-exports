@@ -6,7 +6,7 @@ import {
   getBuyers,
   getLocations,
 } from "@/lib/orders/service";
-import { fmtMoney, fmtNumber, fmtDate } from "@/lib/format";
+import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -15,7 +15,8 @@ import type { OrderWithBuyer } from "@/lib/orders/service";
 import type { OrderStatus } from "@/lib/orders/types";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 // This page is the module root AND the All Orders screen — no card grid.
 //
 // It used to open with the legacy RP-Software 14-step "To-Do" panel, which was
@@ -49,9 +50,23 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   cancelled: "Cancelled",
 };
 
+/**
+ * QTY AND VER. WERE WITHDRAWN from this list (client 2026-08-11).
+ *
+ * Display only — `sales_orders.order_qty` and `current_version` are untouched,
+ * still selected by `getOrders`, and still read elsewhere: `order_qty` is what
+ * seeds an amendment, and the version drives the revision history. Dropping a
+ * COLUMN from a list is not the same withdrawal as dropping a FIELD from a form,
+ * where the field must also leave the Zod input or every save writes null over
+ * it (0392). There is nothing to guard here — a list writes nothing.
+ *
+ * Created Date / Created User are NOT in this array: `withCreatedColumns`
+ * splices them on at the end, which is what keeps their wording and order the
+ * same on every listing in the app.
+ */
 const columns: Column<OrderWithBuyer>[] = [
   {
-    header: "Order #",
+    header: "SC No",
     cell: (row) => (
       <Link
         href={`/orders/${row.id}`}
@@ -65,13 +80,6 @@ const columns: Column<OrderWithBuyer>[] = [
     header: "Buyer",
     cell: (row) => (
       <span className="text-sm">{row.buyers?.name ?? "—"}</span>
-    ),
-  },
-  {
-    header: "Qty",
-    align: "right",
-    cell: (row) => (
-      <span className="tabular-nums text-sm">{fmtNumber(row.order_qty)}</span>
     ),
   },
   {
@@ -97,15 +105,13 @@ const columns: Column<OrderWithBuyer>[] = [
       </StatusPill>
     ),
   },
-  {
-    header: "Ver.",
-    align: "center",
-    cell: (row) => (
-      <span className="text-xs text-muted-foreground">
-        v{row.current_version}
-      </span>
-    ),
-  },
+  /* View + Edit, the Master Data cluster. Edit is a LINK because this page is a
+     SERVER component: an `onEdit` closure cannot cross the RSC boundary, a href can.
+     Delete is deliberately absent — no delete action exists for this record, and an
+     order is retired through Order Closure, not removed. */
+  rowActionsColumn((row) => (
+    <RowActions label={row.order_number} editHref={`/orders/${row.id}`} />
+  )),
 ];
 
 export default async function OrdersPage() {

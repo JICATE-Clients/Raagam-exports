@@ -26,8 +26,8 @@ import { DetailSection } from "@/components/masters/detail-section";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { Field } from "@/components/ui/field";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean };
 type SubRow = { key: string; sub_category: string; short_description: string; hsn_code: string };
 

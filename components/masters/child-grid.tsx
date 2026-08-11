@@ -880,6 +880,8 @@ export function ChildGrid<T extends { key: string }>({
    * exactly one is ever on screen.
    */
   const hasTotals = columns.some((c) => c.total && c.total.kind !== "blank");
+  /** Where the figures start — everything left of it belongs to the label. */
+  const firstTotalIndex = columns.findIndex((c) => c.total && c.total.kind !== "blank");
 
   /**
    * Every caller column has declared a width, so the TABLE CAN HUG ITS CONTENT
@@ -959,7 +961,14 @@ export function ChildGrid<T extends { key: string }>({
         <table
           className={cn(
             "border-collapse text-sm",
-            hugsContent ? "w-auto" : "w-full min-w-[420px]",
+            // `table-fixed` IS THE HALF THAT MAKES `width` MEAN ANYTHING. Under
+            // the default `table-layout: auto` a `<th>` width is a SUGGESTION —
+            // the browser still distributes by content and available space, so
+            // ten declared columns in a narrow container were all squeezed
+            // together and every picker read "— S…" (client 2026-08-11). Fixed
+            // layout honours the declarations and lets the table exceed its
+            // container, which is what `overflow-x-auto` on the wrapper is for.
+            hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
           )}
         >
           <thead>
@@ -1042,10 +1051,19 @@ export function ChildGrid<T extends { key: string }>({
           {hasTotals && (
             <tfoot className="border-t-2 border-border bg-surface-muted font-semibold">
               <tr>
-                <td className="px-2 py-1.5 text-center text-[11px] uppercase tracking-wide text-muted-foreground">
+                {/* THE LABEL SPANS EVERYTHING BEFORE THE FIRST TOTALLED COLUMN.
+                    It used to sit alone in the `#` cell, which is `w-10` — so
+                    "Total PO Qty" wrapped to three lines and pushed the band
+                    taller than the rows above it (client 2026-08-11). Spanning
+                    is also what a totals row is supposed to look like: the label
+                    on the left, each figure under the column it totals. */}
+                <td
+                  colSpan={1 + Math.max(0, firstTotalIndex)}
+                  className="whitespace-nowrap px-2 py-1.5 text-right text-[11px] uppercase tracking-wide text-muted-foreground"
+                >
                   {totalsLabel}
                 </td>
-                {columns.map((c, ci) => (
+                {columns.slice(Math.max(0, firstTotalIndex)).map((c, ci) => (
                   <td
                     key={ci}
                     className={cn(

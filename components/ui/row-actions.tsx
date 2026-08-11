@@ -1,11 +1,11 @@
 "use client";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Eye, Pencil, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
-import type { Column } from "@/components/ui/data-table";
 // Layering note: `components/ui` reaching into `components/masters` for the view
 // sheet is backwards, and deliberate — the alternative was a second read-only
 // sheet with the same job. There is no cycle: record-view-sheet does not import
@@ -59,13 +59,6 @@ import { pairsFromRow, titleFromRow } from "@/lib/record-pairs";
  * are not a touch target, and this ships as an installed PWA.
  */
 
-/**
- * Fixed action-column width, sized for the delete-confirm strip so the table
- * does not reflow when the bin is clicked. Declare columns with
- * `rowActionsColumn()` rather than repeating this.
- */
-export const ROW_ACTIONS_WIDTH = "w-40";
-
 export type RowMenuItem = DropdownItem;
 
 /**
@@ -82,25 +75,33 @@ export type RowMenuItem = DropdownItem;
 const RowRecordContext = createContext<unknown>(undefined);
 
 /**
- * Build the trailing actions column. Keeps header/align/width in one place so a
- * screen cannot get the column geometry subtly wrong, and publishes the row so
- * the eye works without any further wiring.
+ * Publish the row to `RowActions` beneath it.
+ *
+ * A COMPONENT, not a function that returns a column — and that distinction is
+ * the whole point. `rowActionsColumn` lived here and was CALLED by nine server
+ * pages, which React Server Components forbids for any non-component export of
+ * a `"use client"` module; the production build failed on it. The column builder
+ * now lives in `row-actions-column.tsx` (no directive) and RENDERS this, which
+ * is the one direction across the boundary that is allowed.
+ *
+ * Deliberately NOT re-exported from here — see that file for why leaving the old
+ * import path working would have preserved the trap.
  */
-export function rowActionsColumn<T>(cell: (row: T) => ReactNode): Column<T> {
-  return {
-    header: "",
-    align: "right",
-    className: ROW_ACTIONS_WIDTH,
-    cell: (row) => (
-      <RowRecordContext.Provider value={row}>{cell(row)}</RowRecordContext.Provider>
-    ),
-  };
+export function RowActionsCell<T>({
+  row,
+  children,
+}: {
+  row: T;
+  children: ReactNode;
+}) {
+  return <RowRecordContext.Provider value={row}>{children}</RowRecordContext.Provider>;
 }
 
 export function RowActions({
   label,
   onView,
   onEdit,
+  editHref,
   onDelete,
   canEdit = true,
   canDelete = true,
@@ -126,6 +127,17 @@ export function RowActions({
    * wins over the automatic one.
    */
   onView?: () => void;
+  /**
+   * Edit as a LINK rather than a handler — for a list rendered by a SERVER
+   * component, which cannot hand a client component an `onEdit` closure
+   * (functions do not cross the RSC boundary; a string does).
+   *
+   * This is what lets the Orders module's `page.tsx` listings carry the same
+   * View + Edit cluster as Master Data without each one being rewritten as a
+   * client component first. Ignored when `onEdit` is given — a screen that can
+   * run a handler should, since that is the richer control.
+   */
+  editHref?: string;
   /**
    * The record, when `rowActionsColumn` is not what rendered this cell (a
    * hand-rolled `<td>`, a card footer). Normally inferred from context.
@@ -157,6 +169,8 @@ export function RowActions({
   const contextRow = useContext(RowRecordContext);
 
   const showEdit = !!onEdit && canEdit;
+  /** The link form, only when there is no handler to prefer. */
+  const showEditLink = !onEdit && !!editHref && canEdit && !editDisabled;
   const showDelete = !!onDelete && canDelete;
   const suffix = label ? ` ${label}` : "";
 
@@ -224,6 +238,21 @@ export function RowActions({
           >
             <Pencil />
           </Button>
+        </Tooltip>
+      )}
+      {showEditLink && (
+        <Tooltip label="Edit">
+          {/* A LINK wearing the button's classes, not a Button wrapping a Link:
+              nesting the two is invalid HTML and puts two stops in the Tab path
+              for one control. `buttonClasses` is the shared string so this
+              cannot drift from the real buttons beside it. */}
+          <Link
+            href={editHref!}
+            aria-label={`Edit${suffix}`}
+            className={buttonClasses({ variant: "ghost", size: "icon" })}
+          >
+            <Pencil />
+          </Link>
         </Tooltip>
       )}
       {showDelete && (

@@ -25,7 +25,8 @@ import { createLevy, updateLevy, deleteLevy } from "@/lib/masters/levy-actions";
 import { AcHeadPicker } from "@/components/masters/ac-head-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import { DetailSection } from "@/components/masters/detail-section";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import {
   LEVY_TYPES,
   CESS_MODES,

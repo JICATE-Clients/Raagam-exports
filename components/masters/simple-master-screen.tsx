@@ -28,7 +28,8 @@ import {
   hasCreatedInfo,
 } from "@/components/ui/created-columns";
 import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
-import { RowActions, ROW_ACTIONS_WIDTH } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { ROW_ACTIONS_WIDTH } from "@/components/ui/row-actions-column";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { pairsFromRow } from "@/lib/record-pairs";

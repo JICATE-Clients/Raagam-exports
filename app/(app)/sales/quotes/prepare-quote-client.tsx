@@ -10,7 +10,8 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
@@ -314,6 +315,7 @@ export function PrepareQuoteClient({ rows, data, perms, masterPerms }: Props) {
               </div>
               <RecordPicker
                 label="Enquiry No"
+                identity="code"
                 items={data.enquiries as PickerRow[]}
                 value={form.opportunity_id}
                 onChange={onPickEnquiry}

@@ -31,7 +31,8 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Process } from "@/lib/masters/process-types";
 import { DetailSection } from "@/components/masters/detail-section";
 import { ChildGrid } from "@/components/masters/child-grid";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { fmtDate } from "@/lib/format";
 import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 

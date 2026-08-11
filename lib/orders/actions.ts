@@ -44,6 +44,59 @@ const AUTO_STAGES = [
   { name: "Ex-factory", sequence: 8, offset_days: 0 },
 ] as const;
 
+// ---------- SC No preview ----------
+
+/**
+ * The SC No the next order raised at `locationId` on `orderDate` WOULD receive,
+ * so the New Order header can show HO/RE/2627/0001 while it is being entered
+ * instead of "(auto)" — which is how the legacy form behaves.
+ *
+ * ASKS THE DATABASE RATHER THAN COMPOSING THE STRING HERE. Building
+ * `<loc>/RE/<fy>/<nnnn>` in TypeScript would be a second implementation of the
+ * format AND of the April–March fiscal-year rule; the first time either changed
+ * the screen would confidently display a number different from the one saved.
+ * `peek_sales_order_number` (0395) shares BOTH `sales_order_no_format()` and
+ * `fiscal_year_segment()` with the trigger that assigns, which is what makes
+ * them impossible to drift apart.
+ *
+ * A PREDICTION, NOT A RESERVATION. The peek does not consume the counter, so
+ * opening the form and abandoning it burns no numbers — the cost being that two
+ * operators entering at once see the same one and only the first to save gets
+ * it. The trigger stays the sole authority, so the STORED value is always right.
+ *
+ * BOTH ARGUMENTS MOVE THE ANSWER. The counter is per (location, year), so a
+ * preview pinned to whichever location the form opened with is wrong for
+ * exactly the branch orders that per-location numbering exists for.
+ *
+ * Returns null when there is no location yet, when the RPC is missing (0395 not
+ * applied), or when RLS denies the read. The field then falls back to "(auto)",
+ * which is the honest answer: better a placeholder than a number nothing will
+ * honour.
+ *
+ * NO CALLER TODAY, DELIBERATELY. It was briefly wired into the New Order form on
+ * `/orders`, which is a generic quote→order scaffold rather than the legacy
+ * Garment Order screen — an SC No preview there dressed a stand-in up as the
+ * document operators know. The screen that earns this is the Garment Order ENTRY
+ * screen (legacy task 3 "Create sale orders"), which does not exist yet; when it
+ * is built, this is what its SC No box calls. Kept rather than deleted because
+ * the RPC, its argument names and its null-handling are already proven against
+ * the applied migration.
+ */
+export async function previewOrderNumber(
+  locationId: string | null,
+  orderDate: string | null,
+): Promise<string | null> {
+  if (!locationId) return null;
+  if (!(await can("orders", "create"))) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("peek_sales_order_number", {
+    p_location_id: locationId,
+    p_on: orderDate && orderDate.trim() ? orderDate : null,
+  });
+  if (error) return null;
+  return typeof data === "string" && data ? data : null;
+}
+
 // ---------- create order ----------
 
 export async function createOrder(

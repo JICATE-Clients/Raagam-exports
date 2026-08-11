@@ -147,11 +147,14 @@ export function NewCompletionForm({ orders, buyers }: Props) {
                   required
                 />
               </Field>
-              {/* The picker draws its own label and `*`; `Field` carries the span. */}
+              {/* The picker draws its own label and `*`; `Field` carries the span.
+                  `identity="code"` is master's fix and is kept: on an SC No the
+                  CODE is the identity and the name is the customer. */}
               <Field size="sm">
                 <RecordPicker
                   id="gcm-order"
                   label="SC No"
+                  identity="code"
                   items={orderItems}
                   value={orderId}
                   onChange={onSelectOrder}

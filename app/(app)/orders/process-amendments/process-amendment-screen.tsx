@@ -14,7 +14,8 @@ import {
   type MasterFullScreenHandle,
 } from "@/components/masters/master-full-screen";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";

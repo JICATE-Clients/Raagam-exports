@@ -43,6 +43,7 @@ export function GarmentProcessFilter({ orders, current }: Props) {
         <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <RecordPicker
             label="Order (SC No)"
+            identity="code"
             items={orders}
             value={orderId}
             onChange={setOrderId}

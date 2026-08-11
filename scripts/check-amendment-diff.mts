@@ -82,7 +82,7 @@ const same1 = seed({ priceDetails: [price("TSH-001", "FOB", 4.5)] });
 check("identical price rows", changeCount(diffAmendment(same1, same1)), 0);
 
 // Every tab is still reported, so a caller can render stable badges.
-check("all eight tabs are always returned", diffAmendment(EMPTY, EMPTY).length, 8);
+check("all ten tabs are always returned", diffAmendment(EMPTY, EMPTY).length, 10);
 
 // ---------- a changed value ----------
 const before = seed({ priceDetails: [price("TSH-001", "FOB", 4.5)] });
@@ -190,6 +190,118 @@ check(
     ),
   ),
   ["Country/Sizewise · A: Countrywise No → Yes"],
+);
+
+// ---------- Quantities (0398) ----------
+//
+// The tab that SPLITS a style across countries, consignees and dates, so unlike
+// every other tab it holds several rows per style. Its key is ref+sno for that
+// reason, and these vectors are what hold that apart from the others.
+const qty = (
+  ref: string,
+  sno: number,
+  patch: Partial<SeededAmendmentChildren["quantities"][number]> = {},
+) => ({
+  sno,
+  country_id: null,
+  style_ref_no: ref,
+  style_no: ref,
+  consignee_id: null,
+  assortment_type_id: null,
+  po_qty: 1000,
+  delivery_date: null,
+  earlier_shipment_date: null,
+  warehouse_id: null,
+  discharge_port_id: null,
+  ...patch,
+});
+
+check(
+  "a quantity change is reported",
+  summarise(diffAmendment(seed({ quantities: [qty("A", 1)] }), seed({ quantities: [qty("A", 1, { po_qty: 1200 })] }))),
+  ["Quantities · A: PO Qty 1000 → 1200"],
+);
+check(
+  "an unchanged quantity is silent",
+  changeCount(diffAmendment(seed({ quantities: [qty("A", 1)] }), seed({ quantities: [qty("A", 1)] }))),
+  0,
+);
+// THE REASON THE KEY CARRIES `sno`. Two rows for one style is the tab's whole
+// purpose; keyed on the style alone the second would read as an edit of the
+// first, and an approver would see a change nobody made.
+check(
+  "splitting a style into two rows is an ADD, not an edit",
+  firstKind(
+    diffAmendment(seed({ quantities: [qty("A", 1)] }), seed({ quantities: [qty("A", 1), qty("A", 2, { po_qty: 400 })] })),
+    "quantities",
+  ),
+  "added",
+);
+check(
+  "…and reports exactly one change",
+  changeCount(diffAmendment(seed({ quantities: [qty("A", 1)] }), seed({ quantities: [qty("A", 1), qty("A", 2)] }))),
+  1,
+);
+check(
+  "a removed quantity row is reported",
+  firstKind(diffAmendment(seed({ quantities: [qty("A", 1)] }), seed({ quantities: [] })), "quantities"),
+  "removed",
+);
+// A date is a plain ISO string here, and a null must not read as a change.
+check(
+  "null dates on both sides are not a change",
+  changeCount(diffAmendment(seed({ quantities: [qty("A", 1)] }), seed({ quantities: [qty("A", 1)] }))),
+  0,
+);
+check(
+  "setting a delivery date is a change",
+  summarise(diffAmendment(seed({ quantities: [qty("A", 1)] }), seed({ quantities: [qty("A", 1, { delivery_date: "2026-09-30" })] }))),
+  ["Quantities · A: Delivery Dt — → 2026-09-30"],
+);
+
+// ---------- Pack type(s) (0399) ----------
+//
+// The value IS the key, so this tab can only ever report added / removed. The
+// vectors that matter are the two that would look like a "change" anywhere else.
+const pack = (method: string, sno = 1) => ({ sno, pack_type: method });
+const SOLID = "Solid Colour / Solid Size";
+const ASSORT = "Assort Colour / Assort Size";
+
+check(
+  "adding a pack method is reported",
+  summarise(diffAmendment(seed({ packTypes: [] }), seed({ packTypes: [pack(SOLID)] }))),
+  [`Pack type(s) · ${SOLID}: added`],
+);
+check(
+  "an unchanged pack method is silent",
+  changeCount(diffAmendment(seed({ packTypes: [pack(SOLID)] }), seed({ packTypes: [pack(SOLID)] }))),
+  0,
+);
+// SWAPPING A METHOD IS A REMOVE PLUS AN ADD, never a "changed". Same reading as
+// a colour going Navy → Black: there is nothing about the row to edit except
+// which method it is.
+check(
+  "swapping a method is two rows, not one change",
+  changeCount(diffAmendment(seed({ packTypes: [pack(SOLID)] }), seed({ packTypes: [pack(ASSORT)] }))),
+  2,
+);
+// RE-ORDERING IS NOT A CHANGE. `sno` is a row's position and shifts whenever an
+// earlier row is deleted — the key deliberately ignores it, and this is the
+// vector that holds that decision.
+check(
+  "re-ordering the same two methods is silent",
+  changeCount(
+    diffAmendment(
+      seed({ packTypes: [pack(SOLID, 1), pack(ASSORT, 2)] }),
+      seed({ packTypes: [pack(ASSORT, 1), pack(SOLID, 2)] }),
+    ),
+  ),
+  0,
+);
+check(
+  "a removed pack method is reported",
+  firstKind(diffAmendment(seed({ packTypes: [pack(SOLID)] }), seed({ packTypes: [] })), "packTypes"),
+  "removed",
 );
 
 // ---------- display never leaks a null at an approver ----------

@@ -152,11 +152,15 @@ export function NewCancellationForm({ orders, buyers }: Props) {
                 />
               </Field>
               {/* The picker draws its own label and its own `*`; `Field` is here
-                  for the span only, which is what its optional `label` is for. */}
+                  for the span only, which is what its optional `label` is for.
+                  `identity="code"` is master's fix and is kept: on an SC No the
+                  CODE is the identity and the name is the customer, so without it
+                  five orders for one buyer all read "Aurelia Retail". */}
               <Field size="sm">
                 <RecordPicker
                   id="goc-order"
                   label="SC No"
+                  identity="code"
                   items={orderItems}
                   value={orderId}
                   onChange={onSelectOrder}
