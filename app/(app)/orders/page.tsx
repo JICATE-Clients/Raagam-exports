@@ -15,8 +15,8 @@ import type { OrderWithBuyer } from "@/lib/orders/service";
 import type { OrderStatus } from "@/lib/orders/types";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 // This page is the module root AND the All Orders screen — no card grid.
 //
 // It used to open with the legacy RP-Software 14-step "To-Do" panel, which was

@@ -8,8 +8,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 const columns: Column<CustomerCardSummary>[] = [
   {
     header: "Customer",

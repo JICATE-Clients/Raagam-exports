@@ -16,8 +16,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { NewIwoForm } from "./new-iwo-form";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 const columns: Column<IwoWithOrder>[] = [
   {
     header: "I.WO No",

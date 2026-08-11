@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 import type { PickerItem } from "@/components/masters/record-picker";
 import { GarmentProcessFilter } from "./garment-process-filter";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 const columns: Column<AcceptedOrderRow>[] = [
   {
     header: "SC No / Order No",

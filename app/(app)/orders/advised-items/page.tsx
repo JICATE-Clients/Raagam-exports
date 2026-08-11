@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 import type { PickerItem } from "@/components/masters/record-picker";
 import { AdvisedItemsFilter } from "./advised-items-filter";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
-
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 const columns: Column<AdvisedOrderRow>[] = [
   {
     header: "SC No / Order No",

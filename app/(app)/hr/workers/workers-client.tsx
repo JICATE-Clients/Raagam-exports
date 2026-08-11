@@ -8,7 +8,8 @@ import type { WorkerRow, ContractorRow, LocationOption } from "@/lib/hr/masters-
 import { createWorker, updateWorker } from "@/lib/hr/masters-actions";
 import { fmtMoney, fmtNumber } from "@/lib/format";
 import { DataTable } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";

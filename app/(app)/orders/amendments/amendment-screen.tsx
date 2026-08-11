@@ -25,7 +25,8 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds

@@ -6,7 +6,6 @@ import { Eye, Pencil, Trash2 } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
-import type { Column } from "@/components/ui/data-table";
 // Layering note: `components/ui` reaching into `components/masters` for the view
 // sheet is backwards, and deliberate — the alternative was a second read-only
 // sheet with the same job. There is no cycle: record-view-sheet does not import
@@ -60,13 +59,6 @@ import { pairsFromRow, titleFromRow } from "@/lib/record-pairs";
  * are not a touch target, and this ships as an installed PWA.
  */
 
-/**
- * Fixed action-column width, sized for the delete-confirm strip so the table
- * does not reflow when the bin is clicked. Declare columns with
- * `rowActionsColumn()` rather than repeating this.
- */
-export const ROW_ACTIONS_WIDTH = "w-40";
-
 export type RowMenuItem = DropdownItem;
 
 /**
@@ -83,19 +75,26 @@ export type RowMenuItem = DropdownItem;
 const RowRecordContext = createContext<unknown>(undefined);
 
 /**
- * Build the trailing actions column. Keeps header/align/width in one place so a
- * screen cannot get the column geometry subtly wrong, and publishes the row so
- * the eye works without any further wiring.
+ * Publish the row to `RowActions` beneath it.
+ *
+ * A COMPONENT, not a function that returns a column — and that distinction is
+ * the whole point. `rowActionsColumn` lived here and was CALLED by nine server
+ * pages, which React Server Components forbids for any non-component export of
+ * a `"use client"` module; the production build failed on it. The column builder
+ * now lives in `row-actions-column.tsx` (no directive) and RENDERS this, which
+ * is the one direction across the boundary that is allowed.
+ *
+ * Deliberately NOT re-exported from here — see that file for why leaving the old
+ * import path working would have preserved the trap.
  */
-export function rowActionsColumn<T>(cell: (row: T) => ReactNode): Column<T> {
-  return {
-    header: "",
-    align: "right",
-    className: ROW_ACTIONS_WIDTH,
-    cell: (row) => (
-      <RowRecordContext.Provider value={row}>{cell(row)}</RowRecordContext.Provider>
-    ),
-  };
+export function RowActionsCell<T>({
+  row,
+  children,
+}: {
+  row: T;
+  children: ReactNode;
+}) {
+  return <RowRecordContext.Provider value={row}>{children}</RowRecordContext.Provider>;
 }
 
 export function RowActions({

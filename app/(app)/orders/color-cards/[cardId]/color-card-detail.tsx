@@ -17,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
+import { RowActions } from "@/components/ui/row-actions";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 
