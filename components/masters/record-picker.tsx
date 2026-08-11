@@ -46,6 +46,7 @@ export function RecordPicker({
   required = false,
   disabled = false,
   id,
+  placeholder,
 }: {
   label: string;
   items: PickerItem[];
@@ -68,6 +69,13 @@ export function RecordPicker({
    * single shared label cannot give — see `material-hsn-assign-screen.tsx`.
    */
   id?: string;
+  /**
+   * Replaces the default "— Select <noun> —" in the empty box. For a field whose
+   * emptiness has a REASON worth stating where there is no room for a line
+   * underneath — a narrowed-to-nothing vendor list in a grid cell. Straight
+   * through to `DataPicker`; a selected value always wins over it.
+   */
+  placeholder?: string;
 }) {
   const rows: PickerRow[] = useMemo(
     () =>
@@ -88,6 +96,7 @@ export function RecordPicker({
       required={required}
       disabled={disabled}
       id={id}
+      placeholder={placeholder}
     />
   );
 }

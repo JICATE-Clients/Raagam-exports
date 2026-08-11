@@ -1,11 +1,8 @@
-import Link from "next/link";
 import { requirePermission, can } from "@/lib/auth/server";
 import {
   listMaterialBomAmendments,
   getMbaFormData,
 } from "@/lib/orders/material-bom-amendment/service";
-import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
 import { MbaMasterScreen } from "./mba-master-screen";
 
 export default async function MaterialBomAmendmentPage() {
@@ -22,26 +19,17 @@ export default async function MaterialBomAmendmentPage() {
       can("masters", "edit"),
     ]);
 
+  // No wrapper and no PageHeader here. The screen renders its own — a
+  // `space-y-4` host would break the page-mounted `MasterFullScreen`, which
+  // takes `flex-1 min-h-0` and needs a `flex h-full flex-col` parent to divide;
+  // and the two modes want different headers (the list's "New Amendment", the
+  // editor's "← Back to list"). Same shape as `orders/amendments/page.tsx`.
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Material BOM Amendment"
-        description="Amend an accepted order's material BOM — items, processes & calculated quantities."
-        actions={
-          <Link href="/orders">
-            <Button variant="outline" size="md">
-              ← Garment Orders
-            </Button>
-          </Link>
-        }
-      />
-
-      <MbaMasterScreen
-        rows={rows}
-        data={data}
-        perms={{ canCreate, canEdit, canDelete }}
-        masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
-      />
-    </div>
+    <MbaMasterScreen
+      rows={rows}
+      data={data}
+      perms={{ canCreate, canEdit, canDelete }}
+      masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
+    />
   );
 }

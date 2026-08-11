@@ -2,20 +2,27 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus } from "lucide-react";
+import Link from "next/link";
+import { Boxes, Calculator, ClipboardList, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Card, CardBody } from "@/components/ui/card";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import {
+  MasterFullScreen,
+  SectionBody,
+  type FullScreenSection,
+  type MasterFullScreenHandle,
+} from "@/components/masters/master-full-screen";
+import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions, rowActionsColumn } from "@/components/ui/row-actions";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { useRegisterShortcut } from "@/lib/shortcuts";
+import { sectionValidity } from "@/lib/screens/validity";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { NominatedVendorPicker } from "@/components/masters/nominated-vendor-picker";
@@ -31,6 +38,7 @@ import {
   SUPPLY_TYPE_OPTIONS,
   mbaStatusTone,
   mbaStatusText,
+  type CalculatedQtyRow,
   type MaterialBomAmendment,
 } from "@/lib/orders/material-bom-amendment/types";
 import type { MbaFormData } from "@/lib/orders/material-bom-amendment/service";
@@ -38,7 +46,6 @@ import { describeConversion, isUsableConversion, toPurchaseQty } from "@/lib/uom
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
-type Tab = "items" | "processes" | "calc";
 
 interface Props {
   rows: MaterialBomAmendment[];
@@ -108,19 +115,49 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
   const [amendmentNo, setAmendmentNo] = useState<number | null>(null);
-  const [tab, setTab] = useState<Tab>("items");
   const [form, setForm] = useState<HeaderForm>(BLANK);
   const [items, setItems] = useState<ItemRow[]>([]);
   const [procs, setProcs] = useState<ProcRow[]>([]);
+
+  /**
+   * Has the operator changed anything since this amendment opened.
+   *
+   * A real flag rather than "does the editor happen to be open", which is what
+   * this screen used to hand `useUnsavedGuard` — always true while editing, so
+   * the silent PWA auto-update was pinned off for as long as the operator sat on
+   * the screen. A page-mounted `MasterFullScreen` gates the reload on THIS, so
+   * it has to mean unsaved work and nothing else. Seeded records (openAdd /
+   * openEdit) clear it: loading a row is not an edit of it.
+   */
+  const [dirty, setDirty] = useState(false);
+
+  /** Lets a blocked Save switch section and land on the offending field. The
+   *  shell keeps `section` in its own state; this handle is the only way in. */
+  const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
-  // This editor is an inline mode on the page, not a Sheet / MasterFullScreen,
-  // so nothing registers it with the reload guard automatically — a silent
-  // auto-update would wipe a half-entered amendment. Treat the editor being
-  // open as dirty (simple-master-screen.tsx does the same with `editing`), and
-  // include isPending so a reload can't land mid-save and lose the toast.
-  useUnsavedGuard(mode === "edit" || isPending);
+  /**
+   * UNSAVED WORK, DECLARED HERE BECAUSE THE OVERLAY CANNOT DECLARE IT.
+   *
+   * `MasterFullScreen` calls `useModalGuard(open)` on an overlay mount, and
+   * `confirmDiscard()` deliberately does NOT read that one — `reload-guard.ts`:
+   * "an open overlay is not the same thing as edited data, and confirming on
+   * every Escape would train the operator to dismiss the prompt without reading
+   * it." So Escape asks before discarding only if the SCREEN registers real
+   * dirtiness, which is why every overlay master (courier-delivery, customer,
+   * applicant) carries this exact line.
+   *
+   * `dirty`, not `mode === "edit"`: the old version was keyed on the editor
+   * merely being open, which pinned the silent PWA auto-update off for as long
+   * as the operator sat on the screen and made every Escape ask.
+   *
+   * Ctrl+S is NOT registered here — the shell owns it (`fireSave`), and the
+   * hand-rolled copy this screen used to carry had its own `canSave` test, which
+   * is the split between a blocked button and a blocked shortcut that
+   * `onBlockedSave` exists to close.
+   */
+  useUnsavedGuard(dirty || isPending);
 
   const materialCategories = useMemo(
     () => data.lookups.filter((l) => l.kind === "material_category"),
@@ -167,11 +204,24 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
     [data.orders, form.sales_order_id],
   );
 
-  const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
+  // Every mutation marks the record dirty in the same breath as changing it, so
+  // the flag cannot drift from the state it describes.
+  const set = (patch: Partial<HeaderForm>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setDirty(true);
+  };
+  const mutItems = (fn: (xs: ItemRow[]) => ItemRow[]) => {
+    setItems(fn);
+    setDirty(true);
+  };
+  const mutProcs = (fn: (xs: ProcRow[]) => ProcRow[]) => {
+    setProcs(fn);
+    setDirty(true);
+  };
   const updItem = (key: string, patch: Partial<ItemRow>) =>
-    setItems((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+    mutItems((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   const updProc = (key: string, patch: Partial<ProcRow>) =>
-    setProcs((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+    mutProcs((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
   function openAdd() {
     setEditId(null);
@@ -179,7 +229,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
     setForm({ ...BLANK, amend_date: today() });
     setItems([blankItem(newKey())]);
     setProcs([{ key: newKey(), item_id: null }]);
-    setTab("items");
+    setDirty(false);
     setMode("edit");
   }
 
@@ -211,20 +261,9 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
       })),
     );
     setProcs(r.processes.map((p) => ({ key: newKey(), item_id: p.item_id })));
-    setTab("items");
+    setDirty(false);
     setMode("edit");
   }
-
-  // Ctrl/⌘+S and Enter both save through here. This screen is neither a Sheet
-  // nor a MasterFullScreen, so it inherits neither; and `submitSurface` cannot
-  // reach its Save button by DOM, so registering is what makes Enter save.
-  useRegisterShortcut(
-    "save",
-    () => {
-      if (canSave && !isPending) submit(false);
-    },
-    mode === "edit",
-  );
 
   function submit(asDraft: boolean) {
     const payload = {
@@ -257,6 +296,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
         : await createMaterialBomAmendment(payload);
       if (res.ok) {
         success(editId ? "Amendment updated" : "Amendment created");
+        setDirty(false);
         setMode("list");
         router.refresh();
       } else {
@@ -278,86 +318,72 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
     });
   }
 
-  // ---------------- LIST MODE ----------------
-  if (mode === "list") {
-    const columns: Column<MaterialBomAmendment>[] = [
-      {
-        header: "Entry No",
-        cell: (r) => (
-          <button
-            type="button"
-            onClick={() => perms.canEdit && openEdit(r)}
-            className="font-mono text-xs font-medium text-primary hover:underline"
-          >
-            {r.code ?? "—"}
-          </button>
-        ),
-      },
-      {
-        header: "Customer",
-        cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span>,
-      },
-      {
-        header: "Order",
-        cell: (r) => (
-          <span className="font-mono text-xs">
-            {r.sales_orders?.order_number ?? "—"}
-          </span>
-        ),
-      },
-      {
-        header: "A. No",
-        align: "right",
-        cell: (r) => <span className="tabular-nums text-sm">{r.amendment_no}</span>,
-      },
-      {
-        header: "Date",
-        align: "right",
-        cell: (r) => (
-          <span className="tabular-nums text-xs text-muted-foreground">
-            {fmtDate(r.amend_date)}
-          </span>
-        ),
-      },
-      {
-        header: "Status",
-        cell: (r) => (
-          <StatusPill tone={mbaStatusTone(r.is_draft)}>
-            {mbaStatusText(r.is_draft)}
-          </StatusPill>
-        ),
-      },
-      rowActionsColumn((r) => (
-        <RowActions
-          label={r.code}
-          onEdit={() => openEdit(r)}
-          canEdit={perms.canEdit}
-          onDelete={() => del(r)}
-          canDelete={perms.canDelete}
-          isPending={isPending}
-        />
-      )),
-    ];
+  // ---------------- THE LIST ----------------
+  // Rendered unconditionally now, with the editor as an OVERLAY above it —
+  // `MasterFullScreen` returns null while `open` is false, so this is the same
+  // "list + editor over it" shape every master screen uses (courier-delivery,
+  // customer, applicant). It replaced an early `return` for the list branch,
+  // which the page mount needed and the overlay does not.
+  const columns: Column<MaterialBomAmendment>[] = [
+    {
+      header: "Entry No",
+      cell: (r) => (
+        <button
+          type="button"
+          onClick={() => perms.canEdit && openEdit(r)}
+          className="font-mono text-xs font-medium text-primary hover:underline"
+        >
+          {r.code ?? "—"}
+        </button>
+      ),
+    },
+    {
+      header: "Customer",
+      cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span>,
+    },
+    {
+      header: "Order",
+      cell: (r) => (
+        <span className="font-mono text-xs">
+          {r.sales_orders?.order_number ?? "—"}
+        </span>
+      ),
+    },
+    {
+      header: "A. No",
+      align: "right",
+      cell: (r) => <span className="tabular-nums text-sm">{r.amendment_no}</span>,
+    },
+    {
+      header: "Date",
+      align: "right",
+      cell: (r) => (
+        <span className="tabular-nums text-xs text-muted-foreground">
+          {fmtDate(r.amend_date)}
+        </span>
+      ),
+    },
+    {
+      header: "Status",
+      cell: (r) => (
+        <StatusPill tone={mbaStatusTone(r.is_draft)}>
+          {mbaStatusText(r.is_draft)}
+        </StatusPill>
+      ),
+    },
+    rowActionsColumn((r) => (
+      <RowActions
+        label={r.code}
+        onEdit={() => openEdit(r)}
+        canEdit={perms.canEdit}
+        onDelete={() => del(r)}
+        canDelete={perms.canDelete}
+        isPending={isPending}
+      />
+    )),
+  ];
 
-    return (
-      <div className="space-y-4">
-        {perms.canCreate && (
-          <div className="flex justify-end">
-            <Button onClick={openAdd}>New Amendment</Button>
-          </div>
-        )}
-        <DataTable
-          columns={withCreatedColumns(columns, rows)}
-          rows={rows}
-          getKey={(r) => r.id}
-          empty="No material BOM amendments yet. Use 'New Amendment' to create the first."
-        />
-      </div>
-    );
-  }
-
-  // ---------------- EDIT MODE ----------------
-  const canSave = !!form.amend_date && !!form.sales_order_id;
+  // ---------------- THE EDITOR ----------------
   const orderQty = selectedOrder?.order_qty ?? 0;
   const catName = (id: string | null) =>
     materialCategories.find((l) => l.id === id)?.name ?? "—";
@@ -381,7 +407,7 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const uomDecimals = (id: string | null) =>
     data.uoms.find((u) => u.id === id)?.decimal_places_allowed ?? 2;
 
-  const calcRows = items
+  const calcRows: CalculatedQtyRow[] = items
     .filter((r) => r.item_id || r.category_id || r.quantity_nos)
     .map((r, i) => {
       const per = r.quantity_nos ? Number(r.quantity_nos) : null;
@@ -408,430 +434,642 @@ export function MbaMasterScreen({ rows, data, perms, masterPerms }: Props) {
       };
     });
 
-  const tabBtn = (t: Tab, label: string) => (
-    <button
-      type="button"
-      onClick={() => setTab(t)}
-      className={
-        "border-b-2 px-4 py-2 text-sm font-medium " +
-        (tab === t
-          ? "border-primary text-primary"
-          : "border-transparent text-muted-foreground hover:text-foreground")
-      }
-    >
-      {label}
-    </button>
-  );
+  /**
+   * WHAT IS STOPPING A SAVE, AND WHICH SECTION HOLDS IT.
+   *
+   * Derived, never hand-assembled. The old form was
+   * `!!form.amend_date && !!form.sales_order_id` — correct, but a list this
+   * screen had to remember to extend, and with only one panel mounted at a time
+   * a blocked Save had nothing on screen to explain itself. Both required
+   * fields live in the first section, so `bySection` puts the count on that rail
+   * item and `onBlockedSave` steers there.
+   *
+   * The two entries mirror the `required` props on the fields below, so the red
+   * `*`, the cursor hold and this list cannot disagree. Deliberately no rule
+   * about item or process lines: the record has never required them, and adding
+   * one here would be a behaviour change dressed up as a layout change.
+   *
+   * NO `problems` BADGE ON THE RAIL (operator request, 2026-08-10). The sections
+   * below deliberately pass `done` and not `problems`, so a section with a blank
+   * mandatory field shows the quiet empty dot rather than a red count. This is a
+   * real trade-off, not an oversight: one section is mounted at a time, so the
+   * badge was the only thing that could say WHICH section was blocking Save
+   * before the operator pressed it.
+   *
+   * What replaces it is `onBlockedSave` below — Save stays clickable, and
+   * pressing it toasts the reason and steers the cursor to the offending field.
+   * The information still arrives, on the action instead of ahead of it. Keep
+   * `validity` itself: it is what makes `canSave` derived rather than a
+   * hand-assembled `&&` chain that a later field can be forgotten from.
+   */
+  const validity = sectionValidity({
+    sections: [
+      { key: "amendment" },
+      { key: "items" },
+      { key: "processes" },
+      { key: "calc" },
+    ],
+    values: form,
+    fields: [
+      {
+        section: "amendment",
+        id: "mba-date",
+        label: "Date",
+        required: true,
+        empty: (f) => !f.amend_date,
+      },
+      {
+        section: "amendment",
+        id: "mba-order",
+        label: "SC No / Order",
+        required: true,
+        empty: (f) => !f.sales_order_id,
+      },
+    ],
+  });
+
+  const revealFirstProblem = () => {
+    const p = validity.first;
+    if (!p) return;
+    toastError(p.message);
+    shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
+  };
+
+  // ---- the item grid ---------------------------------------------------------
+  // NOTE ON `className`/`align` BELOW: those are the TABLE layout's, and the grid
+  // renders cards here (`forceCards`), so nothing reads them today. They are kept
+  // rather than stripped because they are the widths the table needs if the card
+  // layout is ever reverted, and re-deriving "how wide should Consumption Uom be"
+  // from scratch is how a reverted grid comes back squashed.
+  // `ChildGrid`, not the hand-rolled <table> this screen carried. That table was
+  // one of the ~22 AGENTS.md counts under "Tab lands on fields": it drew its own
+  // <thead>, its own S No cell and its own Trash2 remove button, so it inherited
+  // none of Ctrl+Del, `data-row-remove`, required cells, the mobile cards or the
+  // totals band. The `#` column and the remove button are the component's, which
+  // is why neither appears below.
+  const itemColumns: ChildGridColumn<ItemRow>[] = [
+    {
+      header: "Category",
+      className: "min-w-[150px]",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="material_category"
+          label="Category"
+          options={materialCategories}
+          value={r.category_id}
+          onChange={(id) => updItem(r.key, { category_id: id })}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Type",
+      className: "min-w-[110px]",
+      cell: (r) => (
+        <Select
+          value={r.type}
+          onChange={(e) => updItem(r.key, { type: e.target.value })}
+          className="h-8"
+        >
+          <option value="">—</option>
+          {MATERIAL_TYPE_OPTIONS.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Item",
+      className: "min-w-[160px]",
+      cell: (r) => (
+        <RecordPicker
+          label="Item"
+          items={data.items}
+          value={r.item_id}
+          onChange={(id) => updItem(r.key, { item_id: id })}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Attribute",
+      className: "min-w-[150px]",
+      cell: (r) => (
+        <LookupDialogPicker
+          kind="material_attribute"
+          label="Attribute"
+          options={materialAttributes}
+          value={r.attribute_id}
+          onChange={(id) => updItem(r.key, { attribute_id: id })}
+          canCreate={masterPerms.canCreate}
+          canEdit={masterPerms.canEdit}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Supply Type",
+      className: "min-w-[120px]",
+      cell: (r) => (
+        <Select
+          value={r.supply_type}
+          // Changing the type drops a vendor the new type no longer allows.
+          // Leaving it would show a value the reopened picker no longer offers —
+          // the row would look valid and save a vendor the rule forbids.
+          //
+          // Asked of the SAME function that builds the picker's options, so the
+          // two can never disagree about what "allowed" means.
+          onChange={(e) => {
+            const supply_type = e.target.value;
+            const { items: allowed } = nominatedVendorOptions({
+              ...vendorRule,
+              supplyType: supply_type,
+            });
+            const keepVendor =
+              !r.vendor_id || allowed.some((v) => v.id === r.vendor_id);
+            updItem(
+              r.key,
+              keepVendor ? { supply_type } : { supply_type, vendor_id: null },
+            );
+          }}
+          className="h-8"
+        >
+          <option value="">—</option>
+          {SUPPLY_TYPE_OPTIONS.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Vendor",
+      className: "min-w-[150px]",
+      // Narrowed per ROW, not per grid: two lines of the same amendment can
+      // carry different supply types.
+      cell: (r) => (
+        <NominatedVendorPicker
+          {...vendorRule}
+          supplyType={r.supply_type}
+          value={r.vendor_id}
+          onChange={(id) => updItem(r.key, { vendor_id: id })}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Purchase Uom",
+      className: "min-w-[130px]",
+      cell: (r) => (
+        <RecordPicker
+          label="Purchase Uom"
+          items={data.uoms}
+          value={r.purchase_uom_id}
+          onChange={(id) => updItem(r.key, { purchase_uom_id: id })}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Consumption Uom",
+      className: "min-w-[130px]",
+      cell: (r) => (
+        <RecordPicker
+          label="Consumption Uom"
+          items={data.uoms}
+          value={r.consumption_uom_id}
+          onChange={(id) => updItem(r.key, { consumption_uom_id: id })}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Alternate Uom",
+      className: "min-w-[130px]",
+      cell: (r) => (
+        <RecordPicker
+          label="Alternate Uom"
+          items={data.uoms}
+          value={r.alternate_uom_id}
+          onChange={(id) => updItem(r.key, { alternate_uom_id: id })}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Purchase Pack",
+      className: "min-w-[170px]",
+      // Which cone/gross size this line buys. Options come from the material's
+      // own conversions, so an empty list is the signal to go define them on the
+      // Materials master rather than a dead control.
+      cell: (r) => {
+        const packs = packsFor(r.item_id);
+        return (
+          <Select
+            className="h-8"
+            value={r.uom_conversion_id ?? ""}
+            disabled={packs.length === 0}
+            title={
+              packs.length === 0
+                ? "No conversions defined on this material — add them under Materials ▸ Units of Measure."
+                : undefined
+            }
+            onChange={(e) =>
+              updItem(r.key, { uom_conversion_id: e.target.value || null })
+            }
+          >
+            <option value="">
+              {packs.length === 0 ? "No conversions" : "Same as consumption"}
+            </option>
+            {packs.map((c) => (
+              <option key={c.id} value={c.id}>
+                {describeConversion(c, uomName)}
+              </option>
+            ))}
+          </Select>
+        );
+      },
+    },
+    {
+      header: "Combination",
+      className: "min-w-[120px]",
+      cell: (r) => (
+        <Input
+          value={r.combination}
+          onChange={(e) => updItem(r.key, { combination: e.target.value })}
+          className="h-8"
+        />
+      ),
+    },
+    {
+      header: "MOQ",
+      align: "right",
+      className: "min-w-[6rem]",
+      cell: (r) => (
+        <Input
+          type="number"
+          min="0"
+          step="0.001"
+          value={r.moq}
+          onChange={(e) => updItem(r.key, { moq: e.target.value })}
+          className="h-8 text-right"
+        />
+      ),
+    },
+    {
+      header: "Qty",
+      align: "right",
+      className: "min-w-[6rem]",
+      cell: (r) => (
+        <Input
+          type="number"
+          min="0"
+          step="0.001"
+          value={r.quantity_nos}
+          onChange={(e) => updItem(r.key, { quantity_nos: e.target.value })}
+          className="h-8 text-right"
+        />
+      ),
+    },
+  ];
+
+  const procColumns: ChildGridColumn<ProcRow>[] = [
+    {
+      header: "Item",
+      cell: (r) => (
+        <RecordPicker
+          label="Item"
+          items={data.items}
+          value={r.item_id}
+          onChange={(id) => updProc(r.key, { item_id: id })}
+          compact
+        />
+      ),
+    },
+  ];
+
+  const calcColumns: Column<CalculatedQtyRow>[] = [
+    { header: "S No", cell: (r) => <span className="text-xs text-muted-foreground">{r.sno}</span> },
+    { header: "Category", cell: (r) => r.category },
+    { header: "Description", cell: (r) => r.description },
+    { header: "Process", cell: (r) => <span className="text-muted-foreground">{r.process}</span> },
+    { header: "Size", cell: (r) => <span className="text-muted-foreground">{r.size}</span> },
+    { header: "Uom", cell: (r) => r.uom },
+    {
+      header: "Calc Qty",
+      align: "right",
+      cell: (r) => (
+        <span className="tabular-nums">{r.calc_qty != null ? fmtNumber(r.calc_qty) : "—"}</span>
+      ),
+    },
+    {
+      header: "Purchase Qty",
+      align: "right",
+      cell: (r) => (
+        <span className="font-medium tabular-nums">
+          {r.purchase_qty != null ? fmtNumber(r.purchase_qty) : "—"}
+        </span>
+      ),
+    },
+    { header: "Purchase Uom", cell: (r) => r.purchase_uom },
+    {
+      header: "Order Qty",
+      align: "right",
+      cell: (r) => (
+        <span className="tabular-nums text-muted-foreground">{fmtNumber(r.order_qty)}</span>
+      ),
+    },
+  ];
+
+  /**
+   * FOUR RAIL SECTIONS, and the first of them is the header band.
+   *
+   * The three horizontal tabs (Items / Processes / Calculated Quantities) left
+   * the document's own fields — Date, Customer, SC No — stranded above the strip
+   * on a full-bleed `CardBody` that hand-rolled `<div><Label/><Input/></div>`
+   * pairs and a literal "Date *". None of that was reachable by the field
+   * primitives, so the `*` drew nothing behind it and the required hold never
+   * ran. Making the header a section puts every field on this screen behind one
+   * `<Field>` convention, and it is what the operator asked for: four rows in
+   * the rail, the screen's own name first.
+   *
+   * Same move `amendment-screen.tsx` made for the sibling Order Amendment
+   * ("Order Info" as its first section), so the two amendment screens read
+   * alike.
+   */
+  const sections: FullScreenSection[] = [
+    {
+      key: "amendment",
+      label: "Material BOM Amendment",
+      icon: ClipboardList,
+      done: !!form.amend_date && !!form.sales_order_id,
+      content: (
+        <SectionBody
+          title="Material BOM Amendment"
+          hint="Which accepted order is being amended, and when."
+        >
+          {/* ONE FieldGrid for the whole section — SectionBody has no grid of
+              its own, and two stacked grids agree on the left edge but not the
+              row gap. */}
+          <FieldGrid>
+            {/* size="sm" on EVERY field: 3 of 12, four per row, ~280px. Nothing
+                is sized to its own data, so the Date box and the Customer picker
+                line up down the page. */}
+            {/* No `skipTab`: `Input` already sets `tabIndex={-1}` on a readOnly
+                field (input.tsx), which is the one declaration that also takes it
+                out of the arrow walk and Enter-advance. A second one here would
+                be the same fact stated twice. */}
+            <Field label="Entry No" size="sm" htmlFor="mba-entry">
+              <Input id="mba-entry" readOnly value={editId ? "—" : "Auto"} className="font-mono" />
+            </Field>
+            <Field label="Date" required size="sm" htmlFor="mba-date">
+              <Input
+                id="mba-date"
+                type="date"
+                value={form.amend_date}
+                onChange={(e) => set({ amend_date: e.target.value })}
+              />
+            </Field>
+            {/* The picker draws its own <Label>; `Field` is here for the span
+                only, which is what its optional `label` is for. */}
+            <Field size="sm">
+              <CustomerPicker
+                customers={data.customers}
+                value={form.customer_id}
+                onChange={(id) => set({ customer_id: id })}
+                label="Customer"
+              />
+            </Field>
+            <Field label="A. No" size="sm" htmlFor="mba-ano">
+              <Input id="mba-ano" readOnly value={amendmentNo != null ? String(amendmentNo) : "Auto"} />
+            </Field>
+            <Field size="sm">
+              {/* `id` lands on the picker's trigger, so a blocked Save can steer
+                  the cursor to THIS control rather than the first marked one in
+                  the section. */}
+              <RecordPicker
+                id="mba-order"
+                label="SC No / Order"
+                items={orderItems}
+                value={form.sales_order_id}
+                onChange={(id) => set({ sales_order_id: id })}
+                required
+              />
+            </Field>
+            <Field label="Remarks" size="sm" htmlFor="mba-remarks">
+              <Input
+                id="mba-remarks"
+                value={form.remarks}
+                onChange={(e) => set({ remarks: e.target.value })}
+                placeholder="Optional"
+              />
+            </Field>
+          </FieldGrid>
+        </SectionBody>
+      ),
+    },
+    {
+      key: "items",
+      label: "Items",
+      icon: Boxes,
+      done: items.some((r) => r.item_id || r.category_id),
+      content: (
+        <SectionBody title="Items" hint="The materials this amendment puts on the BOM.">
+          {/* NO SIDEWAYS SCROLLBAR — THE ROW WRAPS INSTEAD (operator, 2026-08-10).
+              13 columns cannot fit 1180px minus the rail, so the responsive table
+              put the row behind a horizontal scrollbar: the operator filled
+              Category, then dragged a bar to reach MOQ and Qty, with the row's
+              first cells scrolled out of sight. That is the "no scroll-in-a-box"
+              rule (LAYOUT.md §6) failing on the axis nobody had hit yet.
+
+              `forceCards` drops the table for one card per line, and
+              `renderMobileRow` fills that card with the SAME `FieldGrid` the
+              header section uses — `size="sm"`, four across, wrapping onto as
+              many lines as it takes. So a line's 13 fields read like a small form
+              rather than a train carriage, and every control on this screen now
+              sits on one field track.
+
+              `columns` is still the single declaration: the labels and the cells
+              below are read straight off it, so adding a column here cannot leave
+              the card and the header disagreeing. */}
+          <ChildGrid<ItemRow>
+            columns={itemColumns}
+            rows={items}
+            forceCards
+            renderMobileRow={(row, i) => (
+              <FieldGrid>
+                {itemColumns.map((c, ci) => (
+                  // `Field` supplies the label the <th> used to, and the
+                  // RequiredScope that `cards` mode applies per column only when
+                  // it renders the columns itself. Declaring `required` here
+                  // keeps one source for the `*` and the cursor hold — none of
+                  // these columns is mandatory today, and this is what makes it
+                  // safe when one becomes so.
+                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                    {c.cell(row, i)}
+                  </Field>
+                ))}
+              </FieldGrid>
+            )}
+            onAdd={() => mutItems((xs) => [...xs, blankItem(newKey())])}
+            onRemove={(r) => mutItems((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add item"
+          />
+        </SectionBody>
+      ),
+    },
+    {
+      key: "processes",
+      label: "Processes",
+      icon: Workflow,
+      done: procs.some((r) => r.item_id),
+      content: (
+        <SectionBody title="Processes" hint="The processes these materials pass through.">
+          <ChildGrid<ProcRow>
+            columns={procColumns}
+            rows={procs}
+            onAdd={() => mutProcs((xs) => [...xs, { key: newKey(), item_id: null }])}
+            onRemove={(r) => mutProcs((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add process"
+          />
+        </SectionBody>
+      ),
+    },
+    {
+      key: "calc",
+      label: "Calculated Quantities",
+      icon: Calculator,
+      done: calcRows.length > 0,
+      content: (
+        <SectionBody
+          title="Calculated Quantities"
+          hint="Read-only — derived from the item lines and the order quantity."
+        >
+          <p className="text-xs text-muted-foreground">
+            Provisional calculation — Calc Qty = per-piece Qty × order qty
+            {selectedOrder ? ` (${fmtNumber(orderQty)})` : " (select an order)"};
+            Purchase Qty = Calc Qty ÷ the selected Purchase Pack. Process / Size
+            mapping pending the legacy formula.
+          </p>
+          {/* A read-only projection, not line items — so `DataTable`, the app's
+              presentational table, rather than `ChildGrid`, which exists to be
+              typed into and would draw an Add button for rows nobody can add. */}
+          <DataTable
+            columns={calcColumns}
+            rows={calcRows}
+            getKey={(r) => String(r.sno)}
+            empty="Add items with a quantity to see calculated requirements."
+          />
+        </SectionBody>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <Label>Entry No</Label>
-            <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 font-mono text-sm text-muted-foreground">
-              {editId ? "—" : "Auto"}
+    <>
+      <div className="space-y-4">
+        <PageHeader
+          title="Material BOM Amendment"
+          description="Amend an accepted order's material BOM — items, processes & calculated quantities."
+          actions={
+            <div className="flex items-center gap-2">
+              <Link href="/orders">
+                <Button variant="outline" size="md">
+                  ← Garment Orders
+                </Button>
+              </Link>
+              {perms.canCreate && (
+                <Button size="md" onClick={openAdd}>
+                  New Amendment
+                </Button>
+              )}
             </div>
-          </div>
-          <div>
-            <Label htmlFor="mba-date">Date *</Label>
-            <Input
-              id="mba-date"
-              type="date"
-              value={form.amend_date}
-              onChange={(e) => set({ amend_date: e.target.value })}
-            />
-          </div>
-          <CustomerPicker
-            customers={data.customers}
-            value={form.customer_id}
-            onChange={(id) => set({ customer_id: id })}
-            label="Customer"
-          />
-          <div>
-            <Label>A. No</Label>
-            <div className="flex h-9 items-center rounded-md border border-border bg-surface-muted px-3 text-sm text-muted-foreground">
-              {amendmentNo ?? "Auto"}
-            </div>
-          </div>
-          <RecordPicker
-            label="SC No / Order"
-            items={orderItems}
-            value={form.sales_order_id}
-            onChange={(id) => set({ sales_order_id: id })}
-            required
-          />
-          <div className="sm:col-span-2 lg:col-span-3">
-            <Label htmlFor="mba-remarks">Remarks</Label>
-            <Input
-              id="mba-remarks"
-              value={form.remarks}
-              onChange={(e) => set({ remarks: e.target.value })}
-              placeholder="Optional"
-            />
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* Tabs */}
-      <div className="flex border-b border-border">
-        {tabBtn("items", "Items")}
-        {tabBtn("processes", "Processes")}
-        {tabBtn("calc", "Calculated Quantities")}
+          }
+        />
+        <DataTable
+          columns={withCreatedColumns(columns, rows)}
+          rows={rows}
+          getKey={(r) => r.id}
+          empty="No material BOM amendments yet. Use 'New Amendment' to create the first."
+        />
       </div>
 
-      {/* Items tab */}
-      {tab === "items" && (
-        <Card>
-          <CardBody>
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Item Details</h3>
-              <Button
-                type="button"
-                variant="subtle"
-                size="sm"
-                onClick={() => setItems((xs) => [...xs, blankItem(newKey())])}
-              >
-                <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-              </Button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1400px] text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                    <th className="w-10 px-2 py-1.5 text-left font-medium">S No</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Category</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Type</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Item</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Attribute</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Supply Type</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Vendor</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Purchase Uom</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Consumption Uom</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Alternate Uom</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Purchase Pack</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Combination</th>
-                    <th className="px-2 py-1.5 text-right font-medium">MOQ</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Qty</th>
-                    <th className="w-10" />
-                  </tr>
-                </thead>
-                {/* ↓/↑ walk a column across item lines — gridKeyNav, see
-                    components/masters/child-grid.tsx. 12 fields per row here. */}
-                <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setItems((xs) => [...xs, blankItem(newKey())]))}>
-                  {items.map((r, i) => (
-                    <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                      <td className="px-2 py-1 text-xs text-muted-foreground">{i + 1}</td>
-                      <td className="px-2 py-1 min-w-[150px]">
-                        <LookupDialogPicker
-                          kind="material_category"
-                          label="Category"
-                          options={materialCategories}
-                          value={r.category_id}
-                          onChange={(id) => updItem(r.key, { category_id: id })}
-                          canCreate={masterPerms.canCreate}
-                          canEdit={masterPerms.canEdit}
-                          compact
-                        />
-                      </td>
-                      <td className="px-2 py-1 min-w-[110px]">
-                        <Select
-                          value={r.type}
-                          onChange={(e) => updItem(r.key, { type: e.target.value })}
-                          className="h-8"
-                        >
-                          <option value="">—</option>
-                          {MATERIAL_TYPE_OPTIONS.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </Select>
-                      </td>
-                      <td className="px-2 py-1 min-w-[160px]">
-                        <RecordPicker
-                          label="Item"
-                          items={data.items}
-                          value={r.item_id}
-                          onChange={(id) => updItem(r.key, { item_id: id })}
-                          compact
-                        />
-                      </td>
-                      <td className="px-2 py-1 min-w-[150px]">
-                        <LookupDialogPicker
-                          kind="material_attribute"
-                          label="Attribute"
-                          options={materialAttributes}
-                          value={r.attribute_id}
-                          onChange={(id) => updItem(r.key, { attribute_id: id })}
-                          canCreate={masterPerms.canCreate}
-                          canEdit={masterPerms.canEdit}
-                          compact
-                        />
-                      </td>
-                      <td className="px-2 py-1 min-w-[120px]">
-                        <Select
-                          value={r.supply_type}
-                          // Changing the type drops a vendor the new type no
-                          // longer allows. Leaving it would show a value the
-                          // reopened picker no longer offers — the row would
-                          // look valid and save a vendor the rule forbids.
-                          //
-                          // Asked of the SAME function that builds the picker's
-                          // options, so the two can never disagree about what
-                          // "allowed" means.
-                          onChange={(e) => {
-                            const supply_type = e.target.value;
-                            const { items } = nominatedVendorOptions({
-                              ...vendorRule,
-                              supplyType: supply_type,
-                            });
-                            const keepVendor =
-                              !r.vendor_id || items.some((v) => v.id === r.vendor_id);
-                            updItem(r.key, keepVendor ? { supply_type } : { supply_type, vendor_id: null });
-                          }}
-                          className="h-8"
-                        >
-                          <option value="">—</option>
-                          {SUPPLY_TYPE_OPTIONS.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </Select>
-                      </td>
-                      <td className="px-2 py-1 min-w-[150px]">
-                        {/* Narrowed per ROW, not per grid: two lines of the same
-                            amendment can carry different supply types. */}
-                        <NominatedVendorPicker
-                          {...vendorRule}
-                          supplyType={r.supply_type}
-                          value={r.vendor_id}
-                          onChange={(id) => updItem(r.key, { vendor_id: id })}
-                          compact
-                        />
-                      </td>
-                      <td className="px-2 py-1 min-w-[130px]">
-                        <RecordPicker
-                          label="Purchase Uom"
-                          items={data.uoms}
-                          value={r.purchase_uom_id}
-                          onChange={(id) => updItem(r.key, { purchase_uom_id: id })}
-                          compact
-                        />
-                      </td>
-                      <td className="px-2 py-1 min-w-[130px]">
-                        <RecordPicker
-                          label="Consumption Uom"
-                          items={data.uoms}
-                          value={r.consumption_uom_id}
-                          onChange={(id) => updItem(r.key, { consumption_uom_id: id })}
-                          compact
-                        />
-                      </td>
-                      <td className="px-2 py-1 min-w-[130px]">
-                        <RecordPicker
-                          label="Alternate Uom"
-                          items={data.uoms}
-                          value={r.alternate_uom_id}
-                          onChange={(id) => updItem(r.key, { alternate_uom_id: id })}
-                          compact
-                        />
-                      </td>
-                      {/* Purchase pack — which cone/gross size this line buys.
-                          Options come from the material's own conversions, so an
-                          empty list is the signal to go define them on the
-                          Materials master rather than a dead control. */}
-                      <td className="px-2 py-1 min-w-[170px]">
-                        {(() => {
-                          const packs = packsFor(r.item_id);
-                          return (
-                            <Select
-                              className="h-8"
-                              value={r.uom_conversion_id ?? ""}
-                              disabled={packs.length === 0}
-                              title={
-                                packs.length === 0
-                                  ? "No conversions defined on this material — add them under Materials ▸ Units of Measure."
-                                  : undefined
-                              }
-                              onChange={(e) =>
-                                updItem(r.key, { uom_conversion_id: e.target.value || null })
-                              }
-                            >
-                              <option value="">
-                                {packs.length === 0 ? "No conversions" : "Same as consumption"}
-                              </option>
-                              {packs.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {describeConversion(c, uomName)}
-                                </option>
-                              ))}
-                            </Select>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-2 py-1 min-w-[120px]">
-                        <Input
-                          value={r.combination}
-                          onChange={(e) => updItem(r.key, { combination: e.target.value })}
-                          className="h-8"
-                        />
-                      </td>
-                      <td className="px-2 py-1">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          value={r.moq}
-                          onChange={(e) => updItem(r.key, { moq: e.target.value })}
-                          className="h-8 w-20 text-right"
-                        />
-                      </td>
-                      <td className="px-2 py-1">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          value={r.quantity_nos}
-                          onChange={(e) => updItem(r.key, { quantity_nos: e.target.value })}
-                          className="h-8 w-20 text-right"
-                        />
-                      </td>
-                      <td className="px-2 py-1">
-                        <RowRemove onClick={() => setItems((xs) => xs.filter((x) => x.key !== r.key))} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Processes tab */}
-      {tab === "processes" && (
-        <Card>
-          <CardBody>
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Detail</h3>
-              <Button
-                type="button"
-                variant="subtle"
-                size="sm"
-                onClick={() => setProcs((xs) => [...xs, { key: newKey(), item_id: null }])}
-              >
-                <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-              </Button>
-            </div>
-            <div className="max-w-xl space-y-2">
-              {procs.map((r, i) => (
-                <div key={r.key} className="flex items-center gap-2">
-                  <span className="w-8 text-xs text-muted-foreground">{i + 1}</span>
-                  <div className="flex-1">
-                    <RecordPicker
-                      label="Item"
-                      items={data.items}
-                      value={r.item_id}
-                      onChange={(id) => updProc(r.key, { item_id: id })}
-                      compact
-                    />
-                  </div>
-                  <RowRemove onClick={() => setProcs((xs) => xs.filter((x) => x.key !== r.key))} />
-                </div>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Calculated Quantities tab (read-only, provisional) */}
-      {tab === "calc" && (
-        <Card>
-          <CardBody>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Provisional calculation — Calc Qty = per-piece Qty × order qty
-              {selectedOrder ? ` (${fmtNumber(orderQty)})` : " (select an order)"};
-              Purchase Qty = Calc Qty ÷ the selected Purchase Pack.
-              Process / Size mapping pending the legacy formula.
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                    <th className="w-10 px-3 py-1.5 text-left font-medium">S No</th>
-                    <th className="px-3 py-1.5 text-left font-medium">Category</th>
-                    <th className="px-3 py-1.5 text-left font-medium">Description</th>
-                    <th className="px-3 py-1.5 text-left font-medium">Process</th>
-                    <th className="px-3 py-1.5 text-left font-medium">Size</th>
-                    <th className="px-3 py-1.5 text-left font-medium">Uom</th>
-                    <th className="px-3 py-1.5 text-right font-medium">Calc Qty</th>
-                    <th className="px-3 py-1.5 text-right font-medium">Purchase Qty</th>
-                    <th className="px-3 py-1.5 text-left font-medium">Purchase Uom</th>
-                    <th className="px-3 py-1.5 text-right font-medium">Order Qty</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {calcRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} className="px-3 py-8 text-center text-sm text-muted-foreground">
-                        Add items with a quantity to see calculated requirements.
-                      </td>
-                    </tr>
-                  ) : (
-                    calcRows.map((r) => (
-                      <tr key={r.sno} className="border-b border-border last:border-0">
-                        <td className="px-3 py-1.5 text-xs text-muted-foreground">{r.sno}</td>
-                        <td className="px-3 py-1.5">{r.category}</td>
-                        <td className="px-3 py-1.5">{r.description}</td>
-                        <td className="px-3 py-1.5 text-muted-foreground">—</td>
-                        <td className="px-3 py-1.5 text-muted-foreground">—</td>
-                        <td className="px-3 py-1.5">{r.uom}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {r.calc_qty != null ? fmtNumber(r.calc_qty) : "—"}
-                        </td>
-                        <td className="px-3 py-1.5 text-right font-medium tabular-nums">
-                          {r.purchase_qty != null ? fmtNumber(r.purchase_qty) : "—"}
-                        </td>
-                        <td className="px-3 py-1.5">{r.purchase_uom}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                          {fmtNumber(r.order_qty)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Footer */}
-      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 py-3 backdrop-blur">
-        <Button variant="outline" onClick={() => setMode("list")}>
-          Cancel
-        </Button>
-        {perms.canCreate && (
-          <Button variant="outline" disabled={isPending || !canSave} onClick={() => submit(true)}>
-            Save as Draft
-          </Button>
-        )}
-        <Button disabled={isPending || !canSave} onClick={() => submit(false)}>
-          {isPending ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function RowRemove({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Remove row"
-      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-    >
-      <Trash2 className="h-4 w-4" />
-    </button>
+      {/* THE EDITOR IS A FULL-SCREEN TAKEOVER, NOT A PAGE PANE (operator
+          request, 2026-08-10). `mount="page"` sat the rail in normal flow with
+          the module sidebar still beside it, so the operator entering an
+          amendment had two navigation lists on screen — the app's and the
+          record's — and only ~1090px left for a 13-column grid. The overlay is
+          `fixed inset-0`, so the amendment is the only thing on screen.
+          `open` is what mounts it; the list above stays rendered underneath. */}
+      <MasterFullScreen
+        ref={shellRef}
+        mount="overlay"
+        open={mode === "edit"}
+        onClose={() => setMode("list")}
+        modeLabel={
+          <>
+            {editId ? "Editing" : "New"}{" "}
+            <span className="font-semibold text-foreground">
+              material BOM amendment
+            </span>
+          </>
+        }
+        // An overlay NEEDS this band: it covers the whole screen, so without it
+        // there is nothing naming the record being edited. (A page mount omits
+        // it, because the route's own PageHeader already does.)
+        header={{
+          initials: "MB",
+          title:
+            selectedOrder?.order_number ??
+            (editId ? "Material BOM Amendment" : "New amendment"),
+          badges: dirty ? (
+            <span className="text-[11px] font-medium text-warning">● Unsaved</span>
+          ) : null,
+          meta: (
+            <>
+              <span>
+                {amendmentNo != null ? (
+                  <>
+                    A. No{" "}
+                    <span className="font-semibold text-foreground">{amendmentNo}</span>
+                  </>
+                ) : (
+                  "A. No auto"
+                )}
+              </span>
+              {customerName && <span>· {customerName}</span>}
+              {form.amend_date && <span>· {fmtDate(form.amend_date)}</span>}
+            </>
+          ),
+        }}
+        sections={sections}
+        footer={{
+          status: dirty
+            ? "Unsaved changes"
+            : editId
+              ? "All changes saved"
+              : "New amendment",
+          onCancel: () => setMode("list"),
+          onSave: () => submit(false),
+          // Names the ENTITY, not a bare "Save" that could belong to any record
+          // on any screen.
+          saveLabel: "Save amendment",
+          canSave: validity.canSave,
+          // Keeps Save clickable when blocked, so it explains itself instead of
+          // going silently dead — and so Ctrl+S and Enter-off-the-last-field
+          // reach the same handler rather than falling through to "Save as
+          // Draft" (`submitTargetOf` takes the footer's last NON-disabled
+          // button).
+          onBlockedSave: revealFirstProblem,
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          isPending,
+        }}
+      />
+    </>
   );
 }
