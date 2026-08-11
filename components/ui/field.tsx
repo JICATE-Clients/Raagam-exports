@@ -70,7 +70,14 @@ export function useRequiredHold(
 ): { "data-required-empty"?: string } {
   const ctx = useContext(FieldCtx);
   const required = ctx.required || !!own?.required;
-  const label = own?.label ?? ctx.label;
+  // `||`, NOT `??`. `label=""` means "draw no label" — a control wrapped in a
+  // `<Field label="Category">` that already draws one passes it to suppress the
+  // second copy — and an empty string is not nullish, so `??` let that
+  // suppression win over the context and the hold announced " is required." with
+  // no field name at all (Material Attributes ▸ Category, 2026-08-11). No
+  // VISIBLE label is not no NAME: fall through to the one the field declared,
+  // and only then to the generic.
+  const label = own?.label || ctx.label || null;
   if (!required || !empty) return {};
   return { "data-required-empty": `${label ?? "This field"} is required.` };
 }
@@ -155,7 +162,14 @@ export function Field({
   className,
   children,
 }: {
-  /** Omit for an unlabelled cell that still participates in the span grid. */
+  /**
+   * Omit for an unlabelled cell that still participates in the span grid.
+   *
+   * Pass `""` for an unlabelled cell that also KEEPS THE LABEL ROW, so its
+   * control lines up with the labelled fields beside it. The two are different
+   * on purpose: a row where nothing is labelled wants the space back, and a
+   * lone button beside a labelled field wants to line up with it.
+   */
   label?: ReactNode;
   size?: FieldSize;
   required?: boolean;
@@ -170,10 +184,21 @@ export function Field({
    * `tabIndex={-1}` — or forgot to.
    *
    * It has to be a real `tabIndex` on the CONTROL, which is why this clones the
-   * child rather than marking the wrapper. Under the v3 contract Tab is native
-   * — the provider deliberately stopped claiming it — so no `data-` attribute
-   * and nothing in `lib/focus.ts` can take a control out of the Tab order. See
-   * `.claude/skills/raagam-keyboard-contract`.
+   * child rather than marking the wrapper.
+   *
+   * IT TAKES THE FIELD OFF EVERY KEY, not just Tab: `FOCUSABLE_SELECTOR`
+   * (lib/focus.ts) excludes `[tabindex="-1"]` on every branch, so the field also
+   * leaves ↑↓←→, Enter-advance and the focus trap. Right for a value the operator
+   * cannot type into — wrong for one they must still be able to reach. For a live
+   * control that should merely be OFF THE TYPING PATH, the marker is
+   * `data-focus-optional`, which Tab and Enter step over while the arrows and the
+   * mouse still land on it.
+   *
+   * (This note used to say Tab was native and that nothing in `lib/focus.ts`
+   * could take a control out of the Tab order. That was true under the v3
+   * contract and has not been since 2026-08-04 — `cycleTab` claims Tab on any
+   * `isEditorScope` surface, and `tabAlongRow` claims it inside a child grid.)
+   * See `.claude/skills/raagam-keyboard-contract`.
    */
   skipTab?: boolean;
   className?: string;
@@ -192,8 +217,24 @@ export function Field({
   return (
     <div className={cn(SPAN[size], "min-w-0", className)}>
       {label != null && (
-        <Label htmlFor={htmlFor}>
-          {label}
+        <Label
+          htmlFor={htmlFor}
+          // Nothing to announce when there is no label text, and a screen
+          // reader reading out a blank one is worse than silence.
+          aria-hidden={label === "" || undefined}
+        >
+          {/* `label=""` RESERVES THE ROW — it does not draw an empty one.
+              `Label` is a `block`, so with no children it has no line box at
+              all: it collapses to 0 and its control rises ~16px above the
+              labelled fields beside it. That is what put "Fill sizes" a row
+              above the Size Group select it belongs to (client 2026-08-11).
+
+              The spacer is a non-breaking space THROUGH THE REAL `Label`, so
+              the reserved row carries that component's exact metrics —
+              including the `@2xl/editor` line-height and margin it swaps in on
+              a desktop editor. A hand-built spacer div would be a second copy
+              of those numbers and would drift the first time they changed. */}
+          {label === "" ? "\u00A0" : label}
           {required && <span className="ml-0.5 text-danger">*</span>}
         </Label>
       )}

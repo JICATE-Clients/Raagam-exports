@@ -10,6 +10,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreators } from "@/lib/created-by";
 
 type InterdeptRow = {
   id: string;
@@ -34,9 +35,9 @@ async function listInterdeptDeliveries(): Promise<InterdeptRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("interdept_deliveries")
-    .select("id, code, from_department, to_department, delivery_date, status, created_at")
+    .select("id, code, from_department, to_department, delivery_date, status, created_at, created_by")
     .order("created_at", { ascending: false });
-  return (data ?? []) as InterdeptRow[];
+  return withCreators((data ?? []) as InterdeptRow[]);
 }
 
 export default async function InterdeptPage() {

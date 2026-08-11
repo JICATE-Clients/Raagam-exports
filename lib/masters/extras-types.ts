@@ -172,6 +172,98 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
 export const CODE_IN_LABEL_KINDS: ReadonlySet<LookupKind> = new Set<LookupKind>(["ship_type"]);
 
 /**
+ * Kinds the operator may NOT maintain from a picker — a CLOSED vocabulary.
+ * `LookupDialogPicker` is SELECT-ONLY for these whatever permissions the call
+ * site passes: no "+ Add" row, no per-row Modify or Delete, and none of the
+ * Insert / F2 / Ctrl+Del shortcuts behind them. The list reads exactly as it
+ * was seeded, and changing it is a migration.
+ *
+ * `fabric_structure` is closed because a fourth structure would be a value the
+ * app cannot act on (client 2026-08-11). Circular Knit / Flat Knit / Woven are
+ * not three names — they are the three keys of `FABRIC_STRUCTURE_UOM`
+ * (`material-types.ts`), which is what makes a Fabric stock in kg, nos or mtr.
+ * A value added through a picker gets no code of its own (the inline Add form
+ * has no Code input, so `createLookupValue` defaults the code to the NAME), so
+ * an invented "SEAMLESS" resolves to `fabricStructureUom(…) === null` and the
+ * UOM rule silently does nothing for every Fabric under it. The option was on
+ * offer in four places — the Category master, the Category quick-create sheet,
+ * and the Structure cells on Style / Order Amendment — so it is closed HERE,
+ * once, rather than by unsetting `canCreate` at each of them: a per-call-site
+ * fix leaves the fifth screen to reintroduce it.
+ *
+ * `yarn_type` is the same shape on both counts (client 2026-08-11). Grey /
+ * Melange / Twisted / Doubling are read by NAME in three places in
+ * `material-master-screen.tsx`: `yarnTypeNeedsMixing` shows the Yarn Mixing
+ * grid for twisted, doubling or melange; `handleYarnTypeChange` shows the Shade
+ * field for melange alone and clears a stale shade when the type moves away
+ * from it; `yarnDetails()` reads the same lowercased name again. So a fifth
+ * type gets none of those rules, and renaming Melange breaks the Shade rule
+ * exactly as renaming Woven breaks `fabricStructureUom()` — the rename half is
+ * live here, which is why this kind is fully closed rather than merely closed
+ * to new values like `item_class` below. The Add row was on offer twice, on the
+ * Material editor and the Yarn quick-create sheet.
+ *
+ * Modify and Delete go with it, and closing Add WITHOUT them would have been
+ * the worse state of the two. These kinds have no maintenance screen of their
+ * own (neither `fabric_structure` nor `yarn_type` is in
+ * `app/(app)/masters/config-sections.tsx` — `yarn_count` and `yarn_purity` are,
+ * and `yarn_type` deliberately is not),
+ * so a delete with no way to add is a one-way door out of the UI — and a
+ * RENAME is the same bug as an invented value, because the inline form writes
+ * the name into `code` as well: rename Woven and `fabricStructureUom()` stops
+ * resolving for every Fabric under it. Deletion of an in-use value is already
+ * softened to a deactivation (`deleteLookup`), but an unused one goes for good.
+ *
+ * The bar for adding a kind: the values must be a fixed set the CODE drives
+ * logic from, not merely a list nobody has needed to extend yet.
+ */
+export const CLOSED_LOOKUP_KINDS: ReadonlySet<LookupKind> = new Set<LookupKind>([
+  "fabric_structure",
+  "yarn_type",
+]);
+
+/**
+ * Kinds whose list is FIXED but whose existing rows stay maintainable — no
+ * "+ Add" row and no Insert shortcut, while Modify and Delete keep answering to
+ * the call site's `canEdit` / `canDelete` exactly as before.
+ *
+ * The weaker half of `CLOSED_LOOKUP_KINDS` above, and the distinction is which
+ * direction the damage runs. A kind belongs here when INVENTING a value breaks
+ * something and editing the seeded ones does not.
+ *
+ * `item_class` is the case it was written for (client 2026-08-11). The seven
+ * classes are not seven names, they are the KEYS the materials system branches
+ * on: `itemClassForm(code)` (`material-types.ts`) is a switch whose `default`
+ * is the least-specific form, `categoryNameSeed(code)`
+ * (`name-vocabularies.ts`) picks a category vocabulary per class, and
+ * `ACCESSORY_CLASS_CODES` decides which classes get the attribute-driven
+ * naming flow. The inline Add form has no Code input, so `createLookupValue`
+ * defaults the code to the NAME — an eighth class invented from a picker
+ * therefore resolves to `[]` in the second, to the generic bucket in the first,
+ * and to a Material the app has no rules for. It was one click from the
+ * Composition sheet, offered to an operator who only wanted to pick FABRIC.
+ *
+ * Why not `CLOSED_LOOKUP_KINDS`: that set also strips Modify and Delete, which
+ * is right THERE because a `fabric_structure` rename IS an invented value —
+ * the inline form writes the name into `code`, so renaming Woven breaks
+ * `fabricStructureUom()`. An item class carries a real seeded code (FABRIC,
+ * YARN, SEW …) that a rename does not touch, so the same argument does not
+ * transfer, and taking the pencil away would remove something nobody asked to
+ * lose — including the Type field the inline form shows for this kind alone
+ * (`showTypeField`, migration 0287).
+ *
+ * Declared per KIND rather than per call site because the per-call-site fix has
+ * already been tried and left a remainder: `category-quick-create-sheet.tsx`
+ * passes `canCreate={false}` on its Item Class picker, and the other four sites
+ * — Composition, Vendor ▸ Item Category, Out Document Term, HSN Detail — went
+ * on offering Add regardless. Creating one stays possible on the master screen
+ * (`item-class-master-screen.tsx`), which validates the Code and the Type.
+ */
+export const NO_INLINE_CREATE_KINDS: ReadonlySet<LookupKind> = new Set<LookupKind>([
+  "item_class",
+]);
+
+/**
  * How a `config_lookups` row reads on screen: `COST, INSURANCE & FREIGHT (CIF)`
  * for the kinds above, the bare name for every other kind.
  *

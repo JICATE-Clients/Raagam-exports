@@ -252,11 +252,26 @@ const FIELD_TRIGGER = "[data-field-trigger]";
  * marker once the operator has opted IN — Fabric's checkbox is marked optional
  * only while unticked, so the control that undoes the mode is on the Tab path
  * exactly when undoing it is the thing you would want to do.
+ *
+ * IT WORKS INSIDE A CHILD GRID TOO, and that took a second reader. This file owns
+ * Tab on a surface, but inside a `data-grid-row` the GRID owns it — `tabAlongRow`
+ * (child-grid.tsx) walks its own `ROW_FIELDS` axis and never came through here. So
+ * the marker was silently inert on every grid cell, which is where the second one
+ * was wanted: Material Attributes ▸ **Blocked**, a per-line switch-off that Tab
+ * stopped on between one attribute and the next (client 2026-08-11). `tabAlongRow`
+ * now reads this predicate for its DESTINATION only, so the split stays exactly as
+ * described above — the arrows' `fieldsIn` is untouched and ← → still reach the box.
  */
 const OFF_TAB_PATH = "[data-focus-optional]";
 
-/** True for a control that Tab and Enter must step over. See `OFF_TAB_PATH`. */
-function isOffTabPath(el: HTMLElement): boolean {
+/**
+ * True for a control that Tab and Enter must step over. See `OFF_TAB_PATH`.
+ *
+ * Exported for `child-grid.tsx` alone, and for the same reason `ROW_FIELDS` there
+ * is written as "`isFieldLike` expressed as a selector": the grid states the axis
+ * in its own terms but must not own a second definition of what is off it.
+ */
+export function isOffTabPath(el: HTMLElement): boolean {
   return el.matches(OFF_TAB_PATH);
 }
 
@@ -410,19 +425,48 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
   // which is what it was before 2026-07-28, when it instead fell through and
   // saved a half-filled form. One key, one job: it toggles, it does not
   // toggle-and-advance. Space still toggles natively, and Tab / ↓ / → still move.
-  // Radios get the same treatment — Enter selects, ↑/↓ still walk the group.
-  if (t instanceof HTMLInputElement && /^(checkbox|radio)$/.test(t.type)) {
+  //
+  // WITH ONE EXCEPTION, AND IT IS NOT A SOFTENING OF THE 07-28 RULE: a tick box
+  // that is the LAST field of the surface ticks nothing forward, so "toggle and
+  // stop" makes Enter-off-the-last-field — the ONLY keyboard route to Save,
+  // since Tab never lands on it — unreachable for the whole surface. That is not
+  // hypothetical: on Material Attributes ▸ New the trailing blank row's Blocked
+  // box IS the last field, and every Enter route on the screen funnelled into a
+  // checkbox, so the form was mouse-or-Ctrl+S only (client 2026-08-11). The
+  // 07-28 bug was a checkbox committing while fields still followed it — a
+  // half-filled form. Here nothing follows, so there is no half left to fill,
+  // and the commit still passes through the section hand-off and the
+  // aria-invalid gate below rather than short-cutting to submit.
+  //
+  // SPACE REMAINS THE TOGGLE and is untouched: it is native, and the hold
+  // listener lets it through (Space is in neither NAV_KEYS nor HOLD_KEYS), so
+  // the last box is still tickable by keyboard. A RADIO follows the same rule
+  // rather than being carved out: ↑/↓ in a native group already *select* as they
+  // move (see `ownsArrowKeys`), so Enter-to-select is redundant there and a
+  // trailing radio is reached already checked — two rules would cost the one
+  // sentence this has to be stated in.
+  const tickBox =
+    t instanceof HTMLInputElement && /^(checkbox|radio)$/.test(t.type) ? t : null;
+  const tick = () => {
     e.preventDefault();
-    t.click(); // same path Space and a mouse take, so onChange fires normally
-    return;
-  }
+    tickBox?.click(); // same path Space and a mouse take, so onChange fires normally
+  };
 
   // NOT OUR KEY unless this surface could actually commit. A list page's filter
   // box has no footer, no registered "save" and no submit button — Enter there
   // must reach the browser untouched, exactly as it did before. This used to be
   // enforced at the end (preventDefault only when the save found a target);
   // advancing happens first, so the test has to happen first too.
-  if (!root || !canSubmitSurface(root, hooks)) return;
+  if (!root || !canSubmitSurface(root, hooks)) {
+    // Same predicate, `canSubmit: false` — the rule lives in ONE function so the
+    // vectors in `check-keyboard-holds.mts` exercise the branch that runs, not a
+    // parallel copy of it. The other fields cannot be computed yet (there is no
+    // region axis without a root) and the predicate does not read them here.
+    if (enterTicks({ tickBox: !!tickBox, canSubmit: false, hasNextField: false, located: true, optIn: false })) {
+      tick();
+    }
+    return;
+  }
 
   // 1. The next field along, confined to this element's region.
   const items = regionItems(root, t);
@@ -435,6 +479,18 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
     idx === -1
       ? undefined
       : items.slice(idx + 1).find((el) => isFieldLike(el) && !isOffTabPath(el));
+  if (
+    enterTicks({
+      tickBox: !!tickBox,
+      canSubmit: true,
+      hasNextField: !!next,
+      located: idx !== -1,
+      optIn: t instanceof HTMLElement && isOffTabPath(t),
+    })
+  ) {
+    tick();
+    return;
+  }
   if (next) {
     e.preventDefault();
     // focusField, NOT .focus() — a bare focus leaves the caret at 0 and → then
@@ -465,7 +521,49 @@ export function enterAdvances(e: NavKeyEvent, root: HTMLElement | null, hooks?: 
     e.preventDefault();
     return;
   }
-  if (submitSurface(root, hooks)) e.preventDefault();
+  // `|| tickBox` is not belt-and-braces: `submitSurface` returns false when a
+  // registered "save" handler declines, and an UNCLAIMED Enter on a checkbox
+  // inside a <form> is an implicit browser submit. A tick box's Enter must never
+  // reach the browser, whether or not our save found anywhere to land.
+  if (submitSurface(root, hooks) || tickBox) e.preventDefault();
+}
+
+/** Does Enter TICK this control rather than move on from it?
+ *
+ *  Split from the DOM so the rule can be exercised without a browser — the same
+ *  reason `keyFills` is separated from `keyFillsField`; vectors live in
+ *  `scripts/check-keyboard-holds.mts`.
+ *
+ *  A tick box ticks while there is still a field after it (the 2026-07-28 rule,
+ *  unchanged for every box that is not last). It stops ticking, and lets the
+ *  save ladder run, only when it is provably the LAST field of the surface —
+ *  otherwise Enter-off-the-last-field, the one keyboard route to Save, is
+ *  unreachable on the ~39 surfaces whose final control is a trailing
+ *  `Default …` / `Inactive` box (client 2026-08-11).
+ *
+ *  Two answers are deliberately conservative, and both fail towards ticking:
+ *  - `located: false` (`idx === -1`, e.g. a `position: fixed` control whose
+ *    `offsetParent` is null and which drops out of `focusablesIn`) is NOT
+ *    evidence of being last. Never commit on an inconclusive answer.
+ *  - `optIn` (`data-focus-optional`) always ticks. Enter cannot have ARRIVED
+ *    there by the typing rhythm — the advance step already steps over the
+ *    marker — so committing would be a save the operator never asked for, which
+ *    is the marker's own footgun with the polarity reversed.
+ */
+export type TickProbe = {
+  tickBox: boolean;
+  /** Could this surface commit at all? A list page's filter bar cannot. */
+  canSubmit: boolean;
+  hasNextField: boolean;
+  located: boolean;
+  optIn: boolean;
+};
+export function enterTicks(p: TickProbe): boolean {
+  if (!p.tickBox) return false;
+  // Nowhere to save TO: toggling is the only thing Enter could mean here, and
+  // dropping to native would restore the dead key 07-28 removed.
+  if (!p.canSubmit) return true;
+  return p.hasNextField || !p.located || p.optIn;
 }
 
 /**

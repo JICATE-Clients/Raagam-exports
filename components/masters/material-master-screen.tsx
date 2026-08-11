@@ -42,12 +42,14 @@ import {
   MATERIAL_TYPES,
   FABRIC_USING,
   fabricStructureUom,
+  classBaseUom,
   resolveUomId,
   itemClassForm,
   isAccessoryClass,
   isMaterialFieldRequired,
   missingRequiredMaterialFields,
   usesNumbersUom,
+  yarnMixingApplies,
   type Material,
   type MaterialInput,
   type DetailFieldKey,
@@ -397,15 +399,18 @@ export function MaterialMasterScreen({
   // Category OR for a Yarn Type that is inherently a blend/combination —
   // Twisted / Doubling / Melange (client 2026-07-24). Fabric attributes hide on
   // Direct Purchase.
-  const selectedYarnTypeName =
-    yarnTypes.find((y) => y.id === form.yarn_type_id)?.name?.toLowerCase() ?? null;
-  const yarnTypeNeedsMixing =
-    selectedYarnTypeName === "twisted" ||
-    selectedYarnTypeName === "doubling" ||
-    selectedYarnTypeName === "melange";
+  // The test itself is `yarnMixingApplies` (material-types.ts), NOT restated
+  // here (client 2026-08-11). It used to be four lines of local predicate, and
+  // that was fine while "shows the grid" was all it decided — but the save now
+  // REFUSES on the same fact, from the server, where those locals cannot reach.
+  // A screen that decides visibility one way while the action decides
+  // requiredness another is a form that hides the field it then rejects you for.
   const yarnMixingVisible =
     formKey === "YARN" &&
-    (((selectedCategory?.made ?? null) === "Mixed") || yarnTypeNeedsMixing);
+    yarnMixingApplies(
+      selectedCategory?.made ?? null,
+      yarnTypes.find((y) => y.id === form.yarn_type_id)?.name ?? null,
+    );
   const fabricAttributesVisible = formKey === "FABRIC" && !form.direct_purchase;
 
   // Yarn is always traded in KG (0279 #15). Keep every UOM defaulted to KG
@@ -848,6 +853,38 @@ export function MaterialMasterScreen({
   // which is exactly the "Fabric and not Direct Purchase" test — a grid that
   // isn't on screen must never be what blocks Save.
   const fabricCompositionMissing = fabricAttributesVisible && !mixings.some((m) => m.component_item_id);
+  /*
+   * The same fact for a Yarn (client 2026-08-11), mirroring
+   * `mixingRequiredError`'s YARN branch in material-actions.ts so Save says why
+   * it is off instead of bouncing off the server.
+   *
+   * Gated on `yarnMixingVisible` — the same expression that decides whether the
+   * grid is on screen at all, for the reason the Fabric comment above gives: a
+   * grid the operator cannot see must never be what blocks Save. That gate is
+   * why this covers Twisted / Doubling / Melange as well as a Mixed-nature
+   * Category: those show the grid too, and a rule that showed a grid without
+   * requiring it would leave two identical-looking screens saving differently.
+   *
+   * A row is COMPLETE with a yarn and a percentage; a row is TOUCHED if it
+   * carries anything at all. Both are needed. Counting rows would block Save on
+   * a blank line `normMixings` is about to drop server-side, and counting only
+   * completeness would let a half-filled row through — the row that silently
+   * loses its data on save, since that same normaliser strips it.
+   */
+  const yarnMixTouched = mixings.filter(
+    (m) =>
+      m.component_item_id ||
+      numOrNull(m.blend_pct) != null ||
+      m.shade?.trim() ||
+      m.description?.trim() ||
+      m.uom_id,
+  );
+  const yarnMixComplete = yarnMixTouched.filter(
+    (m) => m.component_item_id && numOrNull(m.blend_pct) != null,
+  );
+  const yarnMixingMissing =
+    yarnMixingVisible &&
+    (yarnMixComplete.length === 0 || yarnMixComplete.length !== yarnMixTouched.length);
   // Gated on a row carrying DATA, not on a row existing: picking "Using" now
   // seeds row 1 (handleFabricUsingChange), and a bare `mixings.length > 0`
   // would flash a red "0% of 100%" the instant they pick it, before they have
@@ -1117,6 +1154,23 @@ export function MaterialMasterScreen({
   // longer renders. A cage is only fair when its bars are visible.
   const uomLimit =
     form.has_alternate_uom && !singleUomClass && convUnitIds.size > 0 ? convUnitIds : undefined;
+
+  /** A class whose Base unit is FIXED offers that unit and nothing else (client
+   *  2026-08-11: "for Yarn the Base UOM should be restricted to KGS only").
+   *  `CLASS_BASE_UOM` is the one declaration; `applyClassBaseUomRule` enforces
+   *  the same thing server-side, because `lib/data-io` never passes this screen.
+   *
+   *  NOT a `readOnly` box. `uomSelect` keeps `|| u.id === value`, so a record
+   *  already holding some other unit still SHOWS it and can be corrected to the
+   *  fixed one — the "Disabled rows" rule in AGENTS.md, and the reason a filter
+   *  is right where a lock would strand the record. (Live today: 14 yarns on
+   *  KGS, 5 unset, none on anything else — so nothing is stranded either way,
+   *  but a filter cannot start losing data the day that stops being true.) */
+  const classBaseUomId = useMemo(() => {
+    const want = classBaseUom(formKey);
+    return want ? resolveUomId(units, want) : null;
+  }, [formKey, units]);
+  const baseUomLimit = classBaseUomId ? new Set([classBaseUomId]) : uomLimit;
 
   /**
    * How wide each Classification field should be, on the 12-column track.
@@ -1641,8 +1695,24 @@ export function MaterialMasterScreen({
         onRemove={(m) => delMix(m.key)}
         addLabel="+ Add mixing row"
         columns={[
-          { header: "Yarn", cell: compCell },
-          { header: "Mixing %", align: "center", width: "5rem", cell: (m) => <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMixPct(m.key, e.target.value)} className="text-center" /> },
+          // Both mandatory, and for the same reason the Fabric column above is:
+          // a blend that names no yarn, or names one without saying how much,
+          // is not a blend anyone can cost or explode (client 2026-08-11).
+          // Declared ONCE each — the `*` on the header and the cursor hold on an
+          // empty cell come from this prop, and Save reads the same fact through
+          // `yarnMixingMissing`.
+          //
+          // Safe to declare here because this variant renders `inlineCards`,
+          // which wraps every cell in `RequiredScope`. The stacked-cards layout
+          // does NOT when a screen passes `renderMobileRow` — see AGENTS.md ▸
+          // Mandatory fields; a column marked required there draws the star and
+          // holds nothing.
+          //
+          // Ctrl+Del is the exit, as on the Fabric grid: an extra row added by
+          // mistake cannot be filled or tabbed out of, and Tab stopped visiting
+          // the row's ✕ when it began landing on fields only.
+          { header: "Yarn", required: true, cell: compCell },
+          { header: "Mixing %", align: "center", width: "5rem", required: true, cell: (m) => <Input type="number" step="0.01" placeholder="%" value={m.blend_pct} onChange={(e) => setMixPct(m.key, e.target.value)} className="text-center" /> },
           { header: "Shade", width: "7rem", cell: (m) => <Input uppercase placeholder="Shade" value={m.shade} onChange={(e) => setMix(m.key, { shade: e.target.value })} /> },
         ]}
       />
@@ -2228,6 +2298,7 @@ export function MaterialMasterScreen({
                 singleYarnOverflow ||
                 mixPctSumInvalid ||
                 fabricCompositionMissing ||
+                yarnMixingMissing ||
                 attrMandatoryMissing ||
                 attributeSetMissing ||
                 nameDuplicate
@@ -2467,6 +2538,20 @@ export function MaterialMasterScreen({
                   Fabric's grid nests in Composition above; Yarn Mixing and Using
                   (Items) render here. */}
               {yarnMixingVisible && mixingGrid("yarn")}
+              {/* Says why Save is off. The `*`s on the two columns cover a row
+                  that EXISTS — they have a cell to sit on and a cursor to hold.
+                  Neither can say anything about a grid with NO rows, which is
+                  the reported case, so the sentence carries that half. Same
+                  division of labour the Fabric grid already has, and the same
+                  shape the document screens use ("Add at least one line to
+                  save", purchase/grn). */}
+              {yarnMixingMissing && (
+                <p className="mt-1.5 text-xs text-danger">
+                  {yarnMixComplete.length === 0
+                    ? "Add at least one mixing row — a yarn and its blend % — before saving."
+                    : "Every mixing row needs both a yarn and a blend %."}
+                </p>
+              )}
               {/* Using (Items) is a General-item concept only. Accessories
                   (SEW/PACK) list their configured attributes instead (client
                   2026-07-25). */}
@@ -2536,7 +2621,7 @@ export function MaterialMasterScreen({
                   required={req("base_uom_id")}
                   size={singleUomClass ? "sm" : "xs"}
                 >
-                  {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), uomLimit)}
+                  {uomSelect(form.base_uom_id, (v) => set({ base_uom_id: v }), baseUomLimit)}
                 </Field>
                 {/* The `&nbsp;` is a spacer, not decoration: `Field` renders its
                     <Label> only when `label != null`, so an unlabelled cell

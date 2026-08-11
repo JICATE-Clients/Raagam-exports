@@ -12,6 +12,7 @@ import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 // this file.
 import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
 import { pairsFromRow, titleFromRow } from "@/lib/record-pairs";
+import { cn } from "@/lib/utils";
 
 /**
  * The View / Edit / Delete cluster at the end of a listing-table row — one
@@ -43,6 +44,14 @@ import { pairsFromRow, titleFromRow } from "@/lib/record-pairs";
  * courtesy: `lib/masters/delete-guard.ts` decides delete-vs-deactivate
  * server-side, so the label cannot promise which one the operator is about to
  * get — `deletedToast` says which one happened.
+ *
+ * A ROW THAT CANNOT BE DELETED SAYS SO BEFORE THE CLICK, not after it
+ * (`deleteDisabledReason`). `lib/masters/delete-guard.ts` already refuses a
+ * master row something else references — but only once the operator has found
+ * the bin, read "Delete?", pressed Confirm and been handed a toast. Where the
+ * LIST already knows the row is in use, offering the two-step at all is an
+ * offer the server is about to withdraw. Declared here rather than per screen
+ * so every master gets it by passing one prop.
  *
  * `DeleteConfirmButton` is NOT superseded by this. It is the same two-step
  * wearing a text label, and it stays the mobile control (`MobileCardList`,
@@ -106,6 +115,7 @@ export function RowActions({
   canEdit = true,
   canDelete = true,
   editDisabled = false,
+  deleteDisabledReason = null,
   isPending = false,
   deleteLabel = "Delete",
   menu = [],
@@ -157,6 +167,27 @@ export function RowActions({
   canDelete?: boolean;
   /** Greys out Edit without hiding it — e.g. another row is mid-inline-edit. */
   editDisabled?: boolean;
+  /**
+   * Why this row cannot be deleted — "In use by 3 Materials — cannot delete."
+   * Set it and the bin stays in place, greyed, refusing: no confirm strip, and
+   * the reason is what the tooltip says instead of "Delete".
+   *
+   * NULL, not `false`, on purpose: the reason IS the switch. A boolean would let
+   * a screen disable the bin with nothing to say why, which is the state
+   * operators read as the app being broken.
+   *
+   * `aria-disabled`, not `disabled`, and the two differ in the way that matters
+   * here. A truly disabled button leaves the tab order and stops firing pointer
+   * events, so the reason would be reachable by mouse hover and by nothing else
+   * — on a list page (where Tab is native, see AGENTS.md "Tab lands on fields")
+   * a keyboard operator would find the bin simply gone with no explanation.
+   * Focusable + `aria-disabled` keeps it findable, lets `Tooltip`'s focus branch
+   * show the reason, and is honest to a screen reader because unlike
+   * `MasterFullScreen`'s dimmed Save this control genuinely does nothing when
+   * clicked. The reason is also folded into the `aria-label`, since the bubble
+   * is decorative (`aria-hidden`) and must never be the only carrier.
+   */
+  deleteDisabledReason?: string | null;
   /** Disables Confirm while the delete action is in flight. */
   isPending?: boolean;
   /** Override the confirm wording where "Delete" is the wrong verb. */
@@ -172,6 +203,7 @@ export function RowActions({
   /** The link form, only when there is no handler to prefer. */
   const showEditLink = !onEdit && !!editHref && canEdit && !editDisabled;
   const showDelete = !!onDelete && canDelete;
+  const deleteBlocked = !!deleteDisabledReason;
   const suffix = label ? ` ${label}` : "";
 
   // THE EYE IS ON BY DEFAULT. A screen gets a View by doing nothing, because the
@@ -201,7 +233,11 @@ export function RowActions({
   // list on refresh anyway, and on failure the strip stays put so the operator
   // can retry without hunting for the bin again (inherited from
   // DeleteConfirmButton, whose behaviour this preserves).
-  if (confirming) {
+  // `&& !deleteBlocked` is the catch-up, not the guard: the bin below never
+  // opens the strip while blocked, but a list refreshing under an OPEN strip
+  // (another operator just used the set) would otherwise leave a live Confirm
+  // sitting on a row the server has started refusing.
+  if (confirming && !deleteBlocked) {
     return (
       <>
         <div className="flex items-center justify-end gap-1">
@@ -256,13 +292,24 @@ export function RowActions({
         </Tooltip>
       )}
       {showDelete && (
-        <Tooltip label={deleteLabel}>
+        // `touch` only while blocked: a press-and-hold that reveals a reason is
+        // worth the gesture, one that reveals the word "Delete" is not — and the
+        // hold swallows the tap, which on the live bin would eat the click.
+        <Tooltip label={deleteDisabledReason ?? deleteLabel} touch={deleteBlocked}>
           <Button
             variant="ghost"
             size="icon"
-            className="text-muted-foreground hover:text-danger"
-            aria-label={`${deleteLabel}${suffix}`}
-            onClick={() => setConfirming(true)}
+            className={cn(
+              "text-muted-foreground",
+              deleteBlocked ? "cursor-not-allowed opacity-50" : "hover:text-danger",
+            )}
+            aria-label={
+              deleteBlocked
+                ? `${deleteLabel}${suffix} — ${deleteDisabledReason}`
+                : `${deleteLabel}${suffix}`
+            }
+            aria-disabled={deleteBlocked || undefined}
+            onClick={deleteBlocked ? undefined : () => setConfirming(true)}
           >
             <Trash2 />
           </Button>

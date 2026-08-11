@@ -247,7 +247,6 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         children: [
           { href: "/orders", label: "All Orders", description: "Confirmed orders; create one from an accepted quote", cardOnly: true },
           { href: "/orders/styles", label: "Style", description: "Order style master", cardOnly: true },
-          { href: "/orders/color-cards", label: "Colour Cards", description: "Customer colour / Pantone cards", cardOnly: true },
           { href: "/orders/garment-processes", label: "Garment Processes", description: "Define garment processes for accepted orders", cardOnly: true },
           { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders", cardOnly: true },
           // The four amendment screens sit ONE LEVEL FURTHER DOWN (operator
@@ -270,9 +269,15 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "setup",
         label: "Order Setup",
-        description: "Colour cards and garment styles, defined before an order is raised",
+        description: "Garment styles, defined before an order is raised",
+        // Colour Cards was the other half of this group and was removed with its
+        // routes and service (client, 2026-08-11): the screen had no rows, its
+        // only consumer was the Garment Order colour picker, and that picker is
+        // now free text. The `color_cards` / `color_card_colors` TABLES are
+        // deliberately left in place — dropping an Orders screen's tables is the
+        // 0332 mistake this repo has already spent a session repairing, and
+        // empty tables cost nothing to keep.
         children: [
-          { href: "/orders/color-cards", label: "Colour Cards", description: "Customer colour / Pantone cards" },
           { href: "/orders/styles", label: "Style", description: "Define garment styles — coordinates, components and sizes" },
         ],
       },
@@ -382,22 +387,19 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/orders/ta-department-assign", label: "TA Department Assign", description: "Assign activities to departments and owners" },
           { href: "/orders/ta-user-rights", label: "TA User Rights", description: "Per-user activity permission matrix" },
           { href: "/orders/ta-style", label: "TA Style", description: "Style-level T&A configuration" },
-          // The one `unavailable` card outside Planning, and the worst of the 21
-          // because it is only HALF missing: `ta_plans` is a real table with 28
-          // real rows, so the screen lists genuine plans and then cannot open a
-          // single one — `ta_plan_docs`, `ta_plan_activities` and
-          // `shipment_plans` are all absent. An empty screen at least looks
-          // empty; this one looked like it was working. Hence the wording: it
-          // says the plans ARE there, so nobody reads the grey tile as "we lost
-          // the data" and goes looking for a restore.
-          {
-            href: "/orders/ta-plan",
-            label: "TA Plan",
-            description: "Build a Time & Action plan for an order",
-            status: "unavailable",
-            unavailableNote:
-              "Plans are stored, but the activity and document tables are not in this database — a plan cannot be opened",
-          },
+          // Was the one `unavailable` card outside Planning until 0401 restored
+          // its tables. 0332 dropped `ta_plan_docs` and `ta_plan_activities` at
+          // its line 79 under a `-- TA Plan (0271)` heading — an ORDERS screen
+          // caught by a migration scoped to Planning. The screen was complete
+          // throughout; only the tables were missing.
+          //
+          // ONE THING IS STILL HALF-MISSING, and it is not a reason to grey the
+          // card: `shipment_plans` (SH Ref No) is Planning's own table, restored
+          // by 0401 as a STUB because a PostgREST embed against a missing table
+          // fails the whole list query. Nothing in the app inserts into it, so
+          // that ONE picker stays empty until Planning is rebuilt.
+          // `shipment_plan_id` is nullable, so a plan saves fine without it.
+          { href: "/orders/ta-plan", label: "TA Plan", description: "Build a Time & Action plan for an order" },
           { href: "/orders/ta-completion", label: "TA Completion", description: "Record T&A completion" },
         ],
       },

@@ -8,6 +8,7 @@ import {
   type MaterialAttributeInput,
 } from "./material-attribute-types";
 import { deleteOrBlock } from "./delete-guard";
+import { materialAttributeUsage, materialsUsedByLabel } from "./material-attribute-service";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -187,6 +188,33 @@ export async function updateMaterialAttribute(
 export async function deleteMaterialAttribute(id: string): Promise<Result> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
+  // A Material's use of this set is not an FK, so `deleteOrBlock`'s catalog RPC
+  // cannot see it and offered the delete anyway (client 2026-08-11). This is the
+  // real guard — the disabled row action on the screen is only a courtesy, and
+  // `lib/data-io` reaches this action without passing the screen at all.
+  //
+  // It FAILS CLOSED. Every way of not getting an answer — a read error, a row
+  // that cannot be seen — refuses the delete, because "I could not check" and
+  // "it is not in use" must never produce the same outcome: the second one
+  // deletes, and `deleteOrBlock` below cannot catch what it misses.
+  const { data: row, error: rowErr } = await s
+    .from("material_attributes")
+    .select("id, item_class_id, category_id, lines:material_attribute_lines(id)")
+    .eq("id", id)
+    .maybeSingle();
+  if (rowErr) return fail("Could not check whether this Material Attribute set is in use — nothing was deleted. Please try again.");
+  if (row) {
+    let usedBy: string | null;
+    try {
+      const usage = await materialAttributeUsage(s, [row]);
+      usedBy = materialsUsedByLabel(usage.get(id) ?? 0);
+    } catch {
+      return fail("Could not check whether this Material Attribute set is in use — nothing was deleted. Please try again.");
+    }
+    if (usedBy) return fail(`In use by ${usedBy} — cannot delete.`);
+  }
+  // A null `row` with no error is the one benign case: the set is already gone.
+  // `deleteOrBlock` then deletes nothing and reports success, which is correct.
   // Lines cascade (RPC ignores cascade children); block only if referenced elsewhere.
   const res = await deleteOrBlock(s, "material_attributes", id);
   if (!res.ok) return fail(res.error);

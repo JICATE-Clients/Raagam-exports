@@ -186,7 +186,6 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
 
   "/orders": ["New Order", "Import Orders", "Export List"],
   "/orders/styles": ["New Style"],
-  "/orders/color-cards": ["New Colour Card"],
   "/orders/internal-work-orders": ["New Work Order"],
   // Named for what the screen IS, not for the table it writes: its sidebar row
   // is Order Entry ▸ Garment Order (see lib/nav/module-groups.ts). Kept as a

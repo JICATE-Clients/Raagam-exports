@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { deleteOrDeactivate } from "@/lib/masters/delete-guard";
 import {
   workTypeInput,
   sewingOperationInput,
@@ -31,6 +32,9 @@ import type {
 type Err = { ok: false; error: string };
 type Ok = { ok: true };
 type R = Ok | Err;
+/** A delete that may have soft-disabled instead — the screen needs both halves
+ *  to say "marked inactive because it is used by X" rather than "deleted". */
+type DeleteR = { ok: true; inactive: boolean; usedBy?: string } | Err;
 
 async function guard(action: "create" | "edit" | "delete" | "approve"): Promise<void> {
   if (!(await can("production", action))) throw new Error("Forbidden");
@@ -61,13 +65,15 @@ export async function createWorkType(payload: WorkTypeInput): Promise<R> {
   revalidateMasters();
   return { ok: true };
 }
-export async function deleteWorkType(id: string): Promise<R> {
+export async function deleteWorkType(id: string): Promise<DeleteR> {
   await guard("delete");
   const s = await createClient();
-  const { error } = await s.from("work_types").delete().eq("id", id);
-  if (error) return bad(error.message);
+  // A work type a job order was raised against must stay readable on that job
+  // order, so the shared guard deactivates (`is_active`) rather than delete it.
+  const res = await deleteOrDeactivate(s, "work_types", id, "is_active");
+  if (!res.ok) return bad(res.error);
   revalidateMasters();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 export async function createSewingOperation(payload: SewingOperationInput): Promise<R> {
   await guard("create");
@@ -79,13 +85,17 @@ export async function createSewingOperation(payload: SewingOperationInput): Prom
   revalidateMasters();
   return { ok: true };
 }
-export async function deleteSewingOperation(id: string): Promise<R> {
+export async function deleteSewingOperation(id: string): Promise<DeleteR> {
   await guard("delete");
   const s = await createClient();
-  const { error } = await s.from("sewing_operations").delete().eq("id", id);
-  if (error) return bad(error.message);
+  // Nothing references it TODAY, so the guard is a no-op and the row still
+  // deletes. Routed through it anyway: it is a master beside `work_types` above,
+  // and the migration that first points an FK here would otherwise move it into
+  // the unguarded set with no code change to notice.
+  const res = await deleteOrDeactivate(s, "sewing_operations", id, "is_active");
+  if (!res.ok) return bad(res.error);
   revalidateMasters();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ============================================================================

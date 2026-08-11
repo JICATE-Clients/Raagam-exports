@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { activePatch, disablePatch } from "@/lib/masters/inactive";
 import { getIoEntity } from "./entities";
 import { coerceRow } from "./coerce";
 
@@ -79,9 +80,20 @@ export async function bulkImport(
 }
 
 /**
- * Bulk soft-delete: set `is_active = false` for the given ids. Matches how the
- * app already treats master-data deletion (masters/HR have no hard delete), so
- * it never orphans documents that reference these records.
+ * Bulk soft-delete: switch the given ids OFF. Matches how the app already
+ * treats master-data deletion (masters/HR have no hard delete), so it never
+ * orphans documents that reference these records — which is why this path needs
+ * no `first_referencing_table` check: deactivating is already the answer the
+ * delete guard would arrive at, for every row, unconditionally.
+ *
+ * IT WROTE THE WRONG COLUMN FOR SEVEN OF ITS FIFTEEN ENTITIES. This hardcoded
+ * `{ is_active: false }`, and `categories` / `compositions` / `processes` /
+ * `components` / `levies` spell it `inactive` (renamed by 0299), while
+ * `material_attributes` and `out_document_terms` have no flag at all. PostgREST
+ * errors on an UPDATE over a missing column rather than no-opping, so Bulk
+ * Delete on those seven has always failed outright with a raw Postgres message.
+ * The column is now declared per entity (`IoEntity.activeColumn`) and the patch
+ * comes from `disablePatch`, the same helper `deleteOrDeactivate` uses.
  */
 export async function bulkDelete(
   entityKey: string,
@@ -94,10 +106,17 @@ export async function bulkDelete(
   }
   if (ids.length === 0) return { ok: false, error: "No rows selected" };
 
+  // `null` means the table has no disable column, so there is no soft delete to
+  // do — and a hard one is exactly what this engine must never issue. Say so
+  // instead of writing a column that does not exist.
+  if (entity.activeColumn === null) {
+    return { ok: false, error: `${entity.label} cannot be deactivated in bulk.` };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase
     .from(entity.table)
-    .update({ is_active: false })
+    .update(disablePatch(entity.activeColumn ?? "is_active"))
     .in("id", ids);
   if (error) return { ok: false, error: error.message };
 
@@ -113,8 +132,13 @@ export async function bulkDelete(
 
 /**
  * Bulk status change (checklist "Bulk Operations" → update status in bulk):
- * set `is_active` to `active` for the given ids. Deactivating is gated by the
- * module's delete permission (it's the soft-delete), reactivating by edit.
+ * switch the given ids on or off. Deactivating is gated by the module's delete
+ * permission (it's the soft-delete), reactivating by edit.
+ *
+ * Same column bug as `bulkDelete` above, and worse here because it runs in both
+ * directions: two of the three spellings are NEGATED, so writing the flag by
+ * hand risks activating what the operator asked to deactivate. `activePatch`
+ * takes the state the positive way and owns the inversion.
  */
 export async function bulkSetActive(
   entityKey: string,
@@ -128,10 +152,14 @@ export async function bulkSetActive(
   }
   if (ids.length === 0) return { ok: false, error: "No rows selected" };
 
+  if (entity.activeColumn === null) {
+    return { ok: false, error: `${entity.label} has no active/inactive status.` };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase
     .from(entity.table)
-    .update({ is_active: active })
+    .update(activePatch(entity.activeColumn ?? "is_active", active))
     .in("id", ids);
   if (error) return { ok: false, error: error.message };
 

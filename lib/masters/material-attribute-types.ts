@@ -46,6 +46,12 @@ export interface MaterialAttribute {
   created_at: string;
   updated_at: string;
   lines: MaterialAttributeLine[];
+  /** true when at least one Material already uses this attribute set — Delete is
+   *  refused. Populated by `listMaterialAttributes`; the screen's disabled
+   *  button is a courtesy and `deleteMaterialAttribute` is the real guard. */
+  in_use: boolean;
+  /** operator-readable reason, e.g. "3 Materials" — null when not in use. */
+  used_by: string | null;
 }
 
 const num = z.coerce.number().nullable().default(null);

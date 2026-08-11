@@ -273,7 +273,12 @@ export async function getItemReportFilterOptions() {
       .eq("kind", "item_class")
       .eq("is_active", true)
       .order("name"),
-    supabase.from("categories").select("id, name").eq("inactive", false).order("name"),
+    // `item_class_id` rides along so the Category dropdown can follow the Item
+    // Class one beside it (cascading-picker rule). Selecting only `id, name`
+    // is what made that impossible: the filter bar had no way to tell a Yarn
+    // category from a Fabric one, so it offered all of them under every class
+    // and a mismatched pair returned an empty report (client 2026-08-11).
+    supabase.from("categories").select("id, name, item_class_id").eq("inactive", false).order("name"),
   ]);
 
   const opts = (res: { data: unknown }) =>
@@ -283,6 +288,10 @@ export async function getItemReportFilterOptions() {
     locations: opts(locations),
     stores: opts(stores),
     itemClasses: opts(itemClasses),
-    categories: opts(categories),
+    categories: rows(categories).map((r) => ({
+      id: String(r.id),
+      name: String(r.name ?? ""),
+      itemClassId: r.item_class_id ? String(r.item_class_id) : null,
+    })),
   };
 }

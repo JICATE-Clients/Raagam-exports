@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
+import { deleteOrDeactivate } from "@/lib/masters/delete-guard";
 import {
   assetInput,
   assetAssignmentInput,
@@ -19,6 +20,9 @@ import type {
 type Err = { ok: false; error: string };
 type Ok = { ok: true };
 type R = Ok | Err;
+/** A delete that may have soft-disabled instead — the screen needs both halves
+ *  to say "marked inactive because it is used by X" rather than "deleted". */
+type DeleteR = { ok: true; inactive: boolean; usedBy?: string } | Err;
 
 async function guard(action: "create" | "edit" | "delete" | "approve"): Promise<void> {
   if (!(await can("system_admin", action))) throw new Error("Forbidden");
@@ -131,13 +135,15 @@ export async function setCourierActive(id: string, isActive: boolean): Promise<R
   revC();
   return { ok: true };
 }
-export async function deleteCourier(id: string): Promise<R> {
+export async function deleteCourier(id: string): Promise<DeleteR> {
   await guard("delete");
   const s = await createClient();
-  const { error } = await s.from("couriers").delete().eq("id", id);
-  if (error) return bad(error.message);
+  // A courier named on a despatch must keep its name on that despatch, so the
+  // shared guard deactivates (`is_active`) instead of deleting when it is in use.
+  const res = await deleteOrDeactivate(s, "couriers", id, "is_active");
+  if (!res.ok) return bad(res.error);
   revC();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 export async function createDespatch(payload: CourierDespatchInput): Promise<R> {

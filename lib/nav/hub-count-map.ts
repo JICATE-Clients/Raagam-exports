@@ -36,7 +36,6 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // ---------------------------------------------------------------- orders
   "/orders": "sales_orders",
   "/orders/styles": "garment_styles",
-  "/orders/color-cards": "color_cards",
   "/orders/order-booking": "order_bookings",
   "/orders/pack-ratios": "order_pack_ratios",
   "/orders/excess-orders": "excess_orders",
@@ -61,12 +60,10 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/orders/ta-user-rights": null,
   "/orders/ta-style": "ta_styles",
   "/orders/ta-completion": "ta_completions",
-  // The service reads `ta_plan_docs`, which does not exist in the database —
-  // see the note on unbuilt tables at the bottom of this file. Declared so the
-  // count appears by itself the day the table does.
-  // `ta_plans` exists with real rows; `ta_plan_docs` does not. Counting
-  // the missing detail table would read 0 beside 28 stored plans.
-  "/orders/ta-plan": null,
+  // Restored by 0401 (0332 had dropped it). Counts `ta_plan_docs`, the table
+  // the service actually reads — NOT `ta_plans`, which is a different table
+  // (0006, per-order plan + milestones) that this screen never touches.
+  "/orders/ta-plan": "ta_plan_docs",
   // A WORK QUEUE OVER ANOTHER CARD'S TABLE. Approve Amendment reads
   // `garment_order_amendments`, the same table the Order Amendment card counts,
   // so a row count here would print that card's number a second time under a

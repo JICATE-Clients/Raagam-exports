@@ -1,5 +1,6 @@
 import type { ZodTypeAny } from "zod";
 import type { Module } from "@/lib/auth/types";
+import type { ActiveColumn } from "@/lib/masters/inactive";
 import { buyerInput, itemInput, uomInput } from "@/lib/masters/types";
 import { vendorInput, VENDOR_TYPES } from "@/lib/purchase/types";
 import {
@@ -63,6 +64,23 @@ export interface IoEntity {
   schema: ZodTypeAny;
   /** Column map driving template, parse and export. */
   fields: IoField[];
+  /**
+   * WHICH SPELLING THIS TABLE USES TO SAY "SWITCHED OFF" — `null` for a table
+   * that has no such column at all, which is not the same thing as the default.
+   *
+   * Bulk Delete is a SOFT delete (see `bulkDelete`), so it has to write the
+   * right column. It used to hardcode `{ is_active: false }` for all fifteen
+   * entities, and seven of them do not have it: `categories`, `compositions`,
+   * `processes`, `components` and `levies` are `inactive` (renamed by 0299),
+   * while `material_attributes` and `out_document_terms` carry no flag at all.
+   * PostgREST answers an UPDATE over a missing column with an ERROR, not a
+   * no-op, so Bulk Delete on those seven never worked — it failed closed, which
+   * is why it went unnoticed rather than losing data.
+   *
+   * Omit for `is_active`, the majority. Stated per entity rather than inferred,
+   * because the one thing this file cannot do is ask the catalog at runtime.
+   */
+  activeColumn?: ActiveColumn | null;
   /**
    * Unique column to upsert on (only where the user supplies `code`).
    * Omit ⇒ insert-only (entities whose `code` is DB-generated, e.g. vendors).
@@ -209,6 +227,7 @@ export const IO_ENTITIES: IoEntity[] = [
     key: "categories",
     label: "Categories",
     table: "categories",
+    activeColumn: "inactive",
     module: "masters",
     revalidate: ["/masters/materials/categories"],
     schema: categoryInput,
@@ -223,6 +242,7 @@ export const IO_ENTITIES: IoEntity[] = [
     key: "compositions",
     label: "Compositions",
     table: "compositions",
+    activeColumn: "inactive",
     module: "masters",
     revalidate: ["/masters/materials/compositions"],
     schema: compositionInput,
@@ -235,6 +255,7 @@ export const IO_ENTITIES: IoEntity[] = [
     key: "processes",
     label: "Processes",
     table: "processes",
+    activeColumn: "inactive",
     module: "masters",
     revalidate: ["/masters/materials/processes"],
     schema: processInput,
@@ -248,6 +269,7 @@ export const IO_ENTITIES: IoEntity[] = [
     key: "components",
     label: "Components",
     table: "components",
+    activeColumn: "inactive",
     module: "masters",
     revalidate: ["/masters/materials/components"],
     schema: componentInput,
@@ -372,6 +394,7 @@ export const IO_ENTITIES: IoEntity[] = [
     // and the revalidate path below are keyed on.
     label: "GST",
     table: "levies",
+    activeColumn: "inactive",
     module: "masters",
     revalidate: ["/masters/materials/levies"],
     schema: levyInput,
@@ -385,6 +408,7 @@ export const IO_ENTITIES: IoEntity[] = [
     key: "material-attributes",
     label: "Material Attributes",
     table: "material_attributes",
+    activeColumn: null,
     module: "masters",
     revalidate: ["/masters/materials/material-attributes"],
     schema: materialAttributeInput,
@@ -397,6 +421,7 @@ export const IO_ENTITIES: IoEntity[] = [
     key: "out-document-terms",
     label: "Out Document Terms",
     table: "out_document_terms",
+    activeColumn: null,
     module: "masters",
     revalidate: ["/masters/materials/out-document-terms"],
     schema: outDocumentTermInput,

@@ -6,8 +6,10 @@ import { can } from "@/lib/auth/server";
 import {
   materialInput,
   fabricStructureUom,
+  classBaseUom,
   missingRequiredMaterialFields,
   resolveUomId,
+  yarnMixingApplies,
   type MaterialInput,
 } from "./material-types";
 import { deleteOrDeactivate } from "./delete-guard";
@@ -146,12 +148,67 @@ function normMixings(d: MaterialInput) {
  *  refine cannot make. Nothing leaks past: `lib/data-io` imports bypass the
  *  actions, but the `materials` descriptor declares only `code` and `name`
  *  (data-io/entities.ts), and `coerceRow` reads none but the declared fields —
- *  so an import cannot set `item_class_id` and therefore cannot create a Fabric. */
-function fabricCompositionError(classCode: string | null, d: MaterialInput): string | null {
-  if (classCode !== "FABRIC" || d.direct_purchase) return null;
-  if (d.mixings.some((m) => m.component_item_id)) return null;
-  return "Yarn Composition is required for a Fabric — add at least one yarn under Attributes (Mixing).";
+ *  so an import cannot set `item_class_id` and therefore cannot create a Fabric.
+ *
+ *  ## The same rule, for a Yarn (client 2026-08-11)
+ *
+ *  A Mixed yarn is the same statement one class along: it declares itself a
+ *  blend and names nothing it is blended from. This function owns BOTH, rather
+ *  than a `yarnMixingError` sitting beside it — two functions answering "must
+ *  this material carry mixing rows" is exactly how the Fabric branch and the
+ *  Yarn branch drift apart.
+ *
+ *  The two branches genuinely differ, and neither difference is cosmetic:
+ *
+ *  - **When it applies.** Fabric: any fabric that is not Direct Purchase. Yarn:
+ *    a Mixed-nature Category, or a Yarn Type that is inherently a blend. Both
+ *    mirror the exact condition the SCREEN uses to show the grid, because a
+ *    grid that is not on screen must never be what blocks Save.
+ *  - **What satisfies it.** Fabric needs a yarn NAMED (percentages optional —
+ *    unchanged, deliberately: the 08-11 decision was about Yarn, and tightening
+ *    Fabric here would be a change nobody asked for). Yarn needs each row
+ *    COMPLETE — a component and a percentage — which is what makes the blend
+ *    fully specified, and which switches on the pre-existing 100%-total refine
+ *    in `material-types.ts` (dormant while no row carries a percentage).
+ *
+ *  `categoryMade` and `yarnTypeName` are PASSED IN, not resolved here: the
+ *  payload carries `category_id` and `yarn_type_id` as uuids, and the caller is
+ *  already making both round trips for other reasons. */
+function mixingRequiredError(
+  classCode: string | null,
+  d: MaterialInput,
+  ctx: { categoryMade?: string | null; yarnTypeName?: string | null } = {},
+): string | null {
+  if (classCode === "FABRIC") {
+    if (d.direct_purchase) return null;
+    if (d.mixings.some((m) => m.component_item_id)) return null;
+    return "Yarn Composition is required for a Fabric — add at least one yarn under Attributes (Mixing).";
+  }
+  if (classCode === "YARN") {
+    if (!yarnMixingApplies(ctx.categoryMade, ctx.yarnTypeName)) return null;
+    // Judged on `normMixings` — the SAME normaliser that decides what actually
+    // reaches the table — rather than on `d.mixings` or a filter of its own.
+    // It drops rows nobody has touched, so a blank line the operator never
+    // filled in cannot block the save; and because the check and the insert
+    // read one function, a row this accepts is exactly a row that persists.
+    // A private copy of that filter here would be free to drift from it.
+    const touched = normMixings(d);
+    const complete = touched.filter((m) => m.component_item_id && m.blend_pct != null);
+    if (!complete.length) {
+      return "Mixing Details are required for a Mixed yarn — add at least one yarn with its blend %.";
+    }
+    if (complete.length !== touched.length) {
+      return "Every mixing row needs both a yarn and a blend % — complete or remove the unfinished row.";
+    }
+    return null;
+  }
+  return null;
 }
+
+/* `yarnMixingApplies` moved to material-types.ts (client 2026-08-11) — a
+ * `"use server"` module may only export async functions, and the Yarn
+ * quick-create sheet has to evaluate this one synchronously to gate its Save
+ * button. Same rule, one home, three readers; the reasoning travelled with it. */
 
 /** Resolve an item_class_id to its config_lookups code (server-verified, not
  *  trusted from the client) — scopes the Yarn duplicate guard and the Fabric
@@ -207,6 +264,50 @@ async function resolveItemClassCode(s: Awaited<ReturnType<typeof createClient>>,
  * already points all four at the base whenever `has_alternate_uom` is off, for
  * every class — this was a second copy of that one rule.
  */
+/**
+ * Enforce a class whose Base unit is FIXED (`CLASS_BASE_UOM` — YARN → KG today).
+ *
+ * FILLS a missing base, REFUSES a contradictory one. That asymmetry is the whole
+ * design and it comes straight from `applyFabricUomRule`'s history above: for
+ * three days that function REWROTE the operator's base on every save, and the
+ * lesson written down when it was reverted is that **"a save that reverts a
+ * field with no message is worse than one that refuses"**. Silently rewriting
+ * MTR → KGS here would repeat it, one class along, and a `lib/data-io` import
+ * would swallow a whole spreadsheet's wrong units without a word.
+ *
+ * Filling a BLANK is not a rewrite: the class admits exactly one unit, so there
+ * is no second answer to guess between — and `base_uom_id` is already mandatory
+ * for YARN in `REQUIRED_BY_CLASS`, so the alternative is a refusal that tells
+ * the operator to type the only value the field can hold.
+ *
+ * Returns an error string to `fail()`, or null. Mutates `d` in place, so it must
+ * run BEFORE `toHeader`/`uomSlots` read it — and `uomSlots` then points all four
+ * of stock/billing/planning/purchase at this base, so nothing else needs writing.
+ */
+async function applyClassBaseUomRule(
+  s: Awaited<ReturnType<typeof createClient>>,
+  classCode: string | null,
+  d: MaterialInput,
+): Promise<string | null> {
+  const want = classBaseUom(classCode);
+  if (!want) return null;
+  const { data: units } = await s.from("uoms").select("id, code, is_active");
+  const wantId = resolveUomId(units ?? [], want);
+  // The shop's unit master has no matching unit. Bail rather than blank the
+  // field — same reasoning as `applyFabricUomRule`'s third "deliberately does
+  // not do": a rule that cannot resolve is not a licence to destroy a value.
+  if (!wantId) return null;
+  if (!d.base_uom_id) {
+    d.base_uom_id = wantId;
+    return null;
+  }
+  if (d.base_uom_id !== wantId) {
+    const code = units?.find((u) => u.id === wantId)?.code ?? want;
+    return `${classCode} is always traded in ${code.toUpperCase()} — its Base UOM cannot be anything else. Set it to ${code.toUpperCase()} and save again.`;
+  }
+  return null;
+}
+
 async function applyFabricUomRule(
   s: Awaited<ReturnType<typeof createClient>>,
   d: MaterialInput,
@@ -271,13 +372,37 @@ async function checkSubCategory(
  *  mirrors it. Resolved server-side (not trusted from the client, same as the
  *  item class above) so items.user_defined can never end up contradicting the
  *  category that actually drives the flow. */
-async function resolveCategoryUserDefined(
+/**
+ * The two facts about the picked Category the actions need, in ONE round trip.
+ *
+ * `made` is the Category's Natural / Manmade / **Mixed** nature — the field the
+ * Material screen shows read-only as "Nature". It is the Category's column, not
+ * the material's, so the server cannot read it off the payload: the payload
+ * carries `category_id` and nothing else. It rides along here rather than in a
+ * query of its own because this one already runs on every create and update.
+ */
+async function resolveCategoryFacts(
   s: Awaited<ReturnType<typeof createClient>>,
   categoryId: string | null,
-): Promise<boolean> {
-  if (!categoryId) return false;
-  const { data } = await s.from("categories").select("user_defined").eq("id", categoryId).maybeSingle();
-  return data?.user_defined ?? false;
+): Promise<{ userDefined: boolean; made: string | null }> {
+  if (!categoryId) return { userDefined: false, made: null };
+  const { data } = await s
+    .from("categories")
+    .select("user_defined, made")
+    .eq("id", categoryId)
+    .maybeSingle();
+  return { userDefined: data?.user_defined ?? false, made: data?.made ?? null };
+}
+
+/** The Yarn Type's NAME, for the blend-type half of `yarnMixingApplies`. Only
+ *  called for YARN, so no other class pays for the round trip. */
+async function resolveYarnTypeName(
+  s: Awaited<ReturnType<typeof createClient>>,
+  yarnTypeId: string | null,
+): Promise<string | null> {
+  if (!yarnTypeId) return null;
+  const { data } = await s.from("config_lookups").select("name").eq("id", yarnTypeId).maybeSingle();
+  return data?.name ?? null;
 }
 /** The 0348 unique index on (item_id, alt_qty, alt_uom_id, base_qty, base_uom_id)
  *  fires when a material is given the same pack twice. Postgres phrases that as
@@ -339,6 +464,11 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
   // directly. The screen's `*`s and its Save button call the SAME function.
   const missing = missingRequiredMaterialFields(p.data, classCode);
   if (missing.length) return fail(`Fill in ${missing.join(", ")} before saving.`);
+  // A class-fixed Base unit (YARN → KGS) is settled BEFORE the fabric rule and
+  // before `toHeader`/`uomSlots` read the payload. The two never collide —
+  // `CLASS_BASE_UOM` holds no fabric entry, deliberately (see its comment).
+  const baseUomErr = await applyClassBaseUomRule(s, classCode, p.data);
+  if (baseUomErr) return fail(baseUomErr);
   if (classCode === "FABRIC") await applyFabricUomRule(s, p.data);
   // Code (Short Name) is system-generated from the Name — codes are unique per
   // item class, so the generator is scoped the same way as the dup check below.
@@ -352,7 +482,8 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
     );
   }
   const header = { ...toHeader(p.data), ...uomSlots(p.data) };
-  header.user_defined = await resolveCategoryUserDefined(s, p.data.category_id);
+  const catFacts = await resolveCategoryFacts(s, p.data.category_id);
+  header.user_defined = catFacts.userDefined;
   const subErr = await checkSubCategory(s, p.data.category_id, p.data.sub_category_id);
   if (subErr) return fail(subErr);
   if (classCode === "YARN") {
@@ -375,7 +506,16 @@ export async function createMaterial(data: MaterialInput): Promise<Result> {
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
     return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
   }
-  const mixErr = fabricCompositionError(classCode, p.data);
+  // Mixing composition — Fabric's rule and Yarn's, from one function so they
+  // cannot drift. The yarn-type name is only looked up for a Yarn; `made` came
+  // free with the Category query above. Runs AFTER the mandatory-field check,
+  // deliberately: Category is itself required, so a material with none must be
+  // told to fill in Category rather than lectured about a mixing rule that
+  // depends on the category it has not picked yet.
+  const mixErr = mixingRequiredError(classCode, p.data, {
+    categoryMade: catFacts.made,
+    yarnTypeName: classCode === "YARN" ? await resolveYarnTypeName(s, p.data.yarn_type_id) : null,
+  });
   if (mixErr) return fail(mixErr);
   if ((classCode === "SEW" || classCode === "PACK") && p.data.item_class_id && p.data.category_id) {
     const { data: maRows } = await s
@@ -433,12 +573,18 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   // directly. The screen's `*`s and its Save button call the SAME function.
   const missing = missingRequiredMaterialFields(p.data, classCode);
   if (missing.length) return fail(`Fill in ${missing.join(", ")} before saving.`);
+  // A class-fixed Base unit (YARN → KGS) is settled BEFORE the fabric rule and
+  // before `toHeader`/`uomSlots` read the payload. The two never collide —
+  // `CLASS_BASE_UOM` holds no fabric entry, deliberately (see its comment).
+  const baseUomErr = await applyClassBaseUomRule(s, classCode, p.data);
+  if (baseUomErr) return fail(baseUomErr);
   if (classCode === "FABRIC") await applyFabricUomRule(s, p.data);
   const header: Partial<ReturnType<typeof toHeader>> & Partial<UomSlots> = {
     ...toHeader(p.data),
     ...uomSlots(p.data),
   };
-  header.user_defined = await resolveCategoryUserDefined(s, p.data.category_id);
+  const catFacts = await resolveCategoryFacts(s, p.data.category_id);
+  header.user_defined = catFacts.userDefined;
   const subErr = await checkSubCategory(s, p.data.category_id, p.data.sub_category_id);
   if (subErr) return fail(subErr);
   if (classCode === "YARN") {
@@ -466,7 +612,16 @@ export async function updateMaterial(id: string, data: MaterialInput): Promise<R
   if (classCode === "FABRIC" && !p.data.fabric_type_id) {
     return fail("Fabric Type is required (Solid, Yarn-dyed or Melange) — it determines the dyeing PO type.");
   }
-  const mixErr = fabricCompositionError(classCode, p.data);
+  // Mixing composition — Fabric's rule and Yarn's, from one function so they
+  // cannot drift. The yarn-type name is only looked up for a Yarn; `made` came
+  // free with the Category query above. Runs AFTER the mandatory-field check,
+  // deliberately: Category is itself required, so a material with none must be
+  // told to fill in Category rather than lectured about a mixing rule that
+  // depends on the category it has not picked yet.
+  const mixErr = mixingRequiredError(classCode, p.data, {
+    categoryMade: catFacts.made,
+    yarnTypeName: classCode === "YARN" ? await resolveYarnTypeName(s, p.data.yarn_type_id) : null,
+  });
   if (mixErr) return fail(mixErr);
   if ((classCode === "SEW" || classCode === "PACK") && p.data.item_class_id && p.data.category_id) {
     const { data: maRows } = await s

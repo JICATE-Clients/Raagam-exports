@@ -9,6 +9,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import Link from "next/link";
 import { IndentApprovalActions } from "./indent-approval-actions";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreators } from "@/lib/created-by";
 
 type IndentRow = {
   id: string;
@@ -17,6 +18,8 @@ type IndentRow = {
   required_date: string | null;
   status: string;
   created_at: string;
+  /** Resolved to a name by `withCreators()`; `createdColumns` prints it. */
+  created_by: string | null;
   line_count: number;
 };
 
@@ -24,7 +27,7 @@ async function getPendingIndents(): Promise<IndentRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("purchase_indents")
-    .select("id, code, department, required_date, status, created_at")
+    .select("id, code, department, required_date, status, created_at, created_by")
     .in("status", ["open", "acknowledged"])
     .order("created_at", { ascending: false });
 
@@ -44,15 +47,19 @@ async function getPendingIndents(): Promise<IndentRow[]> {
     countMap.set(l.purchase_indent_id, (countMap.get(l.purchase_indent_id) ?? 0) + 1);
   }
 
-  return (data as Record<string, unknown>[]).map((d) => ({
+  const rows = (data as Record<string, unknown>[]).map((d) => ({
     id: d.id as string,
     code: d.code as string | null,
     department: d.department as string | null,
     required_date: d.required_date as string | null,
     status: d.status as string,
     created_at: d.created_at as string,
+    // Carried across the rebuild — a re-mapped row drops a column as silently
+    // as a select that never asked for it (AGENTS.md names this shape).
+    created_by: (d.created_by as string | null) ?? null,
     line_count: countMap.get(d.id as string) ?? 0,
   }));
+  return withCreators(rows);
 }
 
 export default async function IndentApprovalPage() {

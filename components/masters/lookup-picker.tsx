@@ -89,7 +89,9 @@ export function LevyPicker({
  * With `yarnQuickCreate` (Component Yarn pickers), "+ Add" instead opens the
  * full `YarnQuickCreateSheet` — a complete Yarn (Count/Category/Purity/Type,
  * auto-name, kg UOMs) without leaving the host form (client 2026-07-23,
- * Fabric Master #11). Modify/Delete keep the inline rename/soft-delete.
+ * Fabric Master #11). Delete keeps the inline soft-delete; the inline RENAME is
+ * withheld there, because a Yarn's name is composed from those same fields and
+ * retyping it is undone by the next save — see `manage` below.
  */
 export function ItemPicker({
   label,
@@ -195,11 +197,42 @@ export function ItemPicker({
     [all],
   );
 
+  const useYarnQc = !!yarnQuickCreate && !!quickCreateClassId;
+  const useGarmentQc = !useYarnQc && !!garmentQuickCreate && !!quickCreateClassId;
+
+  /**
+   * A YARN'S NAME IS WRITTEN BY THE APP, SO THE PENCIL DOES NOT OFFER TO RETYPE
+   * IT (client 2026-08-11).
+   *
+   * The inline Modify panel edits ONE field, `name` (`draftOf` below), and on a
+   * Yarn that field is not the operator's to write: `material-master-screen.tsx`
+   * composes it from Count · Category · Purity · Yarn Type and writes it back
+   * with an effect, which is why the same screen marks the Name read-only for
+   * these classes (`nameIsComposed`) and withholds the "did you mean?" chips —
+   * "correcting the app's own output is not a typo fix".
+   *
+   * So a rename here is worse than merely wrong, it is TEMPORARY: it saves a
+   * name that contradicts the yarn's own fields, and the next time anyone opens
+   * that material on the Materials master the compose effect overwrites it with
+   * no warning. The operator sees their edit accepted, then silently undone.
+   *
+   * Add is untouched — `onAddOverride` sends it to `YarnQuickCreateSheet`, which
+   * asks for the driving fields and composes the name properly. Delete is
+   * untouched too: it soft-deactivates an in-use yarn, and unlike a closed
+   * lookup this list HAS a maintenance screen behind it, so nothing here is a
+   * one-way door. Renaming a yarn is done on the Materials master, where the
+   * name follows the fields that produce it.
+   *
+   * Keyed on `yarnQuickCreate` rather than a new prop because that prop already
+   * means "this list is Yarns". `garmentQuickCreate` deliberately does NOT get
+   * the same treatment: item class GARMENTS resolves to form "C", which
+   * `nameIsComposed` does not cover, so a Garment's name really is typed.
+   */
   const manage: ManageConfig | undefined =
     quickCreateClassId && (canCreate || canEdit || canDelete)
       ? {
           canCreate,
-          canEdit,
+          canEdit: canEdit && !useYarnQc,
           canDelete,
           onCreate: (d) => quickCreateMaterial(quickCreateClassId, d.name),
           onUpdate: (id, d) => renameMaterial(id, d.name),
@@ -225,9 +258,6 @@ export function ItemPicker({
           draftOf: (row) => ({ code: "", name: row.label }),
         }
       : undefined;
-
-  const useYarnQc = !!yarnQuickCreate && !!quickCreateClassId;
-  const useGarmentQc = !useYarnQc && !!garmentQuickCreate && !!quickCreateClassId;
 
   return (
     <>
@@ -265,6 +295,12 @@ export function ItemPicker({
             router.refresh();
           }}
           yarnClassId={quickCreateClassId!}
+          /* The component-yarn list for the sheet's own Mixing grid is the list
+             THIS picker is already showing — a Mixed yarn is blended from other
+             yarns, which is exactly what `items` holds here. Passing it avoids
+             a second fetch and keeps the two in step, including a yarn added by
+             a "+ Add" a moment ago (`extra` is folded into `rows` above). */
+          yarnItems={items}
           counts={yarnQuickCreate!.counts}
           purities={yarnQuickCreate!.purities}
           yarnTypes={yarnQuickCreate!.yarnTypes}

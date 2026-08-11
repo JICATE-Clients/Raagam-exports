@@ -12,19 +12,49 @@ import {
 } from "@/lib/date-filter";
 
 /**
- * The Created Date filter, as a row of `FilterBar` grid cells.
+ * The Created Date filter, as ONE cell of `FilterBar`'s panel grid — a cell that
+ * WIDENS when it has two date boxes to hold.
  *
- * It renders a FRAGMENT, not a wrapper — `FilterBar`'s panel is a
- * `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4`, so each `<div>`
- * here has to be a direct grid child to line up with the Status and extra
- * facets beside it. Wrapping them would make the whole control one cell and
- * squeeze three fields into a quarter of the row.
+ * ## Why it is one cell and not three
  *
- * The two date boxes appear only for "Custom Date Range", which is why the
- * empty custom state has to survive a round trip through the encoded value —
- * see the header of `lib/date-filter.ts`. This component holds NO state of its
- * own; the encoded string is the entire truth, so the same filter can be reset
- * by a parent, restored from a URL, or driven by a test with no coordination.
+ * The panel is a `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4`, and
+ * this used to return a FRAGMENT of three sibling `<div>`s so each landed in a
+ * cell of its own. Three independent grid items is exactly what let
+ * auto-placement break the control across rows: on Material Attributes, with
+ * Item Class and Category ahead of it, the dropdown and From Date filled row 1
+ * and **To Date wrapped underneath** — a date range reading as two unrelated
+ * fields (client 2026-08-11). Where it broke depended on how many facets the
+ * screen put in front of it, so the same control split differently on every
+ * screen and no per-screen fix could have been right.
+ *
+ * The fix is a SPAN, and it works because of a property of CSS Grid rather than
+ * a preference: **a multi-column grid item is never SPLIT by auto-placement** —
+ * it either fits in the columns left on the current row or moves to the next row
+ * whole. `sm:col-span-2 lg:col-span-3` is therefore the entire guarantee. The
+ * `sm:grid-cols-3` inside it only decides how the three controls share the space
+ * the span already claimed, and it puts each of them on the panel's own column
+ * rhythm — so they line up with the facets above and no date box is squeezed to
+ * a third of a cell, which is what wrapping all three in one ordinary cell would
+ * have done.
+ *
+ * Two things that look like details:
+ *
+ *  - **The wrapper is unclassed unless the range is custom.** With no preset, or
+ *    a fixed one like "This Month", there is nothing to widen for: it stays a
+ *    plain single cell, exactly the width every other facet has, so a screen
+ *    that never opens a custom range is untouched.
+ *  - **Base keeps `grid-cols-1` and NO span.** The panel is one column on a
+ *    phone and everything in it stacks; `col-span-2` there would ask for a
+ *    second column that does not exist, generate an implicit one, and break the
+ *    panel outright.
+ *
+ * ## State
+ *
+ * The two date boxes appear only for "Custom Date Range", which is why the empty
+ * custom state has to survive a round trip through the encoded value — see the
+ * header of `lib/date-filter.ts`. This component holds NO state of its own; the
+ * encoded string is the entire truth, so the same filter can be reset by a
+ * parent, restored from a URL, or driven by a test with no coordination.
  */
 export function DateRangeFilter({
   id = "filter-created",
@@ -40,6 +70,7 @@ export function DateRangeFilter({
   onChange: (value: string) => void;
 }) {
   const { preset, from, to } = decodeDateFilter(value);
+  const custom = preset === "custom";
 
   const set = (next: { preset: DatePreset | ""; from: string; to: string }) =>
     onChange(encodeDateFilter(next));
@@ -47,10 +78,16 @@ export function DateRangeFilter({
   // The resolved window, spelled out under the dropdown. A preset is a promise
   // ("This Month"); this is the promise kept, in DD/MM/YYYY. Not shown for a
   // custom range — it would just echo the two boxes back.
-  const summary = preset && preset !== "custom" ? describeDateFilter(value) : "";
+  const summary = preset && !custom ? describeDateFilter(value) : "";
 
   return (
-    <>
+    <div
+      className={
+        custom
+          ? "grid grid-cols-1 gap-2 sm:col-span-2 sm:grid-cols-3 lg:col-span-3"
+          : undefined
+      }
+    >
       <div>
         <Label htmlFor={id}>{label}</Label>
         <Select
@@ -75,7 +112,7 @@ export function DateRangeFilter({
         {summary && <p className="mt-0.5 text-xs text-muted-foreground">{summary}</p>}
       </div>
 
-      {preset === "custom" && (
+      {custom && (
         <>
           <div>
             <Label htmlFor={`${id}-from`}>From Date</Label>
@@ -103,6 +140,6 @@ export function DateRangeFilter({
           </div>
         </>
       )}
-    </>
+    </div>
   );
 }

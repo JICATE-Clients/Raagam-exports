@@ -17,8 +17,11 @@ import { DateRangeFilter } from "@/components/ui/date-range-filter";
  * here now because the registers import it too, and because the thing it
  * renders (`components/ui/date-range-filter.tsx`) was always here.
  *
- * `dateFilter` adds the shared Created Date facet as the LAST cells of that
- * grid. It is rendered here rather than passed in as a child so every list in
+ * `dateFilter` adds the shared Created Date facet as the LAST cell of that
+ * grid — one cell that widens to `col-span-3` while a custom range is open, so
+ * its dropdown and two date boxes stay on a single row instead of being split
+ * across two by auto-placement (see date-range-filter.tsx).
+ * It is rendered here rather than passed in as a child so every list in
  * the app words it, orders it and lays it out identically — the same reason the
  * Status facet lives inside `MasterListShell` — and so a screen with no other
  * facet still gets the "Filters" button. Wire it from `useMasterFilter`'s

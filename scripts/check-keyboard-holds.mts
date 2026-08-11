@@ -1,5 +1,6 @@
-// Verification vectors for `keyFills` (lib/focus.ts) — the rule that decides
-// which keys a HELD field still answers.
+// Verification vectors for the pure rules in lib/focus.ts — `keyFills`, which
+// decides which keys a HELD field still answers, and `enterTicks`, which decides
+// whether Enter on a tick box ticks it or commits the surface.
 //
 // The repo has no test framework, so this runs standalone:
 //     node --experimental-strip-types scripts/check-keyboard-holds.mts
@@ -19,7 +20,13 @@
 //
 // The rule in one line: A HOLD REFUSES MOVEMENT AND NEVER REFUSES CHOOSING.
 
-import { keyFills, keyMovesBackward, type FillProbe } from "../lib/focus.ts";
+import {
+  enterTicks,
+  keyFills,
+  keyMovesBackward,
+  type FillProbe,
+  type TickProbe,
+} from "../lib/focus.ts";
 
 /** The controls a held field can actually be. */
 const TEXT: FillProbe = { tag: "INPUT", role: null, ariaExpanded: null, fieldTrigger: false };
@@ -133,6 +140,87 @@ for (const [name, [key, shift]] of Object.entries({
 } as Record<string, [string, boolean]>)) {
   dir(`${name} refused under EITHER hold`, leaves(key, shift, false) || leaves(key, shift, true), false);
 }
+
+// ===========================================================================
+// THE TICK BOX AT THE END OF A SURFACE (client 2026-08-11)
+// ===========================================================================
+//
+// Not a hold, but the same shape of failure and the same reason it needs
+// vectors: a rule that lives in `enterAdvances`, that no type check can see,
+// and whose two halves pull against each other.
+//
+// Enter on a tick box TICKS it — the 2026-07-28 rule, which replaced a checkbox
+// that fell through and saved a half-filled form. But Enter off the LAST field
+// is the only keyboard route to Save, since Tab never lands on a button. So a
+// surface whose last field is a checkbox had no keyboard save at all: on
+// Material Attributes ▸ New the trailing blank row's Blocked box is the last
+// field, and every Enter route on the screen funnelled into it.
+//
+// The rule in one line: A TICK BOX TICKS WHILE A FIELD STILL FOLLOWS IT, AND
+// COMMITS WHEN NONE DOES. Space is the toggle either way — it is native, it is
+// in neither NAV_KEYS nor HOLD_KEYS, and nothing here touches it, which is what
+// keeps the last box tickable at all once Enter there means "save".
+//
+// A RADIO REACHES THIS PROBE TOO (`tickBox` is checkbox|radio) and takes the
+// same answer, deliberately: ↑/↓ in a native group already select as they move,
+// so Enter-to-select is redundant and a trailing radio is arrived at already
+// checked. Carving it out would be a second rule to keep true.
+//
+// And a surface that cannot commit at all (a list page's filter box — no footer,
+// no registered save, no submit button) ticks whatever its shape: there is
+// nothing for the other answer to mean there.
+
+console.log("\nTHE TRAILING TICK BOX — Enter must still reach Save");
+function tick(label: string, actual: boolean, expected: boolean) {
+  if (actual === expected) {
+    console.log(`  ok    ${label}`);
+  } else {
+    failures++;
+    console.log(`  FAIL  ${label} — expected ${expected ? "TICKS" : "moves on / COMMITS"}`);
+  }
+}
+
+/** A tick box on a surface that CAN commit, located on the region axis and
+ *  reached by ordinary typing — the case the operator actually meets. */
+const box = (hasNextField: boolean): TickProbe => ({
+  tickBox: true,
+  canSubmit: true,
+  hasNextField,
+  located: true,
+  optIn: false,
+});
+
+tick("a field follows it — ticks (the 07-28 rule, unchanged)", enterTicks(box(true)), true);
+tick("it is the LAST field — commits", enterTicks(box(false)), false);
+// The half that reads as an implementation detail and is the whole point: on
+// Material Attributes ▸ New every Enter route funnelled into the trailing star
+// row's Blocked box, so the two answers above are the difference between a
+// saveable form and a mouse-only one.
+tick("a radio takes the same answer — one rule, not two", enterTicks(box(false)), false);
+
+// Anything that is not a tick box never entered this branch: it advances, and
+// off the last field the save ladder runs, exactly as before.
+tick("a text field is not a tick box", enterTicks({ ...box(false), tickBox: false }), false);
+
+// THE TWO CASES A CARELESS FIX GETS WRONG. Both fail towards TICKING, because a
+// commit the operator did not ask for is the 07-28 bug — a half-filled form
+// saved by a key that was supposed to tick something.
+console.log("\nWhen NOT to read 'nothing follows' as 'commit'");
+// `idx === -1` — the box is not on the region axis at all (a `position: fixed`
+// control whose `offsetParent` is null drops out of `focusablesIn`). We do not
+// KNOW what follows it, and not knowing is not evidence of being last.
+tick("not located on the axis — ticks rather than guessing", enterTicks({ ...box(false), located: false }), true);
+// `data-focus-optional` — the advance step steps over the marker, so Enter can
+// never have ARRIVED here by the typing rhythm; the operator aimed at this box
+// with an arrow or the mouse. Committing off it would be a save nobody asked
+// for, which is that marker's own footgun with the polarity reversed.
+tick("an opt-in box always ticks, last or not", enterTicks({ ...box(false), optIn: true }), true);
+tick("an opt-in box with a field after it ticks too", enterTicks({ ...box(true), optIn: true }), true);
+// No save to reach — a filter bar, a search palette. Enter there must not fall
+// through to the browser (an unclaimed Enter on a box inside a <form> is an
+// implicit submit), so it ticks even though nothing follows it.
+tick("nothing to commit TO — ticks", enterTicks({ ...box(false), canSubmit: false }), true);
+tick("nothing to commit TO, and not a box — untouched", enterTicks({ ...box(false), canSubmit: false, tickBox: false }), false);
 
 console.log(failures === 0 ? "\nall good\n" : `\n${failures} FAILURE(S)\n`);
 process.exit(failures === 0 ? 0 : 1);

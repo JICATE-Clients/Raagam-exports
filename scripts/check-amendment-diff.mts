@@ -164,8 +164,12 @@ check(
 // ---------- keyless tabs report added/removed only ----------
 // A dyeing IS its value, so Navy → Black is a removal and an addition, never a
 // "change" — there is no stable row identity to hang a change on.
-const navy = seed({ dyeings: [{ sno: 1, section: "yarn", dye_type: null, color_id: "navy-id" }] });
-const black = seed({ dyeings: [{ sno: 1, section: "yarn", dye_type: null, color_id: "black-id" }] });
+const navy = seed({
+  dyeings: [{ sno: 1, section: "yarn", dye_type: null, color_name: "NAVY", color_id: "navy-id" }],
+});
+const black = seed({
+  dyeings: [{ sno: 1, section: "yarn", dye_type: null, color_name: "BLACK", color_id: "black-id" }],
+});
 check(
   "a recoloured dyeing is remove + add",
   tab(diffAmendment(navy, black), "dyeings").map((r) => r.kind).sort(),
@@ -175,7 +179,32 @@ check(
 check(
   "yarn and fabric dyeings of one colour do not cancel out",
   changeCount(
-    diffAmendment(navy, seed({ dyeings: [{ sno: 1, section: "fabric", dye_type: null, color_id: "navy-id" }] })),
+    diffAmendment(
+      navy,
+      seed({
+        dyeings: [
+          { sno: 1, section: "fabric", dye_type: null, color_name: "NAVY", color_id: "navy-id" },
+        ],
+      }),
+    ),
+  ),
+  2,
+);
+// 0403: the colour is TYPED now, so the typed name has to key the row on its
+// own. Without `color_name` in the key these two rows — both id-less, which is
+// every row a post-0403 screen produces — would collapse into one and a
+// recoloured dyeing would report NOTHING.
+check(
+  "a retyped colour with no card id behind it is still remove + add",
+  changeCount(
+    diffAmendment(
+      seed({
+        dyeings: [{ sno: 1, section: "yarn", dye_type: null, color_name: "NAVY", color_id: null }],
+      }),
+      seed({
+        dyeings: [{ sno: 1, section: "yarn", dye_type: null, color_name: "BLACK", color_id: null }],
+      }),
+    ),
   ),
   2,
 );

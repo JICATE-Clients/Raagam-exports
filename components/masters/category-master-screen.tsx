@@ -732,9 +732,14 @@ export function CategoryMasterScreen({
                 </Select>
               </div>
             )}
-            {/* Fabric Structure is a stored list, so it is a picker with inline
-                Add / Modify / Delete — unlike Category Type above, which is a
-                fixed three-value enum the operator can never extend. */}
+            {/* Fabric Structure is a stored list, so it is a picker rather than a
+                <Select> — but it is SELECT-ONLY, exactly as Category Type above
+                cannot be extended (client 2026-08-11). Its three values are the
+                keys the Fabric UOM rule reads, so a fourth is a value nothing can
+                act on; `CLOSED_LOOKUP_KINDS` in extras-types.ts holds the whole
+                reasoning and the picker drops Add / Modify / Delete itself. The
+                permissions below are passed for the day the kind stops being
+                closed — they are what the rule overrides, not a contradiction. */}
             {showFabricStructure && (
               // id is the focus target for "jump to the first missing field" —
               // LookupDialogPicker takes no id of its own, so the wrapper carries
