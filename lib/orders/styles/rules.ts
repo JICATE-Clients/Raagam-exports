@@ -41,6 +41,19 @@ export function isUnitKind(v: string | null | undefined): v is UnitKind {
 }
 
 /**
+ * "piece" → "Piece". Null for anything else, INCLUDING null itself.
+ *
+ * Exists so the Garment Order can print the unit it seeds from a style without
+ * a second copy of the words, and returns null rather than "" or "—" because
+ * what to show for "not answered yet" is the caller's decision: a grid cell
+ * wants a dash, a summary line wants the row omitted.
+ */
+export function unitKindLabel(v: string | null | undefined): string | null {
+  if (!isUnitKind(v)) return null;
+  return UNIT_KIND_OPTIONS.find((o) => o.value === v)?.label ?? null;
+}
+
+/**
  * The coordinate range for a unit kind, or `null` when there is no rule to
  * apply yet.
  *
@@ -63,6 +76,51 @@ export type CoordinateLike = { coordinate_id: string | null };
 
 export function filledCoordinates(rows: readonly CoordinateLike[]): number {
   return rows.filter((r) => !!r.coordinate_id).length;
+}
+
+/**
+ * The component TYPE a fabric CATEGORY implies — the "Type" cell on a
+ * Components row, filled from the Structure cell beside it.
+ *
+ * "STRUCTURE" ON SCREEN IS A FABRIC CATEGORY (0405) — SINGLE JERSEY, FLEECE,
+ * 1X1 LYCRA RIB, COLLAR. It used to be the `fabric_structure` lookup itself,
+ * which held only the three machine classes and so made Type a restatement of
+ * the column beside it.
+ *
+ * IT IS A FETCH, NOT A CORRELATION, and that is what makes it safe to automate.
+ * `categories.fabric_structure_id` is declared on the Category master: SINGLE
+ * JERSEY -> Circular Knit, COLLAR -> Flat Knit, CHAMBRAY -> Woven. This resolves
+ * that one hop and returns the structure's NAME, which is what the Type cell
+ * shows. Nothing here decides anything the master did not already say.
+ *
+ * THE NAME IS RETURNED, NOT A CODE, because Type is a free-text column
+ * (`comp_type`) displaying a human label, and the caller renders the same
+ * `fabric_structure` rows as its options — so both sides read one list and a
+ * value can never fail to match an option. Contrast the SUPERSEDED version,
+ * which matched on `code` and mapped to a hardcoded ["Circular","Flat"] tuple:
+ * that tuple could not express Woven at all, so CHAMBRAY and ROPE — real FABRIC
+ * categories — had no Type to fill.
+ *
+ * **NULL MEANS "LEAVE THE CELL ALONE".** A category with no
+ * `fabric_structure_id`, or one this app cannot resolve, answers "I don't know"
+ * — and the caller must treat that as a no-op rather than a value to write.
+ * Overwriting a Type the operator chose with a blank, because the category they
+ * picked has not been filled in on its master, is auto-populate turning into
+ * data loss.
+ *
+ * Takes the option lists rather than importing a service: this file is pure by
+ * declaration (see the header), and the screen already holds both for its
+ * pickers.
+ */
+export function componentTypeForCategory(
+  categoryId: string | null | undefined,
+  categories: readonly { id: string; fabric_structure_id?: string | null }[],
+  structures: readonly { id: string; name: string }[],
+): string | null {
+  if (!categoryId) return null;
+  const structureId = categories.find((c) => c.id === categoryId)?.fabric_structure_id;
+  if (!structureId) return null;
+  return structures.find((x) => x.id === structureId)?.name ?? null;
 }
 
 /** A component names the coordinate it belongs to — Front Body under TOP. The
@@ -124,7 +182,7 @@ export function orphanComponents(
 export type ComponentRowLike = {
   coordinate_id?: string | null;
   component_id?: string | null;
-  structure_id?: string | null;
+  fabric_category_id?: string | null;
   comp_type?: string | null;
   item_id?: string | null;
 };
@@ -133,7 +191,7 @@ export function componentRowStarted(r: ComponentRowLike): boolean {
   return !!(
     r.coordinate_id ||
     r.component_id ||
-    r.structure_id ||
+    r.fabric_category_id ||
     (r.comp_type && r.comp_type.trim()) ||
     r.item_id
   );
@@ -167,7 +225,7 @@ export type StyleRuleInput = {
  * marks `required` — those are found by `collectProblems` from the field
  * declarations, and stating them twice would double-count the rail badge. This
  * covers only what a single field cannot know on its own: the relationship
- * between Unit Type on General and the row count on Coordinates.
+ * between Unit on General and the row count on Coordinates.
  */
 export function styleProblems(input: StyleRuleInput): StyleProblem[] {
   const problems: StyleProblem[] = [];
@@ -197,7 +255,7 @@ export function styleProblems(input: StyleRuleInput): StyleProblem[] {
    * The Components picker is scoped so this cannot be reached by choosing
    * badly. It is reached by the coordinate moving out from under a component
    * that was already correct — deleting a Coordinates row, or switching Unit
-   * Type to Piece, which trims the grid to its first row.
+   * to Piece, which trims the grid to its first row.
    *
    * SO THE RULE EXISTS TO REFUSE A SAVE, NOT TO CATCH A TYPO. The alternative
    * is to drop the orphaned components automatically, which is data loss the
