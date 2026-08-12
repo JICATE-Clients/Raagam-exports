@@ -160,6 +160,12 @@ export const NAV: NavItem[] = [
       { href: "/masters/hr", label: "HR" },
       { href: "/masters/currencies", label: "Currencies" },
       { href: "/masters/gst", label: "GST" },
+      // Restored 2026-08-12 — see the block comment on the `system` entry in
+      // `lib/masters/submodules.ts`. Master Data's children are a literal here
+      // rather than derived from SUBMODULES, so a new sub-module needs BOTH
+      // edits; everything else (the hub page, the entity route, nav search and
+      // the mobile ＋ actions) comes off that one registry.
+      { href: "/masters/system", label: "System" },
     ],
   },
   {

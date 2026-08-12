@@ -74,6 +74,8 @@ import { listOurBanks } from "@/lib/masters/our-bank-service";
 import { OurBankMasterScreen } from "@/components/masters/our-bank-master-screen";
 import { listZones } from "@/lib/masters/zone-service";
 import { ZoneMasterScreen } from "@/components/masters/zone-master-screen";
+import { listDocumentNoFormats } from "@/lib/masters/document-no-format-service";
+import { DocumentNoFormatMasterScreen } from "@/components/masters/document-no-format-master-screen";
 import { listPackingFormatColumns } from "@/lib/masters/packing-format-columns-service";
 import {
   departmentsAsLookups,
@@ -505,6 +507,18 @@ export default async function SubEntityPage({
     } else if (child.custom === "zone") {
       const rows = await listZones();
       screen = <ZoneMasterScreen rows={rows} perms={perms} />;
+    } else if (child.custom === "document_no_format") {
+      const [formats, all] = await Promise.all([listDocumentNoFormats(), listConfigLookups()]);
+      screen = (
+        <DocumentNoFormatMasterScreen
+          rows={formats}
+          trackOptions={all.filter((l) => l.kind === "doc_track")}
+          menuOptions={all.filter((l) => l.kind === "doc_menu")}
+          valueTypeOptions={all.filter((l) => l.kind === "doc_value_type")}
+          valueFromOptions={all.filter((l) => l.kind === "doc_value_from")}
+          perms={perms}
+        />
+      );
     }
   }
 

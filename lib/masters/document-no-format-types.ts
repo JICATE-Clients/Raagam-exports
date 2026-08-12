@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsTextNullable } from "@/lib/validation/formats";
 
 // ============================================================================
 // Document No formats — 3-level nested master-detail (0264). Legacy System
@@ -45,13 +46,16 @@ export interface DocumentNoFormat {
 }
 
 const uuidN = z.string().uuid().nullable().default(null);
-const nullableText = z.string().optional().nullable();
 
 export const documentNoFormatSegmentInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   value_type_id: uuidN,
-  value: nullableText,
-  separator: nullableText,
+  // CAPS on the WRITE side, not only on the input. `<Input uppercase>` fixes the
+  // keystroke; `lib/data-io` parses imports with these same schemas and writes
+  // straight to Postgres, so a transform living anywhere else misses every
+  // spreadsheet row (AGENTS.md, "CAPITALS").
+  value: capsTextNullable(),
+  separator: capsTextNullable(),
   no_of_digits: z.coerce.number().int().nonnegative().nullable().default(null),
   value_from_id: uuidN,
   ref_only: z.boolean().default(false),
@@ -62,7 +66,7 @@ export const documentNoFormatMenuInput = z.object({
   menu_id: uuidN,
   location_wise: z.boolean().default(false),
   starting_sl_no: z.coerce.number().int().nonnegative().default(0),
-  sample_doc_no: nullableText,
+  sample_doc_no: capsTextNullable(),
   segments: z.array(documentNoFormatSegmentInput).default([]),
 });
 

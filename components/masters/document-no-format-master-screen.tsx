@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X, Trash2, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FileText, ListOrdered } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { StatusPill } from "@/components/ui/status-pill";
+import { type Column } from "@/components/ui/data-table";
 import { useToast } from "@/components/ui/toast";
-import { useModalGuard, useUnsavedGuard } from "@/lib/reload-guard";
-import { useRegisterShortcut } from "@/lib/shortcuts";
-import { focusFirstField } from "@/lib/focus";
+import { useUnsavedGuard } from "@/lib/reload-guard";
+import { MasterListShell } from "@/components/masters/master-list-shell";
+import {
+  MasterFullScreen,
+  SectionBody,
+  type FullScreenSection,
+  type MasterFullScreenHandle,
+} from "@/components/masters/master-full-screen";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import { DetailSection } from "@/components/masters/detail-section";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { sectionValidity } from "@/lib/screens/validity";
 import {
   createDocumentNoFormat,
   updateDocumentNoFormat,
@@ -27,10 +31,12 @@ import type {
 } from "@/lib/masters/document-no-format-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { fmtDate } from "@/lib/format";
-import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
+/** ISO, because that is what `<input type="date">` reads and writes. NOT
+ *  `fmtDate` — see AGENTS.md "Dates": a value fed back into a control or a query
+ *  stays ISO, and only what the operator READS is DD/MM/YYYY. */
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -71,12 +77,40 @@ const blankMenu = (key: string, segKey: string): MenuRow => ({
   segments: [blankSeg(segKey)],
 });
 
+type Form = { date: string; track_id: string };
+
 /**
  * Legacy System "Document No format" master — a 3-level nested master-detail.
- * Header (Entry No auto · Date · Track) → many Menu rows → each Menu row has
- * many segment lines that compose its document number. Full-screen editor so
- * the nested grids have room; every list field is a config_lookups picker
- * (Add/Modify). Save / Save-As-Drafts.
+ * Header (Entry No auto · Date · Track) → many Menu rows → each Menu row has many
+ * segment lines that compose its document number.
+ *
+ * ## Rebuilt on the primitives (2026-08-12)
+ *
+ * This screen used to be a hand-rolled `fixed inset-0` clone of
+ * `MasterFullScreen`: it had copied the layout and, one at a time, most of the
+ * behaviour — the focus regions, the scroll lock, the `"save"` shortcut
+ * registration, an autofocus effect, both reload guards — each added by a later
+ * fix that only ever reached this file. What it never copied was the part that
+ * cannot be retrofitted a line at a time:
+ *
+ * - **`required` was decoration.** The Date label read
+ *   `Date <span className="text-danger">*</span>`, typed into the label text.
+ *   `useRequiredHold` reads `<Field required>`, so the star had nothing behind it
+ *   and a blank Date let Tab, Enter and ↓ straight past — the exact star/hold
+ *   divergence AGENTS.md's "one declaration, four enforcers" exists to prevent,
+ *   on the one mandatory field this record has.
+ * - **`canSave` was hand-assembled** (`disabled={isPending || !date}`), which is
+ *   the list `lib/screens/validity.ts` was written to stop screens keeping.
+ * - **Two hand-rolled nested grids**, so neither level had `data-row-remove`,
+ *   `data-row-add` or the cards layout — Ctrl+Del worked only through the
+ *   `aria-label^="Remove"` compatibility fallback, and Tab could not enter an
+ *   empty segment list at all.
+ * - **Hand-written `grid-cols-3` / `grid-cols-2`**, against the one-width rule.
+ *
+ * The lesson is the skill's rule 5 read backwards: none of those needed a
+ * keyboard fix of their own, they needed the primitives. Composing them is what
+ * buys the contract, because the contract is driven by markers `Field`,
+ * `ChildGrid` and `MasterFullScreen` already carry.
  */
 // dup-check: exempt -- the record's identity is an auto-generated Entry No, and
 // `generateUniqueCode` suffixes on collision, so there is nothing typed for a
@@ -98,66 +132,55 @@ export function DocumentNoFormatMasterScreen({
   perms: Perms;
 }) {
   const router = useRouter();
-  const { success, error } = useToast();
-  const [isPending, startTransition] = useTransition();
-  const [query, setQuery] = useState("");
+  const { success, error: toastError } = useToast();
+  const [isPending, start] = useTransition();
+
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editNo, setEditNo] = useState<number | null>(null);
-  /** Scroll pane of the editor — the boundary the shared key contract walks. */
-  const editorContentRef = useRef<HTMLDivElement>(null);
-  // Cursor into the first field on open — this editor had no autofocus at all,
-  // so it opened with focus still on the button behind the overlay.
-  useEffect(() => {
-    if (!open) return;
-    const id = window.setTimeout(() => focusFirstField(editorContentRef.current), 60);
-    return () => window.clearTimeout(id);
-  }, [open]);
+  const [form, setForm] = useState<Form>({ date: today(), track_id: "" });
+  const [menus, setMenus] = useState<MenuRow[]>([]);
+
+  /**
+   * Has the operator changed anything since this record opened. A real flag, not
+   * "do the fields hold values" — on an existing record they always do.
+   */
   const [dirty, setDirty] = useState(false);
 
-  // Hold off the silent PWA auto-reload. Both guards are needed here: the
-  // editor at :368 is a hand-rolled `fixed inset-0` clone with no role="dialog",
-  // so reload-guard's DOM scan can't see it the way it sees a Sheet.
-  useModalGuard(open);
-  useUnsavedGuard(dirty || isPending);
-
-  const [date, setDate] = useState(today());
-  const [trackId, setTrackId] = useState("");
-  const [menus, setMenus] = useState<MenuRow[]>([]);
+  /** Lets a blocked Save switch section and land on the offending field. */
+  const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
   const newKey = () => `k${keySeq.current++}`;
 
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  /**
+   * The overlay mount calls `useModalGuard` itself, and `confirmDiscard()`
+   * deliberately does not read that one — an open overlay is not the same thing
+   * as edited data. So the screen still owes the unsaved guard, keyed on real
+   * dirtiness (never on `open`, which would pin the silent PWA auto-update off
+   * for as long as the operator sits here). `isPending` is included because a
+   * reload landing mid-server-action loses the success toast.
+   */
+  useUnsavedGuard(dirty || isPending);
 
-  const trackLabel = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const t of trackOptions) m.set(t.id, t.name);
-    return m;
-  }, [trackOptions]);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [String(r.entry_no), r.track_id ? trackLabel.get(r.track_id) : ""]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, query, trackLabel]);
+  const set = (patch: Partial<Form>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setDirty(true);
+  };
+  const mutMenus = (fn: (xs: MenuRow[]) => MenuRow[]) => {
+    setMenus(fn);
+    setDirty(true);
+  };
+  const setMenuAt = (key: string, patch: Partial<MenuRow>) =>
+    mutMenus((xs) => xs.map((m) => (m.key === key ? { ...m, ...patch } : m)));
+  const mutSegs = (menuKey: string, fn: (xs: SegRow[]) => SegRow[]) =>
+    mutMenus((xs) => xs.map((m) => (m.key === menuKey ? { ...m, segments: fn(m.segments) } : m)));
+  const setSegAt = (menuKey: string, segKey: string, patch: Partial<SegRow>) =>
+    mutSegs(menuKey, (xs) => xs.map((s) => (s.key === segKey ? { ...s, ...patch } : s)));
 
   function openAdd() {
     setEditId(null);
     setEditNo(null);
-    setDate(today());
-    setTrackId("");
+    setForm({ date: today(), track_id: "" });
     setMenus([blankMenu(newKey(), newKey())]);
     setDirty(false);
     setOpen(true);
@@ -165,8 +188,7 @@ export function DocumentNoFormatMasterScreen({
   function openEdit(r: DocumentNoFormat) {
     setEditId(r.id);
     setEditNo(r.entry_no);
-    setDate(r.date?.slice(0, 10) || today());
-    setTrackId(r.track_id ?? "");
+    setForm({ date: r.date?.slice(0, 10) || today(), track_id: r.track_id ?? "" });
     setMenus(
       r.menus.map((m) => ({
         key: newKey(),
@@ -189,64 +211,315 @@ export function DocumentNoFormatMasterScreen({
     setOpen(true);
   }
 
-  // ---- menu/segment mutation helpers ----
-  function touch() {
-    setDirty(true);
-  }
-  function addMenu() {
-    setMenus((ms) => [...ms, blankMenu(newKey(), newKey())]);
-    touch();
-  }
-  function removeMenu(key: string) {
-    setMenus((ms) => ms.filter((m) => m.key !== key));
-    touch();
-  }
-  function setMenuAt(key: string, patch: Partial<MenuRow>) {
-    setMenus((ms) => ms.map((m) => (m.key === key ? { ...m, ...patch } : m)));
-    touch();
-  }
-  function addSegment(menuKey: string) {
-    setMenus((ms) =>
-      ms.map((m) => (m.key === menuKey ? { ...m, segments: [...m.segments, blankSeg(newKey())] } : m)),
-    );
-    touch();
-  }
-  function removeSegment(menuKey: string, segKey: string) {
-    setMenus((ms) =>
-      ms.map((m) =>
-        m.key === menuKey ? { ...m, segments: m.segments.filter((s) => s.key !== segKey) } : m,
-      ),
-    );
-    touch();
-  }
-  function setSegmentAt(menuKey: string, segKey: string, patch: Partial<SegRow>) {
-    setMenus((ms) =>
-      ms.map((m) =>
-        m.key === menuKey
-          ? { ...m, segments: m.segments.map((s) => (s.key === segKey ? { ...s, ...patch } : s)) }
-          : m,
-      ),
-    );
-    touch();
-  }
+  const nameOfLookup = (opts: ConfigLookup[], id: string) =>
+    opts.find((o) => o.id === id)?.name ?? "";
 
-  // Ctrl/⌘+S and Enter both save through here. This editor is a hand-rolled
-  // `fixed inset-0` clone rather than a Sheet, so it gets neither for free — and
-  // `submitSurface` cannot find its footer either, since the footer sits outside
-  // the `data-focus-scope` pane. Registering is what makes Enter save at all.
-  useRegisterShortcut(
-    "save",
-    () => {
-      if (!isPending && date) submit(false);
+  // ---- the segment grid, one per menu row ----------------------------------
+  // Declared as a function of the owning menu so the columns close over its key.
+  // `inlineCards` rather than `forceCards`: six SHORT values per line, sitting
+  // inside a menu card that is itself inside the content pane, so stacked cards
+  // would be a card in a card in a card — and a table of six columns at that
+  // depth is the sideways scroll rule 4 forbids.
+  const segmentColumns = (menuKey: string): ChildGridColumn<SegRow>[] => [
+    {
+      header: "Value Type",
+      width: "12rem",
+      cell: (s) => (
+        <LookupDialogPicker
+          kind="doc_value_type"
+          label="Value Type"
+          compact
+          options={valueTypeOptions}
+          value={s.value_type_id || null}
+          onChange={(id) => setSegAt(menuKey, s.key, { value_type_id: id })}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+        />
+      ),
     },
-    open,
-  );
+    {
+      header: "Value",
+      width: "8rem",
+      cell: (s) => (
+        <Input
+          className="h-8"
+          uppercase
+          value={s.value}
+          onChange={(e) => setSegAt(menuKey, s.key, { value: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Seperator",
+      width: "6rem",
+      // `uppercase` even though a separator is usually punctuation, where
+      // `toUpperCase()` is a no-op. Carving out an exemption for "this one is
+      // normally a slash" costs a bespoke rule and gets the odd letter separator
+      // wrong; following the rule costs nothing. (Legacy spells it "Seperator" —
+      // kept, because that is the label the operator is migrating from.)
+      cell: (s) => (
+        <Input
+          className="h-8"
+          uppercase
+          value={s.separator}
+          onChange={(e) => setSegAt(menuKey, s.key, { separator: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "No Of Digits",
+      width: "7rem",
+      align: "right",
+      cell: (s) => (
+        <Input
+          className="h-8"
+          type="number"
+          min={0}
+          value={s.no_of_digits}
+          onChange={(e) => setSegAt(menuKey, s.key, { no_of_digits: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Value From",
+      width: "12rem",
+      cell: (s) => (
+        <LookupDialogPicker
+          kind="doc_value_from"
+          label="Value From"
+          compact
+          options={valueFromOptions}
+          value={s.value_from_id || null}
+          onChange={(id) => setSegAt(menuKey, s.key, { value_from_id: id })}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+        />
+      ),
+    },
+    {
+      header: "Ref. only",
+      width: "5.5rem",
+      align: "center",
+      cell: (s) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer accent-primary"
+          aria-label="Ref. only"
+          checked={s.ref_only}
+          onChange={(e) => setSegAt(menuKey, s.key, { ref_only: e.target.checked })}
+        />
+      ),
+    },
+  ];
+
+  // ---- the menu grid --------------------------------------------------------
+  // NOTHING HERE IS `required`, and that is a decision rather than an omission.
+  // `documentNoFormatMenuInput` accepts a null `menu_id`, so marking the column
+  // required would hold the cursor on something the server saves happily — and
+  // with `seedRow` below, the blank row every record opens with would cage the
+  // operator before they had chosen to add it. That is the trap
+  // material-attribute-master-screen records at its own line 1033.
+  const menuColumns: ChildGridColumn<MenuRow>[] = [
+    {
+      header: "Menu",
+      cell: (m) => (
+        <LookupDialogPicker
+          kind="doc_menu"
+          label="Menu"
+          compact
+          options={menuOptions}
+          value={m.menu_id || null}
+          onChange={(id) => setMenuAt(m.key, { menu_id: id })}
+          canCreate={perms.canCreate}
+          canEdit={perms.canEdit}
+        />
+      ),
+    },
+    {
+      header: "Location wise",
+      cell: (m) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer accent-primary"
+          aria-label="Location wise"
+          checked={m.location_wise}
+          onChange={(e) => setMenuAt(m.key, { location_wise: e.target.checked })}
+        />
+      ),
+    },
+    {
+      header: "Starting SlNo",
+      align: "right",
+      cell: (m) => (
+        <Input
+          className="h-8"
+          type="number"
+          min={0}
+          value={m.starting_sl_no}
+          onChange={(e) => setMenuAt(m.key, { starting_sl_no: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Sample DocNo",
+      cell: (m) => (
+        <Input
+          className="h-8"
+          uppercase
+          value={m.sample_doc_no}
+          onChange={(e) => setMenuAt(m.key, { sample_doc_no: e.target.value })}
+        />
+      ),
+    },
+  ];
+
+  /**
+   * WHAT IS STOPPING A SAVE, AND WHICH SECTION HOLDS IT. Derived, never
+   * hand-assembled — and `fields` mirrors the `required` props below, so the red
+   * `*`, the cursor hold and this list cannot disagree.
+   */
+  const validity = sectionValidity({
+    sections: [{ key: "format" }, { key: "menus" }],
+    values: form,
+    fields: [
+      {
+        section: "format",
+        id: "dnf-date",
+        label: "Date",
+        required: true,
+        empty: (f) => !f.date,
+      },
+    ],
+  });
+
+  const revealFirstProblem = () => {
+    const p = validity.first;
+    if (!p) return;
+    toastError(p.message);
+    shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
+  };
+
+  const sections: FullScreenSection[] = [
+    {
+      // THE SCREEN'S OWN NAME IS THE FIRST RAIL ROW. The record's header fields
+      // are a SECTION, not a band floating above the rail — a field outside a
+      // section is a field the primitives cannot see, which is precisely how the
+      // Date star ended up with nothing behind it.
+      key: "format",
+      label: "Document No Format",
+      icon: FileText,
+      done: !!form.date,
+      // NO `problems` BADGE (operator, 2026-08-10). `footer.onBlockedSave` below
+      // is what replaces it: Save stays clickable, names the missing field and
+      // steers the cursor to it.
+      content: (
+        <SectionBody title="Document No Format" hint="Which numbering series this entry defines.">
+          <FieldGrid>
+            <Field label="Entry No" size="sm" htmlFor="dnf-entry-no">
+              {/* `readOnly` sets `tabIndex={-1}` for us — an auto value is never a
+                  tab stop, and a read-only field never holds. */}
+              <Input id="dnf-entry-no" value={editNo != null ? `#${editNo}` : "(auto)"} readOnly />
+            </Field>
+            <Field label="Date" required size="sm" htmlFor="dnf-date">
+              <Input
+                id="dnf-date"
+                type="date"
+                value={form.date}
+                onChange={(e) => set({ date: e.target.value })}
+              />
+            </Field>
+            <Field label="Track" size="sm">
+              <LookupDialogPicker
+                kind="doc_track"
+                label="Track"
+                compact
+                options={trackOptions}
+                value={form.track_id || null}
+                onChange={(id) => set({ track_id: id })}
+                canCreate={perms.canCreate}
+                canEdit={perms.canEdit}
+              />
+            </Field>
+          </FieldGrid>
+        </SectionBody>
+      ),
+    },
+    {
+      key: "menus",
+      label: "Menus",
+      icon: ListOrdered,
+      done: menus.some((m) => !!m.menu_id),
+      content: (
+        <SectionBody
+          title="Menus"
+          hint="Each menu gets its own running number, built from the segments beneath it."
+        >
+          <ChildGrid<MenuRow>
+            columns={menuColumns}
+            rows={menus}
+            // A GRID WRAPS; IT NEVER SCROLLS SIDEWAYS — and a table row could not
+            // hold the segment panel each menu owns anyway.
+            forceCards
+            // OPEN WITH ONE BLANK ROW. Also the keyboard's only way in: Tab lands
+            // on fields, and an empty grid's sole affordance is a button.
+            seedRow
+            rowSummary={(m) =>
+              m.menu_id ? (
+                nameOfLookup(menuOptions, m.menu_id)
+              ) : (
+                <span className="text-muted-foreground">No menu picked yet</span>
+              )
+            }
+            renderMobileRow={(m, i) => (
+              <div className="space-y-3">
+                {/* Labels and cells read OFF `columns` — never retyped beside
+                    them, or a new column leaves the card and the header
+                    disagreeing. `required` is forwarded because cards mode skips
+                    the `columns.map()` that wraps each cell in `RequiredScope`,
+                    so a column-level `required` would otherwise draw a star with
+                    no hold behind it (AGENTS.md, "A GRID THAT RENDERS ITS OWN ROW
+                    MUST DECLARE `required` TWICE"). Nothing declares it today;
+                    the forward is what keeps that true if one ever does. */}
+                <FieldGrid>
+                  {menuColumns.map((c, ci) => (
+                    <Field key={ci} label={c.header} required={c.required} size="sm">
+                      {c.cell(m, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+                {/* A ROW'S NESTED GRID IS PART OF THE ROW: Tab off the last menu
+                    cell walks into these segments, and `ChildGrid`'s own
+                    `data-row-add` is what lets it open the first one when the
+                    list is empty. `frameless` so the panel has one border and one
+                    title rather than a card inside a card. */}
+                <DetailSection label="Document-number segments">
+                  <ChildGrid<SegRow>
+                    columns={segmentColumns(m.key)}
+                    rows={m.segments}
+                    inlineCards
+                    frameless
+                    seedRow
+                    onAdd={() => mutSegs(m.key, (xs) => [...xs, blankSeg(newKey())])}
+                    onRemove={(s) => mutSegs(m.key, (xs) => xs.filter((x) => x.key !== s.key))}
+                    addLabel="+ Add segment"
+                  />
+                </DetailSection>
+              </div>
+            )}
+            onAdd={() => mutMenus((xs) => [...xs, blankMenu(newKey(), newKey())])}
+            onRemove={(m) => mutMenus((xs) => xs.filter((x) => x.key !== m.key))}
+            addLabel="+ Add menu"
+          />
+        </SectionBody>
+      ),
+    },
+  ];
 
   function submit(asDraft: boolean) {
-    startTransition(async () => {
+    start(async () => {
       const payload: DocumentNoFormatInput = {
-        date,
-        track_id: trackId || null,
+        date: form.date,
+        track_id: form.track_id || null,
         is_draft: asDraft,
         menus: menus.map((m, i) => ({
           sno: i + 1,
@@ -269,24 +542,30 @@ export function DocumentNoFormatMasterScreen({
         ? await updateDocumentNoFormat(editId, payload)
         : await createDocumentNoFormat(payload);
       if (res.ok) {
-        success(editId ? "Document format updated." : asDraft ? "Saved as draft." : "Document format added.");
+        success(
+          editId
+            ? "Document format updated."
+            : asDraft
+              ? "Saved as draft."
+              : "Document format added.",
+        );
         setDirty(false);
         setOpen(false);
         router.refresh();
       } else {
-        error(res.error);
+        toastError(res.error);
       }
     });
   }
 
   function remove(r: DocumentNoFormat) {
-    startTransition(async () => {
+    start(async () => {
       const res = await deleteDocumentNoFormat(r.id);
       if (res.ok) {
         success("Document format deleted.");
         router.refresh();
       } else {
-        error(res.error);
+        toastError(res.error);
       }
     });
   }
@@ -298,7 +577,7 @@ export function DocumentNoFormatMasterScreen({
       header: "Track",
       cell: (r) => (
         <span className="text-sm text-muted-foreground">
-          {r.track_id ? (trackLabel.get(r.track_id) ?? "—") : "—"}
+          {r.track_id ? nameOfLookup(trackOptions, r.track_id) || "—" : "—"}
         </span>
       ),
     },
@@ -309,358 +588,93 @@ export function DocumentNoFormatMasterScreen({
     {
       header: "Status",
       cell: (r) =>
-        r.is_draft ? <StatusPill tone="warning">Draft</StatusPill> : <StatusPill tone="success">Active</StatusPill>,
+        r.is_draft ? (
+          <StatusPill tone="warning">Draft</StatusPill>
+        ) : (
+          <StatusPill tone="success">Active</StatusPill>
+        ),
     },
-    rowActionsColumn((r) => (
-      <RowActions
-        label={String(r.entry_no)}
-        onEdit={() => openEdit(r)}
-        onDelete={() => remove(r)}
-        canEdit={perms.canEdit}
-        canDelete={perms.canDelete}
-        isPending={isPending}
-      />
-    )),
   ];
 
   return (
-    <div className="space-y-4">
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by entry no or track…"
-          className="max-w-xs flex-1 basis-full sm:basis-auto"
-        />
-        <div className="flex-1" />
-        {perms.canCreate && (
-          <Button size="md" onClick={openAdd}>
-            + Add Document Format
-          </Button>
-        )}
-      </div>
+    <>
+      <MasterListShell<DocumentNoFormat>
+        rows={rows}
+        getKey={(r) => r.id}
+        perms={perms}
+        searchText={(r) =>
+          [String(r.entry_no), r.track_id ? nameOfLookup(trackOptions, r.track_id) : ""]
+            .filter(Boolean)
+            .join(" ")
+        }
+        searchPlaceholder="Search by entry no or track…"
+        statusOf={(r) => (r.is_draft ? "draft" : "active")}
+        addLabel="+ Add Document Format"
+        onAdd={perms.canCreate ? openAdd : undefined}
+        columns={columns}
+        rowLabel={(r) => `#${r.entry_no}`}
+        actions={{
+          onEdit: perms.canEdit ? openEdit : undefined,
+          onDelete: perms.canDelete ? remove : undefined,
+        }}
+        empty="No document formats yet."
+        mobile={{
+          title: (r) => `#${r.entry_no}`,
+          subtitle: (r) =>
+            `${fmtDate(r.date)} · ${r.menus.length} menu${r.menus.length === 1 ? "" : "s"}`,
+          meta: (r) => (r.track_id ? nameOfLookup(trackOptions, r.track_id) : null),
+          pill: (r) =>
+            r.is_draft ? (
+              <StatusPill tone="warning">Draft</StatusPill>
+            ) : (
+              <StatusPill tone="success">Active</StatusPill>
+            ),
+          onEdit: perms.canEdit ? openEdit : undefined,
+          onDelete: perms.canDelete ? remove : undefined,
+        }}
+        isPending={isPending}
+      />
 
-      {/* desktop table */}
-      <div className="hidden md:block">
-        <DataTable columns={withCreatedColumns(columns, filtered)} rows={filtered} getKey={(r) => r.id} empty="No document formats yet." />
-      </div>
-
-      {/* mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
-            No document formats yet.
-          </div>
-        ) : (
-          filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => perms.canEdit && openEdit(r)}
-              className="block w-full rounded-xl border border-border bg-surface p-4 text-left active:bg-surface-muted"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-foreground">#{r.entry_no}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
-                    {fmtDate(r.date)} · {r.menus.length} menu{r.menus.length === 1 ? "" : "s"}
-                    {r.track_id ? ` · ${trackLabel.get(r.track_id) ?? ""}` : ""}
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{createdMeta(r)}</div>
-                </div>
-                {r.is_draft ? (
-                  <StatusPill tone="warning">Draft</StatusPill>
-                ) : (
-                  <StatusPill tone="success">Active</StatusPill>
-                )}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-
-      {/* ================= full-screen editor ================= */}
-      {open && (
-        <div className="fixed inset-0 z-[80] flex flex-col bg-background">
-          {/* topbar */}
-          <div
-            className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5"
-            // Chrome, not fields. This hand-rolled clone of MasterFullScreen had
-            // copied the layout but not the markers, so `regionOf` sorted its ✕
-            // with the CONTENT — i.e. into the field region the arrows and Enter
-            // are confined to. Tab already leaves it alone (it targets fields
-            // everywhere now), but the region has to be right or ↓ from a field
-            // could land on the close button.
-            data-focus-region="header"
-          >
-            <div className="text-sm font-semibold text-foreground">
-              {editId ? `Edit Document Format #${editNo}` : "New Document Format"}
-              {dirty && <span className="ml-2 text-[11px] font-medium text-warning">● Unsaved</span>}
-            </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          {/* body — routes keys through the one shared contract (↓/↑ opens a
-              picker, else moves between fields; Enter advances). Hand-rolled
-              clone of MasterFullScreen that had copied the layout but not the
-              keyboard behaviour (client 2026-07-25). */}
-          <div ref={editorContentRef} data-focus-scope className="min-h-0 flex-1 overflow-y-auto">
-            <div className="@container/editor mx-auto w-full max-w-[1180px] space-y-5 px-4 py-5 md:px-6">
-              {/* header */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div>
-                  <Label>Entry No</Label>
-                  <Input value={editNo != null ? `#${editNo}` : "(auto)"} readOnly disabled className="text-base md:text-sm" />
-                </div>
-                <div>
-                  <Label htmlFor="dnf-date">
-                    Date <span className="text-danger">*</span>
-                  </Label>
-                  <Input
-                    id="dnf-date"
-                    type="date"
-                    // `.min(1)` in `documentNoFormatInput`.
-                    required
-                    value={date}
-                    onChange={(e) => {
-                      setDate(e.target.value);
-                      touch();
-                    }}
-                    className="text-base md:text-sm"
-                  />
-                </div>
-                <LookupDialogPicker
-                  kind="doc_track"
-                  label="Track"
-                  options={trackOptions}
-                  value={trackId || null}
-                  onChange={(id) => {
-                    setTrackId(id);
-                    touch();
-                  }}
-                  canCreate={perms.canCreate}
-                  canEdit={perms.canEdit}
-                />
-              </div>
-
-              {/* menu rows */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-[13px] font-bold text-foreground">Menus</h3>
-                  <Button type="button" variant="outline" size="sm" onClick={addMenu}>
-                    <Plus className="h-3.5 w-3.5" /> Add menu
-                  </Button>
-                </div>
-
-                {menus.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
-                    No menus yet. Add one to define a document-number format.
-                  </p>
-                )}
-
-                {/* NESTED grids: menus contain segments, and each level needs its
-                    OWN markers. Marking only the outer would make every segment
-                    field count as a column of the MENU row, so ↓ from a menu
-                    field would land mid-segment on the next menu — the failure
-                    material-attribute-master-screen hit. `ownDescendants` in
-                    child-grid.tsx scopes by nearest marker, keeping them apart. */}
-                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addMenu)}>
-                {menus.map((m, mi) => (
-                  <div key={m.key} data-grid-row className="rounded-lg border border-border bg-surface-muted/30">
-                    {/* menu header */}
-                    <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
-                      <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                        Menu #{mi + 1}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removeMenu(m.key)}
-                        className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-danger-soft hover:text-danger"
-                        aria-label="Remove menu"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-
-                    <div className="space-y-3 p-3.5">
-                      <LookupDialogPicker
-                        kind="doc_menu"
-                        label="Menu"
-                        options={menuOptions}
-                        value={m.menu_id || null}
-                        onChange={(id) => setMenuAt(m.key, { menu_id: id })}
-                        canCreate={perms.canCreate}
-                        canEdit={perms.canEdit}
-                      />
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <label className="flex h-9 cursor-pointer items-center gap-2 sm:mt-6">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 cursor-pointer accent-primary"
-                            checked={m.location_wise}
-                            onChange={(e) => setMenuAt(m.key, { location_wise: e.target.checked })}
-                          />
-                          <span className="text-sm text-foreground">Location wise</span>
-                        </label>
-                        <div>
-                          <Label>Starting SlNo</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            value={m.starting_sl_no}
-                            onChange={(e) => setMenuAt(m.key, { starting_sl_no: e.target.value })}
-                            className="text-base md:text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label>Sample DocNo</Label>
-                          <Input
-                            uppercase
-                            value={m.sample_doc_no}
-                            onChange={(e) => setMenuAt(m.key, { sample_doc_no: e.target.value })}
-                            className="text-base md:text-sm"
-                          />
-                        </div>
-                      </div>
-
-                      {/* segments */}
-                      <div className="rounded-md border border-border bg-surface">
-                        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                          <span className="text-xs font-semibold text-foreground">
-                            Document-number segments
-                          </span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => addSegment(m.key)}
-                          >
-                            <Plus className="h-3.5 w-3.5" /> Add segment
-                          </Button>
-                        </div>
-                        <div className="space-y-2.5 p-3">
-                          {m.segments.length === 0 && (
-                            <p className="text-xs text-muted-foreground">No segments yet.</p>
-                          )}
-                          <div data-grid-body onKeyDown={(e) => gridKeyNav(e, () => addSegment(m.key))}>
-                          {m.segments.map((s, si) => (
-                            <div key={s.key} data-grid-row className="space-y-2 rounded-md border border-border p-2.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-medium text-muted-foreground">
-                                  Segment #{si + 1}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeSegment(m.key, s.key)}
-                                  className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:text-danger"
-                                  aria-label="Remove segment"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                              <LookupDialogPicker
-                                kind="doc_value_type"
-                                label="Value Type"
-                                options={valueTypeOptions}
-                                value={s.value_type_id || null}
-                                onChange={(id) => setSegmentAt(m.key, s.key, { value_type_id: id })}
-                                canCreate={perms.canCreate}
-                                canEdit={perms.canEdit}
-                                compact
-                              />
-                              <div className="grid grid-cols-2 gap-2">
-                                <Input
-                                  uppercase
-                                  placeholder="Value"
-                                  value={s.value}
-                                  onChange={(e) => setSegmentAt(m.key, s.key, { value: e.target.value })}
-                                  className="text-base md:text-sm"
-                                />
-                                <Input
-                                  uppercase
-                                  placeholder="Seperator"
-                                  value={s.separator}
-                                  onChange={(e) => setSegmentAt(m.key, s.key, { separator: e.target.value })}
-                                  className="text-base md:text-sm"
-                                />
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  placeholder="No Of Digits"
-                                  value={s.no_of_digits}
-                                  onChange={(e) => setSegmentAt(m.key, s.key, { no_of_digits: e.target.value })}
-                                  className="text-base md:text-sm"
-                                />
-                                <div className="flex items-center pt-1">
-                                  <label className="flex cursor-pointer items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      className="h-4 w-4 cursor-pointer accent-primary"
-                                      checked={s.ref_only}
-                                      onChange={(e) => setSegmentAt(m.key, s.key, { ref_only: e.target.checked })}
-                                    />
-                                    <span className="text-sm text-foreground">Ref. only</span>
-                                  </label>
-                                </div>
-                              </div>
-                              <LookupDialogPicker
-                                kind="doc_value_from"
-                                label="Value From"
-                                options={valueFromOptions}
-                                value={s.value_from_id || null}
-                                onChange={(id) => setSegmentAt(m.key, s.key, { value_from_id: id })}
-                                canCreate={perms.canCreate}
-                                canEdit={perms.canEdit}
-                                compact
-                              />
-                            </div>
-                          ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* footer */}
-          <div
-            className="flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6"
-            // Same reason as the topbar above — chrome, outside the field region.
-            // It does not change where Enter saves: the nav scope is the
-            // `data-focus-scope` pane, which does not contain this footer, so the
-            // save still goes through the registered "save" shortcut.
-            data-focus-region="footer"
-          >
-            <span className="text-xs text-muted-foreground">
-              {dirty ? "Unsaved changes" : editId ? "All changes saved" : "New document format"}
-            </span>
-            <div className="flex-1" />
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="outline" size="md" disabled={isPending || !date} onClick={() => submit(true)}>
-              Save as Draft
-            </Button>
-            <Button size="md" disabled={isPending || !date} onClick={() => submit(false)}>
-              {isPending ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
+      {/* A MASTER, so the editor sits OVER its list: `mount="overlay"`. That
+          makes `header` required — the overlay covers the route's PageHeader, so
+          without it nothing on screen names the record being edited. */}
+      <MasterFullScreen
+        ref={shellRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        modeLabel={editId ? <>Editing document format</> : <>New document format</>}
+        header={{
+          initials: "DN",
+          title: editId ? `Document Format #${editNo}` : "New Document Format",
+          badges: dirty ? (
+            <span className="text-[11px] font-medium text-warning">● Unsaved</span>
+          ) : null,
+          meta: (
+            <>
+              <span>{fmtDate(form.date)}</span>
+              {form.track_id && <span>{nameOfLookup(trackOptions, form.track_id)}</span>}
+              <span>
+                {menus.length} menu{menus.length === 1 ? "" : "s"}
+              </span>
+            </>
+          ),
+        }}
+        sections={sections}
+        footer={{
+          status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New document format",
+          onCancel: () => setOpen(false),
+          onSave: () => submit(false),
+          // Names the ENTITY, not a bare "Save" that could belong to any record.
+          saveLabel: "Save format",
+          canSave: validity.canSave,
+          // Keeps Save CLICKABLE when blocked — `submitTargetOf` resolves the
+          // surface's primary action to the footer's last non-disabled button, so
+          // a disabled Save silently hands Enter and Ctrl+S to "Save as Draft".
+          onBlockedSave: revealFirstProblem,
+          onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
+          isPending,
+        }}
+      />
+    </>
   );
 }

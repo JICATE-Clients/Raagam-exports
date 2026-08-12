@@ -135,17 +135,40 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "hsn-assign-process", label: "HSN Assign to Process", singular: "HSN Assignment (Process)", description: "Bulk-assign HSN codes to sub-contract processes", type: "custom", custom: "hsn_assign_process" },
     ],
   },
+  {
+    // ------------------------------------------------------------------------
+    // SYSTEM IS BACK (client 2026-08-12), and the history matters because this
+    // section previously held a note saying it never would be.
+    //
+    // The legacy Configure ▸ System submodule was DISSOLVED on 2026-07-18 and
+    // its screens redistributed — Divisions and Document No Format to /admin,
+    // Garment Rejection Rule to /masters/materials, the TODO items to /admin,
+    // User to the /admin/users that already existed. That was a defensible read
+    // of "these are administration concerns"; what it cost was the legacy shape
+    // an operator migrating from RP-Software goes looking for.
+    //
+    // WHAT COMES BACK IS THE ROW, NEVER A SECOND COPY OF A SCREEN. Document No
+    // Format MOVED here: /admin/document-no-formats is a `redirect()` (declared
+    // in `REDIRECTED` in scripts/check-module-groups.mts, which asserts both the
+    // page and its target), and its card is gone from the Admin ▸ Organisation
+    // group. Two sidebar rows opening one page is exactly the duplication the
+    // module-groups rules ban, so restoring System had to cost Admin a row
+    // rather than add one to the app.
+    //
+    // The rest of the dissolved list stays where 07-18 put it unless asked for
+    // by name. Re-parenting a screen is a claim about what it IS, and nothing
+    // has been said about Divisions or the Updation utilities.
+    // ------------------------------------------------------------------------
+    slug: "system",
+    label: "System",
+    description: "Document numbering & system-wide configuration",
+    status: "ready",
+    note: "Legacy Configure ▸ System, restored 2026-08-12. Document No Format moved here from Administration (its old URL still redirects). More legacy System screens land here as each is captured.",
+    children: [
+      { slug: "document-no-format", label: "Document No Format", singular: "Document Format", description: "Numbering series per menu — track, segments and sample", type: "custom", custom: "document_no_format" },
+    ],
+  },
 ];
-
-// --------------------------------------------------------------------------
-// NOTE: The legacy "System" submodule has been dissolved (2026-07-18).
-// - Divisions, Document No Format → /admin
-// - Garment Rejection Rule → /masters/materials
-// - All TODO items (Company, Updation utilities, Tally, Assign screens,
-//   PO Completion, Excess tolerances, etc.) → /admin
-// - User → already at /admin/users (duplicate removed)
-// See project_gap_analysis memory for the full redistribution rationale.
-// --------------------------------------------------------------------------
 
 export function submoduleChildCount(s: SubmoduleDef): number {
   return s.slug === "materials" ? MATERIALS_CHILDREN.length : s.children.length;
