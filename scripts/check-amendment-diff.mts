@@ -82,7 +82,14 @@ const same1 = seed({ priceDetails: [price("TSH-001", "FOB", 4.5)] });
 check("identical price rows", changeCount(diffAmendment(same1, same1)), 0);
 
 // Every tab is still reported, so a caller can render stable badges.
-check("all ten tabs are always returned", diffAmendment(EMPTY, EMPTY).length, 10);
+//
+// THE COUNT IS THE ASSERTION, and it is meant to be edited deliberately. It is
+// what caught 0407 adding a "Style(s) — Sizes" tab: a child grid that saves but
+// is never diffed is a change an amendment silently fails to report, and an
+// approver signing off on a document whose size list changed under them is the
+// failure this number exists to make impossible. Raise it only alongside the
+// `diffTab` call that earned it.
+check("all twelve tabs are always returned", diffAmendment(EMPTY, EMPTY).length, 12);
 
 // ---------- a changed value ----------
 const before = seed({ priceDetails: [price("TSH-001", "FOB", 4.5)] });
@@ -331,6 +338,289 @@ check(
   "a removed pack method is reported",
   firstKind(diffAmendment(seed({ packTypes: [pack(SOLID)] }), seed({ packTypes: [] })), "packTypes"),
   "removed",
+);
+
+// ---------- Style(s) ▸ sizes (0407) ----------
+//
+// The size IS the key, like a pack method, so this tab reports added / removed
+// and nothing else. What is NOT like a pack method is that the key carries the
+// STYLE too — and the two vectors that earn their place here are the ones that
+// would pass against a size-only key while being wrong.
+const size = (ref: string, sizeId: string, sno = 1) => ({
+  sno,
+  style_ref_no: ref,
+  size_id: sizeId,
+});
+const M = "11111111-1111-1111-1111-111111111111";
+const L = "22222222-2222-2222-2222-222222222222";
+
+check(
+  "adding a size is reported",
+  firstKind(
+    diffAmendment(seed({ styleSizes: [] }), seed({ styleSizes: [size("TSH-001", M)] })),
+    "styleSizes",
+  ),
+  "added",
+);
+check(
+  "an unchanged size list is silent",
+  changeCount(
+    diffAmendment(
+      seed({ styleSizes: [size("TSH-001", M)] }),
+      seed({ styleSizes: [size("TSH-001", M)] }),
+    ),
+  ),
+  0,
+);
+// Re-sizing a line is a remove plus an add — there is nothing about the row to
+// edit except which size it is. Same reading as a swapped pack method.
+check(
+  "swapping a size is two rows, not one change",
+  changeCount(
+    diffAmendment(
+      seed({ styleSizes: [size("TSH-001", M)] }),
+      seed({ styleSizes: [size("TSH-001", L)] }),
+    ),
+  ),
+  2,
+);
+// THE ONE THAT NEEDS THE STYLE IN THE KEY, and it asserts the LABEL rather
+// than the count — deliberately, because the count does not discriminate.
+//
+// Two styles on one PO both offering M is normal. Drop it from the first and a
+// size-only key still buckets both rows together, still sees two before and one
+// after, and still reports exactly one removal — so `changeCount(...) === 1`
+// passes against the broken key and proves nothing. What it gets WRONG is which
+// style it names: the row it reports as removed is whichever landed second in
+// the bucket, so the approver is told TSH-002 lost a size it still has, while
+// the style that actually lost one is not mentioned.
+//
+// Verified by being made to fail (key reduced to `size_id` alone → "TSH-002:
+// removed") before being trusted.
+check(
+  "dropping a size names the style that lost it, not its neighbour",
+  summarise(
+    diffAmendment(
+      seed({ styleSizes: [size("TSH-001", M), size("TSH-002", M)] }),
+      seed({ styleSizes: [size("TSH-002", M)] }),
+    ),
+  ),
+  ["Style(s) — Sizes · TSH-001: removed"],
+);
+// …and the same style listed under a differently-cased ref is the SAME style.
+// `norm` matches `styleKey`; rows saved before the CAPITALS rule are lower-case
+// in the database, so a case-sensitive key would report every one of them as
+// removed-and-re-added the first time an order was re-saved.
+check(
+  "a lower-cased style ref is not a different style",
+  changeCount(
+    diffAmendment(
+      seed({ styleSizes: [size("tsh-001 ", M)] }),
+      seed({ styleSizes: [size("TSH-001", M)] }),
+    ),
+  ),
+  0,
+);
+// Re-ordering is not a change: `sno` is a position and shifts whenever an
+// earlier size is deleted.
+check(
+  "re-ordering the same two sizes is silent",
+  changeCount(
+    diffAmendment(
+      seed({ styleSizes: [size("TSH-001", M, 1), size("TSH-001", L, 2)] }),
+      seed({ styleSizes: [size("TSH-001", L, 1), size("TSH-001", M, 2)] }),
+    ),
+  ),
+  0,
+);
+
+// ---------- Combos ▸ Structure Details (0408) ----------
+//
+// The tree is nested on the document and FLAT in the diff. These vectors exist
+// because the flattening is where a nesting bug would hide: a structure that
+// loses its combo in translation still diffs, it just diffs against the wrong
+// row, and every one of these would pass on a count alone.
+const comboRow = (
+  ref: string,
+  combo: string,
+  structures: { structure_id: string; gsm?: number | null }[] = [],
+) => ({
+  sno: 1,
+  style_ref_no: ref,
+  style: ref,
+  article_no: null,
+  combo,
+  combo_description: combo,
+  structures: structures.map((st, i) => ({
+    sno: i + 1,
+    structure_id: st.structure_id,
+    fabric_type: null,
+    composition_id: null,
+    gsm: st.gsm ?? null,
+    gsm_tolerance: null,
+    item_sub_type: null,
+    other_details: null,
+    components: [],
+  })),
+});
+const SJ = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const RIB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+
+// THE ONE THAT CORRECTED THE KEY (0408), and it has to be a RENAME.
+//
+// The obvious vector — add NAVY beside WHITE and expect one "added" — passes
+// against the old style-only key too: both combos bucket together, the bucket
+// goes from one row to two, and the extra row is reported as added with the
+// right label. Count, kind and label all agree, so it proves nothing.
+//
+// A rename is where the two keys genuinely disagree. With the combo in the key
+// a colourway IS its name, so WHITE becoming NAVY is one removed and one added
+// — the same reading a swapped pack method and a recoloured dyeing both get.
+// Keyed on the style alone the two land in one bucket and are compared field by
+// field, so it reports a single "changed" row: an approver is told the
+// description was edited, and never told the colourway is not the one they
+// approved.
+//
+// Verified by being made to fail (key reduced to style|style → one changed row
+// reading "Combo Description WHITE → NAVY") before being trusted.
+check(
+  "renaming a combo is a remove plus an add, not an edit",
+  changeCount(
+    diffAmendment(
+      seed({ combos: [comboRow("TSH-001", "WHITE")] }),
+      seed({ combos: [comboRow("TSH-001", "NAVY")] }),
+    ),
+  ),
+  2,
+);
+check(
+  "a second combo on the same style is an addition",
+  firstKind(
+    diffAmendment(
+      seed({ combos: [comboRow("TSH-001", "WHITE")] }),
+      seed({ combos: [comboRow("TSH-001", "WHITE"), comboRow("TSH-001", "NAVY")] }),
+    ),
+    "combos",
+  ),
+  "added",
+);
+
+// A tee is single jersey in the body and rib at the collar — the fact that
+// corrected 0397. Both must survive the flattening as separate rows.
+check(
+  "two structures on one combo are two rows",
+  changeCount(
+    diffAmendment(
+      seed({ combos: [comboRow("TSH-001", "WHITE")] }),
+      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ }, { structure_id: RIB }])] }),
+    ),
+  ),
+  2,
+);
+
+// A GSM change is a CHANGE to that fabric, not a new fabric — the structure is
+// in the key and the GSM is a field, which is the whole distinction.
+check(
+  "a GSM change on one structure reads old → new",
+  summarise(
+    diffAmendment(
+      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, gsm: 200 }])] }),
+      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, gsm: 180 }])] }),
+    ),
+  ),
+  ["Combos — Structures · TSH-001 · WHITE: GSM 200 → 180"],
+);
+
+// THE ONE THAT NEEDS THE COMBO IN THE STRUCTURE KEY. The same fabric on two
+// colourways is two rows; dropping it from WHITE while NAVY keeps it must name
+// WHITE. Keyed on style+structure only, this names the wrong colourway.
+check(
+  "dropping a structure names the combo that lost it",
+  summarise(
+    diffAmendment(
+      seed({
+        combos: [
+          comboRow("TSH-001", "WHITE", [{ structure_id: SJ }]),
+          comboRow("TSH-001", "NAVY", [{ structure_id: SJ }]),
+        ],
+      }),
+      seed({
+        combos: [
+          comboRow("TSH-001", "WHITE"),
+          comboRow("TSH-001", "NAVY", [{ structure_id: SJ }]),
+        ],
+      }),
+    ),
+  ),
+  ["Combos — Structures · TSH-001 · WHITE: removed"],
+);
+
+// ---------- Color/Print ▸ Structures — the Fabric Type (0415) ----------
+//
+// The tab reported NOTHING before 0415 (`fields: []`), which was complete while
+// a structure row held only its own identity. It now carries Solid / Melange /
+// Yarn Dyed / Printed, and a Type re-answered on a fabric the order already
+// lists is precisely what an amendment document is for.
+//
+// THE FIRST TWO ASSERT THE KEY, NOT THE COUNT. Both of these produce exactly one
+// row whichever way the spec is written — the distinction that matters is
+// changed-vs-removed+added, and only reading the kind and the values can tell
+// them apart. Verified by breaking it first: with `item_sub_type` back in the
+// KEY the first vector reports "removed" + "added" and this fails; with
+// `fields: []` restored it reports nothing at all and it fails the other way.
+const structRow = (structure_id: string, item_sub_type: string | null) => ({
+  sno: 1,
+  structure_id,
+  item_sub_type,
+});
+
+check(
+  "re-typing a fabric is a CHANGE to it, not a different fabric",
+  summarise(
+    diffAmendment(
+      seed({ structures: [structRow(SJ, "solid")] }),
+      seed({ structures: [structRow(SJ, "printed")] }),
+    ),
+  ),
+  ["Color/Print — Structures · Structure: Fabric Type solid → printed"],
+);
+
+check(
+  "answering a blank Fabric Type is a change, not an addition",
+  summarise(
+    diffAmendment(
+      seed({ structures: [structRow(SJ, null)] }),
+      seed({ structures: [structRow(SJ, "yarn_dyed")] }),
+    ),
+  ),
+  ["Color/Print — Structures · Structure: Fabric Type — → yarn_dyed"],
+);
+
+// A SECOND FABRIC IS STILL AN ADDITION. The field must not swallow the tab's
+// original job: `structure_id` is the key, so a new structure is added even
+// when it carries the same Type as the one already there.
+check(
+  "a second fabric of the same type is an addition",
+  summarise(
+    diffAmendment(
+      seed({ structures: [structRow(SJ, "solid")] }),
+      seed({ structures: [structRow(SJ, "solid"), structRow(RIB, "solid")] }),
+    ),
+  ),
+  ["Color/Print — Structures · Structure: added"],
+);
+
+// AND AN UNTOUCHED TYPE IS SILENT — the guard against a field that reports on
+// every save because null and "" are compared as different emptinesses.
+check(
+  "an unchanged Fabric Type is silent",
+  summarise(
+    diffAmendment(
+      seed({ structures: [structRow(SJ, "melange")] }),
+      seed({ structures: [structRow(SJ, "melange")] }),
+    ),
+  ),
+  [],
 );
 
 // ---------- display never leaks a null at an approver ----------
