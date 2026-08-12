@@ -223,7 +223,7 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
         <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <Label>Style Ref No</Label>
-            <Input value={editCode ?? "(auto)"} disabled />
+            <Input value={editCode ?? "(auto)"} readOnly />
           </div>
           <RecordPicker label="Customer" items={customerItems} value={customerId} onChange={setCustomerId} />
           <div>

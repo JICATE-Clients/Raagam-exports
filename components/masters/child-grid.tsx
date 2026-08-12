@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RequiredScope } from "@/components/ui/field";
@@ -662,6 +662,7 @@ export function ChildGrid<T extends { key: string }>({
   flushRows = false,
   listRows = false,
   rowSummary,
+  seedRow = false,
   startIndex = 0,
   totalsLabel = "Total",
 }: {
@@ -816,6 +817,31 @@ export function ChildGrid<T extends { key: string }>({
    * per-column header that names the values.
    */
   rowSummary?: (row: T, index: number) => ReactNode;
+  /**
+   * OPEN WITH ONE BLANK ROW instead of an empty state (operator, 2026-08-11).
+   *
+   * An empty grid shows a header, a line of prose and an "+ Add row" button —
+   * so entering the first line costs a click before any typing, on every grid of
+   * every document, when a blank first row is what the operator wanted in every
+   * case anyway. The legacy RP screens they are migrating from all open with a
+   * row standing ready.
+   *
+   * It is also the keyboard rule underneath AGENTS.md's `enterNestedGrid` note:
+   * "replacing a grid's permanently-open blank row with a button removes the
+   * keyboard's only way in — 'Enter off the last value opens the next box' needs
+   * the operator to already be inside." A grid whose only affordance is a button
+   * has nothing for Tab to land on, because Tab lands on fields.
+   *
+   * SEEDS ONCE PER EMPTY SPELL, not once per mount. `seeded` resets when rows
+   * arrive, so opening record A (which has lines) and then record B (which has
+   * none) still seeds B — the grid stays mounted across that switch, and a
+   * mount-scoped guard would leave B empty.
+   *
+   * It respects a declining `onAdd` (`false`) exactly as `gridKeyNav` does, and
+   * it is a no-op under `hideAdd`, where the row count is fixed by the caller
+   * and an extra row would be wrong rather than helpful.
+   */
+  seedRow?: boolean;
   /** Offset for the displayed "#" numbers — set to the page offset when the
    *  caller paginates `rows`, so numbering stays global (11, 12… on page 2)
    *  instead of restarting at 1 each page. Defaults to 0. */
@@ -824,6 +850,26 @@ export function ChildGrid<T extends { key: string }>({
    *  when at least one column declares a `total`. Defaults to "Total". */
   totalsLabel?: ReactNode;
 }) {
+  // `onAdd` behind a ref: every caller passes a fresh closure, so depending on it
+  // directly would re-run the seed effect on every render. The effect wants to
+  // watch `rows.length`, and nothing else.
+  const onAddRef = useRef(onAdd);
+  useEffect(() => {
+    onAddRef.current = onAdd;
+  });
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (!seedRow || hideAdd) return;
+    // Rows arrived (seeded, loaded, or typed) — arm for the next empty spell.
+    if (rows.length > 0) {
+      seeded.current = false;
+      return;
+    }
+    if (seeded.current) return;
+    seeded.current = true;
+    onAddRef.current();
+  }, [seedRow, hideAdd, rows.length]);
+
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   // Optional pagination (no inner scroll). When pageSize is unset we use a huge
   // page so every row lands on a single page (a fixed big number, NOT rows.length

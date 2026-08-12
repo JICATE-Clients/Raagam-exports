@@ -9,7 +9,7 @@ import { IWO_TYPES, IWO_FOR_OPTIONS } from "@/lib/orders/internal-work-orders/ty
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -113,31 +113,39 @@ export function NewIwoForm({ customers, styles, itemClasses }: Props) {
           <CardTitle>New internal work order</CardTitle>
         </CardHeader>
         <CardBody>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <Label htmlFor="iwo-type">Type</Label>
+          <form
+            onSubmit={handleSubmit}
+            // ONE MARKER, NEVER A HANDLER — without it `isEditorScope()` is
+            // false, Tab keeps native order and leaves the form. See the
+            // `raagam-keyboard-contract` skill.
+            data-focus-scope
+            className="space-y-4"
+          >
+            {/* `FieldGrid`, not a hand-rolled `grid-cols-*` — a screen composes
+                primitives, it does not draw (LAYOUT.md §3). */}
+            <FieldGrid>
+              <Field label="Type" size="sm" htmlFor="iwo-type">
                 <Select id="iwo-type" value={iwoType} onChange={(e) => setIwoType(e.target.value)}>
                   {IWO_TYPES.map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </Select>
-              </div>
-              <div>
-                <Label htmlFor="iwo-for">For</Label>
+              </Field>
+              <Field label="For" size="sm" htmlFor="iwo-for">
                 <Select id="iwo-for" value={iwoFor} onChange={(e) => setIwoFor(e.target.value)}>
                   <option value="">—</option>
                   {IWO_FOR_OPTIONS.map((f) => (
                     <option key={f} value={f}>{f}</option>
                   ))}
                 </Select>
-              </div>
-              <div>
-                <Label htmlFor="iwo-date">Date *</Label>
+              </Field>
+              {/* `required` on the Field, not a `*` typed into the label — the
+                  same prop draws the star AND holds the cursor on a blank box.
+                  Typed by hand it was decoration and Tab walked straight past. */}
+              <Field label="Date" required size="sm" htmlFor="iwo-date">
                 <Input id="iwo-date" type="date" value={iwoDate} onChange={(e) => setIwoDate(e.target.value)} />
-              </div>
-              <div>
-                <Label htmlFor="iwo-itemclass">Item Class</Label>
+              </Field>
+              <Field label="Item Class" size="sm" htmlFor="iwo-itemclass">
                 <Select
                   id="iwo-itemclass"
                   value={itemClassId ?? ""}
@@ -150,43 +158,45 @@ export function NewIwoForm({ customers, styles, itemClasses }: Props) {
                     </option>
                   ))}
                 </Select>
-              </div>
+              </Field>
               {/* "Owner Of the Trial" stood here, a RecordPicker over the
                   Employee master. That master was removed (2026-08-01, client),
                   so nothing could ever fill the list again. The
                   `internal_work_orders.owner_of_trial_id` column survives and
                   keeps whatever earlier work orders recorded. */}
-              <CustomerPicker
-                customers={customers}
-                value={customerId}
-                onChange={setCustomerId}
-                label="Customer"
-              />
-              <div>
-                <Label htmlFor="iwo-ref">Reference</Label>
-                <Input id="iwo-ref" value={reference} onChange={(e) => setReference(e.target.value)} />
-              </div>
-              <RecordPicker
-                label="Style"
-                items={styles}
-                value={styleId}
-                onChange={setStyleId}
-              />
-              <div>
-                <Label htmlFor="iwo-deli">Deli Dt</Label>
+              {/* The pickers draw their own labels; `Field` carries the span. */}
+              <Field size="sm">
+                <CustomerPicker
+                  customers={customers}
+                  value={customerId}
+                  onChange={setCustomerId}
+                  label="Customer"
+                />
+              </Field>
+              <Field label="Reference" size="sm" htmlFor="iwo-ref">
+                <Input id="iwo-ref" uppercase value={reference} onChange={(e) => setReference(e.target.value)} />
+              </Field>
+              <Field size="sm">
+                <RecordPicker
+                  label="Style"
+                  items={styles}
+                  value={styleId}
+                  onChange={setStyleId}
+                />
+              </Field>
+              <Field label="Deli Dt" size="sm" htmlFor="iwo-deli">
                 <Input id="iwo-deli" type="date" value={deliDate} onChange={(e) => setDeliDate(e.target.value)} />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="iwo-remarks">Remarks</Label>
-              <Textarea
-                id="iwo-remarks"
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                rows={4}
-              />
-            </div>
+              </Field>
+              {/* `full` is the row, which is what a textarea takes. */}
+              <Field label="Remarks" size="full" htmlFor="iwo-remarks">
+                <Textarea
+                  id="iwo-remarks"
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  rows={4}
+                />
+              </Field>
+            </FieldGrid>
 
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={handleClose}>

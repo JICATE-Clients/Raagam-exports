@@ -18,7 +18,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -214,11 +214,23 @@ export function ProcessAmendments({
         {canCreate && formOpen && (
           <form
             onSubmit={handleRaise}
+            // ONE MARKER, NEVER A HANDLER. This is a page-level editor, and
+            // AGENTS.md counts ~51 of them as missing exactly this attribute:
+            // without it `isEditorScope()` is false, so Tab keeps native order,
+            // leaves the form and stops on the buttons below it. Declaring the
+            // scope is all it takes — the contract is delivered by the single
+            // listener in keyboard-nav-provider.tsx (see the
+            // `raagam-keyboard-contract` skill).
+            data-focus-scope
             className="space-y-3 rounded-md border border-border bg-surface-muted p-4"
           >
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="gpa-type">Type</Label>
+            {/* `FieldGrid`, not a hand-rolled `grid-cols-1 sm:grid-cols-2` — a
+                screen composes primitives, it does not draw. This one wrote its
+                own two-column track around a single field, so the Type box was
+                half-width for no stated reason while Description below it ran
+                full width. */}
+            <FieldGrid>
+              <Field label="Type" size="sm" htmlFor="gpa-type">
                 <Select
                   id="gpa-type"
                   value={type}
@@ -230,18 +242,19 @@ export function ProcessAmendments({
                     </option>
                   ))}
                 </Select>
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="gpa-desc">Description</Label>
-              <Textarea
-                id="gpa-desc"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                placeholder="Describe the change to the process plan…"
-              />
-            </div>
+              </Field>
+              {/* `full` is not a field width — it is the row, which is what a
+                  textarea takes. See LAYOUT.md §3. */}
+              <Field label="Description" size="full" htmlFor="gpa-desc">
+                <Textarea
+                  id="gpa-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                  placeholder="Describe the change to the process plan…"
+                />
+              </Field>
+            </FieldGrid>
             <div className="flex gap-2">
               <Button type="submit" size="sm" disabled={isPending}>
                 {isPending ? "Saving…" : "Raise amendment"}

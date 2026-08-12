@@ -1,11 +1,15 @@
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { listContractReviews } from "@/lib/orders/booking-service";
+import { listOrderOptions } from "@/lib/orders/order-options";
 import { ContractReviewClient } from "./contract-review-client";
 
 export default async function ContractReviewPage() {
   await requirePermission("orders", "view");
-  const rows = await listContractReviews();
+  const [rows, orders] = await Promise.all([
+    listContractReviews(),
+    listOrderOptions(),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -13,7 +17,7 @@ export default async function ContractReviewPage() {
         title="Contract Review"
         description="Review order profitability and approve/reject based on IOC vs order value."
       />
-      <ContractReviewClient rows={rows} />
+      <ContractReviewClient rows={rows} orders={orders} />
     </div>
   );
 }
