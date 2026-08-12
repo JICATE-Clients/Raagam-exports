@@ -2,11 +2,10 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -287,8 +286,100 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
     .filter((l) => l.activity_id)
     .map((l) => ({ id: l.activity_id as string, name: activityName.get(l.activity_id as string) ?? "—" }));
 
+  const activityColumns: ChildGridColumn<LineRow>[] = [
+    {
+      header: "Activity",
+      className: "min-w-[180px]",
+      cell: (r) => (
+        <RecordPicker
+          label="Activity"
+          items={data.activities}
+          value={r.activity_id}
+          onChange={(id) => patchLine(r.key, { activity_id: id })}
+          compact
+        />
+      ),
+    },
+    {
+      header: "From Activity",
+      className: "min-w-[160px]",
+      cell: (r) => (
+        <Select
+          className="h-8"
+          value={r.from_activity_id ?? ""}
+          onChange={(e) => onPickFromActivity(r.key, e.target.value || null)}
+        >
+          <option value="">—</option>
+          {fromActivityOptions
+            .filter((o) => o.id !== r.activity_id)
+            .map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Details",
+      className: "min-w-[140px]",
+      cell: (r) => (
+        <Input
+          className="h-8"
+          value={r.details}
+          onChange={(e) => patchLine(r.key, { details: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Start Dt",
+      className: "min-w-[9rem]",
+      cell: (r) => (
+        <Input
+          className="h-8"
+          type="date"
+          value={r.start_date}
+          onChange={(e) => patchLine(r.key, { start_date: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Days Req.",
+      align: "right",
+      className: "min-w-[6rem]",
+      cell: (r) => (
+        <Input
+          className="h-8 text-right"
+          type="number"
+          min="0"
+          value={r.days_required}
+          onChange={(e) => patchLine(r.key, { days_required: e.target.value })}
+        />
+      ),
+    },
+    {
+      // Derived — `withEnd` recomputes it from Start Dt + Days Required on every
+      // patch — but still editable, because the legacy screen lets a planner
+      // override a computed date without changing the inputs behind it.
+      header: "End Dt",
+      className: "min-w-[9rem]",
+      cell: (r) => (
+        <Input
+          className="h-8"
+          type="date"
+          value={r.end_date}
+          onChange={(e) => patchLine(r.key, { end_date: e.target.value })}
+        />
+      ),
+    },
+  ];
+
   return (
-    <div className="space-y-4">
+    // ONE MARKER, NEVER A HANDLER. `isEditorScope()` is false without it, so Tab
+    // keeps native order and walks out of the form. The PageHeader inside is
+    // stamped `data-focus-region="header"` by the component itself, so its
+    // actions sort as chrome rather than with the fields.
+    <div data-focus-scope className="space-y-4">
       <PageHeader
         title={editId ? "Edit TA Plan" : "New TA Plan"}
         description="Schedule activities against the order. End Dt = Start Dt + Days Required."
@@ -299,11 +390,13 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
         }
       />
 
-      {/* Header band */}
+      {/* Header band — `FieldGrid`, not a hand-rolled
+          `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`. A screen composes
+          primitives, it does not draw (LAYOUT.md §3), and every field takes the
+          one width the app fixes a field at. */}
       <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <Label>No</Label>
+        <CardBody>
+          <FieldGrid>
             {/* `readOnly`, NOT `disabled` — the legacy TA Plan shows its number
                 in a normal box, and `disabled` renders it at `opacity-50`
                 (input.tsx), so an auto value read as switched off rather than as
@@ -311,155 +404,93 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
                 in the accessibility tree, which `disabled` removes, and `Input`
                 already sets `tabIndex={-1}` on a readOnly field so it stays off
                 the typing path. */}
-            <Input value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"} readOnly />
-          </div>
-          <div>
-            <Label htmlFor="tap-date">Dt *</Label>
-            <Input id="tap-date" type="date" value={planDate} onChange={(e) => setPlanDate(e.target.value)} />
-          </div>
-          <RecordPicker label="Customer" items={data.buyers} value={customerId} onChange={setCustomerId} />
-          <RecordPicker label="SC No" items={data.orders.map((o) => ({ id: o.id, code: o.order_number, name: o.order_number ?? "—" }))} value={orderId} onChange={onPickOrder} />
-          <RecordPicker label="SH Ref No" items={data.shipmentPlans} value={shipmentId} onChange={setShipmentId} />
-          <div>
-            <Label htmlFor="tap-orderno">Order No</Label>
-            <Input id="tap-orderno" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="tap-start">Start Dt</Label>
-            <Input id="tap-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </div>
-          <RecordPicker label="Style" items={data.styles} value={styleId} onChange={setStyleId} />
+            <Field label="No" size="sm" htmlFor="tap-no">
+              <Input
+                id="tap-no"
+                className="font-mono"
+                value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"}
+                readOnly
+              />
+            </Field>
+            {/* `required` on the Field, not a `*` typed into the label — the same
+                prop draws the star AND stamps `data-required-empty`, so the
+                cursor actually holds on a blank box. Typed by hand it was
+                decoration and Tab walked straight past it. */}
+            <Field label="Dt" required size="sm" htmlFor="tap-date">
+              <Input id="tap-date" type="date" value={planDate} onChange={(e) => setPlanDate(e.target.value)} />
+            </Field>
+            {/* The pickers draw their own labels; `Field` carries the span. */}
+            <Field size="sm">
+              <RecordPicker label="Customer" items={data.buyers} value={customerId} onChange={setCustomerId} />
+            </Field>
+            <Field size="sm">
+              {/* `identity="code"` — on an SC No the CODE is the identity and the
+                  name is the customer, so without it several orders for one buyer
+                  are indistinguishable in the list. */}
+              <RecordPicker
+                label="SC No"
+                identity="code"
+                items={data.orders.map((o) => ({ id: o.id, code: o.order_number, name: o.order_number ?? "—" }))}
+                value={orderId}
+                onChange={onPickOrder}
+              />
+            </Field>
+            <Field size="sm">
+              <RecordPicker label="SH Ref No" items={data.shipmentPlans} value={shipmentId} onChange={setShipmentId} />
+            </Field>
+            <Field label="Order No" size="sm" htmlFor="tap-orderno">
+              <Input id="tap-orderno" uppercase value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
+            </Field>
+            <Field label="Start Dt" size="sm" htmlFor="tap-start">
+              <Input id="tap-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </Field>
+            <Field size="sm">
+              <RecordPicker label="Style" items={data.styles} value={styleId} onChange={setStyleId} />
+            </Field>
+          </FieldGrid>
         </CardBody>
       </Card>
 
-      {/* Activity grid */}
+      {/* Activity grid — `ChildGrid`, not the hand-rolled <table> this carried.
+          That one drew its own S No cell and its own Trash2 button, so it
+          inherited neither Ctrl+Del nor `data-row-remove` — two of the ~22 grids
+          AGENTS.md counts under "Tab lands on fields". Six columns fit the width,
+          so it keeps the table layout rather than wrapping. */}
       <Card>
         <CardBody>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">Activities</h3>
-            <Button
-              type="button"
-              variant="subtle"
-              size="sm"
-              onClick={() => setLines((xs) => [...xs, blankLine()])}
-            >
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="w-10 px-2 py-1.5 text-left font-medium">S No</th>
-                  <th className="min-w-[180px] px-2 py-1.5 text-left font-medium">Activity</th>
-                  <th className="min-w-[160px] px-2 py-1.5 text-left font-medium">From Activity</th>
-                  <th className="min-w-[140px] px-2 py-1.5 text-left font-medium">Details</th>
-                  <th className="w-36 px-2 py-1.5 text-left font-medium">Start Dt</th>
-                  <th className="w-24 px-2 py-1.5 text-left font-medium">Days Req.</th>
-                  <th className="w-36 px-2 py-1.5 text-left font-medium">End Dt</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              {/* ↓/↑ walk a column across plan lines — gridKeyNav, see
-                  components/masters/child-grid.tsx. T&A plans are the longest
-                  row lists in the system. */}
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setLines((xs) => [...xs, blankLine()]))}>
-                {lines.map((r, i) => (
-                  <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                    <td className="px-2 py-1 text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="px-2 py-1">
-                      <RecordPicker
-                        label="Activity"
-                        items={data.activities}
-                        value={r.activity_id}
-                        onChange={(id) => patchLine(r.key, { activity_id: id })}
-                        compact
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <Select
-                        value={r.from_activity_id ?? ""}
-                        onChange={(e) => onPickFromActivity(r.key, e.target.value || null)}
-                      >
-                        <option value="">—</option>
-                        {fromActivityOptions
-                          .filter((o) => o.id !== r.activity_id)
-                          .map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                            </option>
-                          ))}
-                      </Select>
-                    </td>
-                    <td className="px-2 py-1">
-                      <Input
-                        value={r.details}
-                        onChange={(e) => patchLine(r.key, { details: e.target.value })}
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <Input
-                        type="date"
-                        value={r.start_date}
-                        onChange={(e) => patchLine(r.key, { start_date: e.target.value })}
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <Input
-                        type="number"
-                        min="0"
-                        value={r.days_required}
-                        onChange={(e) => patchLine(r.key, { days_required: e.target.value })}
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <Input
-                        type="date"
-                        value={r.end_date}
-                        onChange={(e) => patchLine(r.key, { end_date: e.target.value })}
-                      />
-                    </td>
-                    <td className="px-1 py-1">
-                      <button
-                        type="button"
-                        onClick={() => setLines((xs) => xs.filter((x) => x.key !== r.key))}
-                        aria-label="Remove row"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ChildGrid<LineRow>
+            label="Activities"
+            columns={activityColumns}
+            rows={lines}
+            seedRow
+            onAdd={() => setLines((xs) => [...xs, blankLine()])}
+            onRemove={(r) => setLines((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add activity"
+          />
         </CardBody>
       </Card>
 
-      {/* Footer band */}
+      {/* Footer band — the same one field track as the header, in place of its
+          own `lg:grid-cols-5`. Five columns was a third width on one screen. */}
       <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div>
-            <Label htmlFor="tap-deliv">Deliv. Dt</Label>
-            <Input id="tap-deliv" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="tap-qty">Order Qty</Label>
-            <Input id="tap-qty" type="number" min="0" value={orderQty} onChange={(e) => setOrderQty(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="tap-prop">Proposed Deliv. Dt</Label>
-            <Input id="tap-prop" type="date" value={proposedDeliveryDate} onChange={(e) => setProposedDeliveryDate(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="tap-target">Target Dt</Label>
-            <Input id="tap-target" type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="tap-nod">No of Days</Label>
-            <Input id="tap-nod" type="number" min="0" value={noOfDays} onChange={(e) => setNoOfDays(e.target.value)} />
-          </div>
+        <CardBody>
+          <FieldGrid>
+            <Field label="Deliv. Dt" size="sm" htmlFor="tap-deliv">
+              <Input id="tap-deliv" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
+            </Field>
+            <Field label="Order Qty" size="sm" htmlFor="tap-qty">
+              <Input id="tap-qty" type="number" min="0" value={orderQty} onChange={(e) => setOrderQty(e.target.value)} />
+            </Field>
+            <Field label="Proposed Deliv. Dt" size="sm" htmlFor="tap-prop">
+              <Input id="tap-prop" type="date" value={proposedDeliveryDate} onChange={(e) => setProposedDeliveryDate(e.target.value)} />
+            </Field>
+            <Field label="Target Dt" size="sm" htmlFor="tap-target">
+              <Input id="tap-target" type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
+            </Field>
+            <Field label="No of Days" size="sm" htmlFor="tap-nod">
+              <Input id="tap-nod" type="number" min="0" value={noOfDays} onChange={(e) => setNoOfDays(e.target.value)} />
+            </Field>
+          </FieldGrid>
         </CardBody>
       </Card>
 
