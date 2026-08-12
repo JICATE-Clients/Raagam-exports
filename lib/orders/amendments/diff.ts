@@ -163,6 +163,7 @@ type PriceRow = Children["priceDetails"][number];
 type QtyRow = Children["approvalQtys"][number];
 type QuantityRow = Children["quantities"][number];
 type PackTypeRow = NonNullable<Children["packTypes"]>[number];
+type StyleSizeRow = NonNullable<Children["styleSizes"]>[number];
 type CountryRow = NonNullable<Children["countrySizes"]>[number];
 
 const styleName = (r: { style_ref_no: string | null }) => r.style_ref_no?.trim() || "(no style)";
@@ -220,30 +221,146 @@ const PRINTS: TabSpec<PrintRow> = {
   fields: [],
 };
 
+/**
+ * Structures.
+ *
+ * THE FIRST FIELD THIS TAB HAS EVER REPORTED (0415). It was `fields: []`, which
+ * was complete while the row held nothing but its own identity: a structure was
+ * added or removed and there was nothing about it that could change. It now
+ * carries the Fabric Type, and a Type edited from Solid to Printed on a fabric
+ * the order already lists is exactly the kind of change an amendment document
+ * exists to record — left off, it would diff as no change at all.
+ *
+ * The KEY stays `structure_id` alone, deliberately. Putting the Type in the key
+ * (as `DYEINGS` does with its colour, having nothing else to key on) would turn
+ * every Type edit into a remove-and-add pair and lose the fact that it is the
+ * same fabric being re-described.
+ */
 const STRUCTURES: TabSpec<StructureRow> = {
   tab: "structures",
   label: "Color/Print — Structures",
   key: (r) => r.structure_id ?? "",
   rowLabel: () => "Structure",
-  fields: [],
+  fields: [{ field: "item_sub_type", label: "Fabric Type" }],
 };
 
+/**
+ * Combos.
+ *
+ * KEYED ON THE COLOURWAY AS WELL AS THE STYLE (0408). It was `style|style`,
+ * which was right only while a combo row carried nothing but the style's
+ * identity — one row per style was all the table could express. A style now
+ * legitimately has a WHITE and a NAVY combo, and keying on the style alone
+ * would bucket them together: adding NAVY would read as an edit to WHITE, and
+ * deleting one of the two would report a change to whichever landed second.
+ */
 const COMBOS: TabSpec<ComboRow> = {
   tab: "combos",
   label: "Combos",
-  key: (r) => `${norm(r.style_ref_no)}|${norm(r.style)}`,
-  rowLabel: styleName,
-  fields: [{ field: "article_no", label: "Article No" }],
+  key: (r) => `${norm(r.style_ref_no)}|${norm(r.style)}|${norm(r.combo)}`,
+  rowLabel: (r) => (r.combo?.trim() ? `${styleName(r)} · ${r.combo.trim()}` : styleName(r)),
+  fields: [
+    { field: "article_no", label: "Article No" },
+    { field: "combo_description", label: "Combo Description" },
+  ],
 };
 
-// Price type discriminates: one style legitimately carries an FOB and a CMT
-// rate, and keying on the style alone would read the second as a change to
-// the first.
+/**
+ * Combos ▸ Structure Details (0408) — FLATTENED out of the tree to be diffed.
+ *
+ * The tree is nested on the document because a structure cannot outlive its
+ * combo; a DIFF has no use for that nesting — it needs one comparable row per
+ * thing that can change, keyed by everything that identifies it. So the two
+ * levels are flattened here, and the key carries the whole path.
+ *
+ * WITHOUT THIS THE TREE SAVES AND IS NEVER REPORTED. A child grid that is
+ * written but not diffed is a change an amendment silently fails to make
+ * visible to whoever approves it — the same argument that kept the two frozen
+ * unit columns in STYLES above, and the reason the tab count in
+ * `check-amendment-diff.mts` is asserted rather than assumed.
+ */
+type FlatStructure = {
+  style_ref_no: string | null;
+  combo: string | null;
+  structure_id: string | null;
+  fabric_type: string | null;
+  composition_id: string | null;
+  gsm: number | null;
+  gsm_tolerance: number | null;
+  item_sub_type: string | null;
+};
+
+function flattenStructures(combos: ComboRow[]): FlatStructure[] {
+  const out: FlatStructure[] = [];
+  for (const c of combos) {
+    for (const st of c.structures ?? []) {
+      out.push({
+        style_ref_no: c.style_ref_no,
+        combo: c.combo,
+        structure_id: st.structure_id,
+        fabric_type: st.fabric_type,
+        composition_id: st.composition_id,
+        gsm: st.gsm,
+        gsm_tolerance: st.gsm_tolerance,
+        item_sub_type: st.item_sub_type,
+      });
+    }
+  }
+  return out;
+}
+
+const COMBO_STRUCTURES: TabSpec<FlatStructure> = {
+  tab: "comboStructures",
+  label: "Combos — Structures",
+  // The structure is part of the KEY, not a field: changing which fabric a row
+  // names is a different fabric, not an edited one — the same reading a
+  // recoloured dyeing gets. What remains as fields are the things that can
+  // genuinely change ABOUT a given fabric on a given combo: its GSM, its
+  // tolerance, its composition.
+  key: (r) => `${norm(r.style_ref_no)}|${norm(r.combo)}|${r.structure_id ?? ""}`,
+  rowLabel: (r) =>
+    [r.style_ref_no?.trim() || "(no style)", r.combo?.trim()].filter(Boolean).join(" · "),
+  fields: [
+    { field: "fabric_type", label: "Type" },
+    { field: "composition_id", label: "Composition" },
+    { field: "gsm", label: "GSM" },
+    { field: "gsm_tolerance", label: "Tolerance" },
+    { field: "item_sub_type", label: "Fabric Type" },
+  ],
+};
+
+/**
+ * Prices.
+ *
+ * Price type discriminates: one style legitimately carries an FOB and a CMT
+ * rate, and keying on the style alone would read the second as a change to the
+ * first.
+ *
+ * THE COLOUR AND THE SIZE ARE IN THE KEY TOO (0416), and without them the tab
+ * silently under-reports. A Color-wise style now holds one row per colourway —
+ * same style, same price type — so `style|type` buckets every colourway of a
+ * style together: re-pricing NAVY would read as a change to WHITE, and the
+ * approver would be shown one row where the operator edited another. Exactly
+ * the collision 0408 fixed for Combos, arriving one tab later.
+ *
+ * They are KEY, not fields, for the same reason `structure_id` is on the combo
+ * spec: changing which colourway a rate belongs to is not an edit to that rate,
+ * it is a different rate. The mode change that produced it is visible anyway —
+ * `price_type` is in the key, so switching modes reads as the old rows going and
+ * the new ones arriving, which is what actually happened.
+ */
 const PRICES: TabSpec<PriceRow> = {
   tab: "prices",
   label: "Prices",
-  key: (r) => `${norm(r.style_ref_no)}|${norm(r.price_type)}`,
-  rowLabel: (r) => `${styleName(r)}${r.price_type ? ` (${r.price_type})` : ""}`,
+  key: (r) =>
+    `${norm(r.style_ref_no)}|${norm(r.price_type)}|${norm(r.combo)}|${r.size_id ?? ""}`,
+  rowLabel: (r) =>
+    [
+      `${styleName(r)}${r.price_type ? ` (${r.price_type})` : ""}`,
+      r.combo?.trim(),
+    ]
+      .filter(Boolean)
+      .join(" · "),
   fields: [
     { field: "unit", label: "Unit" },
     { field: "price", label: "Price" },
@@ -310,6 +427,33 @@ const PACK_TYPES: TabSpec<PackTypeRow> = {
   fields: [],
 };
 
+/**
+ * Style(s) ▸ sizes (0407) — ADDED / REMOVED ONLY, and it can be nothing else.
+ *
+ * A size row holds no field but the size itself, so the size IS the key and
+ * there is nothing left to report a change TO — the same shape PRINTS,
+ * STRUCTURES and PACK_TYPES above have, for the same reason. Changing "M" to
+ * "L" on a line is one size removed and one added, which is exactly what
+ * happened; calling it "Size: M -> L" would need a key to hang it off, and the
+ * only candidate is `sno`, a row's POSITION — so re-ordering a list would
+ * report changes nobody made.
+ *
+ * KEYED ON THE STYLE AS WELL AS THE SIZE. Two styles on one PO both offering M
+ * is normal, and keying on the size alone would collapse them into one row —
+ * dropping M from the first style would then read as no change at all, because
+ * the second still has it. That is the same trap QUANTITIES documents.
+ *
+ * The style is `norm`'d, matching `styleKey` (trim + upper-case) — rows saved
+ * before the CAPITALS rule are not upper-cased in the database.
+ */
+const STYLE_SIZES: TabSpec<StyleSizeRow> = {
+  tab: "styleSizes",
+  label: "Style(s) — Sizes",
+  key: (r) => `${norm(r.style_ref_no)}|${r.size_id ?? ""}`,
+  rowLabel: styleName,
+  fields: [],
+};
+
 const COUNTRY_SIZES: TabSpec<CountryRow> = {
   tab: "countrySizes",
   label: "Country/Sizewise",
@@ -329,10 +473,12 @@ export function diffAmendment(
 ): TabDiff[] {
   return [
     diffTab(STYLES, before.styles, after.styles),
+    diffTab(STYLE_SIZES, before.styleSizes ?? [], after.styleSizes ?? []),
     diffTab(DYEINGS, before.dyeings, after.dyeings),
     diffTab(PRINTS, before.prints, after.prints),
     diffTab(STRUCTURES, before.structures, after.structures),
     diffTab(COMBOS, before.combos, after.combos),
+    diffTab(COMBO_STRUCTURES, flattenStructures(before.combos), flattenStructures(after.combos)),
     diffTab(PRICES, before.priceDetails, after.priceDetails),
     diffTab(APPROVAL_QTYS, before.approvalQtys, after.approvalQtys),
     diffTab(QUANTITIES, before.quantities ?? [], after.quantities ?? []),

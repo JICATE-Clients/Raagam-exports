@@ -7,6 +7,7 @@ import { writeAudit } from "@/lib/audit";
 import { amendmentInput, type AmendmentInput } from "./types";
 import {
   seedAmendmentFromOrder,
+  styleKey,
   type SeededAmendmentChildren,
 } from "./order-seed";
 
@@ -23,30 +24,6 @@ function rev(): void {
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
 
 // ---------- child normalizers (drop fully-empty rows + renumber sno) ----------
-
-function normalizeStylePrices(data: AmendmentInput) {
-  return data.style_prices
-    .map((p) => ({
-      style_ref_no: clean(p.style_ref_no),
-      style: clean(p.style),
-      price: Number(p.price) || 0,
-      csp_type: clean(p.csp_type),
-      csp_price: Number(p.csp_price) || 0,
-      fob_buyer_price: Number(p.fob_buyer_price) || 0,
-      fob_selling_price: Number(p.fob_selling_price) || 0,
-    }))
-    .filter(
-      (p) =>
-        p.style_ref_no ||
-        p.style ||
-        p.price ||
-        p.csp_type ||
-        p.csp_price ||
-        p.fob_buyer_price ||
-        p.fob_selling_price,
-    )
-    .map((p, i) => ({ ...p, sno: i + 1 }));
-}
 
 // ---- Phase 2 (0128) child normalizers ----
 
@@ -76,6 +53,107 @@ function normalizeStyles(data: AmendmentInput) {
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
+/**
+ * Style(s) ▸ the per-style sizes (0407).
+ *
+ * THE ONLY NORMALIZER THAT LOOKS AT ANOTHER GRID, and it has to. A size row is
+ * bound to its style by TEXT (`style_ref_no`), so nothing in the database can
+ * refuse a size whose style has just been deleted — `normalizeStyles` runs in
+ * this same pass and both lists are written together. Without the guard,
+ * removing a style line would leave its sizes behind as rows that belong to a
+ * style the order no longer names: invisible on screen, and counted by anything
+ * that later sums sizes per order.
+ *
+ * It reads the NORMALIZED styles, not `data.styles`, so a style row that was
+ * itself dropped for being blank takes its sizes with it.
+ *
+ * `styleKey` is `order-seed.ts`'s — trim + upper-case — because that is how
+ * every other reader of this key compares it, and rows saved before the
+ * CAPITALS rule are not upper-cased in the database.
+ *
+ * DE-DUPLICATED PER STYLE, not per amendment: two different styles on one PO
+ * both offering size M is normal, and the unique index is
+ * (amendment_id, style_ref_no, size_id) for that reason.
+ *
+ * `sno` RENUMBERS PER STYLE, so each style's list reads 1..n on its own — the
+ * S No the legacy sub-grid shows is the size's position within its line, not
+ * within the order.
+ */
+function normalizeStyleSizes(
+  data: AmendmentInput,
+  styles: ReturnType<typeof normalizeStyles>,
+) {
+  const live = new Set(styles.map((r) => styleKey(r.style_ref_no)).filter(Boolean));
+  const seen = new Set<string>();
+  const perStyle = new Map<string, number>();
+  return data.style_sizes
+    .map((r) => ({ style_ref_no: clean(r.style_ref_no), size_id: r.size_id }))
+    // A row with no size is the blank the operator is still standing in.
+    .filter((r) => r.size_id)
+    .filter((r) => live.has(styleKey(r.style_ref_no)))
+    .filter((r) => {
+      const k = JSON.stringify([styleKey(r.style_ref_no), r.size_id]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .map((r) => {
+      const k = styleKey(r.style_ref_no);
+      const n = (perStyle.get(k) ?? 0) + 1;
+      perStyle.set(k, n);
+      return { ...r, sno: n };
+    });
+}
+
+/**
+ * The per-style Process list (0411).
+ *
+ * Deliberately the same four passes as `normalizeStyleSizes` above, in the same
+ * order, because it is the same question asked of a different child:
+ *
+ * - **Drop the half-answered.** A Type with no process names nothing, and a
+ *   process with no Type is the invalid pair the blank-Type rule exists to
+ *   prevent (see `processesForKind`). 0411 leaves BOTH columns nullable so a row
+ *   mid-typing is not a 23502; this is what stops it reaching the table.
+ * - **Drop the orphans**, judged against the very styles being inserted in this
+ *   pass — not against what is in the database, which this save is about to
+ *   replace wholesale.
+ * - **De-duplicate on (style, kind, process)**, matching 0411's unique index.
+ *   `kind` is IN the key: a process flagged for both garments and components is
+ *   legitimately named under each Type, and dropping `kind` from this key would
+ *   silently discard the second, correct row.
+ * - **Renumber `sno` per style**, so each line's list reads 1..n on its own.
+ */
+function normalizeStyleProcesses(
+  data: AmendmentInput,
+  styles: ReturnType<typeof normalizeStyles>,
+) {
+  const live = new Set(styles.map((r) => styleKey(r.style_ref_no)).filter(Boolean));
+  const seen = new Set<string>();
+  const perStyle = new Map<string, number>();
+  return data.style_processes
+    .map((r) => ({
+      style_ref_no: clean(r.style_ref_no),
+      kind: r.kind,
+      process_id: r.process_id,
+      details: clean(r.details),
+    }))
+    .filter((r) => r.kind && r.process_id)
+    .filter((r) => live.has(styleKey(r.style_ref_no)))
+    .filter((r) => {
+      const k = JSON.stringify([styleKey(r.style_ref_no), r.kind, r.process_id]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .map((r) => {
+      const k = styleKey(r.style_ref_no);
+      const n = (perStyle.get(k) ?? 0) + 1;
+      perStyle.set(k, n);
+      return { ...r, sno: n };
+    });
+}
+
 function normalizeDyeings(data: AmendmentInput) {
   return data.dyeings
     .map((r) => ({
@@ -97,20 +175,62 @@ function normalizePrints(data: AmendmentInput) {
 
 function normalizeStructures(data: AmendmentInput) {
   return data.structures
-    .map((r) => ({ structure_id: r.structure_id }))
+    .map((r) => ({ structure_id: r.structure_id, item_sub_type: r.item_sub_type }))
+    // STILL KEYED ON `structure_id` ALONE. A Type with no structure names the
+    // fabric type of nothing — it is a row the operator started and abandoned,
+    // and keeping it would put an orphan in the list the Combos tab seeds from.
     .filter((r) => r.structure_id)
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
+/**
+ * Combos — the HEADER rows only. The tree beneath them is `writeComboTree`.
+ *
+ * `structures` is deliberately not touched here: this function's output is fed
+ * straight to `.insert()`, and a nested array would be sent as a column that
+ * does not exist. Keeping the split explicit is what stops the two from
+ * drifting — the tree walker below reads `data.combos` again and pairs each
+ * combo to its inserted row by `sno`, which is exactly what this renumbers.
+ */
 function normalizeCombos(data: AmendmentInput) {
   return data.combos
     .map((r) => ({
       style_ref_no: clean(r.style_ref_no),
       style: clean(r.style),
       article_no: clean(r.article_no),
+      combo: clean(r.combo),
+      combo_description: clean(r.combo_description),
     }))
-    .filter((r) => r.style_ref_no || r.style || r.article_no)
+    .filter(
+      (r) => r.style_ref_no || r.style || r.article_no || r.combo || r.combo_description,
+    )
     .map((r, i) => ({ ...r, sno: i + 1 }));
+}
+
+/** Does this structure row say anything at all? */
+function structureFilled(r: AmendmentInput["combos"][number]["structures"][number]) {
+  return (
+    r.structure_id ||
+    r.fabric_type ||
+    r.composition_id ||
+    r.gsm ||
+    r.gsm_tolerance ||
+    r.item_sub_type ||
+    r.components.some(componentFilled)
+  );
+}
+
+/** Does this component row say anything at all? */
+function componentFilled(
+  c: AmendmentInput["combos"][number]["structures"][number]["components"][number],
+) {
+  return (
+    c.coordinate_id ||
+    c.component_id ||
+    clean(c.color_name) ||
+    c.print_id ||
+    c.processed_as_trim
+  );
 }
 
 function normalizePriceDetails(data: AmendmentInput) {
@@ -120,6 +240,9 @@ function normalizePriceDetails(data: AmendmentInput) {
       style: clean(r.style),
       article_no: clean(r.article_no),
       price_type: clean(r.price_type),
+      // 0416 — WHICH colour and WHICH size this rate is for.
+      combo: clean(r.combo),
+      size_id: r.size_id,
       unit: clean(r.unit),
       price: Number(r.price) || 0,
     }))
@@ -129,21 +252,53 @@ function normalizePriceDetails(data: AmendmentInput) {
         r.style ||
         r.article_no ||
         r.price_type ||
+        // A row naming only a colour or a size is one the operator has started —
+        // the mode seeded it and they have not typed the rate yet. Dropping it
+        // would empty a grid that visibly has rows in it, and the same reasoning
+        // already put `combo` in the Approval Qty test below.
+        r.combo ||
+        r.size_id ||
         r.unit ||
         r.price,
     )
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
+/**
+ * Approval Qty (0128, gained its colour breakdown in 0413).
+ *
+ * `qty` and `combo` join the "has the operator started this row" test, and that
+ * is not cosmetic: a line naming a colour and its ordered pieces but no sample
+ * quantity is a COMPLETE row — approval_qty of zero is a legitimate answer, so a
+ * filter that only looked at `approval_qty` would silently discard exactly the
+ * rows the Projection and Excess columns are computed from.
+ *
+ * De-duplicated on (style, combo) to match 0413's unique index, which the screen
+ * already prevents via `usedIds` — this is for `lib/data-io`, which writes past
+ * the screen and would otherwise hit a 23505 the operator cannot act on.
+ */
 function normalizeApprovalQtys(data: AmendmentInput) {
+  const seen = new Set<string>();
   return data.approval_qtys
     .map((r) => ({
       style_ref_no: clean(r.style_ref_no),
       style: clean(r.style),
       article_no: clean(r.article_no),
+      combo: clean(r.combo),
+      combo_description: clean(r.combo_description),
+      qty: Number(r.qty) || 0,
       approval_qty: Number(r.approval_qty) || 0,
     }))
-    .filter((r) => r.style_ref_no || r.style || r.article_no || r.approval_qty)
+    .filter(
+      (r) =>
+        r.style_ref_no || r.style || r.article_no || r.combo || r.qty || r.approval_qty,
+    )
+    .filter((r) => {
+      const k = JSON.stringify([styleKey(r.style_ref_no), (r.combo ?? "").toUpperCase()]);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
@@ -190,6 +345,14 @@ function normalizeQuantities(data: AmendmentInput) {
       earlier_shipment_date: clean(r.earlier_shipment_date),
       warehouse_id: r.warehouse_id ?? null,
       discharge_port_id: r.discharge_port_id ?? null,
+      // The Assort overlay's own header (0414) — one-to-one with this row.
+      pack: clean(r.pack),
+      is_ratio_wise_pack: r.is_ratio_wise_pack,
+      ratio_for: clean(r.ratio_for),
+      is_single_style_pack: r.is_single_style_pack,
+      master_carton_name: clean(r.master_carton_name),
+      inner_carton_name: clean(r.inner_carton_name),
+      pack_description: clean(r.pack_description),
     }))
     // A row the grid seeded and nobody answered is not a quantity. Same shape as
     // every sibling normalizer: drop the empty ones, then renumber so `sno` is
@@ -205,9 +368,24 @@ function normalizeQuantities(data: AmendmentInput) {
         r.delivery_date ||
         r.earlier_shipment_date ||
         r.warehouse_id ||
-        r.discharge_port_id,
+        r.discharge_port_id ||
+        // A row whose ONLY content is its assortment is still a row. The two
+        // booleans are deliberately absent from this test: they default to
+        // false, so counting them would make every seeded blank row "filled".
+        r.pack ||
+        r.ratio_for ||
+        r.master_carton_name ||
+        r.inner_carton_name ||
+        r.pack_description,
     )
     .map((r, i) => ({ ...r, sno: i + 1 }));
+}
+
+/** Does this assortment line say anything at all? */
+function assortLineFilled(l: AmendmentInput["quantities"][number]["assort_lines"][number]) {
+  // A size cell counts only when it NAMES a size — an untouched grid is a row
+  // of zeroes against nothing, and would otherwise keep every blank line alive.
+  return clean(l.combo) || l.no_of_cartons || l.sizes.some((z) => z.size_id);
 }
 
 /** Replace every child grid wholesale for a given amendment id. */
@@ -217,21 +395,37 @@ async function writeChildren(
   data: AmendmentInput,
 ): Promise<Result> {
   /**
-   * `garment_order_amendment_charges` is deliberately ABSENT (2026-08-10).
+   * `garment_order_amendment_charges` (2026-08-10) and
+   * `garment_order_amendment_style_prices` (2026-08-12) are deliberately ABSENT.
    *
    * The delete loop below iterates THIS list, so dropping an entry removes the
    * table from both halves: the stored charge rows are neither rewritten nor
    * deleted, they are simply left alone. Putting it back in the list while the
-   * form no longer collects charges would wipe every amendment's charges on its
-   * next save.
+   * form no longer collects them would wipe every amendment's charges — or its
+   * style prices — on its next save.
    */
+  // Computed ONCE and shared: `normalizeStyleSizes` drops any size whose style
+  // is not in this exact list, so recomputing it there would be two answers to
+  // "which styles is this save writing?".
+  const styleRows = normalizeStyles(data);
+  // Shared with `writeComboTree`, which pairs each combo to its inserted row by
+  // the `sno` this stamps — recomputing it there would be a second answer to
+  // "which combos is this save writing?".
+  const comboRows = normalizeCombos(data);
+
   const inserts: [string, Record<string, unknown>[]][] = [
-    ["garment_order_amendment_style_prices", normalizeStylePrices(data)],
-    ["garment_order_amendment_styles", normalizeStyles(data)],
+    ["garment_order_amendment_styles", styleRows],
+    // AFTER the styles it depends on, though the order of this list only
+    // decides the order of the writes — the dependency is resolved above, by
+    // handing `normalizeStyleSizes` the very rows being inserted.
+    ["garment_order_amendment_style_sizes", normalizeStyleSizes(data, styleRows)],
+    // Same dependency and the same resolution as the sizes above: handed the
+    // rows being inserted, not asked to re-derive them.
+    ["garment_order_amendment_style_processes", normalizeStyleProcesses(data, styleRows)],
     ["garment_order_amendment_dyeings", normalizeDyeings(data)],
     ["garment_order_amendment_prints", normalizePrints(data)],
     ["garment_order_amendment_structures", normalizeStructures(data)],
-    ["garment_order_amendment_combos", normalizeCombos(data)],
+    ["garment_order_amendment_combos", comboRows],
     ["garment_order_amendment_price_details", normalizePriceDetails(data)],
     ["garment_order_amendment_approval_qtys", normalizeApprovalQtys(data)],
     ["garment_order_amendment_pack_types", normalizePackTypes(data)],
@@ -254,13 +448,235 @@ async function writeChildren(
       .insert(rows.map((r) => ({ ...r, amendment_id: amendmentId })));
     if (error) return fail(error.message);
   }
+
+  const comboResult = await writeComboTree(s, amendmentId, data, comboRows);
+  if (!comboResult.ok) return comboResult;
+  return writeAssortTree(s, amendmentId, data);
+}
+
+/**
+ * Quantities ▸ Assort — the two levels beneath a quantity row (0414).
+ *
+ * THE FLAT LOOP CANNOT DO THIS, for exactly the reason `writeComboTree` above
+ * cannot: it inserts every table with `amendment_id`, and neither of these has
+ * one. A line belongs to a QUANTITY ROW and a size cell to a LINE, by uuids
+ * Postgres assigns during this very save.
+ *
+ * NO DELETE PASS. Both tables cascade (0414 asserts it by exercising it two
+ * levels down), and the flat loop has already deleted every quantity row of
+ * this amendment — which took the whole tree with it.
+ *
+ * PAIRED BY `sno`, NEVER BY INSERT ORDER. `.insert([...]).select()` returning
+ * rows in the order they were sent is not a promise PostgREST makes, and a
+ * mis-paired line would put one destination's carton ratio on another — a
+ * document that tells a factory what to cut and ship where.
+ */
+async function writeAssortTree(
+  s: Awaited<ReturnType<typeof createClient>>,
+  amendmentId: string,
+  data: AmendmentInput,
+): Promise<Result> {
+  const { data: savedQtys, error: qtyErr } = await s
+    .from("garment_order_amendment_quantities")
+    .select("id, sno")
+    .eq("amendment_id", amendmentId);
+  if (qtyErr) return fail(qtyErr.message);
+  if (!savedQtys?.length) return { ok: true };
+
+  const qtyIdBySno = new Map<number, string>();
+  for (const q of savedQtys as { id: string; sno: number }[]) qtyIdBySno.set(q.sno, q.id);
+
+  // Filtered the SAME way `normalizeQuantities` filters, so the two lists stay
+  // parallel — walking `data.quantities` directly would drift by one the moment
+  // a blank row is dropped, and every assortment after it would land on the
+  // wrong destination.
+  const kept = data.quantities.filter(
+    (r) =>
+      r.country_id || clean(r.style_ref_no) || clean(r.style_no) || r.consignee_id ||
+      r.assortment_type_id || Number(r.po_qty) || clean(r.delivery_date) ||
+      clean(r.earlier_shipment_date) || r.warehouse_id || r.discharge_port_id ||
+      clean(r.pack) || clean(r.ratio_for) || clean(r.master_carton_name) ||
+      clean(r.inner_carton_name) || clean(r.pack_description),
+  );
+
+  type LineIn = AmendmentInput["quantities"][number]["assort_lines"][number];
+  const lineRows: Record<string, unknown>[] = [];
+  const lineSrc = new Map<string, LineIn>();
+  const pairKey = (parentId: string, sno: number) => `${parentId}#${sno}`;
+
+  kept.forEach((src, i) => {
+    const quantityId = qtyIdBySno.get(i + 1);
+    if (!quantityId) return;
+    let sno = 0;
+    for (const l of src.assort_lines) {
+      if (!assortLineFilled(l)) continue;
+      sno += 1;
+      lineSrc.set(pairKey(quantityId, sno), l);
+      lineRows.push({
+        quantity_id: quantityId,
+        sno,
+        combo: clean(l.combo),
+        no_of_cartons: Number(l.no_of_cartons) || 0,
+      });
+    }
+  });
+  if (!lineRows.length) return { ok: true };
+
+  const { data: savedLines, error: lineErr } = await s
+    .from("garment_order_amendment_assort_lines")
+    .insert(lineRows)
+    .select("id, quantity_id, sno");
+  if (lineErr) return fail(lineErr.message);
+
+  const sizeRows: Record<string, unknown>[] = [];
+  for (const row of (savedLines ?? []) as { id: string; quantity_id: string; sno: number }[]) {
+    const src = lineSrc.get(pairKey(row.quantity_id, row.sno));
+    if (!src) continue;
+    const seen = new Set<string>();
+    for (const z of src.sizes) {
+      // DROPPED FOR HAVING NO SIZE, never for having no quantity. An explicit 0
+      // against a real size is a statement — "this carton has no XL" — and is
+      // not the same as never having been asked.
+      if (!z.size_id || seen.has(z.size_id)) continue;
+      seen.add(z.size_id);
+      sizeRows.push({ line_id: row.id, size_id: z.size_id, qty: Number(z.qty) || 0 });
+    }
+  }
+  if (!sizeRows.length) return { ok: true };
+
+  const { error: sizeErr } = await s
+    .from("garment_order_amendment_assort_line_sizes")
+    .insert(sizeRows);
+  if (sizeErr) return fail(sizeErr.message);
+
+  return { ok: true };
+}
+
+/**
+ * The two levels beneath a combo — structures, then their components (0408).
+ *
+ * THE FLAT LOOP ABOVE CANNOT DO THIS, and it is worth being precise about why:
+ * it inserts every table with `amendment_id`, and neither of these tables has
+ * one. A structure belongs to a COMBO and a component belongs to a STRUCTURE,
+ * by uuids that Postgres assigns during this very save — so the rows cannot be
+ * built until the level above has been written and has answered with its ids.
+ *
+ * NO DELETE PASS IS NEEDED and adding one would be a bug. Both tables cascade
+ * (`on delete cascade`, asserted in 0408 by actually exercising it), and the
+ * flat loop has already deleted every combo of this amendment — which took the
+ * whole tree with it. A second delete here would run against rows that no
+ * longer exist and would read as though it were doing something.
+ *
+ * PAIRED BY `sno`, NOT BY INSERT ORDER. `.insert([...]).select()` returning
+ * rows in the order they were sent is not a promise PostgREST makes, and a
+ * mis-paired structure would put the body's GSM on the collar — silently, and
+ * on a document nobody re-checks. `normalizeCombos` renumbers `sno` to 1..n
+ * within the amendment and this walker renumbers structures within their combo,
+ * so the number is unique wherever it is used as a key.
+ *
+ * A ROW THAT SAYS NOTHING IS DROPPED, at each level, and a structure counts as
+ * saying something if any of ITS components do — otherwise a structure whose
+ * only content is the parts under it would be discarded and take them with it.
+ */
+async function writeComboTree(
+  s: Awaited<ReturnType<typeof createClient>>,
+  amendmentId: string,
+  data: AmendmentInput,
+  comboRows: ReturnType<typeof normalizeCombos>,
+): Promise<Result> {
+  if (!comboRows.length) return { ok: true };
+
+  // The combo ids this save just wrote, keyed by the `sno` normalizeCombos
+  // stamped on them. Re-read rather than captured from the insert above,
+  // because the flat loop deliberately knows nothing about ids — and the table
+  // was emptied first, so every row here is one of ours.
+  const { data: savedCombos, error: comboErr } = await s
+    .from("garment_order_amendment_combos")
+    .select("id, sno")
+    .eq("amendment_id", amendmentId);
+  if (comboErr) return fail(comboErr.message);
+  const comboIdBySno = new Map<number, string>();
+  for (const c of (savedCombos ?? []) as { id: string; sno: number }[]) {
+    comboIdBySno.set(c.sno, c.id);
+  }
+
+  // ---- level 2: structures -------------------------------------------------
+  // `structSrc` remembers which input structure produced which row, so the
+  // components can be found again after the insert answers with ids.
+  type StructIn = AmendmentInput["combos"][number]["structures"][number];
+  const structRows: Record<string, unknown>[] = [];
+  const structSrc = new Map<string, StructIn>();
+  const pairKey = (parentId: string, sno: number) => `${parentId}#${sno}`;
+
+  // `normalizeCombos` filters and renumbers, so walking `data.combos` in step
+  // with it would drift the moment a blank combo is dropped. Filtering the
+  // input the same way it did is what keeps the two lists parallel.
+  const keptCombos = data.combos.filter(
+    (r) =>
+      clean(r.style_ref_no) || clean(r.style) || clean(r.article_no) ||
+      clean(r.combo) || clean(r.combo_description),
+  );
+  keptCombos.forEach((src, i) => {
+    const comboId = comboIdBySno.get(i + 1);
+    if (!comboId) return;
+    let sno = 0;
+    for (const st of src.structures) {
+      if (!structureFilled(st)) continue;
+      sno += 1;
+      structSrc.set(pairKey(comboId, sno), st);
+      structRows.push({
+        combo_id: comboId,
+        sno,
+        structure_id: st.structure_id,
+        fabric_type: clean(st.fabric_type),
+        composition_id: st.composition_id,
+        gsm: st.gsm,
+        gsm_tolerance: st.gsm_tolerance,
+        item_sub_type: clean(st.item_sub_type),
+      });
+    }
+  });
+  if (!structRows.length) return { ok: true };
+
+  const { data: savedStructs, error: structErr } = await s
+    .from("garment_order_amendment_combo_structures")
+    .insert(structRows)
+    .select("id, combo_id, sno");
+  if (structErr) return fail(structErr.message);
+
+  // ---- level 3: components -------------------------------------------------
+  const compRows: Record<string, unknown>[] = [];
+  for (const row of (savedStructs ?? []) as { id: string; combo_id: string; sno: number }[]) {
+    const src = structSrc.get(pairKey(row.combo_id, row.sno));
+    if (!src) continue;
+    let sno = 0;
+    for (const c of src.components) {
+      if (!componentFilled(c)) continue;
+      sno += 1;
+      compRows.push({
+        structure_id: row.id,
+        sno,
+        coordinate_id: c.coordinate_id,
+        component_id: c.component_id,
+        color_name: clean(c.color_name),
+        print_id: c.print_id,
+        processed_as_trim: c.processed_as_trim,
+      });
+    }
+  }
+  if (!compRows.length) return { ok: true };
+
+  const { error: compErr } = await s
+    .from("garment_order_amendment_combo_components")
+    .insert(compRows);
+  if (compErr) return fail(compErr.message);
+
   return { ok: true };
 }
 
 /** Strip child arrays so only header columns hit garment_order_amendments. */
 function headerOnly(data: AmendmentInput) {
   const {
-    style_prices: _p,
     styles: _st,
     dyeings: _dy,
     prints: _pr,
@@ -277,7 +693,6 @@ function headerOnly(data: AmendmentInput) {
     ...header
   } = data;
   void _loc;
-  void _p;
   void _st;
   void _dy;
   void _pr;
