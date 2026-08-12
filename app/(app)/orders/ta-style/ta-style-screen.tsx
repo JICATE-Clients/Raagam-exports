@@ -2,16 +2,17 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus, Copy } from "lucide-react";
+import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
+import { Truncated } from "@/components/ui/truncated";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
@@ -164,9 +165,11 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
       {
         header: "Description",
         cell: (r) => (
-          <span className="block max-w-[18rem] truncate text-sm" title={r.description ?? undefined}>
-            {r.description ?? "—"}
-          </span>
+          // `truncate` + a `title` is an ellipsis with a tooltip the keyboard and
+          // touch can never reach. <Truncated> writes the clamp itself, measures
+          // the box, and reveals on hover OR press-and-hold — and only when
+          // something is actually hidden (AGENTS.md, "Truncated values").
+          <Truncated text={r.description ?? "—"} className="block max-w-[18rem] text-sm" />
         ),
       },
       { header: "Lead", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.lead_days}</span> },
@@ -200,6 +203,52 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
   }
 
   // ---------------- EDIT ----------------
+  const activityColumns: ChildGridColumn<ActivityRow>[] = [
+    {
+      header: "Activity",
+      cell: (r) => (
+        <RecordPicker
+          label="Activity"
+          items={activityItems}
+          value={r.activity_id}
+          onChange={(id) =>
+            setActivities((xs) => xs.map((x) => (x.key === r.key ? { ...x, activity_id: id } : x)))
+          }
+          compact
+        />
+      ),
+    },
+    {
+      header: "From Activity",
+      cell: (r) => (
+        <RecordPicker
+          label="From Activity"
+          items={activityItems}
+          value={r.from_activity_id}
+          onChange={(id) =>
+            setActivities((xs) => xs.map((x) => (x.key === r.key ? { ...x, from_activity_id: id } : x)))
+          }
+          compact
+        />
+      ),
+    },
+    {
+      header: "Days Required",
+      align: "right",
+      className: "min-w-[8rem]",
+      cell: (r) => (
+        <Input
+          type="number"
+          className="h-8 text-right"
+          value={r.days_required}
+          onChange={(e) =>
+            setActivities((xs) => xs.map((x) => (x.key === r.key ? { ...x, days_required: e.target.value } : x)))
+          }
+        />
+      ),
+    },
+  ];
+
   return (
     // ONE MARKER, NEVER A HANDLER. `isEditorScope()` is false without it, so Tab
     // keeps native order and walks out of the form. The PageHeader inside is
@@ -223,104 +272,50 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
         }
       />
 
+      {/* `FieldGrid`, not a hand-rolled `lg:grid-cols-3` — a screen composes
+          primitives, it does not draw (LAYOUT.md §3). */}
       <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <Label>Style Ref No</Label>
-            <Input value={editCode ?? "(auto)"} readOnly />
-          </div>
-          <RecordPicker label="Customer" items={customerItems} value={customerId} onChange={setCustomerId} />
-          <div>
-            <Label htmlFor="tas-desc">Description *</Label>
-            <Input id="tas-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="tas-lead">Lead Days</Label>
-            <Input id="tas-lead" type="number" value={leadDays} onChange={(e) => setLeadDays(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="tas-start">Start Days</Label>
-            <Input id="tas-start" type="number" value={startDays} onChange={(e) => setStartDays(e.target.value)} />
-          </div>
+        <CardBody>
+          <FieldGrid>
+            <Field label="Style Ref No" size="sm" htmlFor="tas-ref">
+              <Input id="tas-ref" className="font-mono" value={editCode ?? "(auto)"} readOnly />
+            </Field>
+            {/* The picker draws its own label; `Field` carries the span. */}
+            <Field size="sm">
+              <RecordPicker label="Customer" items={customerItems} value={customerId} onChange={setCustomerId} />
+            </Field>
+            {/* `required` on the Field, not a `*` typed into the label — the same
+                prop draws the star AND stamps `data-required-empty`, so the
+                cursor holds on a blank box. Typed by hand it was decoration and
+                Tab walked straight past. */}
+            <Field label="Description" required size="sm" htmlFor="tas-desc">
+              <Input id="tas-desc" uppercase value={description} onChange={(e) => setDescription(e.target.value)} />
+            </Field>
+            <Field label="Lead Days" size="sm" htmlFor="tas-lead">
+              <Input id="tas-lead" type="number" value={leadDays} onChange={(e) => setLeadDays(e.target.value)} />
+            </Field>
+            <Field label="Start Days" size="sm" htmlFor="tas-start">
+              <Input id="tas-start" type="number" value={startDays} onChange={(e) => setStartDays(e.target.value)} />
+            </Field>
+          </FieldGrid>
         </CardBody>
       </Card>
 
+      {/* `ChildGrid`, not the hand-rolled <table> this carried — that one drew
+          its own S No cell and its own Trash2 button, so it inherited neither
+          Ctrl+Del nor `data-row-remove`. Three columns, so it keeps the table
+          layout rather than wrapping. */}
       <Card>
         <CardBody>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">Activity</h3>
-            <Button
-              type="button"
-              variant="subtle"
-              size="sm"
-              onClick={() => setActivities((xs) => [...xs, blankRow()])}
-            >
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="w-12 px-3 py-1.5 text-left font-medium">S No</th>
-                  <th className="px-3 py-1.5 text-left font-medium">Activity</th>
-                  <th className="px-3 py-1.5 text-left font-medium">From Activity</th>
-                  <th className="w-32 px-3 py-1.5 text-right font-medium">Days Required</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              {/* ↓/↑ walk a column across activity rows — gridKeyNav. */}
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setActivities((xs) => [...xs, blankRow()]))}>
-                {activities.map((r, i) => (
-                  <tr key={r.key} data-grid-row className="border-b border-border last:border-0">
-                    <td className="px-3 py-1 text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="px-3 py-1">
-                      <RecordPicker
-                        label="Activity"
-                        items={activityItems}
-                        value={r.activity_id}
-                        onChange={(id) =>
-                          setActivities((xs) => xs.map((x) => (x.key === r.key ? { ...x, activity_id: id } : x)))
-                        }
-                        compact
-                      />
-                    </td>
-                    <td className="px-3 py-1">
-                      <RecordPicker
-                        label="From Activity"
-                        items={activityItems}
-                        value={r.from_activity_id}
-                        onChange={(id) =>
-                          setActivities((xs) => xs.map((x) => (x.key === r.key ? { ...x, from_activity_id: id } : x)))
-                        }
-                        compact
-                      />
-                    </td>
-                    <td className="px-3 py-1">
-                      <Input
-                        type="number"
-                        className="text-right"
-                        value={r.days_required}
-                        onChange={(e) =>
-                          setActivities((xs) => xs.map((x) => (x.key === r.key ? { ...x, days_required: e.target.value } : x)))
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <button
-                        type="button"
-                        onClick={() => setActivities((xs) => xs.filter((x) => x.key !== r.key))}
-                        aria-label="Remove row"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ChildGrid<ActivityRow>
+            label="Activity"
+            columns={activityColumns}
+            rows={activities}
+            seedRow
+            onAdd={() => setActivities((xs) => [...xs, blankRow()])}
+            onRemove={(r) => setActivities((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add activity"
+          />
         </CardBody>
       </Card>
 
