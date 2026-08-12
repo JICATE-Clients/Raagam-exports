@@ -8,6 +8,7 @@ import {
 } from "@/lib/orders/cancellations/service";
 import { fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
+import { Truncated } from "@/components/ui/truncated";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { NewCancellationForm } from "./new-cancellation-form";
@@ -53,9 +54,14 @@ const columns: Column<CancellationRow>[] = [
   {
     header: "Remarks",
     cell: (row) => (
-      <span className="block max-w-[16rem] truncate text-sm text-muted-foreground" title={row.remarks ?? undefined}>
-        {row.remarks ?? "—"}
-      </span>
+      // `truncate` + a `title` is an ellipsis with a tooltip the keyboard and
+      // touch can never reach. <Truncated> writes the clamp itself, measures the
+      // box, and reveals on hover OR press-and-hold — and only when something is
+      // actually hidden (AGENTS.md, "Truncated values").
+      <Truncated
+        text={row.remarks ?? "—"}
+        className="block max-w-[16rem] text-sm text-muted-foreground"
+      />
     ),
   },
   /* View only. This list has no detail route to edit into, and no delete action

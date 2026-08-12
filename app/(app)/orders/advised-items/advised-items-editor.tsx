@@ -201,6 +201,11 @@ export function AdvisedItemsEditor({
           </CardHeader>
           <CardBody>
             <form
+              // ONE MARKER, NEVER A HANDLER. Without it `isEditorScope()` is
+              // false, so Tab keeps native order, leaves the form and stops on
+              // buttons — one of the ~51 page-level editors AGENTS.md counts as
+              // missing this. See the `raagam-keyboard-contract` skill.
+              data-focus-scope
               onSubmit={handleAdd}
               className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
             >

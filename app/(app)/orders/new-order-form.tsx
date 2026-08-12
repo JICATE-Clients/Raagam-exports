@@ -184,7 +184,12 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
         </CardHeader>
 
         <CardBody>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form
+            // ONE MARKER, NEVER A HANDLER. Without it `isEditorScope()` is
+            // false, so Tab keeps native order, leaves the form and stops on
+            // buttons — one of the ~51 page-level editors AGENTS.md counts as
+            // missing this. See the `raagam-keyboard-contract` skill.
+            data-focus-scope onSubmit={handleSubmit} className="space-y-4">
             {mode === "quote" && (
               <div>
                 <Label htmlFor="quote">Accepted quote</Label>

@@ -250,6 +250,11 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
 
           {canEdit && formOpen && (
             <form
+              // ONE MARKER, NEVER A HANDLER. Without it `isEditorScope()` is
+              // false, so Tab keeps native order, leaves the form and stops on
+              // buttons — one of the ~51 page-level editors AGENTS.md counts as
+              // missing this. See the `raagam-keyboard-contract` skill.
+              data-focus-scope
               onSubmit={handleAddLine}
               className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface-muted p-3"
             >

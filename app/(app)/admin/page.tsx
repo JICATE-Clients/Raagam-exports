@@ -69,17 +69,13 @@ export default async function AdminPage() {
             </CardBody>
           </Card>
         </Link>
-        <Link href="/admin/document-no-formats">
-          <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
-            <CardBody>
-              <div className="font-semibold text-foreground">Document No Format</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Configure document numbering patterns for orders, invoices and
-                other transactions.
-              </p>
-            </CardBody>
-          </Card>
-        </Link>
+        {/* Document No Format's card is gone from here (client 2026-08-12): the
+            screen moved to Master Data ▸ System. Leaving the tile would have sent
+            the operator through a `redirect()` into another module without
+            warning — a card that silently teleports is worse than no card. This
+            grid is hand-maintained rather than rendered from
+            `lib/nav/module-groups.ts`, which is why removing the registry entry
+            did not remove this. */}
         <Link href="/admin/assets">
           <Card className="hover:bg-surface-muted transition-colors cursor-pointer h-full">
             <CardBody>
