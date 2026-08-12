@@ -16,7 +16,7 @@ export async function getAmendmentApprovals(): Promise<ApprovalQueueRow[]> {
       `id, code, amend_date, po_no, delivery_date, ship_mode, currency_code, pay_mode,
        reason_text, approval_status, approved_at, approval_reason,
        sales_order:sales_orders(id, order_number, ship_date, order_qty),
-       buyer:buyers(id, code, name),
+       customer:customers(id, code, name),
        ship_type:config_lookups!ship_type_id(code, name),
        approver:profiles!approved_by(id, full_name),
        created_by, created_at`,

@@ -5,6 +5,9 @@ export interface Currency {
   code: string;
   name: string;
   symbol: string | null;
+  /** Same story as `StockUnit` — added by 0404, null on older rows. */
+  created_at?: string | null;
+  created_by?: string | null;
 }
 
 export interface Uom {
@@ -12,6 +15,8 @@ export interface Uom {
   code: string;
   name: string;
   is_active: boolean;
+  created_at?: string | null;
+  created_by?: string | null;
 }
 
 export interface Buyer {

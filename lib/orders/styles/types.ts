@@ -12,7 +12,8 @@ import { styleProblems } from "./rules";
 // `style_for`, `tech_pack`, `received_date`, `receipt_mode`, `department_id`,
 // `contact_id`, `customer_reference` on the header, and `trims` /
 // `trims_category_id` on a component, are gone from the form AND from the Zod
-// input below. Their COLUMNS still exist and still hold whatever they held.
+// input below. `country_id` and `unit_id` joined them on 2026-08-11. Their
+// COLUMNS still exist and still hold whatever they held.
 //
 // Leaving them OUT OF THE SCHEMA is the half that matters. A field left in with
 // `.default(null)` is not a harmless leftover: `headerOnly(p.data)` writes the
@@ -55,7 +56,8 @@ export interface GarmentStyleComponent {
   sno: number;
   coordinate_id: string | null;
   component_id: string | null;
-  structure_id: string | null;
+  /** The FABRIC category — labelled "Structure" on screen (0405). */
+  fabric_category_id: string | null;
   comp_type: string | null;
   /** The fabric — an `items` row of item class FABRIC (0392). */
   item_id: string | null;
@@ -143,7 +145,7 @@ export const styleComponentInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   coordinate_id: uuidN,
   component_id: uuidN,
-  structure_id: uuidN,
+  fabric_category_id: uuidN,
   comp_type: nullableText,
   /** The fabric. An `items` id; the screen scopes the picker to item class
    *  FABRIC, which is a caller concern — nothing here can check it without a
@@ -167,6 +169,34 @@ export const garmentStyleInput = z
     blocked: z.boolean().default(false),
     style_date: z.string().min(1, "Date is required"),
     customer_id: uuidN,
+    /**
+     * THE APPROVED SAMPLE. Mandatory — but on CREATE, in the action, not here.
+     *
+     * The client's reason is a measurement: how many marketing samples convert
+     * to bulk production. That question is only ever asked of styles entered
+     * from now on, and the schema is the wrong place to enforce it because the
+     * SAME schema parses an update of a style entered before the rule existed.
+     *
+     * A non-nullable `.uuid()` here would make every such style unsaveable —
+     * open a legacy style to fix a typo in its name and Save is dead, with the
+     * only escape being to name a sample that was never taken. That is not a
+     * backfill the operator can perform: there are ZERO approved samples in the
+     * database today (`samples where status = 'approved'`), so the field has
+     * nothing to offer and the record has no way out. It would also block
+     * `is_draft` saves, which exist precisely to park an incomplete style.
+     *
+     * So the split is: **required on create (`createGarmentStyle` refuses a
+     * null), grandfathered on update.** The FORM marks it `required` in both
+     * modes, so the red `*` and the cursor hold push every edit toward
+     * answering it — the same deliberate-backfill shape `unit_kind` below
+     * already uses, and this screen already documents.
+     *
+     * `lib/data-io`: `garment_styles` is NOT a data-io entity (nothing in
+     * `lib/data-io/entities.ts` names it), so there is no import path that
+     * bypasses the action — this guard has no hole today. If a Styles importer
+     * is ever added, the create guard must move into this schema or be repeated
+     * there, because data-io writes straight to Postgres.
+     */
     approved_sample_id: uuidN,
     style_name: z.string().min(1, "Style name is required"),
     season: nullableText,
@@ -175,13 +205,31 @@ export const garmentStyleInput = z
     style_category_id: uuidN,
     item_class_id: uuidN,
     style_description: nullableText,
-    unit_id: uuidN,
+    // `unit_id` (-> `uoms`, the Stock Unit master) withdrawn 2026-08-11
+    // (client): ONE Unit field on this screen, and it is the Piece/Set one
+    // below. The two were never the same question — `unit_id` names a stock
+    // unit, `unit_kind` answers Piece-or-Set — but only `unit_kind` means
+    // anything downstream: it caps the Coordinates grid and seeds the Garment
+    // Order's Order Unit, while `unit_id` fed nothing.
+    //
+    // Absent from the SCHEMA, not just the form, for the same reason as
+    // `country_id` and the seven that went on 08-10: `headerOnly(p.data)`
+    // writes the parsed object, so a key left here with `.default(null)` would
+    // blank the stored unit on every update. `garment_styles.unit_id` keeps its
+    // column and its values, and `GarmentStyle.unit_id` above still reads them
+    // back — the Garment Order's seeding is being moved onto `unit_kind`
+    // separately, and until it is, an existing style's stored value still
+    // resolves.
     /** Piece or Set. NULLABLE on purpose: every style predating 0392 has none,
      *  and rejecting those would make old records unsaveable. The FORM marks it
      *  required, so the backfill happens on next edit. */
     unit_kind: z.enum(["piece", "set"]).nullable().default(null),
     size_group_id: uuidN,
-    country_id: uuidN,
+    // `country_id` withdrawn 2026-08-11 (client) — see the header note. Absent
+    // from the schema, not just the form, for the same reason as the seven that
+    // went on 08-10: `headerOnly(p.data)` writes the parsed object, so a key
+    // left here with `.default(null)` would blank the stored country on every
+    // update. The COLUMN and its values remain.
     description: nullableText,
     is_draft: z.boolean().default(false),
     // children

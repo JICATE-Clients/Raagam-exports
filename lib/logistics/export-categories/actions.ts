@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { deleteOrDeactivate } from "@/lib/masters/delete-guard";
 import {
   categoryInput,
   assignmentInput,
@@ -11,6 +12,11 @@ import {
 } from "./types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
+/** Wider than `ActionResult`: a guarded delete may have DEACTIVATED instead, and
+ *  the screen can only say so if the verdict travels back with the result. */
+type DeleteResult =
+  | { ok: true; inactive: boolean; usedBy?: string }
+  | { ok: false; error: string };
 
 const CAT_PATH = "/logistics/export-categories";
 const ASSIGN_PATH = "/logistics/order-categories";
@@ -64,13 +70,15 @@ export async function toggleCategory(
   return { ok: true };
 }
 
-export async function deleteCategory(id: string): Promise<ActionResult> {
+export async function deleteCategory(id: string): Promise<DeleteResult> {
   if (!(await can("logistics", "delete"))) throw new Error("Forbidden");
   const supabase = await createClient();
-  const { error } = await supabase.from("export_categories").delete().eq("id", id);
-  if (error) return { ok: false, error: error.message };
+  // A category already assigned to an order is soft-disabled, never deleted —
+  // those assignments must not lose the category they name.
+  const res = await deleteOrDeactivate(supabase, "export_categories", id, "is_active");
+  if (!res.ok) return { ok: false, error: res.error };
   revalidatePath(CAT_PATH);
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 // ---------- order category assignments ----------

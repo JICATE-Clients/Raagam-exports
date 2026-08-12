@@ -3,9 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { deleteOrDeactivate } from "@/lib/masters/delete-guard";
 import { taActivityInput, type TaActivityInput } from "./types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
+/** A delete that may have soft-disabled instead — the screen needs both halves
+ *  to say "marked inactive because it is used by X" rather than "removed". */
+type DeleteResult =
+  | { ok: true; inactive: boolean; usedBy?: string }
+  | { ok: false; error: string };
 
 const PATH = "/orders/ta-masters";
 
@@ -81,18 +87,21 @@ export async function toggleTaActivity(
   return { ok: true };
 }
 
-export async function deleteTaActivity(id: string): Promise<ActionResult> {
+export async function deleteTaActivity(id: string): Promise<DeleteResult> {
   if (!(await can("orders", "delete"))) {
     throw new Error("Forbidden");
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("ta_activities").delete().eq("id", id);
+  // An activity a TA plan or style was built around must stay readable on it —
+  // one of the five inbound FKs is SET NULL, which a delete would blank in
+  // silence, so the shared guard deactivates (`is_active`) when it is in use.
+  const res = await deleteOrDeactivate(supabase, "ta_activities", id, "is_active");
 
-  if (error) {
-    return { ok: false, error: error.message };
+  if (!res.ok) {
+    return { ok: false, error: res.error };
   }
 
   revalidatePath(PATH);
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

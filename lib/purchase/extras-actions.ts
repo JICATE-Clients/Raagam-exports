@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { deleteOrDeactivate } from "@/lib/masters/delete-guard";
 import {
   indentInput,
   indentLineInput,
@@ -25,6 +26,9 @@ import type {
 type Err = { ok: false; error: string };
 type Ok = { ok: true };
 type R = Ok | Err;
+/** A delete that may have soft-disabled instead — the screen needs both halves
+ *  to say "marked inactive because it is used by X" rather than "deleted". */
+type DeleteR = { ok: true; inactive: boolean; usedBy?: string } | Err;
 
 async function guard(action: "create" | "edit" | "delete" | "approve"): Promise<void> {
   if (!(await can("materials_purchase", action))) throw new Error("Forbidden");
@@ -376,13 +380,17 @@ export async function createLabStandard(payload: LabStandardInput): Promise<R> {
   return { ok: true };
 }
 
-export async function deleteLabStandard(id: string): Promise<R> {
+export async function deleteLabStandard(id: string): Promise<DeleteR> {
   await guard("delete");
   const s = await createClient();
-  const { error } = await s.from("lab_test_standards").delete().eq("id", id);
-  if (error) return bad(error.message);
+  // 0382 §3 kept this as a master when its duplicate CRUD was withdrawn — and
+  // the CRUD that survived is this one, which was the unguarded copy. Its single
+  // inbound FK is SET NULL, so a delete blanks the standard off a recorded lab
+  // test in silence; the shared guard deactivates (`is_active`) instead.
+  const res = await deleteOrDeactivate(s, "lab_test_standards", id, "is_active");
+  if (!res.ok) return bad(res.error);
   revalidateLab();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }
 
 export async function createLabTest(payload: LabTestInput): Promise<R> {

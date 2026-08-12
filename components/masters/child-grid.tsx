@@ -7,7 +7,7 @@ import { RequiredScope } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
-import { atCaretEdge, focusField } from "@/lib/focus";
+import { atCaretEdge, focusField, isOffTabPath } from "@/lib/focus";
 import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -110,6 +110,15 @@ const ROW_ADD = "[data-row-add]";
  *
  * Nothing else may use this. `gridKeyNav`'s `fieldsIn` stays scoped, and its
  * `fromChildGrid` hand-off is what carries ↑/↓ across the boundary instead.
+ *
+ * IT IS DELIBERATELY UNFILTERED — `[data-focus-optional]` cells are IN here. That
+ * is the second place Tab and the arrows part company, and the split is one step
+ * finer than the one above: `tabAlongRow` skips an optional cell when picking
+ * where to GO, never when working out where it IS. The distinction is the whole
+ * fix. Filter it here instead and `fields.indexOf(el)` returns -1 for a cursor
+ * standing on that cell (← → still put it there), `tabAlongRow` declines the key,
+ * and on a page-level grid native Tab takes over and lands on the row's ✕ — the
+ * complaint of 2026-08-01 walking back in through its own fix.
  */
 function tabFieldsIn(row: HTMLElement): HTMLElement[] {
   return Array.from(row.querySelectorAll<HTMLElement>(ROW_FIELDS));
@@ -298,7 +307,25 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
   if (c === -1) return false;
 
   const dir = e.shiftKey ? -1 : 1;
-  let target = fields[c + dir];
+  // A CELL MAY BE OFF THE TYPING PATH AND STILL BE A CELL. `data-focus-optional`
+  // (lib/focus.ts) is the app's marker for the escape-hatch toggle Tab steps over
+  // while ← → and the mouse still reach it — Material Attributes ▸ Blocked, which
+  // Tab stopped on between one attribute line and the next (client 2026-08-11).
+  // `cycleTab` has always honoured it; inside a grid THIS function owns Tab, so
+  // until now the marker was inert on every cell. Skipping (rather than the
+  // obvious `tabIndex={-1}`) is what keeps the box on the arrow axis: `ROW_FIELDS`
+  // counts a checkbox on purpose, because excluding one made every arrow key dead
+  // on a tick-box cell (client 2026-07-28, see the note on ROW_FIELDS).
+  //
+  // Applied to the DESTINATION only — see `tabFieldsIn` for why the axis this
+  // walks must stay unfiltered.
+  const step = (from: HTMLElement[], at: number) => {
+    for (let i = at + dir; i >= 0 && i < from.length; i += dir) {
+      if (!isOffTabPath(from[i])) return from[i];
+    }
+    return undefined;
+  };
+  let target = step(fields, c);
   if (!target) {
     // Off the end of the row's OWN fields, forward: a nested panel with no rows
     // yet is entered by opening its first one. Tab is otherwise the key that
@@ -307,9 +334,10 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
     const nextRow = rows[r + dir];
     if (!nextRow) return false; // the grid's edge — hand the key upwards
     // The SAME flattened axis, so Shift+Tab arrives on the previous row's last
-    // nested field rather than skipping the panel it just walked past.
+    // nested field rather than skipping the panel it just walked past. Entering
+    // from outside, so step from the edge: -1 forwards, length backwards.
     const into = tabFieldsIn(nextRow);
-    target = dir === 1 ? into[0] : into[into.length - 1];
+    target = step(into, dir === 1 ? -1 : into.length);
     if (!target) return false; // a collapsed / summary-only row: let Tab pass
   }
   e.preventDefault();
@@ -568,6 +596,20 @@ export interface ChildGridColumn<T> {
    *
    * ~22 screens hand-roll a grid row instead of using this component, so their
    * cells do not inherit it — wrap those in `<RequiredScope>` directly.
+   *
+   * **AND SO DOES A GRID THAT PASSES `renderMobileRow`, INCLUDING THIS ONE.**
+   * The stacked-cards layout below calls that function instead of the
+   * `columns.map()` that wraps each cell in `RequiredScope`, so the declaration
+   * never reaches the control — and with `forceCards` there is no width at which
+   * it starts working again.
+   *
+   * What makes it worth spelling out is that it fails HALF-way: the header `*`
+   * is still drawn from this prop, so forgetting the control leaves a star with
+   * no hold behind it — the one divergence the single declaration is supposed to
+   * rule out. Declare `required` on the control inside the row too
+   * (`<Field required={c.required}>`, or `required` on a hand-rolled `<Input>`).
+   * Checked by `audit_layout.py --check grid-required-mobile`; AGENTS.md ▸
+   * Mandatory fields carries the reasoning.
    */
   required?: boolean;
 }
@@ -920,232 +962,343 @@ export function ChildGrid<T extends { key: string }>({
   const locked = (row: T) => lockExisting && storedKeys.has(row.key);
 
   return (
-    // Padding and rhythm are `DetailSection`'s, not this grid's own — they were
-    // `p-3` / `space-y-3` against the section's `p-2.5 @2xl/editor:p-2`, so a
-    // grid's label and fields sat 4px right of the section's above it and
-    // nothing down the page shared a left edge.
-    <div
-      className={cn(
-        "@container space-y-2 @2xl/editor:space-y-1.5",
-        !frameless && "rounded-lg border border-border p-2.5 @2xl/editor:p-2",
-        narrow && "max-w-lg",
-      )}
-    >
-      {/* No caption row when there is nothing to put in it. A grid nested inside
-          a `DetailSection` that already names it would otherwise draw an empty
-          band above its first row.
+    // TWO ELEMENTS, TWO JOBS — the outer one is the CONTAINER-QUERY element and
+    // nothing else; the inner one is the visible card.
+    //
+    // They were a single div until 2026-08-11, and that is exactly why a hugging
+    // table sat inside a full-width card with a band of empty grey beside it
+    // (client, Style ▸ Sizes): `hugsContent` puts `w-fit` on the scroll wrapper
+    // and CANNOT put it here, because `container-type: inline-size` implies
+    // `contain: inline-size`, so a content-sized container-query element is a
+    // cycle the browser resolves by collapsing it. Splitting the two roles lets
+    // the card hug while the container stays parent-sized.
+    //
+    // `narrow`'s cap STAYS ON THE OUTER ELEMENT. The query measures this div, so
+    // the cap is what decides table-vs-stacked-cards — see the prop's own note.
+    // Moved inward, the container would measure the whole section instead and
+    // the layout choice would change silently.
+    <div className={cn("@container", narrow && "max-w-lg")}>
+      {/* Padding and rhythm are `DetailSection`'s, not this grid's own — they
+          were `p-3` / `space-y-3` against the section's `p-2.5
+          @2xl/editor:p-2`, so a grid's label and fields sat 4px right of the
+          section's above it and nothing down the page shared a left edge.
 
-          `flushRows` suppresses it outright: that mode allows the grid EXACTLY
-          ONE band, because a second one puts the first row 14px below the field
-          it is supposed to line up with. The `label` is rendered inside that one
-          band instead — see the empty-state branch below. */}
-      {!flushRows && (label || badge) && (
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-          {badge}
-        </div>
-      )}
-
-      {/* wide-container table — only in `responsive` mode. The inline layout is
-          a REPLACEMENT for this, not a companion to it. */}
-      {mode === "responsive" && (
+          `@2xl/editor:` resolves against the NAMED `editor` container on the
+          editor pane, so these classes mean here exactly what they meant on the
+          old single root. */}
       <div
         className={cn(
-          "hidden overflow-x-auto rounded-lg border border-border",
-          // See `narrow`: the cap would otherwise push this below @lg and the
-          // grid would render as cards.
-          narrow ? "@md:block" : "@lg:block",
+          "space-y-2 @2xl/editor:space-y-1.5",
+          !frameless && "rounded-lg border border-border p-2.5 @2xl/editor:p-2",
+          // The card hugs exactly when the table inside it does, so there is no
+          // dead space between the last column and the border. `max-w-full`
+          // keeps a table wider than the cap inside the section; the scroll
+          // wrapper's own `overflow-x-auto` takes it from there.
           hugsContent && "w-fit max-w-full",
         )}
       >
-        <table
+        {/* No caption row when there is nothing to put in it. A grid nested inside
+            a `DetailSection` that already names it would otherwise draw an empty
+            band above its first row.
+
+            `flushRows` suppresses it outright: that mode allows the grid EXACTLY
+            ONE band, because a second one puts the first row 14px below the field
+            it is supposed to line up with. The `label` is rendered inside that one
+            band instead — see the empty-state branch below. */}
+        {!flushRows && (label || badge) && (
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+            {badge}
+          </div>
+        )}
+
+        {/* wide-container table — only in `responsive` mode. The inline layout is
+            a REPLACEMENT for this, not a companion to it. */}
+        {mode === "responsive" && (
+        <div
           className={cn(
-            "border-collapse text-sm",
-            // `table-fixed` IS THE HALF THAT MAKES `width` MEAN ANYTHING. Under
-            // the default `table-layout: auto` a `<th>` width is a SUGGESTION —
-            // the browser still distributes by content and available space, so
-            // ten declared columns in a narrow container were all squeezed
-            // together and every picker read "— S…" (client 2026-08-11). Fixed
-            // layout honours the declarations and lets the table exceed its
-            // container, which is what `overflow-x-auto` on the wrapper is for.
-            hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
+            "hidden overflow-x-auto rounded-lg border border-border",
+            // See `narrow`: the cap would otherwise push this below @lg and the
+            // grid would render as cards.
+            narrow ? "@md:block" : "@lg:block",
+            hugsContent && "w-fit max-w-full",
           )}
         >
-          <thead>
-            <tr className="border-b border-border bg-surface-muted">
-              <th className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
-              {columns.map((c, i) => (
-                <th
-                  key={i}
-                  // The header carries the width for the whole column — a
-                  // `<td>` cannot widen past its `<th>` under `border-collapse`,
-                  // so declaring it once here is what makes `width` mean
-                  // anything in the table layout at all. It was previously read
-                  // ONLY by the card layouts, which is why setting it on a table
-                  // grid appeared to do nothing.
-                  style={c.width ? { width: c.width } : undefined}
-                  className={cn(
-                    "border-l border-border px-2 py-1.5 text-xs font-semibold text-muted-foreground",
-                    align[c.align ?? "left"],
-                    c.className,
-                  )}
-                >
-                  {c.header}
-                  {c.required && <span className="ml-0.5 text-danger">*</span>}
-                </th>
-              ))}
-              <th className="w-8 border-l border-border" />
-            </tr>
-          </thead>
-          {/* The handler must sit on the SAME element as `data-grid-body` —
-              gridKeyNav takes its grid from `e.currentTarget`. It used to be on
-              the <table>, which still worked when the grid was derived from the
-              event target, but would now resolve to a node that owns no rows. */}
-          <tbody data-grid-body onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}>
-            {view.map((row, localI) => {
-              const i = offset + localI;
-              return (
-              <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
-                <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
-                {columns.map((c, ci) => (
-                  <td key={ci} className={cn("border-l border-border px-2 py-1.5", align[c.align ?? "left"], c.className)}>
-                    <RequiredScope required={c.required} label={c.header}>
-                      {c.cell(row, i)}
-                    </RequiredScope>
-                  </td>
-                ))}
-                <td className="border-l border-border px-1 py-1.5 text-center">
-                  {!locked(row) && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    // Reached by Ctrl+Del (see `removeRowKey`) and the mouse, not
-                    // by Tab — Tab is the typing path and this is an action.
-                    //
-                    // It carried `tabIndex={-1}` for three days to get that
-                    // (2026-08-01). That fixed this component and left the ~22
-                    // screens that hand-roll a grid row untouched, which is how
-                    // the same report came back. `cycleTab` now targets fields on
-                    // every surface, so the marker is all this needs — and being
-                    // focusable again keeps it in screen-reader order.
-                    data-row-remove
-                    className="text-muted-foreground hover:text-danger"
-                    onClick={() => onRemove(row)}
-                    aria-label="Remove row"
-                  >
-                    <X className="h-4 w-4 shrink-0" />
-                  </Button>
-                  )}
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-          {/* A SIBLING of <tbody data-grid-body>, so `gridKeyNav` — which is
-              bound to that element and takes its grid from `e.currentTarget` —
-              never sees a keystroke from here, and `ownDescendants` never counts
-              this as a row. It has to be inside the same <table> to inherit the
-              <th> widths above it, which is the whole reason totals could not be
-              a wrapper around this component. */}
-          {hasTotals && (
-            <tfoot className="border-t-2 border-border bg-surface-muted font-semibold">
-              <tr>
-                {/* THE LABEL SPANS EVERYTHING BEFORE THE FIRST TOTALLED COLUMN.
-                    It used to sit alone in the `#` cell, which is `w-10` — so
-                    "Total PO Qty" wrapped to three lines and pushed the band
-                    taller than the rows above it (client 2026-08-11). Spanning
-                    is also what a totals row is supposed to look like: the label
-                    on the left, each figure under the column it totals. */}
-                <td
-                  colSpan={1 + Math.max(0, firstTotalIndex)}
-                  className="whitespace-nowrap px-2 py-1.5 text-right text-[11px] uppercase tracking-wide text-muted-foreground"
-                >
-                  {totalsLabel}
-                </td>
-                {columns.slice(Math.max(0, firstTotalIndex)).map((c, ci) => (
-                  <td
-                    key={ci}
+          <table
+            className={cn(
+              "border-collapse text-sm",
+              // `table-fixed` IS THE HALF THAT MAKES `width` MEAN ANYTHING. Under
+              // the default `table-layout: auto` a `<th>` width is a SUGGESTION —
+              // the browser still distributes by content and available space, so
+              // ten declared columns in a narrow container were all squeezed
+              // together and every picker read "— S…" (client 2026-08-11). Fixed
+              // layout honours the declarations and lets the table exceed its
+              // container, which is what `overflow-x-auto` on the wrapper is for.
+              hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
+            )}
+          >
+            <thead>
+              <tr className="border-b border-border bg-surface-muted">
+                <th className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
+                {columns.map((c, i) => (
+                  <th
+                    key={i}
+                    // The header carries the width for the whole column — a
+                    // `<td>` cannot widen past its `<th>` under `border-collapse`,
+                    // so declaring it once here is what makes `width` mean
+                    // anything in the table layout at all. It was previously read
+                    // ONLY by the card layouts, which is why setting it on a table
+                    // grid appeared to do nothing.
+                    style={c.width ? { width: c.width } : undefined}
                     className={cn(
-                      "border-l border-border px-2 py-1.5 text-sm tabular-nums",
+                      "border-l border-border px-2 py-1.5 text-xs font-semibold text-muted-foreground",
                       align[c.align ?? "left"],
                       c.className,
                     )}
                   >
-                    {/* `rows`, not `view` — see ChildGridColumn.total. */}
-                    {renderTotal(c.total, rows)}
-                  </td>
+                    {c.header}
+                    {c.required && <span className="ml-0.5 text-danger">*</span>}
+                  </th>
                 ))}
-                <td className="border-l border-border" />
+                <th className="w-8 border-l border-border" />
               </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-      )}
+            </thead>
+            {/* The handler must sit on the SAME element as `data-grid-body` —
+                gridKeyNav takes its grid from `e.currentTarget`. It used to be on
+                the <table>, which still worked when the grid was derived from the
+                event target, but would now resolve to a node that owns no rows. */}
+            <tbody data-grid-body onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}>
+              {view.map((row, localI) => {
+                const i = offset + localI;
+                return (
+                <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
+                  <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
+                  {columns.map((c, ci) => (
+                    <td key={ci} className={cn("border-l border-border px-2 py-1.5", align[c.align ?? "left"], c.className)}>
+                      <RequiredScope required={c.required} label={c.header}>
+                        {c.cell(row, i)}
+                      </RequiredScope>
+                    </td>
+                  ))}
+                  <td className="border-l border-border px-1 py-1.5 text-center">
+                    {!locked(row) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      // Reached by Ctrl+Del (see `removeRowKey`) and the mouse, not
+                      // by Tab — Tab is the typing path and this is an action.
+                      //
+                      // It carried `tabIndex={-1}` for three days to get that
+                      // (2026-08-01). That fixed this component and left the ~22
+                      // screens that hand-roll a grid row untouched, which is how
+                      // the same report came back. `cycleTab` now targets fields on
+                      // every surface, so the marker is all this needs — and being
+                      // focusable again keeps it in screen-reader order.
+                      data-row-remove
+                      className="text-muted-foreground hover:text-danger"
+                      onClick={() => onRemove(row)}
+                      aria-label="Remove row"
+                    >
+                      <X className="h-4 w-4 shrink-0" />
+                    </Button>
+                    )}
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+            {/* A SIBLING of <tbody data-grid-body>, so `gridKeyNav` — which is
+                bound to that element and takes its grid from `e.currentTarget` —
+                never sees a keystroke from here, and `ownDescendants` never counts
+                this as a row. It has to be inside the same <table> to inherit the
+                <th> widths above it, which is the whole reason totals could not be
+                a wrapper around this component. */}
+            {hasTotals && (
+              <tfoot className="border-t-2 border-border bg-surface-muted font-semibold">
+                <tr>
+                  {/* THE LABEL SPANS EVERYTHING BEFORE THE FIRST TOTALLED COLUMN.
+                      It used to sit alone in the `#` cell, which is `w-10` — so
+                      "Total PO Qty" wrapped to three lines and pushed the band
+                      taller than the rows above it (client 2026-08-11). Spanning
+                      is also what a totals row is supposed to look like: the label
+                      on the left, each figure under the column it totals. */}
+                  <td
+                    colSpan={1 + Math.max(0, firstTotalIndex)}
+                    className="whitespace-nowrap px-2 py-1.5 text-right text-[11px] uppercase tracking-wide text-muted-foreground"
+                  >
+                    {totalsLabel}
+                  </td>
+                  {columns.slice(Math.max(0, firstTotalIndex)).map((c, ci) => (
+                    <td
+                      key={ci}
+                      className={cn(
+                        "border-l border-border px-2 py-1.5 text-sm tabular-nums",
+                        align[c.align ?? "left"],
+                        c.className,
+                      )}
+                    >
+                      {/* `rows`, not `view` — see ChildGridColumn.total. */}
+                      {renderTotal(c.total, rows)}
+                    </td>
+                  ))}
+                  <td className="border-l border-border" />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+        )}
 
-      {/* Inline rows — a flex "table" that survives a half-width column, where a
-          real <table> would overflow. Each column keeps its own width, so a
-          Mixing % stays a small box instead of stretching and shoving the next
-          field onto a second line (client 2026-07-24 #4). */}
-      {mode === "inline" ? (
+        {/* Inline rows — a flex "table" that survives a half-width column, where a
+            real <table> would overflow. Each column keeps its own width, so a
+            Mixing % stays a small box instead of stretching and shoving the next
+            field onto a second line (client 2026-07-24 #4). */}
+        {mode === "inline" ? (
+          <div
+            data-grid-body
+            // `flushRows` removes the gap under the header band as well, so the
+            // first row starts where a `Field`'s control does. See the prop.
+            className={cn(!flushRows && "space-y-1.5")}
+            onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
+          >
+            {/* THE ONE BAND, when the grid has no rows to head.
+                `view.length > 0` gates the column headers, so an empty inline grid
+                used to start with its "+ Add" button flush at 0 while the field
+                beside it started at 14 — the same misalignment as a filled grid,
+                in the state the operator sees FIRST (client 2026-08-05,
+                screenshot 2170). The label fills the slot the headers will take,
+                at identical metrics, so the two cells line up before and after the
+                first row exists and nothing has to move when it appears. */}
+            {flushRows && label && view.length === 0 && (
+              <div className="flex items-center leading-[14px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {label}
+              </div>
+            )}
+            {view.length > 0 && (
+              <div
+                className={cn(
+                  "flex items-center gap-2",
+                  // `leading-[14px]` matches `Label` exactly (label.tsx) — the
+                  // whole point of flush rows. `px-2 pb-0.5` would put the band at
+                  // 18px and shift the headers 2px right of their own cells.
+                  //
+                  // `mb-1.5` is the GAP under the band, and it is not decoration:
+                  // it matches the 6px the grid root's own `space-y-1.5` already
+                  // puts under the empty-state band, and the 6px the field beside
+                  // this grid carries under its label. All three states then put
+                  // their first control at 20px (client 2026-08-05, screenshot
+                  // 2171 — the empty grid had the gap and the field did not).
+                  // Lives here rather than on the body's `space-y`, which would
+                  // also push every row apart from its neighbour.
+                  flushRows ? "leading-[14px] mb-1.5" : "px-2 pb-0.5",
+                )}
+              >
+                <span className="w-4 shrink-0" />
+                {columns.map((c, ci) => (
+                  <div
+                    key={ci}
+                    className={cn(
+                      "min-w-0 text-xs font-semibold text-muted-foreground",
+                      c.width ? "shrink-0" : "flex-1",
+                      align[c.align ?? "left"],
+                    )}
+                    style={c.width ? { width: c.width } : undefined}
+                  >
+                    {c.header}
+                    {c.required && <span className="ml-0.5 text-danger">*</span>}
+                  </div>
+                ))}
+                <span className="w-8 shrink-0" />
+              </div>
+            )}
+            {view.map((row, localI) => {
+              const i = offset + localI;
+              return (
+              <div
+                key={row.key}
+                data-grid-row
+                className={cn(
+                  "flex items-center gap-2",
+                  flushRows
+                    ? // No card inset: the row's own controls draw the boxes, so
+                      // the first one sits level with a `Field` beside it. Rows
+                      // stay separable by a rule rather than by a border each.
+                      // `localI === 0` rather than `first:` — the header band is a
+                      // sibling in this container, so `first:` would match IT.
+                      cn("border-b border-border pb-1.5 last:border-b-0", localI > 0 && "pt-1.5")
+                    : "rounded-md border border-border p-1.5",
+                )}
+              >
+                <span className="w-4 shrink-0 text-center text-xs text-muted-foreground">{startIndex + i + 1}</span>
+                {columns.map((c, ci) => (
+                  <div
+                    key={ci}
+                    className={cn("min-w-0", c.width ? "shrink-0" : "flex-1", c.className)}
+                    style={c.width ? { width: c.width } : undefined}
+                  >
+                    <RequiredScope required={c.required} label={c.header}>
+                      {c.cell(row, i)}
+                    </RequiredScope>
+                  </div>
+                ))}
+                {!locked(row) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-row-remove // Ctrl+Del / mouse — see the note on the table layout above
+                  className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
+                  onClick={() => onRemove(row)}
+                  aria-label="Remove row"
+                >
+                  <X className="h-4 w-4 shrink-0" />
+                </Button>
+                )}
+              </div>
+              );
+            })}
+            {/* Mirrors the header band's track exactly — same `w-4` index spacer,
+                same `shrink-0`/`flex-1` per column, same `w-8` trailing spacer —
+                or the figures do not sit under the columns they total. No
+                `data-grid-row` and no control inside, so it stays off both the
+                arrow axis and the Tab path. */}
+            {hasTotals && (
+              <div className="flex items-center gap-2 border-t-2 border-border pt-1.5 font-semibold">
+                <span className="w-4 shrink-0 text-center text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {totalsLabel}
+                </span>
+                {columns.map((c, ci) => (
+                  <div
+                    key={ci}
+                    className={cn(
+                      "min-w-0 text-sm tabular-nums",
+                      c.width ? "shrink-0" : "flex-1",
+                      align[c.align ?? "left"],
+                    )}
+                    style={c.width ? { width: c.width } : undefined}
+                  >
+                    {renderTotal(c.total, rows)}
+                  </div>
+                ))}
+                <span className="w-8 shrink-0" />
+              </div>
+            )}
+          </div>
+        ) : (
+        /* stacked row-cards — the whole grid in `cards` mode, and the narrow half
+            of `responsive` mode (hence `@lg:hidden`, the partner to the table's
+            `hidden @lg:block`). Carries the same keyboard nav as the table:
+            where these ARE the grid, binding nav only to the table left arrow
+            keys dead. */
         <div
           data-grid-body
-          // `flushRows` removes the gap under the header band as well, so the
-          // first row starts where a `Field`'s control does. See the prop.
-          className={cn(!flushRows && "space-y-1.5")}
+          className={cn(
+            listRows ? "divide-y divide-border" : "space-y-2",
+            mode === "responsive" && (narrow ? "@md:hidden" : "@lg:hidden"),
+          )}
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
         >
-          {/* THE ONE BAND, when the grid has no rows to head.
-              `view.length > 0` gates the column headers, so an empty inline grid
-              used to start with its "+ Add" button flush at 0 while the field
-              beside it started at 14 — the same misalignment as a filled grid,
-              in the state the operator sees FIRST (client 2026-08-05,
-              screenshot 2170). The label fills the slot the headers will take,
-              at identical metrics, so the two cells line up before and after the
-              first row exists and nothing has to move when it appears. */}
-          {flushRows && label && view.length === 0 && (
-            <div className="flex items-center leading-[14px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {label}
-            </div>
-          )}
-          {view.length > 0 && (
-            <div
-              className={cn(
-                "flex items-center gap-2",
-                // `leading-[14px]` matches `Label` exactly (label.tsx) — the
-                // whole point of flush rows. `px-2 pb-0.5` would put the band at
-                // 18px and shift the headers 2px right of their own cells.
-                //
-                // `mb-1.5` is the GAP under the band, and it is not decoration:
-                // it matches the 6px the grid root's own `space-y-1.5` already
-                // puts under the empty-state band, and the 6px the field beside
-                // this grid carries under its label. All three states then put
-                // their first control at 20px (client 2026-08-05, screenshot
-                // 2171 — the empty grid had the gap and the field did not).
-                // Lives here rather than on the body's `space-y`, which would
-                // also push every row apart from its neighbour.
-                flushRows ? "leading-[14px] mb-1.5" : "px-2 pb-0.5",
-              )}
-            >
-              <span className="w-4 shrink-0" />
-              {columns.map((c, ci) => (
-                <div
-                  key={ci}
-                  className={cn(
-                    "min-w-0 text-xs font-semibold text-muted-foreground",
-                    c.width ? "shrink-0" : "flex-1",
-                    align[c.align ?? "left"],
-                  )}
-                  style={c.width ? { width: c.width } : undefined}
-                >
-                  {c.header}
-                  {c.required && <span className="ml-0.5 text-danger">*</span>}
-                </div>
-              ))}
-              <span className="w-8 shrink-0" />
-            </div>
-          )}
           {view.map((row, localI) => {
             const i = offset + localI;
             return (
@@ -1153,178 +1306,92 @@ export function ChildGrid<T extends { key: string }>({
               key={row.key}
               data-grid-row
               className={cn(
-                "flex items-center gap-2",
-                flushRows
-                  ? // No card inset: the row's own controls draw the boxes, so
-                    // the first one sits level with a `Field` beside it. Rows
-                    // stay separable by a rule rather than by a border each.
-                    // `localI === 0` rather than `first:` — the header band is a
-                    // sibling in this container, so `first:` would match IT.
-                    cn("border-b border-border pb-1.5 last:border-b-0", localI > 0 && "pt-1.5")
-                  : "rounded-md border border-border p-1.5",
+                "space-y-2",
+                // `py-2` only — no horizontal padding, so a flat row's fields keep
+                // the grid's own left edge and line up with the sections above it.
+                listRows ? "py-2 first:pt-0 last:pb-0" : "rounded-lg border border-border p-2.5",
               )}
             >
-              <span className="w-4 shrink-0 text-center text-xs text-muted-foreground">{startIndex + i + 1}</span>
-              {columns.map((c, ci) => (
-                <div
-                  key={ci}
-                  className={cn("min-w-0", c.width ? "shrink-0" : "flex-1", c.className)}
-                  style={c.width ? { width: c.width } : undefined}
-                >
-                  <RequiredScope required={c.required} label={c.header}>
-                    {c.cell(row, i)}
-                  </RequiredScope>
+              {!listRows && (
+                /* `ml-auto` on the remove button, not `justify-between` on the
+                   row: with a summary between them, space-between would push the
+                   index and the summary to opposite ends of the card instead of
+                   keeping them together as one label. */
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
+                  {rowSummary && (
+                    <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
+                  )}
+                  {!locked(row) && (
+                    <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
+                      <X className="h-4 w-4 shrink-0" />
+                    </Button>
+                  )}
                 </div>
-              ))}
-              {!locked(row) && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                data-row-remove // Ctrl+Del / mouse — see the note on the table layout above
-                className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
-                onClick={() => onRemove(row)}
-                aria-label="Remove row"
-              >
-                <X className="h-4 w-4 shrink-0" />
-              </Button>
               )}
+              {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (
+                      <div key={ci}>
+                        <RequiredScope required={c.required} label={c.header}>
+                          {c.cell(row, i)}
+                        </RequiredScope>
+                      </div>
+                    ))}
             </div>
             );
           })}
-          {/* Mirrors the header band's track exactly — same `w-4` index spacer,
-              same `shrink-0`/`flex-1` per column, same `w-8` trailing spacer —
-              or the figures do not sit under the columns they total. No
-              `data-grid-row` and no control inside, so it stays off both the
-              arrow axis and the Tab path. */}
+          {/* Cards stack their columns, so there is nothing to sit a figure UNDER
+              — a column-aligned band here would align with nothing. One labelled
+              summary row after the last card instead, and one for the whole list
+              rather than one per card (a per-card total is the card).
+
+              It lives INSIDE this container on purpose: in `responsive` mode the
+              container is what carries `@lg:hidden`, so a band outside it would
+              render alongside the table's <tfoot> at wide sizes. */}
           {hasTotals && (
-            <div className="flex items-center gap-2 border-t-2 border-border pt-1.5 font-semibold">
-              <span className="w-4 shrink-0 text-center text-[11px] uppercase tracking-wide text-muted-foreground">
-                {totalsLabel}
-              </span>
-              {columns.map((c, ci) => (
-                <div
-                  key={ci}
-                  className={cn(
-                    "min-w-0 text-sm tabular-nums",
-                    c.width ? "shrink-0" : "flex-1",
-                    align[c.align ?? "left"],
-                  )}
-                  style={c.width ? { width: c.width } : undefined}
-                >
-                  {renderTotal(c.total, rows)}
-                </div>
-              ))}
-              <span className="w-8 shrink-0" />
+            <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1 border-t-2 border-border pt-2">
+              {columns
+                .filter((c) => c.total && c.total.kind !== "blank")
+                .map((c, ci) => (
+                  <span key={ci} className="flex items-baseline gap-1.5">
+                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      {c.header}
+                    </span>
+                    <span className="text-sm font-semibold tabular-nums">
+                      {renderTotal(c.total, rows)}
+                    </span>
+                  </span>
+                ))}
             </div>
           )}
         </div>
-      ) : (
-      /* stacked row-cards — the whole grid in `cards` mode, and the narrow half
-          of `responsive` mode (hence `@lg:hidden`, the partner to the table's
-          `hidden @lg:block`). Carries the same keyboard nav as the table:
-          where these ARE the grid, binding nav only to the table left arrow
-          keys dead. */
-      <div
-        data-grid-body
-        className={cn(
-          listRows ? "divide-y divide-border" : "space-y-2",
-          mode === "responsive" && (narrow ? "@md:hidden" : "@lg:hidden"),
         )}
-        onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
-      >
-        {view.map((row, localI) => {
-          const i = offset + localI;
-          return (
-          <div
-            key={row.key}
-            data-grid-row
-            className={cn(
-              "space-y-2",
-              // `py-2` only — no horizontal padding, so a flat row's fields keep
-              // the grid's own left edge and line up with the sections above it.
-              listRows ? "py-2 first:pt-0 last:pb-0" : "rounded-lg border border-border p-2.5",
-            )}
-          >
-            {!listRows && (
-              /* `ml-auto` on the remove button, not `justify-between` on the
-                 row: with a summary between them, space-between would push the
-                 index and the summary to opposite ends of the card instead of
-                 keeping them together as one label. */
-              <div className="flex items-center gap-2">
-                <span className="shrink-0 text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
-                {rowSummary && (
-                  <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
-                )}
-                {!locked(row) && (
-                  <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
-                    <X className="h-4 w-4 shrink-0" />
-                  </Button>
-                )}
-              </div>
-            )}
-            {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (
-                    <div key={ci}>
-                      <RequiredScope required={c.required} label={c.header}>
-                        {c.cell(row, i)}
-                      </RequiredScope>
-                    </div>
-                  ))}
-          </div>
-          );
-        })}
-        {/* Cards stack their columns, so there is nothing to sit a figure UNDER
-            — a column-aligned band here would align with nothing. One labelled
-            summary row after the last card instead, and one for the whole list
-            rather than one per card (a per-card total is the card).
 
-            It lives INSIDE this container on purpose: in `responsive` mode the
-            container is what carries `@lg:hidden`, so a band outside it would
-            render alongside the table's <tfoot> at wide sizes. */}
-        {hasTotals && (
-          <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1 border-t-2 border-border pt-2">
-            {columns
-              .filter((c) => c.total && c.total.kind !== "blank")
-              .map((c, ci) => (
-                <span key={ci} className="flex items-baseline gap-1.5">
-                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                    {c.header}
-                  </span>
-                  <span className="text-sm font-semibold tabular-nums">
-                    {renderTotal(c.total, rows)}
-                  </span>
-                </span>
-              ))}
-          </div>
+        {/* `pageCount > 1`, not just `paginated`. doc/ui/LAYOUT.md §6 says the
+            pager "self-hides when everything fits", and it half did: PaginationBar
+            drops its NAV buttons at one page but still prints the count, so a grid
+            holding a single row rendered "1–1 of 1" — a line of chrome explaining
+            that the one visible row is the one visible row (client 2026-08-04).
+            Its own self-hide only fires at `total === 0`, which is the empty state
+            this never reaches. Makes the documented behaviour true. */}
+        {paginated && pg.pageCount > 1 && (
+          <PaginationBar
+            page={pg.page}
+            pageCount={pg.pageCount}
+            total={pg.total}
+            pageSize={pg.pageSize}
+            onPageChange={pg.setPage}
+          />
+        )}
+
+        {!hideAdd && (
+          // `data-row-add` is what Tab drives when this grid is NESTED in another
+          // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
+          // LANDS on it; a button is not a field.
+          <Button type="button" variant="outline" size="sm" data-row-add onClick={handleAdd}>
+            {addLabel}
+          </Button>
         )}
       </div>
-      )}
-
-      {/* `pageCount > 1`, not just `paginated`. doc/ui/LAYOUT.md §6 says the
-          pager "self-hides when everything fits", and it half did: PaginationBar
-          drops its NAV buttons at one page but still prints the count, so a grid
-          holding a single row rendered "1–1 of 1" — a line of chrome explaining
-          that the one visible row is the one visible row (client 2026-08-04).
-          Its own self-hide only fires at `total === 0`, which is the empty state
-          this never reaches. Makes the documented behaviour true. */}
-      {paginated && pg.pageCount > 1 && (
-        <PaginationBar
-          page={pg.page}
-          pageCount={pg.pageCount}
-          total={pg.total}
-          pageSize={pg.pageSize}
-          onPageChange={pg.setPage}
-        />
-      )}
-
-      {!hideAdd && (
-        // `data-row-add` is what Tab drives when this grid is NESTED in another
-        // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
-        // LANDS on it; a button is not a field.
-        <Button type="button" variant="outline" size="sm" data-row-add onClick={handleAdd}>
-          {addLabel}
-        </Button>
-      )}
     </div>
   );
 }

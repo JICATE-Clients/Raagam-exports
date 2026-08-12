@@ -20,7 +20,11 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 // `hsnDetailsAsLookups(...)` rows, and the flag is what lets a retired HSN drop
 // out of the picker while still resolving on the materials already assigned it.
 type Opt = { id: string; code: string | null; name: string | null; is_active: boolean };
-type CatOpt = { id: string; short_name: string | null; name: string | null };
+// `item_class_id` is carried so the Category facet can follow the Item Class
+// facet beside it (cascading-picker rule — see `filterCategories` below). The
+// page already hands this screen whole `listCategories()` rows; the field was
+// simply not declared here, which is why the facet could not scope itself.
+type CatOpt = { id: string; short_name: string | null; name: string | null; item_class_id: string | null };
 
 const hsnLabel = (o: Opt) => (o.code ? `${o.code}${o.name ? ` — ${o.name}` : ""}` : (o.name ?? "—"));
 
@@ -68,6 +72,35 @@ export function MaterialHsnAssignScreen({
     for (const c of categories) m.set(c.id, c.name ?? c.short_name ?? "—");
     return m;
   }, [categories]);
+
+  /*
+   * THE CATEGORY FACET FOLLOWS THE ITEM CLASS FACET BESIDE IT — the filter-bar
+   * half of the cascading-picker rule the forms obey (client 2026-08-11). It
+   * mapped the FULL category list, so under Item Class = FABRIC the dropdown
+   * still offered BUCKLE, and picking it emptied the table with nothing on
+   * screen to say why: the two row-level tests below are independent `&&`s, so
+   * a mismatched pair silently matches nothing.
+   *
+   * `__none` ("— No class —") scopes to nothing, deliberately: those rows have
+   * no class to narrow BY, so every category stays on offer.
+   *
+   * With no class chosen the options are prefixed by their class — category
+   * names repeat across classes (COTTON is a Yarn and a Fabric), and two
+   * identical options the operator has to guess between is the other half of
+   * the same bug.
+   */
+  const filterCategories = useMemo(() => {
+    const cls = fClass && fClass !== "__none" ? fClass : "";
+    return categories
+      .filter((c) => (cls ? c.item_class_id === cls : true))
+      .map((c) => ({
+        id: c.id,
+        label: cls
+          ? (c.name ?? c.short_name ?? "—")
+          : `${itemClassName.get(c.item_class_id ?? "") ?? "—"} · ${c.name ?? c.short_name ?? "—"}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [categories, itemClassName, fClass]);
 
   const cur = (r: MaterialHsnRow): string | null => (edits.has(r.id) ? edits.get(r.id)! : r.hsn_id);
   const isDirty = (r: MaterialHsnRow) => edits.has(r.id) && (edits.get(r.id) ?? "") !== (r.hsn_id ?? "");
@@ -235,7 +268,22 @@ export function MaterialHsnAssignScreen({
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
         </Select>
-        <Select value={fClass} onChange={(e) => setFClass(e.target.value)} aria-label="Filter item class" className="h-9 text-base md:text-sm">
+        <Select
+          value={fClass}
+          onChange={(e) => {
+            const v = e.target.value;
+            setFClass(v);
+            // A category belonging to the class just left matches no row — drop
+            // it rather than leave an empty table and an invisible reason.
+            // Cleared only when it really is out of scope, so narrowing Item
+            // Class around the category you already picked keeps it. `__none`
+            // is a sentinel, not a category, and is never cleared.
+            const held = categories.find((c) => c.id === fCat);
+            if (v && v !== "__none" && held && held.item_class_id !== v) setFCat("");
+          }}
+          aria-label="Filter item class"
+          className="h-9 text-base md:text-sm"
+        >
           <option value="">All item classes</option>
           {itemClasses.map((c) => (
             <option key={c.id} value={c.id}>
@@ -246,9 +294,9 @@ export function MaterialHsnAssignScreen({
         </Select>
         <Select value={fCat} onChange={(e) => setFCat(e.target.value)} aria-label="Filter category" className="h-9 text-base md:text-sm">
           <option value="">All categories</option>
-          {categories.map((c) => (
+          {filterCategories.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name ?? c.short_name ?? "—"}
+              {c.label}
             </option>
           ))}
           <option value="__none">— No category —</option>

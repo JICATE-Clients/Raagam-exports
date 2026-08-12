@@ -132,6 +132,29 @@ Yarn \*, the **optional** Purity refused to let Tab past and announced "Yarn is 
 portal boundary, so this is fixed for every sheet at once — never per screen, and never by
 marking the inner field optional, which is not a thing the context can express.
 
+**A GRID THAT RENDERS ITS OWN ROW MUST DECLARE `required` TWICE.** `ChildGrid`'s
+stacked-cards layout calls `renderMobileRow(row, i)` *instead of* the `columns.map()` that
+wraps each cell in `RequiredScope` — so on such a grid `ChildGridColumn.required` never
+reaches the control. With `forceCards` there is no width at which it starts working again.
+
+The trap is not that it does nothing; it is that it does **half**. `c.required` still draws
+the header `*`, so a screen that declares it and forgets the control ships **a star with
+nothing behind it** — the exact star/hold divergence the "one declaration" rule above exists
+to make impossible, arriving through the one prop that is supposed to guarantee it. It is
+invisible to `--check required-star`, which looks for a hand-typed asterisk; here the
+declaration is real and the star is legitimate.
+
+So declare it on the control inside the row as well — `<Field required={c.required}>` around
+each cell, or `required` on a hand-rolled `<Input>`. **Every screen doing this today already
+gets it right, and that is the point**: four of them (Order Amendment, MBA, Attribute,
+Material Attribute) each rediscovered the rule independently and each left a comment warning
+the next reader. Four hand-written workarounds for one gap is what a missing check looks
+like. It cannot be fixed in the primitive — a per-COLUMN declaration is not something the
+grid can route into a row the screen renders itself — so it is enforced instead, by
+`python scripts/audit_layout.py . --check grid-required-mobile` (verified by being made to
+FAIL first, against a screen with the control's `required` removed). Opt out per file with a
+`// grid-required-mobile: exempt -- <reason>` comment.
+
 **A HOLD REFUSES MOVEMENT AND NEVER REFUSES CHOOSING.** This is the half that is easy to
 get wrong and fatal when you do: refusing a key the control uses to *pick a value* does not
 make the rule stricter, it makes it **unsatisfiable** — the operator can neither fill the
@@ -281,6 +304,58 @@ both by design; that is where a row gets switched back on.
 
 Checked by `python scripts/audit_layout.py . --check picker-inactive`; exemptions live in
 `FLAGLESS_PICKERS` there, each naming its reason. `doc/ui/LAYOUT.md` §13.
+
+## Cascading filters (STANDING)
+
+**A filter facet narrows to the facet beside it.** A Category dropdown standing next to an
+Item Class dropdown offers only that class's categories — never the full list. This is the
+**filter-bar half of the `cascading-picker rule`**, which the form fields have obeyed since
+0223 and which nothing stated for a filter.
+
+The two halves are not the same statement, and that is why one of them rotted. A form
+field's narrowing is done by the CALLER that knows the parent class ("the cascading-picker
+rule puts the narrowing at the caller"), so the rule reads as being about props. A filter
+facet has no caller — the screen owns both facets — so every screen re-derived it, and
+three of them didn't (client 2026-08-11):
+
+- **Material Attributes** offered CHAMBRAY and COLLAR under Item Class = PACKING
+  ACCESSORIES. The screen already HAD the cascade — `scopedCategories`, feeding the
+  editor — but the Filters panel keeps its own state (`filterValues.itemClass` vs the
+  editor's `itemClassId`), so one rule reached one of two consumers.
+- **HSN Assign to Materials** never declared `item_class_id` on its local `CatOpt`, so the
+  facet could not scope itself even though the page was handing it whole category rows.
+- **The item-report filter bar** — one component behind Item Ledger, Item Movement and
+  Purchase vs Receipt. `getItemReportFilterOptions()` selected `id, name`, so the client
+  had nothing to scope BY. **The data half again**: same shape as the `created_by` sweep,
+  where the column half passing said nothing about whether the value arrived.
+
+Four things a screen must get right, all four learned from those three:
+
+- **Scope the options** to the selected class, in a `useMemo` beside the facet.
+- **Clear a held value that falls out of scope** — but ONLY when it really is out of
+  scope, so narrowing the class around a category already picked keeps it. `setFilter` is
+  a functional update, so the two calls in one handler compose safely; `activeCount` is
+  derived per render, so the badge cannot desync.
+- **With no class chosen, prefix each option by its class.** Category names repeat across
+  classes (COTTON is a Yarn and a Fabric), and two identical options the operator has to
+  guess between is the other half of the same bug.
+- **Narrow the unscoped list to what the screen can hold.** Material Attributes only ever
+  carries Pack and Sew (the page filters through `isAccessoryClass`), so a Fabric category
+  there is not merely unhelpful — no selection could make it match a row.
+
+**An empty REPORT is the dangerous one.** On a master list a mis-scoped filter shows an
+empty table, visibly wrong. On a report it shows an empty report, which reads as "nothing
+moved in this period" — a real and unremarkable answer. The failure is indistinguishable
+from a legitimate result, so it gets believed rather than reported.
+
+A filter facet stays exempt from the "Disabled rows" hiding above — narrowing a search to
+a since-retired row is legitimate, and that exemption is unchanged by this section.
+
+Checked by `python scripts/audit_layout.py . --check cascade-filter`, which fires when a
+file declaring an Item Class facet still maps the raw `categories` array into options. It
+was verified by being made to FAIL first, against all three screens at their pre-fix
+commit, before being trusted. Opt out per file with a `// cascade-filter: exempt --
+<reason>` comment.
 
 ## Nominated vendors (STANDING)
 

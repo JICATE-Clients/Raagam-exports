@@ -89,7 +89,14 @@ def iter_sources(root: Path):
     for path in root.rglob("*"):
         if path.suffix not in SOURCE_SUFFIXES or not path.is_file():
             continue
-        if any(part in SKIP_DIRS for part in path.parts):
+        # `.next` is listed, but the VERIFICATION build writes `.next-verify`
+        # (scripts/build-check.mjs, via NEXT_DIST_DIR) and Next generates
+        # hundreds of route `.ts` files under it. Unskipped, the scan counted
+        # them: the same command reported 1371 files with a verify build on
+        # disk and 1118 without, which is a scan size you cannot quote. Match
+        # the whole family by prefix rather than adding one more literal, since
+        # the dist dir is deliberately overridable.
+        if any(part in SKIP_DIRS or part.startswith(".next") for part in path.parts):
             continue
         yield path
 
@@ -1762,7 +1769,164 @@ def check_required_star(path: Path, code: str, slug: str):
             )
 
 
+# A filter facet that HOLDS an item class. All four spellings in the repo: the
+# `useMasterFilter` bag (`filterValues.itemClass`), a screen-local `useState`
+# (`fClass` / `setFClass`), a plain GET form's field name, and the setter call.
+# Deliberately NOT `item_class_id` on its own -- that is the row COLUMN, and
+# matching it would fire on every editor and every service in the repo.
+CLASS_FACET = re.compile(
+    r"""filterValues\.itemClass
+      | \bset?FClass\b
+      | \bsetFilter\(\s*["']itemClass["']
+      | name\s*=\s*["']itemClass["']""",
+    re.X,
+)
+
+# Mapping the RAW category list into options. The receiver is what matters:
+# `categories.map` / `options.categories.map` is the full list, while the fixed
+# screens map a DERIVED name (`filterCategories`, `categoryOptions`,
+# `scopedCategories`) that the narrowing already produced. Anchored on `{` so it
+# only sees a JSX option list, not a `useMemo` body building the derived list --
+# that one legitimately maps the raw array, and is the fix, not the bug.
+RAW_CAT_OPTIONS = re.compile(r"\{\s*(?:[\w.]+\.)?categories\.map\(")
+
+CASCADE_EXEMPT = re.compile(r"cascade-filter:\s*exempt\b[^\n]*\S", re.I)
+
+
+def check_cascade_filter(path: Path, code: str, slug: str):
+    """AGENTS.md STANDING: a filter facet cascades off the facet beside it.
+
+    A Category filter that lists every category in the business while an Item
+    Class facet sits next to it offers pairs that CANNOT match a row -- the two
+    row-level tests are independent `&&`s, so picking a Yarn category under
+    Item Class = FABRIC empties the table with nothing on screen to say why.
+
+    This is the filter-bar half of the `cascading-picker rule` the form fields
+    have obeyed since 0223. The form half was never the problem; the filter half
+    had no written home and nothing checking it, and duly reached three screens
+    (client 2026-08-11): Material Attributes, HSN Assign to Materials, and the
+    shared item-report filter bar behind three reports at once.
+
+    Fires when a file declares an Item Class FACET and still maps the raw
+    `categories` array into an option list. It cannot see whether the narrowing
+    is correct, only whether the option list is the unscoped one -- which is
+    exactly the shape all three bugs had.
+
+    The reports case needed a DATA fix as well, and this check would not have
+    caught that half on its own: `getItemReportFilterOptions()` selected
+    `id, name`, so the client had nothing to scope BY. If a fix here means
+    widening a select, the same lesson as `created-by-data` applies -- the
+    column half passing says nothing about the data half.
+
+    Exempt with a comment naming the reason, e.g.
+
+        // cascade-filter: exempt -- the Category facet here is the vendor-type
+        // flag, not a material category; there is no class to cascade off.
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    if not CLASS_FACET.search(code):
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    if CASCADE_EXEMPT.search(raw):
+        return
+    for m in RAW_CAT_OPTIONS.finditer(code):
+        yield Finding(
+            "cascade-filter", path, line_of(code, m.start()),
+            "Category options mapped from the FULL list beside an Item Class "
+            "facet -- narrow them to the selected class (and clear a held "
+            "category that falls out of scope). AGENTS.md, 'Cascading filters'",
+        )
+
+
+REQUIRED_COLUMN = re.compile(r"required:\s*true")
+MOBILE_ROW = re.compile(r"renderMobileRow\s*=\s*\{")
+# `required` used as a JSX prop inside the hand-rolled row: bare (`<Input required`),
+# assigned (`required={c.required}`), or the context wrapper itself.
+BACKS_REQUIRED = re.compile(r"\brequired(?:\s*=\s*\{|\s*/?>|\s+)|RequiredScope")
+GRID_MOBILE_EXEMPT = re.compile(r"grid-required-mobile:\s*exempt\b[^\n]*\S", re.I)
+
+
+def _braced_body(code: str, open_idx: int, limit: int = 20000) -> str:
+    """Source of the `{...}` expression starting at/after `open_idx`."""
+    i = code.find("{", open_idx)
+    if i == -1:
+        return ""
+    depth = 0
+    for j in range(i, min(len(code), i + limit)):
+        if code[j] == "{":
+            depth += 1
+        elif code[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return code[i:j]
+    return code[i: i + limit]
+
+
+def check_grid_required_mobile(path: Path, code: str, slug: str):
+    """A `ChildGridColumn.required` that draws a star nothing holds.
+
+    `ChildGrid`'s stacked-cards layout calls `renderMobileRow(row, i)` INSTEAD of
+    the `columns.map(...)` that wraps each cell in `<RequiredScope required>`
+    (child-grid.tsx). So on a grid rendering its own row, a column's `required`
+    never reaches the control -- while STILL drawing the header `*`, which is the
+    dangerous half: the star and the hold diverge, and AGENTS.md's whole design
+    for mandatory fields is that one declaration produces both so they cannot.
+
+    With `forceCards` the table layout never renders on any viewport, so there is
+    no width at which the declaration starts working again.
+
+    Every screen doing this today gets it right -- and that is the finding. Four
+    of them (Order Amendment, MBA, Attribute, and Material Attribute) each
+    rediscovered the rule and each left a comment warning the next reader. Four
+    hand-written workarounds for one gap is what a missing check looks like; this
+    is that check, so the FIFTH screen is told rather than left to find out from
+    an operator that a `*` refuses nothing.
+
+    The fix is never to delete the `required` -- the header star is wanted. It is
+    to declare `required` on the control inside `renderMobileRow` too, exactly as
+    those four do:
+
+        <Field label={c.header} required={c.required}>{c.cell(r, i)}</Field>
+        <Input required ... />            // when the row hand-rolls its control
+
+    Exempt with `// grid-required-mobile: exempt -- <reason>`.
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    if not REQUIRED_COLUMN.search(code):
+        return
+    m = MOBILE_ROW.search(code)
+    if not m:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    if GRID_MOBILE_EXEMPT.search(raw):
+        return
+    # Any hand-rolled row that backs the declaration counts -- a screen may have
+    # several grids and only one of them required, so this is deliberately a
+    # file-level "is the rule known here", not a per-grid pairing. A false
+    # NEGATIVE is the right way to be wrong: this check exists to catch the
+    # screen that never heard of the rule, not to police which grid wired it.
+    for mm in MOBILE_ROW.finditer(code):
+        if BACKS_REQUIRED.search(_braced_body(code, mm.start())):
+            return
+    yield Finding(
+        "grid-required-mobile", path, line_of(code, m.start()),
+        "a column declares `required` but this grid renders its own row, so the "
+        "cell never gets RequiredScope -- the header `*` draws and nothing holds. "
+        "Declare `required` on the control inside renderMobileRow too",
+    )
+
+
 CHECKS = {
+    "grid-required-mobile": check_grid_required_mobile,
+    "cascade-filter": check_cascade_filter,
     "required-star": check_required_star,
     "created-columns": check_created_columns,
     "created-by-data": check_created_by_data,

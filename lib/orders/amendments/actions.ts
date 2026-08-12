@@ -81,9 +81,10 @@ function normalizeDyeings(data: AmendmentInput) {
     .map((r) => ({
       section: r.section === "fabric" ? "fabric" : "yarn",
       dye_type: clean(r.dye_type),
+      color_name: clean(r.color_name),
       color_id: r.color_id,
     }))
-    .filter((r) => r.dye_type || r.color_id)
+    .filter((r) => r.dye_type || r.color_name || r.color_id)
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
@@ -328,7 +329,12 @@ export async function createAmendment(data: AmendmentInput): Promise<Result> {
     const { data: order, error: orderErr } = await s
       .from("sales_orders")
       .insert({
-        buyer_id: p.data.buyer_id,
+        // NO PARTY ON THE SHELL (0404). This row exists only so 0395's trigger
+        // stamps the SC No; the party is a CUSTOMER and lives on the amendment.
+        // `sales_orders.buyer_id` still references `buyers` — ~20 services embed
+        // it through the order — so a customer uuid here would be rejected, and
+        // inventing a buyer to satisfy the column would be worse. 0404 made it
+        // nullable for exactly this insert.
         location_id: p.data.location_id,
         // Decides which fiscal year the SC No numbers into, so a back-dated
         // order files under the previous year. Sent explicitly: what the
@@ -394,16 +400,19 @@ export async function updateAmendment(
 
   /**
    * Mirror the few header fields `sales_orders` also holds, or All Orders shows
-   * a buyer and a ship date the document no longer agrees with. Deliberately
-   * short, and it never touches `location_id`, `order_date` or `order_number` —
-   * all three feed the minted SC No, and re-numbering a saved order is not a
-   * thing this screen may do.
+   * a ship date the document no longer agrees with. Deliberately short, and it
+   * never touches `location_id`, `order_date` or `order_number` — all three feed
+   * the minted SC No, and re-numbering a saved order is not a thing this screen
+   * may do.
+   *
+   * THE PARTY IS NO LONGER MIRRORED (0404). It is a `customers` row now, and
+   * `sales_orders.buyer_id` references `buyers`; writing one into the other is
+   * the FK rejection this repoint exists to avoid. The shell keeps a null buyer.
    */
   if (sales_order_id) {
     await s
       .from("sales_orders")
       .update({
-        buyer_id: p.data.buyer_id,
         currency_code: p.data.currency_code,
         ship_date: p.data.delivery_date,
         merchandiser_id: p.data.merchandiser_id,

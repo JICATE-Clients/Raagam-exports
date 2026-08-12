@@ -245,6 +245,41 @@ export function MaterialAttributeMasterScreen({
     initialFilters: { itemClass: "", category: "" },
   });
 
+  /*
+   * THE CATEGORY FACET FOLLOWS THE ITEM CLASS FACET BESIDE IT — the same
+   * cascading rule `scopedCategories` above already gives the EDITOR, which the
+   * filter bar was quietly breaking: it mapped the FULL category list, so under
+   * Item Class = PACKING ACCESSORIES the dropdown still offered CHAMBRAY and
+   * COLLAR, and picking one emptied the table with nothing on screen to say why
+   * (client 2026-08-11). Same bug, and same fix, as the Materials master's own
+   * filter bar (`material-master-screen.tsx`).
+   *
+   * The unscoped list is narrowed too, and that part is particular to this
+   * screen: `attributes` reaches it already filtered through `isAccessoryClass`
+   * (see the page), so a Material Attribute can only ever be Pack or Sew. A
+   * Fabric category in this dropdown is therefore not merely unhelpful — it is
+   * an option that CANNOT match a row, whatever else is selected.
+   *
+   * With no class chosen the survivors are prefixed by their class: category
+   * names repeat across classes (COTTON is a Yarn and a Fabric), and two
+   * identical options the operator has to guess between is the other half of
+   * the same bug.
+   */
+  const filterCategories = useMemo(() => {
+    const cls = filterValues.itemClass;
+    const inScope = (c: Category) =>
+      cls ? c.item_class_id === cls : classLabel.has(c.item_class_id ?? "");
+    return categories
+      .filter(inScope)
+      .map((c) => ({
+        id: c.id,
+        label: cls
+          ? c.name || c.short_name || "—"
+          : `${classLabel.get(c.item_class_id ?? "") ?? "—"} · ${c.name || c.short_name || "—"}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [categories, classLabel, filterValues.itemClass]);
+
   const pg = usePagination(filtered, 10);
 
   function blankLine(): LineRow {
@@ -279,6 +314,37 @@ export function MaterialAttributeMasterScreen({
    */
   const withStarRow = (ls: LineRow[]): LineRow[] =>
     ls.length && !ls[ls.length - 1].attribute_id ? ls : [...ls, blankLine()];
+
+  /**
+   * HAS THE OPERATOR STARTED THIS ROW? Everything on a line EXCEPT the attribute
+   * itself — the star row is blank by definition, so asking "is the attribute
+   * empty" cannot tell an untouched placeholder apart from a row someone has
+   * begun filling in.
+   *
+   * That distinction is the whole of the hold below, and getting it wrong costs
+   * data either way. Keyed on `attribute_id` alone (as it was until 2026-08-11),
+   * a line carrying a Start Value, a Unit and a ticked Mandatory stayed "the
+   * star row": un-required, un-held, and then **dropped by `submit()`**, which
+   * dismisses any line with no attribute. The operator typed into a row, left
+   * it, saved, and the work was gone with nothing said — precisely the loss the
+   * comment on `attrCell` says the hold exists to stop, walking straight through
+   * the exemption beside it.
+   *
+   * `unit_label` and `options_edited` are deliberately NOT here: the first is a
+   * display echo of `unit_id`, the second a bookkeeping flag, and neither is
+   * something the operator typed. `key` is identity. Counting either would make
+   * a fresh blank row read as started and re-cage the grid on the row nobody
+   * asked for.
+   */
+  const rowStarted = (l: LineRow): boolean =>
+    !!l.start_value ||
+    !!l.end_value ||
+    !!l.unit_id ||
+    !!l.step_value ||
+    l.value_in_steps ||
+    l.mandatory ||
+    l.inactive ||
+    l.options.length > 0;
 
   function openAdd() {
     setEditId(null);
@@ -488,6 +554,24 @@ export function MaterialAttributeMasterScreen({
     return byLine;
   }, [lines]);
   const hasDuplicateLine = duplicateAttrIds.size > 0;
+
+  /**
+   * A line the operator has BEGUN but given no attribute — the Save-button half
+   * of the same `required` the Attribute cell holds the cursor on. `submit()`
+   * drops any line with no `attribute_id`, so without this the mouse route
+   * saved the record and binned the row without a word.
+   *
+   * Deliberately NOT `lines.some((l) => !l.attribute_id)`: the trailing star row
+   * is blank on purpose and is the row that makes the grid usable. Only a row
+   * with something ON it counts, which is exactly what `rowStarted` decides for
+   * the hold — one predicate, so the button and the cursor can never disagree
+   * about which rows are real.
+   */
+  const hasStartedBlankLine = useMemo(
+    () => lines.some((l) => !l.attribute_id && rowStarted(l)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lines],
+  );
   // Stepped lines can't produce a duplicate (previewSteps is strictly
   // increasing), but they are counted anyway — the gate should follow the DB
   // constraint, not an argument about why it can't be hit.
@@ -592,6 +676,14 @@ export function MaterialAttributeMasterScreen({
         onDelete={() => remove(r)}
         canEdit={perms.canEdit}
         canDelete={perms.canDelete}
+        // A set some Material already answers cannot be deleted, and the LIST
+        // knows it (`in_use` / `used_by`), so say so on the bin rather than
+        // walking the operator through Delete? → Confirm → an error toast.
+        // Wording matches `deleteOrBlock`'s, which is what refuses the delete if
+        // one is attempted anyway.
+        deleteDisabledReason={
+          r.in_use ? `In use by ${r.used_by ?? "Materials"} — cannot delete.` : null
+        }
         isPending={isPending}
       />
     )),
@@ -624,7 +716,15 @@ export function MaterialAttributeMasterScreen({
               id="ma-filter-class"
               value={filterValues.itemClass}
               onChange={(e) => {
-                setFilter("itemClass", e.target.value);
+                const v = e.target.value;
+                setFilter("itemClass", v);
+                // A category belonging to the class just left matches no row —
+                // drop it rather than leave an empty table and an invisible
+                // reason. Cleared only when it really is out of scope, so
+                // narrowing Item Class around the category you already picked
+                // keeps it.
+                const held = categories.find((c) => c.id === filterValues.category);
+                if (v && held && held.item_class_id !== v) setFilter("category", "");
                 pg.setPage(1);
               }}
             >
@@ -647,9 +747,9 @@ export function MaterialAttributeMasterScreen({
               }}
             >
               <option value="">All</option>
-              {categories.map((c) => (
+              {filterCategories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name || c.short_name || "—"}
+                  {c.label}
                 </option>
               ))}
             </Select>
@@ -723,8 +823,23 @@ export function MaterialAttributeMasterScreen({
               // Duplicates block the save rather than being silently dropped —
               // the offending row is already red, so the disabled button has an
               // explanation on screen.
+              //
+              // `hasStartedBlankLine` is the SAME declaration as the cursor hold
+              // on the Attribute cell, reaching the Save button as AGENTS.md
+              // requires ("one declaration, four enforcers"). The hold alone
+              // only closes the keyboard route: it refuses forward movement, so
+              // a keyboard operator cannot reach Save past a started row with no
+              // attribute — but the mouse was never held, and `submit()` drops
+              // any line with no attribute, so clicking Save still binned the
+              // work in silence. The row also carries its own red message, so
+              // the disabled button has its reason on screen.
               disabled={
-                isPending || !itemClassId || !categoryId || hasDuplicateLine || hasDuplicateOption
+                isPending ||
+                !itemClassId ||
+                !categoryId ||
+                hasDuplicateLine ||
+                hasDuplicateOption ||
+                hasStartedBlankLine
               }
               onClick={submit}
             >
@@ -798,10 +913,22 @@ export function MaterialAttributeMasterScreen({
                 made the picker render its OWN <Label> — no `htmlFor`, and a
                 plain space before the required marker instead of `ml-0.5` — so
                 the two asterisks on this row sat at different offsets and only
-                Item Class was click-focusable. */}
+                Item Class was click-focusable.
+
+                BUT NO VISIBLE LABEL IS NOT NO NAME, and conflating the two is
+                what `title` exists for (see the prop on `CategoryPicker`). With
+                `label=""` and nothing else, every string the picker builds from
+                its noun came out blank — the panel read "Select ", the clear
+                button announced "Clear ", the empty list said "No  found." —
+                and the mandatory hold announced " is required." with no field
+                name (2026-08-11). `title` names the field for all of them while
+                the label above stays the only one DRAWN, and `htmlFor`/`id`
+                give the input the accessible name and the click target that the
+                note above says it lost. */}
             <Field
               label="Category"
               required
+              htmlFor="ma-category"
               hint={
                 !itemClassId
                   ? "Pick an Item Class first."
@@ -812,6 +939,13 @@ export function MaterialAttributeMasterScreen({
             >
               <CategoryPicker
                 label=""
+                title="Category"
+                id="ma-category"
+                // The noun now names the field, so the default empty state
+                // would read "— Select Category —" where it has always read
+                // "— Select —" (LAYOUT.md §5a, and the label above already says
+                // which). Stated so `title` changes the NAMES and not the text.
+                placeholder="— Select —"
                 categories={availableCategories}
                 value={categoryId}
                 onChange={setCategoryId}
@@ -874,26 +1008,40 @@ export function MaterialAttributeMasterScreen({
             // row's identity control and lives in the Attribute column, where a
             // second stacked element would push the line to two rows in the
             // duplicate state. The caller renders the warning under it.
-            const attrCell = (l: LineRow, isStar: boolean) => (
+            const attrCell = (l: LineRow) => (
               <AttributePicker
                 label=""
                 values={scopedAttributeValues}
                 value={l.attribute_id}
                 onChange={(v) => pickAttribute(l.key, v)}
                 invalid={!!l.attribute_id && duplicateAttrIds.has(l.attribute_id)}
-                // MANDATORY, and the star row is the exemption that makes it
-                // usable. `submit()` drops a line with no attribute, so a real
-                // row that is blank has been CLEARED and silently loses whatever
-                // else is on it — exactly what the hold exists to stop. The
-                // trailing star row is blank by design; requiring it would cage
-                // the operator on a row they never meant to add.
+                // MANDATORY ON A ROW THE OPERATOR HAS STARTED, and on no other.
+                // `submit()` drops a line with no attribute, so a STARTED row
+                // that is blank has been CLEARED and silently loses whatever
+                // else is on it — exactly what the hold exists to stop. A line
+                // carrying nothing loses nothing and blocks no save, so it must
+                // not hold: AGENTS.md's test is "must the record be unsaveable
+                // without it?", and `hasStartedBlankLine` — the Save-button half
+                // of this same declaration — does not count such a row either.
+                //
+                // Keyed on `rowStarted`, NOT on `isStar`. That one carries an
+                // extra "and it is the LAST line" clause, which it needs for the
+                // placeholder treatment (the "+", the missing ✕) and which has
+                // no business in a `required`: reusing it made the cursor and
+                // the Save button disagree about which rows are real, so
+                // clearing an EMPTY middle row refused forward movement while
+                // Save stayed enabled — and once that line was a stored one it
+                // could not be removed either, leaving the operator holding a
+                // row they could not fill, leave, or delete (2026-08-11).
                 //
                 // Declared here rather than through `ChildGridColumn.required`
-                // because this screen renders `renderMobileRow`, which those
-                // columns never reach (child-grid.tsx says so where the prop is
-                // defined). The picker's own `required` is the sanctioned second
-                // way in, and it is the same prop that draws the `*`.
-                required={!isStar}
+                // because requiredness here is a property of the ROW, not of the
+                // column — and because this screen renders `renderMobileRow`,
+                // which those columns never reach (child-grid.tsx says so where
+                // the prop is defined). The picker's own `required` is the
+                // sanctioned second way in, and it is the same prop that draws
+                // the `*`.
+                required={rowStarted(l)}
               />
             );
 
@@ -943,6 +1091,23 @@ export function MaterialAttributeMasterScreen({
                 <input
                   type="checkbox"
                   className="h-4 w-4 cursor-pointer accent-primary"
+                  // BLOCKED IS OFF THE TYPING PATH. `inactive` is the column shown
+                  // as **Blocked** (see `HEADINGS` and the `aria-label` below) —
+                  // switching one attribute line off, an escape hatch the operator
+                  // reaches for deliberately, not a value they enter on the way
+                  // past. Tab stopped on it in every row (client 2026-08-11).
+                  //
+                  // `data-focus-optional` (lib/focus.ts) takes it off Tab and Enter
+                  // and leaves it on ← → and the mouse, which is why it is the
+                  // marker here and `tabIndex={-1}` is not: `ROW_FIELDS` counts a
+                  // checkbox on purpose, and dropping one out of the arrow axis
+                  // made a tick-box cell a dead end (client 2026-07-28).
+                  //
+                  // Marked only while UNTICKED, the same way Fabric's Direct
+                  // Purchase is: once a line IS blocked, the box that unblocks it is
+                  // back on the Tab path exactly when the operator wants it. Value
+                  // In Steps and Mandatory are ordinary per-line values and stay.
+                  data-focus-optional={field === "inactive" && !l[field] ? "" : undefined}
                   checked={l[field]}
                   // Toggling Value In Steps regenerates the value list; the other
                   // two flags don't touch it.
@@ -1229,13 +1394,16 @@ export function MaterialAttributeMasterScreen({
                 columns={[
                   // `listRows` + `renderMobileRow` mean these never render — they
                   // are the fallback if this grid is ever switched to a table.
-                  // `required` here as well as on the picker: this column is the
-                  // fallback if the grid is ever switched to a table, and that
-                  // path DOES honour `ChildGridColumn.required`. `isStar` is
-                  // false because a table renders every row the same way — the
-                  // star-row exemption belongs to `renderMobileRow`, which is
-                  // what actually draws one.
-                  { header: "Attribute", cell: (l) => attrCell(l, false), required: true },
+                  //
+                  // NO `required` on the column, deliberately. That prop is a
+                  // COLUMN-level declaration and it reaches the cell through a
+                  // `RequiredScope`, which ORs with whatever the control inside
+                  // says — so on this grid it could only ever add a hold to the
+                  // rows `attrCell` has exempted, starting with the blank
+                  // placeholder. Requiredness here is a property of the ROW
+                  // (`rowStarted`), so the picker's own `required` is the single
+                  // declaration, and it is the one both paths render.
+                  { header: "Attribute", cell: attrCell },
                   { header: "Values", cell: valuesCell },
                 ]}
                 renderMobileRow={(l, i) => {
@@ -1245,7 +1413,18 @@ export function MaterialAttributeMasterScreen({
                   // The star row is the one line that is SUPPOSED to be empty, so
                   // it gets no "#", no chevron and no remove — it is not a record
                   // yet, and offering to delete nothing reads as a bug.
-                  const isStar = !l.attribute_id && i === lines.length - 1;
+                  //
+                  // `!rowStarted` is what keeps that true only while it IS empty.
+                  // The moment anything is typed into it, it stops being the
+                  // placeholder and becomes a row like any other: numbered,
+                  // removable, and with its Attribute mandatory and holding the
+                  // cursor (client 2026-08-11). The operator can still walk past
+                  // an untouched blank row and reach Save, which is the whole
+                  // reason the exemption exists — a permanently-blank row that
+                  // held the cursor would put Save out of keyboard reach for
+                  // good, and forward movement is exactly what a hold refuses.
+                  const isStar =
+                    !l.attribute_id && i === lines.length - 1 && !rowStarted(l);
                   return (
                     <div
                       className="space-y-1.5"
@@ -1305,13 +1484,40 @@ export function MaterialAttributeMasterScreen({
                             </button>
                           )}
                         </div>
-                        <div className="flex min-h-9 items-center justify-center text-xs text-muted-foreground">
-                          {isStar ? "*" : i + 1}
+                        {/* The placeholder marker is NOT an asterisk any more.
+                            Legacy's blank line is a `*`, and that is where this
+                            came from — but in THIS grid the Attribute beside it
+                            carries a real required star, so a `*` in the row
+                            number read as "this field is mandatory" while
+                            holding nothing at all. That is the `*`-that-holds-
+                            nothing trap, and here it did worse than mislead: it
+                            advertised a hold on the one row that is exempt, so
+                            the cursor moving on looked like the rule failing
+                            (client 2026-08-11). `+` says "a new row starts
+                            here", which is what the line actually is. */}
+                        <div
+                          className="flex min-h-9 items-center justify-center text-xs text-muted-foreground"
+                          aria-hidden={isStar || undefined}
+                        >
+                          {isStar ? "+" : i + 1}
                         </div>
                         <div className="min-w-0">
-                          {attrCell(l, isStar)}
+                          {attrCell(l)}
                           {dupAttr && (
                             <p className="mt-1 text-xs text-danger">Already used in this set</p>
+                          )}
+                          {/* Says why Save is disabled and why the cursor will
+                              not move on — so it is gated on `rowStarted`, the
+                              same predicate those two read, and never on
+                              `isStar`. On a line with nothing on it this
+                              sentence would be an error about a row that blocks
+                              no save and holds no cursor, and whose "clear this
+                              line" is not even offered once the line is a stored
+                              one. */}
+                          {!l.attribute_id && rowStarted(l) && (
+                            <p className="mt-1 text-xs text-danger">
+                              Pick an attribute, or clear this line
+                            </p>
                           )}
                         </div>
                         {flagCell(l, "value_in_steps")}

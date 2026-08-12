@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { capsTextNullable } from "@/lib/validation/formats";
+import { isUnitKind, type UnitKind } from "@/lib/orders/styles/rules";
 
 // ============================================================================
 // Garment Orders ▸ Garment Order Amendment. Header + 10 sub-tabs.
@@ -13,8 +15,59 @@ import { z } from "zod";
 // ============================================================================
 
 // Fixed dropdowns — legacy option lists (confirm exact values via screenshots).
+// WITHDRAWN FROM THE FORM 2026-08-11 (client) and kept for the same reason
+// RECEIPT_MODES is: `orders_amendments.initiated` and its stored rows are
+// untouched, and this tuple is the only record of the vocabulary they hold.
 export const INITIATED_OPTIONS = ["By Customer", "By Us"] as const;
+// AMEND_TYPE_OPTIONS joined them 2026-08-11: the "Type" dropdown went, on the
+// grounds that the company only makes garments, so Fabric and Made-ups were
+// answers no order could have. `amend_type` still holds them on older rows.
 export const AMEND_TYPE_OPTIONS = ["Garment", "Fabric", "Made-ups"] as const;
+
+/**
+ * ORDER UNIT IS PCS OR SET, AND IT IS THE STYLE'S OWN ANSWER (client
+ * 2026-08-11: "Order Unit (PCS/SET) is sufficient").
+ *
+ * It was a `uoms` picker — nos / mtr / kg / gross / yard / set — seeded from
+ * `garment_styles.unit_id`. The line now reads the style's `unit_kind`
+ * ('piece' | 'set', 0392), which is the SAME value that caps that style's
+ * Coordinates grid via `COORDINATE_LIMITS`.
+ *
+ * DERIVED, NOT COPIED, AND THAT IS THE POINT. A garment style either IS one
+ * garment or IS a set of 2-6 coordinates, so an order line naming that style
+ * has no room to disagree with it — there is nothing here for an operator to
+ * choose. Resolving it through `style_id` on every read means the two can never
+ * drift; a snapshot column would be a second source of truth for a fact the
+ * style already owns. `style_id` is stored, so a reopened amendment re-derives
+ * the same answer.
+ *
+ * `uoms` CANNOT CARRY THIS VALUE and must not be made to. It is seeded
+ * lowercase, has NO piece row at all, and its codes are editable from the Stock
+ * Unit master — inferring Piece/Set from it is exactly what the Style screen
+ * rejected outright on 2026-08-11, and re-proposing it here would break the
+ * rule silently the day someone tidies that master.
+ *
+ * THE WORDS ARE THE CLIENT'S: PCS and SET, not the Style screen's Piece / Set.
+ * Capitals per AGENTS.md, and not merely cosmetic here — this string is STORED,
+ * on `garment_order_amendment_price_details.unit`, whose Unit "is pulled from
+ * the Order Unit established in the initial Style Entry".
+ *
+ * Keyed by `UnitKind` rather than written as a ternary so a third kind added to
+ * `COORDINATE_LIMITS` fails to compile here instead of quietly reading blank.
+ */
+const ORDER_UNIT_LABELS: Record<UnitKind, string> = { piece: "PCS", set: "SET" };
+
+/**
+ * A style's Order Unit as the word the order shows and stores.
+ *
+ * BLANK IS A REAL ANSWER, NOT A DEFAULT. Every style created before 2026-08-10
+ * has no `unit_kind` (0392 added it nullable), and guessing PCS for those would
+ * put an invented unit against a real PO Qty. Same silence `coordinateLimit`
+ * keeps, for the same reason.
+ */
+export function orderUnitLabel(unitKind: string | null | undefined): string {
+  return isUnitKind(unitKind) ? ORDER_UNIT_LABELS[unitKind] : "";
+}
 /**
  * How a style's price is broken down (client 2026-08-10). "The most critical
  * field in this tab, as it determines how the pricing grid behaves":
@@ -133,6 +186,13 @@ export interface AmendmentDyeing {
   sno: number;
   section: "yarn" | "fabric";
   dye_type: string | null;
+  /**
+   * The colour AS TYPED (0403). Colour Cards was withdrawn as a screen on
+   * 2026-08-11 and it was the app's only colour data, so this cell is free text
+   * like `dye_type` beside it rather than a dropdown over nothing.
+   */
+  color_name: string | null;
+  /** Pre-0403 colour-card reference. Frozen, not dropped — see 0403's header. */
   color_id: string | null;
 }
 
@@ -244,7 +304,8 @@ export interface GarmentOrderAmendment {
   amend_date: string;
   initiated: string | null;
   amend_type: string | null;
-  buyer_id: string | null;
+  /** The Customer master row this order is for (0404). Was `buyer_id`. */
+  customer_id: string | null;
   po_no: string | null;
   po_date: string | null;
   merchandiser_id: string | null;
@@ -286,7 +347,7 @@ export interface GarmentOrderAmendment {
   updated_at: string;
   // embedded for display / edit
   sales_order?: { id: string; order_number: string | null; location_id: string | null } | null;
-  buyer?: { id: string; code: string | null; name: string } | null;
+  customer?: { id: string; code: string | null; name: string } | null;
   charges: AmendmentCharge[];
   style_prices: AmendmentStylePrice[];
   styles: AmendmentStyle[];
@@ -335,6 +396,25 @@ export const amendmentDyeingInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   section: z.enum(["yarn", "fabric"]).default("yarn"),
   dye_type: nullableText,
+  // CAPS (AGENTS.md, STANDING). The transform lives in the ZOD SCHEMA, not
+  // in the action: `lib/data-io` parses imports with these same *Input
+  // schemas and writes straight to Postgres, so an action-level
+  // `.toUpperCase()` would silently miss every spreadsheet import. The
+  // `<Input uppercase>` on the Colour cell is the other required half — it
+  // catches the keystroke AND adds the CSS transform that reaches rows
+  // saved before this rule.
+  //
+  // `dye_type` beside it is deliberately NOT capsed here: it is
+  // pre-existing and unrequested, and capping it would visually uppercase
+  // values already stored in lowercase. Flagged, not folded in.
+  color_name: capsTextNullable(),
+  /**
+   * STILL IN THE SCHEMA THOUGH NOTHING ON SCREEN SETS IT (0403). Unlike the
+   * withdrawn HEADER fields above, a child grid is deleted and reinserted
+   * wholesale by `writeChildren` — so a field dropped from this input is
+   * nulled on the next save rather than frozen. Keeping it is what makes the
+   * freeze real.
+   */
   color_id: uuidN,
 });
 
@@ -449,9 +529,11 @@ export const amendmentInput = z.object({
    */
   location_id: z.string().uuid().nullable().default(null),
   amend_date: z.string().min(1, "Date is required"),
-  initiated: nullableText,
-  amend_type: nullableText,
-  buyer_id: z.string().uuid("Customer is required"),
+  // 0404: points at `customers`, the master the business maintains — not the
+  // scaffold's `buyers`, which offered demo rows and could not reach ASMARA /
+  // OXBOW at all. Renamed as well as repointed; a `buyer_id` holding a customer
+  // uuid is the FK landmine 0355 and 0375/0376 were written to clear up.
+  customer_id: z.string().uuid("Customer is required"),
   po_no: nullableText,
   po_date: nullableText,
   merchandiser_id: uuidN,
@@ -462,11 +544,13 @@ export const amendmentInput = z.object({
   pack: z.boolean().default(false),
   mult_ord: z.boolean().default(false),
   /**
-   * WITHDRAWN FROM THE FORM 2026-08-10 (client), and therefore from this schema.
+   * WITHDRAWN FROM THE FORM (client), and therefore from this schema.
    *
-   * `department_id`, `agent_id`, `received_mode`, the whole `charges` child and
-   * `cd1_pct … cd3_days` are no longer asked for. Their COLUMNS and their stored
-   * values are untouched.
+   * 2026-08-10 — `department_id`, `agent_id`, `received_mode`, the whole
+   * `charges` child and `cd1_pct … cd3_days`. 2026-08-11 — `initiated`, the
+   * Order Info "Initiated" dropdown, and `amend_type`, its "Type" dropdown
+   * (Garment / Fabric / Made-ups: the company only makes garments, so the field
+   * had one answer). Their COLUMNS and their stored values are untouched.
    *
    * Leaving them OUT OF THE SCHEMA is the half that matters: a field left here
    * with a `.default()` is written by `headerOnly(p.data)` on every update, so

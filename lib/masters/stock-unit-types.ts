@@ -24,6 +24,12 @@ export interface StockUnit {
   is_packing: boolean;
   is_general: boolean;
   is_garment: boolean;
+  /** Created Date / Created User. `uoms` had neither column until 0404 — 0383
+   *  skipped every table with no `created_at`, which is why this master showed
+   *  no Created pair at all while every call site was correctly wired. Null on
+   *  rows predating 0404; deliberately not backfilled. */
+  created_at?: string | null;
+  created_by?: string | null;
 }
 
 export const stockUnitInput = z.object({

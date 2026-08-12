@@ -312,6 +312,41 @@ export function usesNumbersUom(code: string | null | undefined): boolean {
   return !!code && NUMBERS_UOM_CLASS_CODES.has(code.toUpperCase());
 }
 
+/**
+ * Does this Yarn have to declare a mixing composition?
+ *
+ * ONE rule with three readers, which is the whole point of it being here: the
+ * Materials master shows the grid on it (`yarnMixingVisible`), the Yarn
+ * quick-create sheet shows its own grid on it, and `mixingRequiredError`
+ * (material-actions.ts) refuses the save without it. A grid that is not on
+ * screen must never be what blocks Save, so "is it shown" and "is it required"
+ * have to be the same expression — and a form that cannot show the grid at all
+ * is a form that cannot satisfy the rule, which is exactly how the quick-create
+ * sheet became unable to save a Mixed yarn (client 2026-08-11).
+ *
+ * It lives in this file rather than beside its server-side caller for the
+ * reason `missingRequiredMaterialFields` above does: a `"use server"` module
+ * may only export async functions, so a predicate a client component has to
+ * evaluate synchronously — to gate a Save button on a keystroke — cannot live
+ * there. It was exported from one until this moved it.
+ *
+ * **The yarn-type half is a read-by-NAME coupling**, pre-existing rather than
+ * introduced here (`extras-types.ts` documents it where the `yarn_type` kind is
+ * declared): Twisted / Doubling / Melange are recognised by their lookup NAME
+ * because the seeded rows carry no stable code to key on. Renaming one of those
+ * values silently changes which yarns need a mixing composition — in all three
+ * readers at once, which is the most that can be promised while the coupling
+ * exists. `yarn_type` is a CLOSED lookup partly for this reason. Do not "fix"
+ * only one side.
+ */
+export function yarnMixingApplies(
+  categoryMade: string | null | undefined,
+  yarnTypeName: string | null | undefined,
+): boolean {
+  const t = yarnTypeName?.toLowerCase() ?? null;
+  return categoryMade === "Mixed" || t === "twisted" || t === "doubling" || t === "melange";
+}
+
 // ---------------------------------------------------------------------------
 // Fabric structure → UOM. A PREFILL, and overridable (client 2026-08-04).
 //
@@ -362,6 +397,42 @@ export const FABRIC_STRUCTURE_UOM: Record<string, { base: string; secondary?: st
  *  seeds these lowercase but nothing stops a row being edited to "Woven". */
 export function fabricStructureUom(code: string | null | undefined) {
   return code ? FABRIC_STRUCTURE_UOM[code.toLowerCase()] ?? null : null;
+}
+
+/**
+ * A class whose Base unit is **FIXED, not merely defaulted** — the dropdown
+ * offers that unit and nothing else, and the server refuses anything else
+ * (client 2026-08-11).
+ *
+ * **This is deliberately NOT what fabric does, and the difference is evidence,
+ * not taste.** Fabric's base has flipped prefill → locked → prefill three times
+ * (see the history above `applyFabricUomRule`) and must stay a prefill, because
+ * `doc/recording/business logic.md` records Flat Knit as "Pcs & KG — used for
+ * collars/cuffs, requires tracking by both unit count and physical weight for
+ * costing". Locking fabric would delete a costing input. **Yarn has no such
+ * counter-case anywhere in the docs**: "Yarn is always traded in KG" (0279 #15)
+ * — *always*, not *usually*, which is why a lock is honest here and was not
+ * there. So a request to add a class to this table is a request for that same
+ * evidence: find the unit pairing the business needs, or there isn't one.
+ *
+ * Only classes with exactly ONE correct unit belong here. Checked against live
+ * data before YARN was added — 14 yarns on KGS, 5 with none, none on anything
+ * else, so the lock strands no existing record. Garments (PCS 4 / NOS 1) and
+ * Sewing (NOS 4 / MTR 1) are genuinely mixed and must NOT be added.
+ *
+ * Values are unit CODES resolved through `resolveUomId`, never compared with
+ * `===` — the master is seeded `kg` and live rows spell it `KGS`.
+ */
+export const CLASS_BASE_UOM: Record<string, string> = {
+  YARN: "kg",
+};
+
+/** The fixed Base unit for an item class, or null when the class may choose.
+ *  One declaration read by the screen (which offers only this unit) and by both
+ *  server actions (which enforce it) — `lib/data-io` imports reach the actions
+ *  without passing the screen, so a screen-only filter would guard nothing. */
+export function classBaseUom(classCode: string | null | undefined): string | null {
+  return classCode ? CLASS_BASE_UOM[classCode.toUpperCase()] ?? null : null;
 }
 
 /** The Stock Unit master is seeded lowercase (`kg`, `nos`, `mtr` — 0004) but

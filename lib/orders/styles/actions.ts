@@ -3,13 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
+import { deleteOrDeactivate } from "@/lib/masters/delete-guard";
 import { writeAudit } from "@/lib/audit";
 import { garmentStyleInput, type GarmentStyleInput } from "./types";
 import { componentRowStarted } from "./rules";
 
-type Result = { ok: true } | { ok: false; error: string };
+type Failure = { ok: false; error: string };
+type Result = { ok: true } | Failure;
+/** A delete that may have soft-disabled instead — the screen needs both halves
+ *  to say "marked inactive because it is used by X" rather than "deleted". */
+type DeleteResult = { ok: true; inactive: boolean; usedBy?: string } | Failure;
 
-function fail(msg: string): Result {
+// Typed `Failure`, not `Result`: an action returning `DeleteResult` still wants
+// to `return fail(...)`, and the wide union's `{ ok: true }` branch is not
+// assignable to `{ ok: true; inactive: boolean }`.
+function fail(msg: string): Failure {
   return { ok: false, error: msg };
 }
 function rev(): void {
@@ -24,11 +32,13 @@ const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null
  * Style form can show its serial while it is being entered, instead of "(auto)".
  *
  * ASKS THE DATABASE RATHER THAN COMPOSING THE STRING HERE. Building
- * `STL-<fy>-<n>` in TypeScript would be a second implementation of the format
+ * `STL/<fy>/<n>` in TypeScript would be a second implementation of the format
  * AND of the April–March fiscal-year rule; the first time either changed, the
  * screen would confidently display a number different from the one saved.
- * `peek_garment_style_code` (0393) shares `garment_style_fy()` with the trigger
- * that actually assigns, which is what makes them impossible to drift apart.
+ * `peek_garment_style_code` shares BOTH halves with the trigger that actually
+ * assigns — `garment_style_fy()` for the year and
+ * `public.garment_style_code_format()` for the shape — which is what makes them
+ * impossible to drift apart.
  *
  * A PREDICTION, NOT A RESERVATION. The peek does not consume the counter — so
  * opening the form and abandoning it burns no numbers — which means two
@@ -72,7 +82,7 @@ function normalizeComponents(data: GarmentStyleInput) {
     .map((c) => ({
       coordinate_id: c.coordinate_id ?? null,
       component_id: c.component_id ?? null,
-      structure_id: c.structure_id ?? null,
+      fabric_category_id: c.fabric_category_id ?? null,
       comp_type: clean(c.comp_type),
       item_id: c.item_id ?? null,
     }))
@@ -152,6 +162,27 @@ export async function createGarmentStyle(data: GarmentStyleInput): Promise<Resul
   if (!(await can("orders", "create"))) return fail("Forbidden");
   const p = garmentStyleInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+
+  /**
+   * APPROVED SAMPLE IS MANDATORY ON A NEW STYLE.
+   *
+   * Here rather than in `garmentStyleInput` because the schema is shared with
+   * `updateGarmentStyle`, and every style that predates this rule holds NULL —
+   * requiring it there would make those unsaveable with nothing to fill them
+   * with (there are no approved samples in the data yet). The full reasoning,
+   * and what must change if a Styles importer is ever added to `lib/data-io`,
+   * is on the field in ./types.
+   *
+   * A DRAFT IS NOT EXEMPT. It is tempting to let `is_draft` through, and it is
+   * wrong: the client's reason for the field is to count how many marketing
+   * samples become bulk production, and a style parked as a draft and finished
+   * next week is exactly the conversion being counted. Exempting drafts would
+   * make "save as draft" the way to never answer.
+   */
+  if (!p.data.approved_sample_id) {
+    return fail("Approved Sample is required — a new style must name the sample it came from.");
+  }
+
   const s = await createClient();
   const { data: created, error } = await s
     .from("garment_styles")
@@ -191,11 +222,16 @@ export async function updateGarmentStyle(
   return { ok: true };
 }
 
-export async function deleteGarmentStyle(id: string): Promise<Result> {
+export async function deleteGarmentStyle(id: string): Promise<DeleteResult> {
   if (!(await can("orders", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const { error } = await s.from("garment_styles").delete().eq("id", id); // children cascade
-  if (error) return fail(error.message);
+  // `blocked`, not "is_active": that is the flag `garment_styles` carries, and a
+  // patch naming the wrong column fails at the one moment the guard is needed.
+  // The trailing note still holds and does not conflict — 0344 ignores CASCADE
+  // by design, so a style's own detail rows cascade and never count as "in use";
+  // an order quoting the style does, and deactivates it instead.
+  const res = await deleteOrDeactivate(s, "garment_styles", id, "blocked"); // children cascade
+  if (!res.ok) return fail(res.error);
   rev();
-  return { ok: true };
+  return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { can, getAppUser } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
 import { writeAudit } from "@/lib/audit";
+import { deleteOrBlock } from "@/lib/masters/delete-guard";
 import {
   opportunityInput,
   bulkOpportunityInput,
@@ -183,8 +184,11 @@ export async function deleteStyle(id: string): Promise<ActionResult> {
   if (!(await can("sales", "delete"))) return { ok: false, error: "Forbidden" };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("styles").delete().eq("id", id);
-  if (error) return { ok: false, error: error.message };
+  // `deleteOrBlock`, not `deleteOrDeactivate`: `styles` carries no active flag,
+  // so there is nothing to soft-disable — a style something else references is
+  // refused with a message naming the referrer rather than orphaning it.
+  const res = await deleteOrBlock(supabase, "styles", id);
+  if (!res.ok) return { ok: false, error: res.error };
 
   revalidateSales();
   revalidatePath("/sales/styles");

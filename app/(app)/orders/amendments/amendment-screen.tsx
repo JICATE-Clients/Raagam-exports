@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   Trash2,
   Plus,
-  Shirt,
   Palette,
   Layers,
   Banknote,
@@ -59,8 +58,6 @@ import {
 } from "@/lib/orders/amendments/actions";
 import type { FabricTypeCounts, SeededAmendmentChildren } from "@/lib/orders/amendments/order-seed";
 import {
-  INITIATED_OPTIONS,
-  AMEND_TYPE_OPTIONS,
   PACK_TYPE_OPTIONS,
   PRICE_TYPE_OPTIONS,
   SEASON_OPTIONS,
@@ -68,13 +65,14 @@ import {
   PAY_MODES,
   amendmentStatusTone,
   amendmentStatusText,
+  orderUnitLabel,
   type GarmentOrderAmendment,
 } from "@/lib/orders/amendments/types";
+import { styleOptions, type StyleFilterRow } from "@/lib/orders/amendments/style-options";
 import type {
   AmendmentFormData,
   PickerRow,
   StylePickerRow,
-  DyeColorRow,
 } from "@/lib/orders/amendments/service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
@@ -119,6 +117,9 @@ type DyeingRow = {
   key: string;
   section: "yarn" | "fabric";
   dye_type: string;
+  /** Typed on screen (0403). */
+  color_name: string;
+  /** Pre-0403 colour-card id, carried so a save cannot null it. */
   color_id: string | null;
 };
 type PrintRow = { key: string; print_id: string | null };
@@ -200,6 +201,7 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       key: newKey(),
       section: x.section,
       dye_type: txt(x.dye_type),
+      color_name: txt(x.color_name),
       color_id: x.color_id,
     })),
     prints: src.prints.map((x): PrintRow => ({ key: newKey(), print_id: x.print_id })),
@@ -246,9 +248,7 @@ type HeaderForm = {
   /** The Unit the SC No is numbered under. Lives on `sales_orders`, not here. */
   location_id: string | null;
   amend_date: string;
-  initiated: string;
-  amend_type: string;
-  buyer_id: string | null;
+  customer_id: string | null;
   po_no: string;
   po_date: string;
   merchandiser_id: string | null;
@@ -285,9 +285,7 @@ const BLANK: HeaderForm = {
   sales_order_id: null,
   location_id: null,
   amend_date: "",
-  initiated: "",
-  amend_type: "",
-  buyer_id: null,
+  customer_id: null,
   po_no: "",
   po_date: "",
   merchandiser_id: null,
@@ -365,6 +363,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     key: newKey(),
     section,
     dye_type: "",
+    color_name: "",
     color_id: null,
   });
   const blankPrint = (): PrintRow => ({ key: newKey(), print_id: null });
@@ -596,11 +595,46 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
   );
   const printOpts = useMemo(() => lookups.filter((l) => l.kind === "roll_form_print"), [lookups]);
 
-  // Style picker items {id, code, name}; keep the full rows for auto-fill lookup.
-  const styleItems: PickerRow[] = useMemo(
-    () => data.styles.map((s) => ({ id: s.id, code: s.code, name: s.name, blocked: s.blocked })),
+  /**
+   * Style picker rows, carrying the column the filter narrows on.
+   * The full master rows stay in `styleById` for auto-fill lookup.
+   */
+  const styleFilterRows: StyleFilterRow[] = useMemo(
+    () =>
+      data.styles.map((s) => ({
+        id: s.id,
+        code: s.code,
+        name: s.name,
+        blocked: s.blocked,
+        season: s.season,
+      })),
     [data.styles],
   );
+
+  /**
+   * The Style options for ONE row (client: "Once a customer and season are
+   * selected, the Style field should only list relevant styles").
+   *
+   * SEASON ONLY, BUT NO LONGER BLOCKED. Until 0404 the customer half was
+   * unbuildable: styles key on `customers` and this order keyed on `buyers`,
+   * with an empty bridge between them, so a customer filter would either empty
+   * the picker on every order or narrow nothing while looking like it works.
+   * 0404 repointed this order's party at `customers`, so both sides now key on
+   * one table and `data.styles` already carries `customer_id`.
+   *
+   * TURNING IT ON IS A SEPARATE, DELIBERATE CHANGE — it is a visible change to
+   * what the picker offers, and with one style in the master it can legitimately
+   * empty the list for a customer. `style-options.ts` holds the rule and takes
+   * the argument; adding `customer: form.customer_id` below is the whole edit.
+   *
+   * Per ROW, not per grid, for one reason only: `currentValue`. The style a line
+   * already holds must survive a filter that would now exclude it — the header's
+   * Season edited after the line was saved — or the field renders empty and the
+   * next save blanks the FK. The narrowing itself is identical on every row.
+   */
+  const styleOptionsFor = (currentValue: string | null) =>
+    styleOptions({ styles: styleFilterRows, season: form.season, currentValue });
+
   const styleById = useMemo(() => {
     const m = new Map<string, StylePickerRow>();
     for (const s of data.styles) m.set(s.id, s);
@@ -638,22 +672,32 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
   const styleLineKeyOf = (refNo: string) =>
     refNo.trim() ? (styles.find((x) => x.style_ref_no.trim() === refNo.trim())?.key ?? null) : null;
 
-  /** The style line's Order Unit, as the text this tab stores. */
+  /**
+   * The style line's Order Unit — PCS or SET, off the picked style's own
+   * `unit_kind` (client 2026-08-11).
+   *
+   * Read through `style_id`, not off a column of this row: the unit is a fact
+   * the STYLE owns (it is the same value that caps its Coordinates grid), so
+   * there is nothing here to store and nothing to keep in step. `orderUnitLabel`
+   * carries the full reasoning and the reason `uoms` cannot answer this.
+   *
+   * The text half is unchanged: Price Details still stores this word in its own
+   * `unit` column, which is what "pulled from the Order Unit established in the
+   * initial Style Entry" means — it just no longer comes from a UoM master.
+   */
   const unitTextOf = (r: StyleRow) =>
-    (r.order_unit_id ? data.uoms.find((u) => u.id === r.order_unit_id) : null)?.name ?? "";
+    orderUnitLabel(r.style_id ? styleById.get(r.style_id)?.unit_kind : null);
 
-  // Dye-colour picker items scoped to the amendment's buyer (colours belong to a
-  // colour card, which belongs to a buyer). Falls back to all when no buyer yet.
-  const dyeColorItems: PickerRow[] = useMemo(() => {
-    const rows: DyeColorRow[] = form.buyer_id
-      ? data.dyeColors.filter((c) => !c.buyer_id || c.buyer_id === form.buyer_id)
-      : data.dyeColors;
-    return rows.map((c) => ({
-      id: c.id,
-      code: c.code,
-      name: c.card_label ? `${c.name} · ${c.card_label}` : c.name,
-    }));
-  }, [data.dyeColors, form.buyer_id]);
+  /*
+   * COLOUR IS TYPED, SO THERE IS NO COLOUR OPTION LIST (2026-08-11).
+   *
+   * `dyeColorItems` scoped `color_card_colors` to the amendment's buyer and fed
+   * both dyeing grids. Colour Cards is withdrawn as a screen and it was the
+   * app's only colour data — `public.colors` was dropped by 0382 as "not
+   * applicable to the business process" — so the picker had no source left and
+   * no route to gain one. A dropdown that can only ever be empty is worse than
+   * a text box: it reads as a master the operator failed to fill.
+   */
 
   /**
    * UNREACHABLE SINCE 2026-08-11, AND KEPT ON PURPOSE.
@@ -720,9 +764,14 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
       return;
     }
     const o = data.orders.find((x) => x.id === orderId);
+    // THE CUSTOMER IS NO LONGER AUTO-FILLED FROM THE ORDER (0404). It used to
+    // be `buyer_id: o?.buyer_id ?? form.buyer_id` — but the order's party is a
+    // `buyers` row and this field now holds a `customers` one, so copying it
+    // across would write a uuid the FK rejects. Leaving the customer as typed is
+    // the honest behaviour; this path is in any case unreachable since the SC No
+    // became minted rather than picked (see the note on the SCNo field).
     set({
       sales_order_id: orderId,
-      buyer_id: o?.buyer_id ?? form.buyer_id,
       currency_code: o?.currency_code ?? form.currency_code,
       delivery_date: o?.ship_date ?? form.delivery_date,
     });
@@ -764,7 +813,17 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     setEditId(null);
     setSavedOrderNo(null);
     setPreviewNo(null);
-    setForm({ ...BLANK, amend_date: today(), location_id: startingLocationId });
+    // Yr PREFILLED WITH THE CURRENT YEAR, and still editable (client
+    // 2026-08-11). In `openAdd` and NOT in `BLANK`: this is the only path that
+    // starts a new order, so a default stated here can never reach a loaded
+    // one. `openEdit` builds its own literal off the record and sets
+    // `amend_year` from `r.amend_year`, which is what must keep winning.
+    setForm({
+      ...BLANK,
+      amend_date: today(),
+      amend_year: String(new Date().getFullYear()),
+      location_id: startingLocationId,
+    });
     setStylePrices([]);
     setStyles([]);
     setDyeings([]);
@@ -811,9 +870,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
       sales_order_id: r.sales_order_id,
       location_id: r.sales_order?.location_id ?? null,  // Unit is read-only from here on
       amend_date: r.amend_date ?? today(),
-      initiated: r.initiated ?? "",
-      amend_type: r.amend_type ?? "",
-      buyer_id: r.buyer_id,
+      customer_id: r.customer_id,
       po_no: r.po_no ?? "",
       po_date: r.po_date ?? "",
       merchandiser_id: r.merchandiser_id,
@@ -885,7 +942,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
      * A toast rather than a silent return, because a save that does nothing and
      * says nothing reads as the app being broken.
      */
-    if (!form.location_id || !form.buyer_id) {
+    if (!form.location_id || !form.customer_id) {
       toastError(
         !form.location_id
           ? "Pick the Unit — the SC No is numbered under it."
@@ -898,9 +955,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
       sales_order_id: form.sales_order_id,
       location_id: form.location_id,
       amend_date: form.amend_date,
-      initiated: form.initiated || null,
-      amend_type: form.amend_type || null,
-      buyer_id: form.buyer_id,
+      customer_id: form.customer_id,
       po_no: form.po_no || null,
       po_date: form.po_date || null,
       merchandiser_id: form.merchandiser_id,
@@ -955,6 +1010,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
         sno: 0,
         section: r.section,
         dye_type: r.dye_type || null,
+        color_name: r.color_name || null,
         color_id: r.color_id,
       })),
       prints: prints.map((r) => ({ sno: 0, print_id: r.print_id })),
@@ -1048,11 +1104,13 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
           <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>
         ),
       },
-      { header: "Customer", cell: (r) => <span className="text-sm">{r.buyer?.name ?? "—"}</span> },
-      {
-        header: "Type",
-        cell: (r) => <span className="text-sm text-muted-foreground">{r.amend_type ?? "—"}</span>,
-      },
+      { header: "Customer", cell: (r) => <span className="text-sm">{r.customer?.name ?? "—"}</span> },
+      /* "Type" WITHDRAWN 2026-08-11 (client): "the company exclusively produces
+         garments", so a Garment / Fabric / Made-ups toggle answers a question
+         that has one answer. The column went with the field — a list column the
+         operator can no longer fill reads as data they forgot to enter, and it
+         would show a value on legacy rows only. `amend_type` and its stored rows
+         are untouched; see the note where the field was. */
       {
         header: "Date",
         cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.amend_date)}</span>,
@@ -1110,7 +1168,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
    */
   const canSave =
     !!form.location_id &&
-    !!form.buyer_id &&
+    !!form.customer_id &&
     !!form.amend_date &&
     !!form.ship_type_id &&
     !!form.ship_mode &&
@@ -1126,16 +1184,49 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
    * Picking a Style fills everything the Style Entry already knows, so the
    * operator types only what the buyer's order sheet adds (client 2026-08-10).
    *
-   * ORDER UNIT AND PLAN UNIT BOTH COME FROM THE STYLE'S ONE UNIT. `garment_styles`
-   * carries a single `unit_id` (-> `uoms`, the same master these two pickers read),
-   * defined on the Style Entry's General tab; an order line splits it into the
-   * unit the goods are ORDERED in and the unit they are PLANNED in, which are the
-   * same until someone says otherwise. Seeding both is a PREFILL, not a lock —
-   * either can be changed on the line, which is the distinction Fabric's Base UoM
-   * had to relearn three times.
+   * IT NO LONGER SEEDS A UNIT ANYONE SEES. Order Unit and Plan Unit were both
+   * `uoms` pickers prefilled from the style's one `unit_id`; the client withdrew
+   * Plan Unit and reduced Order Unit to PCS/SET on 2026-08-11, and the cell now
+   * DERIVES that from `unit_kind` on every read rather than being handed a value
+   * once. So there is no unit prefill left to get right — which also retires the
+   * "prefill, not a lock" argument Fabric's Base UoM had to relearn three times:
+   * it applies to a value the operator may overrule, and this one has no operator
+   * input to overrule it with.
+   *
+   * THE TWO FK COLUMNS ARE STILL SEEDED, AND THAT IS DELIBERATE. `order_unit_id`
+   * and `plan_unit_id` are frozen, not deleted: `writeChildren` deletes and
+   * reinserts a grid wholesale, so a column that stops being written is NULLED on
+   * the next save rather than left alone. Seeding them from `unit_id` keeps a
+   * resaved line holding exactly what it would have held. `unit_id` is null on
+   * every style entered from 2026-08-11 (the Style screen withdrew the field that
+   * fills it), so in practice this now seeds null — which is the honest value for
+   * a column nothing asks about.
    *
    * PO Qty is deliberately NOT seeded: it is the one number that comes off the
    * buyer's order sheet and nowhere else.
+   *
+   * STYLE REF NO IS THE STYLE'S CODE, not a typed value (client 2026-08-11 —
+   * the column left the grid because it is system-generated). It is the key
+   * Price Details, Quantities and Approval Qty all resolve on, so it has to be
+   * filled by whatever the operator DOES answer, and the style code
+   * (`STL/2627/0001`) is the one stable identifier the line has. Two lines
+   * naming the same style would share a ref, and the first would win the
+   * lookup — but a PO carrying one style twice is a duplicate line, not a case
+   * to encode.
+   *
+   * THE REF STAYS AN OPAQUE STRING AND IS STILL TEXT, NOT AN FK. Keying styles
+   * by text is deliberate here (a `style_id` FK is the known-wrong fix and has
+   * been rejected before), so this fills the existing text column and adds
+   * nothing. Nothing anywhere parses it: `styleKey` (order-seed.ts) and `norm`
+   * (diff.ts) trim and upper-case and stop there, and every other reader
+   * compares whole strings. That matters as of 0402, which puts SLASHES in the
+   * code — `STL/2627/0001` — so any split-on-a-delimiter added later would
+   * shred the key rather than read it.
+   *
+   * ONLY A NEWLY PICKED STYLE GETS A GENERATED REF. Rows loaded from a saved
+   * amendment keep whatever text they already hold — `toRows` copies it through
+   * untouched and this runs on the pick, so an older order's hand-typed ref is
+   * never rewritten into the new format.
    *
    * Clearing the Style clears what it filled. Leaving a previous style's article
    * number and units behind on a line that now names a different style is worse
@@ -1145,10 +1236,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     const s = id ? styleById.get(id) : null;
     updateStyle(key, {
       style_id: id,
+      style_ref_no: s?.code ?? "",
       article_no: s?.article_no ?? "",
       style_category: s?.style_category ?? "",
       style_description: s?.style_description ?? "",
-      // `?? null` rather than `?? ""`: these are FK columns, and "" is not a uuid.
+      // Frozen columns, neither on screen — see the note above. `?? null` rather
+      // than `?? ""`: these are FK columns to `uoms`, and "" is not a uuid.
       order_unit_id: s?.unit_id ?? null,
       plan_unit_id: s?.unit_id ?? null,
       // The line's Description is the style's remarks, falling back to its
@@ -1221,7 +1314,11 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     // `has(...)`, not `.length > 0` — a grid's opening blank row is not data,
     // and a dot over an untouched tab is exactly the confident lie the rail was
     // built to remove.
-    styles: has(styles),
+    //
+    // `styles` is NOT keyed here any more — the Style(s) grid merged into Order
+    // Info, and that section carries its own `done` (which reads `has(styles)`,
+    // the same expression this entry held). A key left here would be read by
+    // nothing and would drift.
     colors: has(dyeings) || has(prints) || has(structures),
     combos: has(combos),
     prices: has(priceDetails),
@@ -1245,27 +1342,35 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
    * `style-master-screen.tsx` uses for the same reason.
    */
   const styleColumns: ChildGridColumn<StyleRow>[] = [
-    {
-      header: "Style Ref No",
-      cell: (r) => (
-        <Input
-          value={r.style_ref_no}
-          onChange={(e) => updateStyle(r.key, { style_ref_no: e.target.value })}
-        />
-      ),
-    },
+    /* STYLE REF NO IS NO LONGER TYPED — IT IS THE PICKED STYLE'S CODE.
+       Withdrawn as a column 2026-08-11 (client): it is system-generated, so
+       asking for it was asking the operator to invent a key. The FIELD stays
+       and `pickStyle` fills it, which is not tidiness — `(sales_order_id,
+       style_ref_no)` is the Orders module key and THREE other tabs resolve on
+       this text: Price Details (`styleLineKeyOf`), Quantities (`refNoOptions`)
+       and Approval Qty (`poQtyOf`). Delete the value along with the column and
+       the Price Details picker blanks itself the moment a style is chosen. */
     {
       header: "Style",
       // A line with no style is not a line. Red ⓘ on the legacy grid.
       required: true,
-      cell: (r) => (
+      cell: (r) => {
+        /* NARROWED BY THE HEADER'S CUSTOMER AND SEASON (client). `styleOptions`
+           holds the rule and the reasoning; `shortHint` is set only when the
+           narrowing left nothing, and then it replaces the "— Select Style —"
+           placeholder so the empty box explains itself in the one line a grid
+           cell has. The wider `hint` is rendered ONCE above the grid instead of
+           per row — see the note there. */
+        const opts = styleOptionsFor(r.style_id);
+        return (
         <div className="space-y-1">
           <RecordPicker
             label="Style"
             compact
-            items={styleItems}
+            items={opts.items}
             value={r.style_id}
             onChange={(id) => pickStyle(r.key, id)}
+            placeholder={opts.shortHint ?? undefined}
           />
           {/* Article No and Category are DERIVED by `pickStyle`, never typed, so
               they are not columns — they are what the picked style IS. Legacy
@@ -1279,36 +1384,51 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
             </p>
           )}
         </div>
-      ),
+        );
+      },
     },
     {
       header: "Order Unit",
-      // The PO Qty is meaningless without the unit it is counted in. Costs the
-      // operator nothing — `pickStyle` fills it from the Style Entry.
-      required: true,
-      cell: (r) => (
-        <RecordPicker
-          label="Order Unit"
-          compact
-          items={data.uoms}
-          value={r.order_unit_id}
-          onChange={(id) => updateStyle(r.key, { order_unit_id: id })}
-        />
-      ),
+      /*
+       * PCS OR SET, AND NO LONGER ASKED (client 2026-08-11: "Order Unit
+       * (PCS/SET) is sufficient").
+       *
+       * This was a `uoms` picker offering nos / mtr / kg / gross / yard / set.
+       * It is now the picked style's `unit_kind` — the SAME value that caps that
+       * style's Coordinates grid — so a Set style can no longer be ordered in
+       * kilograms, and the question is not put to the operator at all: a style
+       * either IS one garment or IS a set of coordinates.
+       *
+       * `readOnly`, never `disabled` — `Input` sets `tabIndex={-1}` on a
+       * readOnly field itself, so it leaves the Tab path with no per-screen
+       * opt-out, and the value stays selectable. And NOT `required`, which it
+       * used to be: a readOnly field has no exit, so a hold on a blank one would
+       * cage the operator. The requiredness moved to its SOURCE, the Style
+       * picker above, which is already `required` — the same shape the composed
+       * SC No and Material's composed name use (AGENTS.md, "Mandatory fields").
+       *
+       * BLANK MEANS THE STYLE HAS NOT ANSWERED, and is left blank on purpose:
+       * `unit_kind` is null on every style predating 0392, and stamping PCS on
+       * those would put an invented unit beside a real PO Qty. The Style screen
+       * makes the field `required`, so a legacy style answers the next time
+       * anyone edits it.
+       */
+      cell: (r) => <Input readOnly className="h-8" value={unitTextOf(r)} placeholder="—" />,
     },
-    {
-      header: "Plan Unit",
-      required: true,
-      cell: (r) => (
-        <RecordPicker
-          label="Plan Unit"
-          compact
-          items={data.uoms}
-          value={r.plan_unit_id}
-          onChange={(id) => updateStyle(r.key, { plan_unit_id: id })}
-        />
-      ),
-    },
+    /* PLAN UNIT WITHDRAWN 2026-08-11 (client): Order Unit (PCS/SET) suffices.
+       The COLUMN and its stored rows are untouched, and `plan_unit_id` stays in
+       the row shape, in `toRows` and in the save payload — `writeChildren`
+       deletes and reinserts a grid wholesale, so a field dropped from the
+       payload is nulled on the next save rather than frozen. `pickStyle` keeps
+       seeding it from the style's one `unit_id`, which is where it came from
+       when it was on screen.
+
+       ORDER UNIT'S OWN `order_unit_id` IS FROZEN THE SAME WAY, and for the same
+       reason — the column, its rows, the row shape, `toRows`, the save payload
+       and `pickStyle`'s seeding all stay exactly as they were. What changed is
+       only what the CELL above reads. It could not have been repurposed even if
+       we wanted to: it is a uuid FK to `uoms`, and `uoms` has no piece row to
+       point at. */
     {
       header: "PO Qty",
       align: "right",
@@ -1354,6 +1474,18 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
    * LAYOUT.md §6 puts in the "<=3 -> inlineCards" band: a flex row per record
    * under one shared header, never a stacked card. Carding a two-input row would
    * be worse than the table it replaces.
+   *
+   * EVERY COLUMN DECLARES A `width`, and that is not per-column taste — it is
+   * the condition for the whole grid to hug its content. `hugsContent` is
+   * `columns.every((c) => c.width)` (child-grid.tsx), all-or-nothing on purpose,
+   * and in the `inlineCards` branch an unsized column is `flex-1` while a sized
+   * one is `shrink-0`. So ONE column left unsized does not merely go unstyled:
+   * it absorbs every spare pixel of the row and drops the grid back to full
+   * width. That was the state here -- Type carried `10rem`, Colour carried
+   * nothing, and a single Colour dropdown rendered ~1080px wide while Print and
+   * Structure each took the entire section (client 2026-08-11, screenshots
+   * 2246/2247). Add a column to any of these three and it needs a width, or all
+   * four grids stretch again.
    */
   const dyeColumns: ChildGridColumn<DyeingRow>[] = [
     {
@@ -1370,14 +1502,19 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     },
     {
       header: "Colour",
+      // FREE TEXT, like Type beside it (2026-08-11) — see the note where
+      // `dyeColorItems` used to be. THE WIDTH IS NOT OPTIONAL: `hugsContent` is
+      // `columns.every((c) => c.width)`, so dropping it here would stretch all
+      // four grids on this tab, not just this one.
+      width: "16rem",
       cell: (r) => (
-        <RecordPicker
-          label="Colour"
-          compact
-          items={dyeColorItems}
-          value={r.color_id}
-          onChange={(id) =>
-            setDyeings((xs) => xs.map((x) => (x.key === r.key ? { ...x, color_id: id } : x)))
+        <Input
+          uppercase
+          value={r.color_name}
+          onChange={(e) =>
+            setDyeings((xs) =>
+              xs.map((x) => (x.key === r.key ? { ...x, color_name: e.target.value } : x)),
+            )
           }
         />
       ),
@@ -1387,6 +1524,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
   const printColumns: ChildGridColumn<PrintRow>[] = [
     {
       header: "Print",
+      width: "16rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="roll_form_print"
@@ -1405,6 +1543,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
   const structureColumns: ChildGridColumn<StructureRow>[] = [
     {
       header: "Structure",
+      width: "16rem",
       cell: (r) => (
         <LookupDialogPicker
           kind="fabric_structure"
@@ -1422,10 +1561,16 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     },
   ];
 
-  /** Combos — three text inputs, LAYOUT.md §6's "<=3 -> inlineCards" band. */
+  /**
+   * Combos — two text inputs, LAYOUT.md §6's "<=3 -> inlineCards" band.
+   *
+   * Style Ref No withdrawn 2026-08-11 with the Styles tab's own column: it is
+   * system-generated there, so a hand-typed copy of it here could only ever
+   * disagree. `ComboRow` keeps the field and the save keeps writing it, so the
+   * stored column is frozen rather than nulled.
+   */
   const comboColumns: ChildGridColumn<ComboRow>[] = (
     [
-      ["Style Ref No", "style_ref_no"],
       ["Style", "style"],
       ["Article No", "article_no"],
     ] as [string, keyof ComboRow][]
@@ -1590,6 +1735,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     {
       header: "Pack Type",
       required: true,
+      // Sized for the same reason the dyeing/print/structure columns are: this
+      // grid is `inlineCards`, where an unsized column is `flex-1` and a lone
+      // one therefore takes the entire section. `hugsContent` is
+      // `columns.every((c) => c.width)`, so with one column this single key is
+      // the whole condition — drop it and the Select spans the row again.
+      width: "16rem",
       cell: (r) => (
         <Select
           value={r.pack_type}
@@ -1862,12 +2013,15 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
   ];
 
   /**
-   * Style Prices — SEVEN real inputs, the widest row on the screen and squarely
-   * in §6's "6-8 -> stacked card per row" band. It was an 820px table.
+   * Style Prices — SIX real inputs, still in §6's "6-8 -> stacked card per row"
+   * band. It was an 820px table.
+   *
+   * Style Ref No withdrawn 2026-08-11, same reasoning as the Combos grid above:
+   * the Styles tab generates it, so a second box asking for it invites the two
+   * to differ. `StylePriceRow` keeps the field and the save keeps writing it.
    */
   const stylePriceColumns: ChildGridColumn<StylePriceRow>[] = (
     [
-      ["Style Ref No", "style_ref_no", "text"],
       ["Style", "style", "text"],
       ["Price", "price", "number"],
       ["CSP Type", "csp_type", "text"],
@@ -1892,108 +2046,120 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     ),
   }));
 
+  /**
+   * THE STYLE(S) GRID — no longer a rail section of its own.
+   *
+   * MERGED INTO ORDER INFO (client 2026-08-11): "merge the Order Info header
+   * and the Style tab into a single unified view", so the facts an order is
+   * opened with — who it is for and what it is for — are entered without
+   * paging. `style-master-screen.tsx` did the same three-into-one merge the
+   * same week; its counter-decision beside it (Components stayed separate)
+   * is the argument to read if this section ever grows long enough to push
+   * the grid below a screenful of form.
+   *
+   * HELD AS A CONST because `orderInfoSection` is declared ~600 lines below
+   * and this is ~90 lines of working JSX. Moving it rather than rewriting it
+   * is what keeps this a LAYOUT change: nothing about the grid's behaviour
+   * can hide inside the diff.
+   */
+  const stylesGrid = (
+    <>
+      {/* CARDS, NOT A TABLE. Six real inputs per row, which LAYOUT.md §6 puts
+          in the "6-8 -> stacked card per row" band; the table this replaces
+          was `min-w-[1000px]` inside an `overflow-x-auto` and scrolled
+          sideways inside the section rail (client 2026-08-10). `listRows`
+          means this row draws its own header, which is why the #N band and
+          the remove button are rendered below rather than by the grid.
+
+          `pageSize` rather than an inner scrollbar — "no scroll-in-a-box"
+          (client 2026-07-25); it self-hides when everything fits. */}
+      <ChildGrid<StyleRow>
+        label="Styles Details"
+        badge={
+          form.mult_ord ? (
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Multiple styles on this PO
+            </span>
+          ) : (
+            <span className="text-[11px] font-medium text-muted-foreground">
+              One style per PO · tick Mult. Ord to add more
+            </span>
+          )
+        }
+        columns={styleColumns}
+        rows={styles}
+        forceCards
+        listRows
+        pageSize={5}
+        /**
+         * MULT. ORD IS THE CAP, and this is the whole of its meaning.
+         *
+         * A buyer's PO names one style in ~98% of cases; occasionally one PO
+         * covers several distinct styles (a Men's and a Women's tee). Mult.
+         * Ord = Yes is the operator saying "this PO is one of those", and
+         * until they do, the grid holds exactly one line.
+         *
+         * `hideAdd` rather than a check inside `addStyle`, because it does
+         * two things at once: it removes the button AND makes Enter on the
+         * last field DECLINE instead of growing the grid, so the keyboard
+         * cannot get past the cap either. Same prop, same reason, as the
+         * "Single Yarn fabric = exactly one component" cap on Style master.
+         *
+         * NON-DESTRUCTIVE ON THE WAY BACK. Un-ticking Mult. Ord on an order
+         * that already lists three styles caps further ADDS; it never drops
+         * the rows already entered. Silently deleting two styles because a
+         * checkbox changed is data loss dressed up as a rule.
+         */
+        hideAdd={!form.mult_ord && styles.length >= 1}
+        onAdd={addStyle}
+        onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
+        addLabel="+ Add style"
+        renderMobileRow={(r, i) => (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                #{i + 1}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-row-remove
+                className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
+                onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
+                aria-label="Remove style"
+              >
+                <Trash2 className="h-4 w-4 shrink-0" />
+              </Button>
+            </div>
+            {/* `required={col.required}` is not optional plumbing: with
+                `renderMobileRow` supplied, ChildGrid stops wrapping cells in
+                its own `RequiredScope` (child-grid.tsx:1119), so this Field
+                is the ONLY place a column's declaration can reach. Drop it
+                and the `*` and the cursor hold both silently vanish while
+                the column still reads `required: true`. */}
+            <FieldGrid>
+              {styleColumns.map((col) => (
+                <Field
+                  key={col.header}
+                  label={col.header}
+                  required={col.required}
+                  size="sm"
+                >
+                  {col.cell(r, i)}
+                </Field>
+              ))}
+            </FieldGrid>
+          </div>
+        )}
+      />
+      <EmptyNote rows={styles.length} label="styles" seeded={seeded} />
+    </>
+  );
+
   /** One blank Style Prices row. Was written out three times — the caption's
    *  onAdd, the grid's keyboard add, and nothing else agreed with either. */
   const tabs: TabItem[] = [
-    // ---------------- Style(s) ----------------
-    {
-      key: "styles",
-      label: "Style(s)",
-      content: (
-        <>
-          {/* CARDS, NOT A TABLE. Six real inputs per row, which LAYOUT.md §6 puts
-              in the "6-8 -> stacked card per row" band; the table this replaces
-              was `min-w-[1000px]` inside an `overflow-x-auto` and scrolled
-              sideways inside the section rail (client 2026-08-10). `listRows`
-              means this row draws its own header, which is why the #N band and
-              the remove button are rendered below rather than by the grid.
-
-              `pageSize` rather than an inner scrollbar — "no scroll-in-a-box"
-              (client 2026-07-25); it self-hides when everything fits. */}
-          <ChildGrid<StyleRow>
-            label="Styles Details"
-            badge={
-              form.mult_ord ? (
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  Multiple styles on this PO
-                </span>
-              ) : (
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  One style per PO · tick Mult. Ord to add more
-                </span>
-              )
-            }
-            columns={styleColumns}
-            rows={styles}
-            forceCards
-            listRows
-            pageSize={5}
-            /**
-             * MULT. ORD IS THE CAP, and this is the whole of its meaning.
-             *
-             * A buyer's PO names one style in ~98% of cases; occasionally one PO
-             * covers several distinct styles (a Men's and a Women's tee). Mult.
-             * Ord = Yes is the operator saying "this PO is one of those", and
-             * until they do, the grid holds exactly one line.
-             *
-             * `hideAdd` rather than a check inside `addStyle`, because it does
-             * two things at once: it removes the button AND makes Enter on the
-             * last field DECLINE instead of growing the grid, so the keyboard
-             * cannot get past the cap either. Same prop, same reason, as the
-             * "Single Yarn fabric = exactly one component" cap on Style master.
-             *
-             * NON-DESTRUCTIVE ON THE WAY BACK. Un-ticking Mult. Ord on an order
-             * that already lists three styles caps further ADDS; it never drops
-             * the rows already entered. Silently deleting two styles because a
-             * checkbox changed is data loss dressed up as a rule.
-             */
-            hideAdd={!form.mult_ord && styles.length >= 1}
-            onAdd={addStyle}
-            onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add style"
-            renderMobileRow={(r, i) => (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                    #{i + 1}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-row-remove
-                    className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
-                    onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
-                    aria-label="Remove style"
-                  >
-                    <Trash2 className="h-4 w-4 shrink-0" />
-                  </Button>
-                </div>
-                {/* `required={col.required}` is not optional plumbing: with
-                    `renderMobileRow` supplied, ChildGrid stops wrapping cells in
-                    its own `RequiredScope` (child-grid.tsx:1119), so this Field
-                    is the ONLY place a column's declaration can reach. Drop it
-                    and the `*` and the cursor hold both silently vanish while
-                    the column still reads `required: true`. */}
-                <FieldGrid>
-                  {styleColumns.map((col) => (
-                    <Field
-                      key={col.header}
-                      label={col.header}
-                      required={col.required}
-                      size="sm"
-                    >
-                      {col.cell(r, i)}
-                    </Field>
-                  ))}
-                </FieldGrid>
-              </div>
-            )}
-          />
-          <EmptyNote rows={styles.length} label="styles" seeded={seeded} />
-        </>
-      ),
-    },
     // ---------------- Color / Print Details ----------------
     {
       key: "colors",
@@ -2007,21 +2173,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
               both grids stay fully usable; hiding one would strand rows already
               saved on a grid that no longer renders (client 2026-08-10). */}
           <FabricTypeHint counts={fabricTypes} />
-          {/* THE COLOUR LIST HAS NO CREATE ROUTE FROM HERE, so an empty one has to
-              say where it is filled. Colour is buyer-scoped: it lives on the
-              buyer's Colour Cards, which is how palettes are actually issued
-              (there is no global colour master — `public.colors` was dropped by
-              0382 as "not applicable to the business process"). Print and
-              Structure need no equivalent: both are LookupDialogPickers and can
-              be added inline. */}
-          {dyeColorItems.length === 0 && (
-            <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-              No colours to pick yet.{" "}
-              {form.buyer_id
-                ? "This customer has no Colour Card entries — add them under Orders ▸ Colour Cards, then reopen this tab."
-                : "Pick a Customer first, or add entries under Orders ▸ Colour Cards."}
-            </p>
-          )}
           {/* Yarn dyeing */}
           <div>
             <ChildGrid<DyeingRow>
@@ -2570,16 +2721,28 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     key: "orderinfo",
     label: "Order Info",
     icon: ClipboardList,
-    // The SC No is minted, so it cannot be what marks this section done —
-    // Unit and Customer are what the operator actually supplies.
-    done: !!form.location_id && !!form.buyer_id,
+    /*
+     * The SC No is minted, so it cannot be what marks this section done — Unit
+     * and Customer are what the operator actually supplies.
+     *
+     * `has(styles)` JOINED IT WITH THE MERGE, because the dot means "this
+     * section is answered" and the section now holds the styles too. An order
+     * with a Customer and no style line is not an order, so a dot there would
+     * be the confident lie the rail was given dots to avoid. It is the same
+     * `sectionDone.styles` expression this replaces, not a second reading of
+     * the same state.
+     */
+    done: !!form.location_id && !!form.customer_id && has(styles),
     content: (
       <SectionBody
         title="Order Info"
-        hint="Which order is being amended, and this amendment's own details."
+        hint="Who this order is for, and the styles it covers."
       >
-        {/* ONE FieldGrid for the whole section — SectionBody has no grid of its
-            own, and two stacked grids agree on the left edge but not the row gap. */}
+        {/* ONE FieldGrid for the header fields — SectionBody has no grid of its
+            own, and two stacked FieldGrids agree on the left edge but not the
+            row gap. The `ChildGrid` below is not a second one: it is a card
+            block that owns its whole row, which is the shape LAYOUT.md §3 puts
+            in the `full` band and the shape Customer ▸ Address already uses. */}
         <FieldGrid>
           {/* AUTO, NOT PICKED (client 2026-08-11).
               This was a dropdown of orders that already existed — amendment
@@ -2621,22 +2784,19 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
           <Field label="Date" required size="sm" htmlFor="hd-date">
             <Input id="hd-date" type="date" value={form.amend_date} onChange={(e) => set({ amend_date: e.target.value })} />
           </Field>
-          <Field label="Initiated" size="sm" htmlFor="hd-initiated">
-            <Select id="hd-initiated" value={form.initiated} onChange={(e) => set({ initiated: e.target.value })}>
-              <option value="">—</option>
-              {INITIATED_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Type" size="sm" htmlFor="hd-type">
-            <Select id="hd-type" value={form.amend_type} onChange={(e) => set({ amend_type: e.target.value })}>
-              <option value="">—</option>
-              {AMEND_TYPE_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </Field>
+          {/* "Initiated" (By Customer / By Us) WITHDRAWN 2026-08-11 (client).
+              Same treatment as the 08-10 withdrawals: the JSX, the form state
+              and the ZOD INPUT all go, and the COLUMN and its stored rows are
+              left alone. Dropping only the JSX would leave `initiated` in the
+              schema, where `headerOnly(p.data)` writes it on every update and
+              would null the very values the removal preserves. */}
+          {/* "Type" (Garment / Fabric / Made-ups) WITHDRAWN 2026-08-11 (client):
+              "the company exclusively produces garments", so the field answers a
+              question with one answer. Same treatment as "Initiated" above and
+              the 08-10 withdrawals — the JSX, the form state, the payload key,
+              the LIST COLUMN and the ZOD INPUT all go; the `amend_type` column
+              and its stored rows are left alone. `AMEND_TYPE_OPTIONS` stays in
+              types.ts as the only record of the stored vocabulary. */}
           {/* REQUIRED (client 2026-08-10). Costs the operator nothing in the normal
               flow: `onSelectOrder` fills it from the picked order, so choosing an
               SCNo satisfies this field too. It still has to be declared, because
@@ -2645,9 +2805,9 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
             <RecordPicker
               label="Customer"
               compact
-              items={data.buyers}
-              value={form.buyer_id}
-              onChange={(id) => set({ buyer_id: id })}
+              items={data.customers}
+              value={form.customer_id}
+              onChange={(id) => set({ customer_id: id })}
             />
           </Field>
           <Field label="PO No" size="sm" htmlFor="hd-pono">
@@ -2662,6 +2822,15 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
               onChange={(id) => set({ merchandiser_id: id })}
             />
           </Field>
+          {/* DELI.DT SITS HERE, NOT BELOW Yr (client 2026-08-11). The dictated
+              entry run is SCNo → Date → Customer → PO No → Merchandiser →
+              Deli.Dt, and Season/Yr standing between Merchand. and Deli.Dt broke
+              it in the middle. They stay in the header — the client was explicit
+              that they belong here and not on the style rows, where they have
+              never been. */}
+          <Field label="Deli.Dt" size="sm" htmlFor="hd-deli">
+            <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
+          </Field>
           <Field label="Season" size="sm" htmlFor="hd-season">
             <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
               <option value="">—</option>
@@ -2672,9 +2841,6 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
           </Field>
           <Field label="Yr" size="sm" htmlFor="hd-year">
             <Input id="hd-year" type="number" value={form.amend_year} onChange={(e) => set({ amend_year: e.target.value })} placeholder="2026" />
-          </Field>
-          <Field label="Deli.Dt" size="sm" htmlFor="hd-deli">
-            <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
           </Field>
           <Field label="Excess %" size="sm" htmlFor="hd-excess">
             <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
@@ -2696,6 +2862,19 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
             </label>
           </Field>
         </FieldGrid>
+
+        {/* THE STYLE(S) GRID, AND IT MUST RENDER LAST.
+            `cycleTab` (lib/focus.ts) walks the pane's field-like nodes in DOM
+            order and treats the last one as the SECTION EDGE — the point where
+            Tab hands over to Color/Print Details through `registerContentEdge`.
+            Put the grid above the fields and Tab re-enters the header after the
+            styles instead of leaving the section.
+
+            Nothing wraps it: `SectionBody` already spaces its children, and a
+            `DetailSection` here would add a border the two halves never had.
+            The grid draws its own "Styles Details" band, which is what keeps
+            the word Style on screen now that the rail no longer says it. */}
+        {stylesGrid}
       </SectionBody>
     ),
   };
@@ -2774,7 +2953,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
         </div>
       )}
 
-      {/* THE TEN SUB-TABS ARE A SECTION RAIL, NOT A TOP STRIP (2026-08-09).
+      {/* THE SUB-TABS ARE A SECTION RAIL, NOT A TOP STRIP (2026-08-09).
           `components/ui/tabs.tsx` gave ten items no arrow-key navigation, no
           roving tab stop, no `registerContentEdge` and no per-item state — a
           horizontally-scrolling row of underlined text with no way to tell which
@@ -2782,10 +2961,12 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
           and `mount="page"` is what lets a route use it without the overlay
           eating the sidebar.
 
-          No `initialSection`: it falls back to sections[0], which is Style(s) —
-          the tab the legacy screen opens on. It briefly carried
-          defaultKey="logistic" from building that tab, so the screen opened on
-          the charge blocks and read as the wrong screen entirely. */}
+          No `initialSection`: it falls back to sections[0], which is Order Info
+          — and since the 2026-08-11 merge that is also where the Style(s) grid
+          is, so the screen still opens on the two things a new order starts
+          with. It briefly carried defaultKey="logistic" from building that tab,
+          so the screen opened on the charge blocks and read as the wrong screen
+          entirely. */}
       <MasterFullScreen
         mount="page"
         open
@@ -2835,7 +3016,8 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
  * rendering nothing, so a new tab is plain but never broken.
  */
 const SECTION_ICONS: Record<string, LucideIcon> = {
-  styles: Shirt,
+  // No `styles` entry: Style(s) is no longer a section of its own. Order Info
+  // declares its icon inline, as it always has.
   colors: Palette,
   combos: Layers,
   prices: Banknote,

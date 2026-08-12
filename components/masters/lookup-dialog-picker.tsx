@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { DataPicker, type ManageConfig, type PickerRow } from "@/components/ui/data-picker";
 import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
-import { lookupLabel, type ConfigLookup, type LookupKind } from "@/lib/masters/extras-types";
+import {
+  lookupLabel,
+  CLOSED_LOOKUP_KINDS,
+  NO_INLINE_CREATE_KINDS,
+  type ConfigLookup,
+  type LookupKind,
+} from "@/lib/masters/extras-types";
 import { isInactive } from "@/lib/masters/inactive";
 
 /**
@@ -92,7 +98,32 @@ export function LookupDialogPicker({
   compact?: boolean;
 }) {
   const router = useRouter();
-  const canAdd = Boolean(canCreate) && (!adminOnly || isSuperAdmin);
+  /*
+   * A CLOSED kind is SELECT-ONLY: no "+ Add", no pencil, no trash, and none of
+   * the three shortcuts behind them. Not gated on a permission or a role,
+   * because there is no operator the list is open to — `adminOnly` below is the
+   * other shape and is NOT the same thing ("an admin may extend this on the
+   * fly" vs "the vocabulary is fixed"). See CLOSED_LOOKUP_KINDS.
+   *
+   * All three flags, not just Add. Removing Add alone would have made the other
+   * two WORSE than they were: these lists have no maintenance screen of their
+   * own, so a delete or a rename with no way to add would be a one-way door out
+   * of the UI — and for `fabric_structure` the name IS the code a new row gets,
+   * so a rename breaks `fabricStructureUom()` exactly as an invented value did.
+   *
+   * `NO_INLINE_CREATE_KINDS` is the weaker half, and it is deliberately read
+   * ONLY here: those lists are fixed but their seeded rows stay editable, so
+   * Modify and Delete keep answering to the call site below. `item_class` is
+   * that shape — inventing an eighth class breaks the code-keyed material
+   * rules, while renaming one does not, because its code is seeded rather than
+   * copied from the name.
+   */
+  const closed = CLOSED_LOOKUP_KINDS.has(kind);
+  const canAdd =
+    !closed &&
+    !NO_INLINE_CREATE_KINDS.has(kind) &&
+    Boolean(canCreate) &&
+    (!adminOnly || isSuperAdmin);
   const showTypeField = kind === "item_class";
 
   /*
@@ -149,8 +180,8 @@ export function LookupDialogPicker({
 
   const manage: ManageConfig = {
     canCreate: canAdd,
-    canEdit: Boolean(canEdit),
-    canDelete: canDelete ?? Boolean(canEdit),
+    canEdit: !closed && Boolean(canEdit),
+    canDelete: !closed && (canDelete ?? Boolean(canEdit)),
     showTypeField,
     // Scoped per kind, matching `uq_config_lookups_kind_name` — so the field says
     // "already exists" while the operator types instead of on Save. State is the

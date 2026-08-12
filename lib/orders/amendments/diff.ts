@@ -174,8 +174,23 @@ const STYLES: TabSpec<StyleRow> = {
   rowLabel: styleName,
   fields: [
     { field: "style_id", label: "Style" },
-    { field: "order_unit_id", label: "Order Unit" },
-    { field: "plan_unit_id", label: "Plan Unit" },
+    /*
+     * BOTH UNIT COLUMNS ARE OFF THE SCREEN AND STILL IN THE DIFF (2026-08-11).
+     *
+     * They are frozen `uoms` FKs — Plan Unit was withdrawn and Order Unit became
+     * PCS/SET read off the style's `unit_kind`, which is DERIVED and so has no
+     * column here to compare. The rows are still written (`pickStyle` seeds them
+     * from the style's `unit_id`), and a column that is written but not diffed is
+     * a change an amendment silently fails to report — so they stay.
+     *
+     * THE LABELS SAY "STOCK UNIT", NOT "ORDER UNIT". Whatever these two once
+     * were, neither is the Order Unit an operator now sees; a diff line reading
+     * "Order Unit: nos -> kg" beside a screen showing PCS would describe a field
+     * that is not there. `unit_kind` cannot appear here at all — changing it
+     * changes the STYLE, which is reported as a Style change on the row above.
+     */
+    { field: "order_unit_id", label: "Stock Unit (order)" },
+    { field: "plan_unit_id", label: "Stock Unit (plan)" },
     { field: "po_qty", label: "PO Qty" },
     { field: "description", label: "Description" },
   ],
@@ -184,10 +199,15 @@ const STYLES: TabSpec<StyleRow> = {
 // A dyeing has no key but its own value, so section+colour IS the key and the
 // tab reports only added / removed. `dye_type` rides along in the key for the
 // same reason — a different type on the same colour is a different row.
+//
+// The colour is now the TYPED NAME (0403), normalised like every other text in
+// this key — the id stays in the key beside it so a pre-0403 row, whose colour
+// lives only in `color_id`, still keys as itself rather than collapsing into
+// every other id-only row of the same section.
 const DYEINGS: TabSpec<DyeRow> = {
   tab: "dyeings",
   label: "Color/Print — Dyeing",
-  key: (r) => `${r.section}|${norm(r.dye_type)}|${r.color_id ?? ""}`,
+  key: (r) => `${r.section}|${norm(r.dye_type)}|${norm(r.color_name)}|${r.color_id ?? ""}`,
   rowLabel: (r) => (r.section === "yarn" ? "Yarn dyeing" : "Fabric dyeing"),
   fields: [],
 };

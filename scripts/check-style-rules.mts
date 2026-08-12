@@ -17,6 +17,7 @@
 
 import {
   componentRowStarted,
+  componentTypeForCategory,
   coordinateLimit,
   filledCoordinates,
   orphanComponents,
@@ -179,8 +180,42 @@ check("whitespace-only comp_type is not started", componentRowStarted({ comp_typ
 check("a coordinate starts it", componentRowStarted({ coordinate_id: TOP }), true);
 check("a component starts it", componentRowStarted({ component_id: TOP }), true);
 check("a fabric starts it", componentRowStarted({ item_id: TOP }), true);
-check("a structure starts it", componentRowStarted({ structure_id: TOP }), true);
+check("a structure starts it", componentRowStarted({ fabric_category_id: TOP }), true);
 check("a comp_type starts it", componentRowStarted({ comp_type: "Circular" }), true);
+
+// ---------- "TYPE" IS FETCHED FROM THE CATEGORY, NOT GUESSED ----------
+//
+// `categories.fabric_structure_id` is declared on the Category master, so
+// picking SINGLE JERSEY answers Circular Knit exactly. The two failure modes
+// that would cost data are the null ones: a category whose master record has no
+// structure yet, and a category this app cannot resolve at all. Both must answer
+// null so the caller leaves the operator's Type alone — writing a blank through
+// is auto-populate turning into deletion.
+const CATS = [
+  { id: "cat-sj", fabric_structure_id: "fs-circ" },
+  { id: "cat-collar", fabric_structure_id: "fs-flat" },
+  { id: "cat-chambray", fabric_structure_id: "fs-woven" },
+  { id: "cat-blank", fabric_structure_id: null },
+];
+const STRUCTS = [
+  { id: "fs-circ", name: "Circular Knit" },
+  { id: "fs-flat", name: "Flat Knit" },
+  { id: "fs-woven", name: "Woven" },
+];
+check("a knit category fills Circular Knit",
+  componentTypeForCategory("cat-sj", CATS, STRUCTS), "Circular Knit");
+check("a flat category fills Flat Knit",
+  componentTypeForCategory("cat-collar", CATS, STRUCTS), "Flat Knit");
+// The superseded rule mapped to a hardcoded ["Circular","Flat"] tuple and so had
+// NO answer for a woven category. CHAMBRAY and ROPE are real FABRIC categories.
+check("a woven category fills Woven",
+  componentTypeForCategory("cat-chambray", CATS, STRUCTS), "Woven");
+check("a category with no structure leaves Type alone",
+  componentTypeForCategory("cat-blank", CATS, STRUCTS), null);
+check("an unknown category leaves Type alone",
+  componentTypeForCategory("cat-nope", CATS, STRUCTS), null);
+check("no category leaves Type alone",
+  componentTypeForCategory(null, CATS, STRUCTS), null);
 
 // ---------- THE PICKER AND THE RULE CANNOT DRIFT ----------
 //

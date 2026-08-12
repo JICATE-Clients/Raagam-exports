@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Select } from "@/components/ui/select";
 import type { ReportField } from "@/lib/reports/registry";
@@ -10,11 +10,17 @@ export interface FilterOption {
   name: string;
 }
 
+/** A category additionally knows its parent Item Class, so the Category
+ *  dropdown can narrow to the class chosen beside it. */
+export interface CategoryFilterOption extends FilterOption {
+  itemClassId: string | null;
+}
+
 export interface ItemFilterOptions {
   locations: FilterOption[];
   stores: FilterOption[];
   itemClasses: FilterOption[];
-  categories: FilterOption[];
+  categories: CategoryFilterOption[];
 }
 
 export interface ItemFilterState {
@@ -62,6 +68,43 @@ export function ItemReportFilters({
   const [itemClass, setItemClass] = useState(current.itemClass);
   const [category, setCategory] = useState(current.category);
   const [groupBy, setGroupBy] = useState(current.groupBy);
+
+  /*
+   * THE CATEGORY DROPDOWN FOLLOWS THE ITEM CLASS ONE BESIDE IT — the filter-bar
+   * half of the cascading-picker rule (client 2026-08-11). It listed every
+   * category in the business, so under Item class = FABRIC the operator could
+   * pick a Yarn category and get an EMPTY REPORT — worse here than on a master
+   * list, because an empty report reads as "nothing moved in this period", a
+   * real and unremarkable answer, rather than as a mis-set filter.
+   *
+   * Client-side, and no resubmit: every option is already shipped to the
+   * browser and both dropdowns are controlled, so the narrowing costs nothing
+   * and the form stays the plain GET it is documented to be above.
+   *
+   * With no class chosen the options are prefixed by their class — category
+   * names repeat across classes (COTTON is a Yarn and a Fabric), and two
+   * identical options the operator has to guess between is the other half of
+   * the same bug.
+   */
+  const itemClassName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of options.itemClasses) m.set(c.id, c.name);
+    return m;
+  }, [options.itemClasses]);
+
+  const categoryOptions = useMemo(
+    () =>
+      options.categories
+        .filter((c) => (itemClass ? c.itemClassId === itemClass : true))
+        .map((c) => ({
+          id: c.id,
+          label: itemClass
+            ? c.name
+            : `${itemClassName.get(c.itemClassId ?? "") ?? "—"} · ${c.name}`,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [options.categories, itemClassName, itemClass],
+  );
 
   return (
     <form method="get" className="flex flex-wrap items-end gap-2">
@@ -129,7 +172,17 @@ export function ItemReportFilters({
         <Select
           name="itemClass"
           value={itemClass}
-          onChange={(e) => setItemClass(e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value;
+            setItemClass(v);
+            // A category belonging to the class just left matches no row — drop
+            // it rather than run a report that returns nothing for a reason
+            // nothing on screen states. Cleared only when it really is out of
+            // scope, so narrowing the class around the category already picked
+            // keeps it.
+            const held = options.categories.find((c) => c.id === category);
+            if (v && held && held.itemClassId !== v) setCategory("");
+          }}
           className={field}
         >
           <option value="">All classes</option>
@@ -150,9 +203,9 @@ export function ItemReportFilters({
           className={field}
         >
           <option value="">All categories</option>
-          {options.categories.map((o) => (
+          {categoryOptions.map((o) => (
             <option key={o.id} value={o.id}>
-              {o.name}
+              {o.label}
             </option>
           ))}
         </Select>

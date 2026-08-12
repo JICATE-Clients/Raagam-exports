@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { withCreators } from "@/lib/created-by";
 import { listCustomers } from "@/lib/masters/customer-service";
 import { getTaActivities } from "@/lib/orders/ta-activities/service";
 import type { TaStyle } from "./types";
@@ -26,7 +27,11 @@ export async function getTaStyles(): Promise<TaStyle[]> {
   const rows = (data ?? []) as unknown as TaStyle[];
   // Keep grid rows in sno order.
   rows.forEach((r) => r.activities?.sort((a, b) => a.sno - b.sno));
-  return rows;
+  // The screen already calls `withCreatedColumns`, so the pair RENDERED — with
+  // a dash in every Created User cell, because `created_by` arrived as a raw
+  // uuid and `creatorName()` refuses to print anything uuid-shaped. The column
+  // half passing means nothing without this half (AGENTS.md).
+  return withCreators(rows);
 }
 
 /** Picker option lists for the editor. */

@@ -614,6 +614,12 @@ bind their own `onKeyDown` for field navigation.
   arrow contract too and leave it mouse-only. Needs a surface `cycleTab` owns — a dialog, a
   `data-focus-scope` pane, or one with a footer region (`isEditorScope`) — and prefer to drop the
   marker once the operator has opted *in*, so the control that undoes the mode stays on the path.
+  **Inside a child grid it works without that surface**, because there the grid owns Tab and
+  `tabAlongRow` (`child-grid.tsx`) reads the marker itself — which it did not until Material
+  Attributes ▸ **Blocked** kept catching the cursor between one attribute line and the next
+  (client 2026-08-11). The grid applies it to the *destination* only, never to locating the
+  cursor: filter the row axis and Tab from an arrowed-onto optional cell falls through to native
+  order and lands on the row's ✕.
 
 ---
 
@@ -833,7 +839,7 @@ a calendar popover — a real component, not a formatting change. Until that exi
 
 Every list screen with a Filters panel can filter by when a record was created. It is **built into
 the shared primitives, not declared per screen**: `useMasterFilter` returns a `dateFilter` bundle
-and `<FilterBar dateFilter={…}>` renders it as the last cells of the panel, so `MasterListShell`
+and `<FilterBar dateFilter={…}>` renders it as the last cell of the panel, so `MasterListShell`
 and `SimpleMasterScreen` carry it to ~55 screens with no per-screen work. A screen that hand-rolls
 its filter state uses `useCreatedDateFilter` (`lib/masters/use-created-date-filter.ts`) instead —
 same vocabulary, same comparison.
@@ -851,7 +857,7 @@ drops into the existing `Record<string, string>` facet shape:
 | `custom:FROM:TO` | either end may be empty — that is the "From Date" / "To Date" case |
 | `custom::` | the Custom row is open but empty: a UI state, **not** a filter |
 
-Four things here are load-bearing:
+Five things here are load-bearing:
 
 1. **`created_at` is a `timestamptz`, delivered in UTC.** `slice(0, 10)` files every record made
    before 05:30 IST under the previous day, so "Today" would silently hide the morning's work.
@@ -870,6 +876,13 @@ Four things here are load-bearing:
    filter that silently matches nothing is worse than no filter. Adding the column to the service
    makes the filter appear by itself — which is why `simple-master-service.ts` now selects a column
    no table displays, and says so.
+5. **The facet is ONE grid cell that widens, never three loose ones.** It rendered as a fragment of
+   three siblings until 2026-08-11, and the panel's auto-placement duly split it: with Item Class
+   and Category ahead of it, "To Date" wrapped onto a row of its own and the range stopped reading
+   as one control. The dropdown and its two boxes now sit inside a single item carrying
+   `sm:col-span-2 lg:col-span-3`, because **a multi-column grid item is never split** — it moves to
+   the next row whole. The `sm:grid-cols-3` inside only shares out the width the span claimed, and
+   it keeps each box on the panel's own column rhythm rather than at a third of a cell.
 
 Registers and transaction screens under `app/(app)` mostly have **no Filters panel at all** and are
 therefore not covered; giving them one is a separate piece of work.

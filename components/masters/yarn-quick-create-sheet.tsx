@@ -8,26 +8,36 @@
 // Richer fields (HSN, Mixing rows for Mixed-nature blends…) stay editable from
 // the full Materials master afterwards.
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
+import { ChildGrid } from "@/components/masters/child-grid";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
-import { CategoryPicker } from "@/components/masters/lookup-picker";
+import { CategoryPicker, ItemPicker } from "@/components/masters/lookup-picker";
 import { createMaterial } from "@/lib/masters/material-actions";
 import { useDuplicateCheck } from "@/lib/masters/use-duplicate-check";
-import type { MaterialInput } from "@/lib/masters/material-types";
+import { yarnMixingApplies, type MaterialInput } from "@/lib/masters/material-types";
+import type { Deactivatable } from "@/lib/masters/inactive";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
+
+/** One row of the blend. Kept as TEXT while typing — same shape and same reason
+ *  as the Materials master's `MixRow`: a number input must be able to hold "12."
+ *  mid-keystroke, and `numOrNull` is what turns it into the payload's number. */
+type MixRow = { key: string; component_item_id: string; blend_pct: string };
+const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 
 export function YarnQuickCreateSheet({
   open,
   onClose,
   onCreated,
   yarnClassId,
+  yarnItems = [],
   counts,
   purities,
   yarnTypes,
@@ -41,6 +51,14 @@ export function YarnQuickCreateSheet({
   onCreated: (item: { id: string; code: string; name: string }) => void;
   /** config_lookups id of the YARN item class — scopes the record + dup check. */
   yarnClassId: string;
+  /**
+   * The component yarns the Mixing grid picks from — the SAME list the picker
+   * that opened this sheet is showing (see the call site in lookup-picker.tsx).
+   * Optional so an older caller still compiles; without it a Mixed yarn simply
+   * has nothing to blend from, and the grid says so rather than rendering an
+   * empty picker with no explanation.
+   */
+  yarnItems?: ({ id: string; code: string; name: string } & Deactivatable)[];
   counts: ConfigLookup[];
   purities: ConfigLookup[];
   yarnTypes: ConfigLookup[];
@@ -68,6 +86,9 @@ export function YarnQuickCreateSheet({
   const [purityId, setPurityId] = useState("");
   const [yarnTypeId, setYarnTypeId] = useState("");
   const [shade, setShade] = useState("");
+  const [mixings, setMixings] = useState<MixRow[]>([]);
+  const keySeq = useRef(0);
+  const newKey = () => `m${keySeq.current++}`;
 
   // Fresh form every time the sheet opens.
   useEffect(() => {
@@ -77,6 +98,7 @@ export function YarnQuickCreateSheet({
       setPurityId("");
       setYarnTypeId("");
       setShade("");
+      setMixings([]);
     }
   }, [open]);
 
@@ -84,8 +106,81 @@ export function YarnQuickCreateSheet({
     () => categories.find((c) => c.id === categoryId) ?? null,
     [categories, categoryId],
   );
-  const isMelange =
-    yarnTypes.find((y) => y.id === yarnTypeId)?.name?.toLowerCase() === "melange";
+  const yarnTypeName = yarnTypes.find((y) => y.id === yarnTypeId)?.name ?? null;
+  const isMelange = yarnTypeName?.toLowerCase() === "melange";
+
+  /**
+   * A MIXED YARN DECLARES ITS BLEND HERE, NOT "LATER" (client 2026-08-11).
+   *
+   * This sheet used to send `mixings: []` always and print a note telling the
+   * operator to add the rows from the Materials master afterwards. That note
+   * stopped being true the moment `mixingRequiredError`'s YARN branch landed
+   * (material-actions.ts): a Mixed-nature Category — or a Twisted / Doubling /
+   * Melange type — now makes at least one complete row MANDATORY, so the sheet
+   * could not create the very yarn it was apologising about. Save returned
+   * "Mixing Details are required for a Mixed yarn" and there was no field on
+   * screen to answer it with.
+   *
+   * `yarnMixingApplies` is the shared rule (material-types.ts), read here and by
+   * the server from one definition, so "the grid is showing" and "the save will
+   * be refused" cannot disagree — the same guarantee the Materials master gets
+   * from `yarnMixingVisible`.
+   */
+  const mixingApplies = yarnMixingApplies(selectedCategory?.made ?? null, yarnTypeName);
+
+  const setMix = (key: string, patch: Partial<MixRow>) =>
+    setMixings((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const addMix = () =>
+    setMixings((rows) => [...rows, { key: newKey(), component_item_id: "", blend_pct: "" }]);
+  const delMix = (key: string) => setMixings((rows) => rows.filter((r) => r.key !== key));
+
+  // Never let the blend exceed 100% (material-master-screen.tsx's rule, client
+  // 2026-07-24): keep the raw text so partial entry like "12." still types,
+  // unless this cell would push the total over — then cap it to what is left.
+  const setMixPct = (key: string, raw: string) => {
+    const n = Number(raw);
+    if (raw.trim() === "" || Number.isNaN(n)) {
+      setMix(key, { blend_pct: raw });
+      return;
+    }
+    const others = mixings.reduce(
+      (s, r) => (r.key === key ? s : s + (numOrNull(r.blend_pct) ?? 0)),
+      0,
+    );
+    const max = Math.max(0, 100 - others);
+    setMix(key, { blend_pct: n > max ? String(max) : raw });
+  };
+
+  /*
+   * The server's two tests, mirrored so Save says why it is off instead of
+   * bouncing off `createMaterial`. Wording matches `mixingRequiredError`
+   * verbatim — the same refusal read two ways is how an operator learns to
+   * distrust one of them.
+   *
+   * TOUCHED vs COMPLETE, both needed, for the reason the master records:
+   * counting rows would block Save on a blank line `normMixings` drops
+   * server-side, and counting only completeness would let a half-filled row
+   * through — the row that silently loses its data on save.
+   */
+  const mixTouched = mixings.filter((m) => m.component_item_id || numOrNull(m.blend_pct) != null);
+  const mixComplete = mixTouched.filter(
+    (m) => m.component_item_id && numOrNull(m.blend_pct) != null,
+  );
+  const mixPctSum = mixings.reduce((sum, m) => sum + (numOrNull(m.blend_pct) ?? 0), 0);
+  const mixPctInvalid =
+    mixingApplies &&
+    mixings.some((m) => numOrNull(m.blend_pct) != null) &&
+    Math.abs(mixPctSum - 100) >= 0.01;
+  const mixingProblem = !mixingApplies
+    ? null
+    : mixComplete.length === 0
+      ? "Mixing Details are required for a Mixed yarn — add at least one yarn with its blend %."
+      : mixComplete.length !== mixTouched.length
+        ? "Every mixing row needs both a yarn and a blend % — complete or remove the unfinished row."
+        : mixPctInvalid
+          ? "Mixing percentages must add up to exactly 100%."
+          : null;
+  const usedComponentIds = mixings.map((m) => m.component_item_id).filter(Boolean);
 
   // No perms passed → no inline CRUD. Never the other way round.
   const canCreate = perms?.canCreate ?? false;
@@ -179,7 +274,27 @@ export function YarnQuickCreateSheet({
         cost_head_id: null,
         budget_rate: null,
         budget_rate_uom_id: null,
-        mixings: [],
+        /*
+         * Only when the blend grid is ON SCREEN. A Category switched from Mixed
+         * to Natural leaves its rows in state — so switching back restores what
+         * was typed instead of silently discarding it — but sending them would
+         * let a grid the operator can no longer see trip the 100% refine and
+         * refuse a save they cannot explain. Shown and sent are the same
+         * condition, which is the same promise `mixingApplies` makes above.
+         */
+        mixings: mixingApplies
+          ? mixings
+              .filter((m) => m.component_item_id)
+              .map((m, i) => ({
+                sno: i + 1,
+                description: null,
+                shade: null,
+                uom_id: null,
+                component_item_id: m.component_item_id,
+                count_id: null,
+                blend_pct: numOrNull(m.blend_pct),
+              }))
+          : [],
         conversions: [],
         using_items: [],
         item_attribute_values: [],
@@ -243,7 +358,10 @@ export function YarnQuickCreateSheet({
               !yarnTypeId ||
               !kgUnitId ||
               !!dupError ||
-              namePending
+              namePending ||
+              // The blend, on the same terms the server states them. Null unless
+              // `mixingApplies`, so a plain yarn is unaffected.
+              !!mixingProblem
             }
             onClick={save}
           >
@@ -294,12 +412,6 @@ export function YarnQuickCreateSheet({
             canEdit={canEdit}
             canDelete={canDelete}
           />
-          {/* Mixing rows need the full master's blend grid — flag it up front */}
-          {selectedCategory?.made === "Mixed" && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Mixed-nature yarn — add its Mixing % rows from the Materials master after creating.
-            </p>
-          )}
         </div>
         <div>
           <LookupDialogPicker
@@ -342,6 +454,81 @@ export function YarnQuickCreateSheet({
             />
           </div>
         )}
+        {/* MIXING — shown on exactly the condition that makes it mandatory, so
+            the operator is never refused for a field that is not on screen.
+            A ChildGrid, not a hand-rolled row: it brings the arrows, Enter,
+            tab-along-row and Ctrl+Del-removes-a-row that the keyboard contract
+            promises, and the `required` columns draw their own stars and hold
+            the cursor on an empty cell. */}
+        {mixingApplies && (
+          <div className="border-t border-border pt-3">
+            <ChildGrid<MixRow>
+              inlineCards
+              label="Mixing"
+              badge={
+                mixings.some((m) => m.component_item_id || numOrNull(m.blend_pct) != null) && (
+                  <span
+                    className={cn(
+                      "text-xs font-medium",
+                      Math.abs(mixPctSum - 100) < 0.01 ? "text-success" : "text-danger",
+                    )}
+                  >
+                    {mixPctSum}% of 100%
+                  </span>
+                )
+              }
+              rows={mixings}
+              onAdd={addMix}
+              onRemove={(m) => delMix(m.key)}
+              addLabel="+ Add mixing row"
+              columns={[
+                {
+                  header: "Yarn",
+                  required: true,
+                  cell: (m) => (
+                    <ItemPicker
+                      label=""
+                      title="Component Yarn"
+                      items={yarnItems}
+                      value={m.component_item_id}
+                      usedIds={usedComponentIds}
+                      onChange={(v) => setMix(m.key, { component_item_id: v })}
+                      placeholder="— Component yarn —"
+                    />
+                  ),
+                },
+                {
+                  header: "Mixing %",
+                  align: "center",
+                  width: "5rem",
+                  required: true,
+                  cell: (m) => (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="%"
+                      value={m.blend_pct}
+                      onChange={(e) => setMixPct(m.key, e.target.value)}
+                      className="text-center"
+                    />
+                  ),
+                },
+              ]}
+            />
+            {/* A blend needs something to blend FROM. With no yarns on the list
+                the grid is unanswerable, so say that instead of showing an empty
+                picker — the same reason the missing-KG banner exists above. */}
+            {yarnItems.length === 0 ? (
+              <p className="mt-1 text-xs text-warning">
+                No other yarns exist yet to blend from. Create the component yarns first, or add
+                this one from Master Data ▸ Materials.
+              </p>
+            ) : (
+              mixingProblem && <p className="mt-1 text-xs text-danger">{mixingProblem}</p>
+            )}
+          </div>
+        )}
+
         {/* Auto-generated NAME — same rule as the Materials master YARN form */}
         <div className="border-t border-border pt-3">
           <Label>Name (auto-generated)</Label>

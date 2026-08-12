@@ -8,6 +8,7 @@ import type { Column } from "@/components/ui/data-table";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { AdjustmentForm } from "./adjustment-form";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreators } from "@/lib/created-by";
 
 type AdjustmentRow = {
   id: string;
@@ -17,18 +18,20 @@ type AdjustmentRow = {
   quantity: number;
   note: string | null;
   created_at: string;
+  /** Resolved to a name by `withCreators()`; `createdColumns` prints it. */
+  created_by: string | null;
 };
 
 async function listAdjustments(): Promise<AdjustmentRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("stock_ledger")
-    .select("id, store_id, item_id, movement_type, quantity, note, created_at, stores!stock_ledger_store_id_fkey(name), items(name)")
+    .select("id, store_id, item_id, movement_type, quantity, note, created_at, created_by, stores!stock_ledger_store_id_fkey(name), items(name)")
     .in("movement_type", ["adjust_in", "adjust_out"])
     .order("created_at", { ascending: false })
     .limit(100);
 
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+  const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: r.id as string,
     store_name: (r.stores as { name: string } | null)?.name ?? null,
     item_name: (r.items as { name: string } | null)?.name ?? null,
@@ -36,7 +39,12 @@ async function listAdjustments(): Promise<AdjustmentRow[]> {
     quantity: r.quantity as number,
     note: r.note as string | null,
     created_at: r.created_at as string,
+    // A REBUILT row drops any column the map does not name, as silently as
+    // a select that never asked for it — so the pair is copied across here
+    // and resolved below. AGENTS.md calls this out by name.
+    created_by: (r.created_by as string | null) ?? null,
   }));
+  return withCreators(rows);
 }
 
 export default async function AdjustmentsPage() {

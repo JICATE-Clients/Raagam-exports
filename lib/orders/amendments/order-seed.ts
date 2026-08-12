@@ -313,17 +313,41 @@ export async function seedAmendmentFromOrder(
   };
 
   // ---- Color / Print — dyeings, prints, structures --------------------------
+  /**
+   * THE COLOUR TEXT NOW SURVIVES THE SEED (0403). The order's colours are typed
+   * freehand on the fabric rows, and until Colour Cards was withdrawn the only
+   * place to put them was `color_id` — so an unmatched colour arrived as a
+   * blank picker the operator had to re-type, the cost `keepUnmatchedMaster`
+   * documents above. `color_name` is free text, so the words carry across and
+   * that cost is gone for this kind. The id is still resolved where a colour
+   * card happens to hold the same name; the guard stays because it is the one
+   * `if` for all three text-keyed tabs and print/structure still need it.
+   */
   const dyeings: Seeded<AmendmentDyeing>[] = [];
   for (const y of yarnColors ?? []) {
-    const id = colorByName.get(y.yarn_dyed_color.trim().toUpperCase()) ?? null;
+    const text = y.yarn_dyed_color.trim();
+    const id = colorByName.get(text.toUpperCase()) ?? null;
     if (!id && !keepUnmatchedMaster("colour", y.yarn_dyed_color)) continue;
-    dyeings.push({ sno: dyeings.length + 1, section: "yarn", dye_type: null, color_id: id });
+    dyeings.push({
+      sno: dyeings.length + 1,
+      section: "yarn",
+      dye_type: null,
+      color_name: text || null,
+      color_id: id,
+    });
   }
   for (const c of components ?? []) {
-    if (!c.fabric_color?.trim()) continue;
-    const id = colorByName.get(c.fabric_color.trim().toUpperCase()) ?? null;
-    if (!id && !keepUnmatchedMaster("colour", c.fabric_color)) continue;
-    dyeings.push({ sno: dyeings.length + 1, section: "fabric", dye_type: null, color_id: id });
+    const text = c.fabric_color?.trim();
+    if (!text) continue;
+    const id = colorByName.get(text.toUpperCase()) ?? null;
+    if (!id && !keepUnmatchedMaster("colour", c.fabric_color!)) continue;
+    dyeings.push({
+      sno: dyeings.length + 1,
+      section: "fabric",
+      dye_type: null,
+      color_name: text,
+      color_id: id,
+    });
   }
 
   const prints: Seeded<AmendmentPrint>[] = [];

@@ -54,6 +54,51 @@ export async function createComponent(data: ComponentInput): Promise<Result> {
   return { ok: true };
 }
 
+/**
+ * "+ Add" on a Component picker — creates the row AND hands back its id, so the
+ * field the operator opened can select what they just typed.
+ *
+ * A separate export rather than a wider return on `createComponent`, following
+ * `createCountryQuick` and `quickCreateMaterial`: those callers check `ok` and
+ * nothing else, and this is additive.
+ *
+ * NAME-ONLY IS COMPLETE HERE, which is the whole reason a Component picker can
+ * offer inline create at all. The Components master screen asks for the name and
+ * the status and nothing else (client 2026-08-05, "remove the description field
+ * and maintain only name … and that check box"), so this writes exactly what
+ * that screen writes: `description`, `all_coordinates` and the coordinate list
+ * are left to the table's own defaults, and a row born here is indistinguishable
+ * from one born on the master. That is NOT true of most `RecordPicker` targets —
+ * a name-only Vendor is unusable — which is why the affordance belongs on this
+ * master and not on that shared picker.
+ *
+ * Same duplicate guard as `createComponent`. It is the guard that matters: the
+ * operator cannot see the master list from a Style row, so nothing on screen
+ * tells them COLLAR already exists.
+ */
+export async function createComponentQuick(
+  name: string,
+): Promise<{ ok: true; id: string } | Failure> {
+  if (!(await can("masters", "create"))) return fail("Forbidden");
+  const p = componentInput.safeParse({ short_name: name, inactive: false });
+  if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  const s = await createClient();
+  const { coordinates: _drop, ...header } = p.data;
+  void _drop;
+  const dup = await checkDuplicateName(s, "components", header.short_name, {
+    nameColumn: "short_name",
+  });
+  if (!dup.ok) return fail(dup.error);
+  const { data: created, error } = await s
+    .from("components")
+    .insert(header)
+    .select("id")
+    .single();
+  if (error) return fail(error.message);
+  rev();
+  return { ok: true, id: created.id };
+}
+
 export async function updateComponent(id: string, data: ComponentInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const p = componentInput.safeParse(data);

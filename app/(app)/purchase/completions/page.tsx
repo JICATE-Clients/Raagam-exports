@@ -7,6 +7,7 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { fmtDate } from "@/lib/format";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { withCreators } from "@/lib/created-by";
 
 type CompletionRow = {
   id: string;
@@ -21,9 +22,9 @@ async function listCompletions(): Promise<CompletionRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("po_completions")
-    .select("id, code, completion_type, upto_date, notes, created_at")
+    .select("id, code, completion_type, upto_date, notes, created_at, created_by")
     .order("created_at", { ascending: false });
-  return (data ?? []) as CompletionRow[];
+  return withCreators((data ?? []) as CompletionRow[]);
 }
 
 export default async function PoCompletionsPage() {

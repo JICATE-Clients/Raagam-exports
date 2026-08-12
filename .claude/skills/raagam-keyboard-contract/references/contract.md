@@ -552,6 +552,15 @@ app's focus style by default.
   `cycleTab` walks the full focusable list and steps over marked entries rather
   than pre-filtering, so Tab still knows where an arrowed-onto optional control
   sits and carries on from there instead of restarting at field one.
+  **`tabAlongRow` (child-grid.tsx) is the second reader**, added 2026-08-11: inside
+  a `data-grid-row` the grid owns Tab and never came through `cycleTab`, so the
+  marker was inert on every cell — which is where the second use of it was wanted,
+  Material Attributes ▸ **Blocked**, a per-line switch-off Tab stopped on between
+  one attribute and the next. It repeats `cycleTab`'s step-over-don't-pre-filter
+  rule for the same reason and one worse consequence: filter the row axis and the
+  cursor's own cell goes missing, `tabAlongRow` declines the key, and native Tab
+  on a page-level grid lands on the row's ✕ — the 2026-08-01 complaint restored by
+  its own fix. `gridKeyNav`'s `fieldsIn` is untouched, so ← → still reach the box.
 - `Sheet` remembers the last focused field (`onFocusCapture`) and resumes from it
   when focus is orphaned; it captures the opener on open and restores it on
   close, which is what returns the cursor to a picker trigger.

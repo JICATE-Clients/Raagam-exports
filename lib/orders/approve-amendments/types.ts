@@ -49,7 +49,7 @@ export interface ApprovalQueueRow {
   approval_reason: string | null;
 
   sales_order: { id: string; order_number: string | null; ship_date: string | null; order_qty: number | null } | null;
-  buyer: { id: string; code: string | null; name: string } | null;
+  customer: { id: string; code: string | null; name: string } | null;
   /** `code` rides along for `lookupLabel` — a ship type reads with its Incoterm
    *  ("FREE ON BOARD (FOB)"), the same as in the picker that set it. */
   ship_type: { code: string | null; name: string | null } | null;

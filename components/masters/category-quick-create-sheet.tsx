@@ -314,9 +314,11 @@ export function CategoryQuickCreateSheet({
           </div>
         )}
 
-        {/* Fabric Structure is a stored list, so it is a picker with inline
-            Add / Modify / Delete — unlike Category Type above, which is a fixed
-            three-value enum the operator can never extend. */}
+        {/* Fabric Structure is a stored list, so it is a picker rather than a
+            <Select> — but it is SELECT-ONLY, exactly as Category Type above
+            cannot be extended. `CLOSED_LOOKUP_KINDS` (extras-types.ts) is where
+            that is declared; the picker drops Add / Modify / Delete whatever
+            perms it is handed, so this sheet needs no special case of its own. */}
         {showFabricStructure && (
           <div>
             <LookupDialogPicker
