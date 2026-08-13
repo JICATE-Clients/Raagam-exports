@@ -4,10 +4,14 @@ import { listCountries } from "@/lib/masters/country-service";
 import { listCurrencies } from "@/lib/masters/service";
 import { listConfigLookups } from "@/lib/masters/extras-service";
 import { listPaymentTerms } from "@/lib/masters/payment-term-service";
+import { listCategories } from "@/lib/masters/category-service";
+import type { Category } from "@/lib/masters/category-types";
 import { paymentTermsAsLookups } from "@/lib/masters/lookup-compat";
 import type { Country } from "@/lib/masters/country-types";
 import type { Currency } from "@/lib/masters/types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
+import type { ProcessOption } from "./style-processes";
+import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import type { GarmentOrderAmendment } from "./types";
 import type { Deactivatable } from "@/lib/masters/inactive";
 import { withCreators } from "@/lib/created-by";
@@ -47,14 +51,24 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
         "charges:garment_order_amendment_charges(*), " +
         "style_prices:garment_order_amendment_style_prices(*), " +
         "styles:garment_order_amendment_styles(*), " +
+        "style_sizes:garment_order_amendment_style_sizes(*), " +
+        "style_processes:garment_order_amendment_style_processes(*), " +
         "dyeings:garment_order_amendment_dyeings(*), " +
         "prints:garment_order_amendment_prints(*), " +
         "structures:garment_order_amendment_structures(*), " +
-        "combos:garment_order_amendment_combos(*), " +
+        // The combo TREE (0408). Two levels of embed, so PostgREST resolves
+        // structures under each combo and components under each structure —
+        // and, like every other name here, ONE unresolvable relationship fails
+        // the whole query rather than this branch of it.
+        "combos:garment_order_amendment_combos(*, structures:garment_order_amendment_combo_structures(*, components:garment_order_amendment_combo_components(*))), " +
         "price_details:garment_order_amendment_price_details(*), " +
         "approval_qtys:garment_order_amendment_approval_qtys(*), " +
         "pack_types:garment_order_amendment_pack_types(*), " +
-        "quantities:garment_order_amendment_quantities(*), " +
+        // The Assort tree (0414). Two levels of embed under the quantity row —
+        // and, like every other name here, ONE unresolvable relationship
+        // fails the WHOLE query rather than this branch of it, which is why
+        // this lands in the same edit as the migration.
+        "quantities:garment_order_amendment_quantities(*, assort_lines:garment_order_amendment_assort_lines(*, sizes:garment_order_amendment_assort_line_sizes(*))), " +
         "country_sizes:garment_order_amendment_country_sizes(*)",
     )
     .order("created_at", { ascending: false });
@@ -63,7 +77,7 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
    * A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — the same rule `getStyleRows`
    * below already carries, and this is the function it was missed on.
    *
-   * THIRTEEN EMBEDS, so this is the query in the module most able to fail
+   * FOURTEEN EMBEDS, so this is the query in the module most able to fail
    * wholesale: PostgREST resolves every relationship before returning a row, and
    * ONE unresolvable name fails all of them. That is not hypothetical
    * (2026-08-11) — the `quantities` and `pack_types` embeds named tables whose
@@ -84,14 +98,25 @@ export async function getAmendments(): Promise<GarmentOrderAmendment[]> {
     charges: bySno(r.charges),
     style_prices: bySno(r.style_prices),
     styles: bySno(r.styles),
+    style_sizes: bySno(r.style_sizes),
+    style_processes: bySno(r.style_processes),
     dyeings: bySno(r.dyeings),
     prints: bySno(r.prints),
     structures: bySno(r.structures),
-    combos: bySno(r.combos),
+    combos: bySno(r.combos).map((c) => ({
+      ...c,
+      structures: bySno(c.structures).map((st) => ({ ...st, components: bySno(st.components) })),
+    })),
     price_details: bySno(r.price_details),
     approval_qtys: bySno(r.approval_qtys),
     pack_types: bySno(r.pack_types),
-    quantities: bySno(r.quantities),
+    quantities: bySno(r.quantities).map((q) => ({
+      ...q,
+      // Size cells have no `sno` — the ORDER of a ratio is the column order,
+      // which the screen derives from the style's sizes, so they are left as
+      // they come and looked up by `size_id`.
+      assort_lines: bySno(q.assort_lines).map((l) => ({ ...l, sizes: l.sizes ?? [] })),
+    })),
     country_sizes: bySno(r.country_sizes),
   })));
 }
@@ -291,6 +316,40 @@ export type StylePickerRow = {
   description: string | null;
   /** `garment_styles` spells its disable flag `blocked` (0124). */
   blocked: boolean;
+  /**
+   * THE STYLE'S OWN SIZE SET, in `sno` order — what `pickStyle` lists in the
+   * nested Size grid under the line (0407, legacy screenshots 2255 -> 2256).
+   *
+   * `garment_style_sizes.size_id` -> `config_lookups` kind 'size', which the
+   * screen already holds in `data.lookups`, so only the ids travel: resolving a
+   * name here would be a second copy of a list the form already has.
+   *
+   * OFTEN EMPTY, AND THAT IS NOT AN ERROR. Filling a style's sizes is optional
+   * on the Style master ("Fill sizes" from a Size Group is a button, not a
+   * requirement), so an empty array means "this style has not said", and the
+   * screen says so rather than showing a blank grid.
+   */
+  sizes: { sno: number; size_id: string | null }[];
+  /**
+   * THE PARTS THIS STYLE IS MADE OF — `garment_style_components` (0124/0396).
+   *
+   * "Component Name: pulled from the Style Entry" (client 2026-08-12). The
+   * Combos ▸ Detail grid asks which coordinate and component a fabric is used
+   * for, and the answer can only be one the STYLE declares — a PO cannot
+   * specify the colour of a sleeve on a style that has no sleeve.
+   *
+   * The pair is what travels, not two lists: the style declares FRONT BODY *of
+   * PIECES*, so picking the coordinate narrows the components to the ones that
+   * belong to it. Flattening to two independent lists would offer a collar
+   * under a coordinate that has none.
+   */
+  components: {
+    sno: number;
+    coordinate_id: string | null;
+    component_id: string | null;
+    /** The component's Structure — a fabric CATEGORY (0405). */
+    fabric_category_id: string | null;
+  }[];
 };
 
 /**
@@ -317,7 +376,16 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
         // WHOLE query. With the error swallowed below that surfaced as an empty
         // Style picker on the amendment screen: nothing to pick, no error, and
         // the Style(s) tab simply unusable.
-        "category:categories!garment_styles_style_category_id_fkey(name)",
+        "category:categories!garment_styles_style_category_id_fkey(name), " +
+        // The style's size set (0407). A CHILD EMBED, so it fails the same
+        // wholesale way the category one did: one unresolvable name and the
+        // whole query returns nothing. `garment_style_sizes` is 0124's and has
+        // never been repointed (0396 left it alone), so the relationship is the
+        // plain FK — but the `if (error) throw` below is what makes a future
+        // break visible instead of emptying the picker.
+        "sizes:garment_style_sizes(sno, size_id), " +
+        // The style's own parts, for the Combos ▸ Detail pickers (2026-08-12).
+        "components:garment_style_components(sno, coordinate_id, component_id, fabric_category_id)",
     )
     .order("created_at", { ascending: false });
   // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — the same rule commit 37fcde8
@@ -338,6 +406,13 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     unit_id: string | null;
     blocked: boolean;
     category?: { name: string } | null;
+    sizes?: { sno: number | null; size_id: string | null }[] | null;
+    components?: {
+      sno: number | null;
+      coordinate_id: string | null;
+      component_id: string | null;
+      fabric_category_id: string | null;
+    }[] | null;
   }[]).map((r) => ({
     id: r.id,
     code: r.code,
@@ -351,6 +426,20 @@ async function getStyleRows(): Promise<StylePickerRow[]> {
     unit_id: r.unit_id,
     description: r.description,
     blocked: r.blocked,
+    // Sorted HERE rather than in the query: PostgREST cannot order an embedded
+    // resource independently of its parent, and the size list is the one thing
+    // on this row whose ORDER is the data (2, 3, 4 ... 14, not 10 before 2).
+    sizes: [...(r.sizes ?? [])]
+      .sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0))
+      .map((x) => ({ sno: x.sno ?? 0, size_id: x.size_id })),
+    components: [...(r.components ?? [])]
+      .sort((a, b) => (a.sno ?? 0) - (b.sno ?? 0))
+      .map((x) => ({
+        sno: x.sno ?? 0,
+        coordinate_id: x.coordinate_id,
+        component_id: x.component_id,
+        fabric_category_id: x.fabric_category_id,
+      })),
   }));
 }
 
@@ -385,6 +474,17 @@ async function getLocationRows(): Promise<PickerRow[]> {
   return (data ?? []) as PickerRow[];
 }
 
+/** A rejection rule as the picker and the calculation both need it (0413). */
+export type RejectionRuleOption = {
+  id: string;
+  /** `effective_from` — these are versioned, so the date tells revisions apart. */
+  code: string | null;
+  name: string;
+  /** 0264's disable flag. `isInactive()` reads this spelling. */
+  blocked: boolean;
+  tiers: RejectionTier[];
+};
+
 export type AmendmentFormData = {
   orders: OrderPickerRow[];
   customers: PickerRow[];
@@ -400,8 +500,28 @@ export type AmendmentFormData = {
    * deleted the lookup rows, which are now a shape without a table.
    */
   paymentTerms: ConfigLookup[];
+  /**
+   * Credit days, by payment term id — the Logistic tab's "Days" (client
+   * 2026-08-12).
+   *
+   * A MAP RIDING ALONGSIDE rather than a widened `ConfigLookup`, exactly as
+   * `rejectionRules` carries its `tiers` and `categories` its
+   * `fabric_structure_id`. `paymentTermsAsLookups()` flattens the master onto a
+   * lookup shape with nowhere to put `credit_days`, and widening that shape
+   * would reach all six `PaymentTermPicker` call sites to serve one screen.
+   *
+   * Days is DERIVED and read-only. The term already states its own credit
+   * period (`payment_terms.credit_days`, 0242), so a second copy stored on the
+   * order is a copy that can disagree with it — and the operator would have no
+   * way to tell which one the invoice will follow.
+   */
+  paymentTermDays: Record<string, number>;
   styles: StylePickerRow[];
   uoms: PickerRow[];
+  /** Style(s) ▸ Process (0411). Unfiltered; Type narrows it client-side. */
+  processes: ProcessOption[];
+  /** Approval Qty ▸ Projection (0413). Tiers ride along — see the feeder. */
+  rejectionRules: RejectionRuleOption[];
   /** Quantities grid (0398). */
   consignees: PickerRow[];
   warehouses: PickerRow[];
@@ -414,9 +534,193 @@ export type AmendmentFormData = {
    * and breaks the other half).
    */
   locations: PickerRow[];
+  /**
+   * Combos ▸ Structure Details (0408 · 0409) — the four lists that overlay picks
+   * from, and every one of them is a MASTER rather than a lookup kind.
+   *
+   * `categories` carries `fabric_structure_id`, which is not decoration: it is
+   * how the screen derives the knit family from the picked Structure and so how
+   * `structureProblems` decides that GSM is compulsory. Selecting the id and not
+   * the family is what would leave that rule unenforceable — the same "the
+   * column half passing says nothing about whether the value arrived" shape the
+   * `created_by` and cascade-filter sweeps both record.
+   */
+  categories: Category[];
+  compositions: PickerRow[];
+  /** A COORDINATE IS A GARMENT (0396) — `items` of class GAR. */
+  coordinates: PickerRow[];
+  /** The `components` master (0228/0396), not the empty lookup kind. */
+  componentRows: PickerRow[];
 };
 
+/**
+ * Coordinates — `items` of class GAR (0396).
+ *
+ * The class filter is done HERE, not in the screen: the cascading-picker rule
+ * puts the narrowing at the layer that knows the class, and an item named
+ * "PIECES" in some other class would otherwise be offered and be wrong.
+ *
+ * `is_active` rides along rather than being filtered in SQL — "Disabled rows":
+ * filtering here satisfies half the rule and breaks the other half, because a
+ * coordinate a saved row already holds would then resolve to nothing and blank
+ * itself on the next save.
+ */
+async function getCoordinateRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data: classes } = await s
+    .from("config_lookups")
+    .select("id, code")
+    .eq("kind", "item_class");
+  const garIds = new Set(
+    ((classes ?? []) as { id: string; code: string | null }[])
+      .filter((c) => (c.code ?? "").toUpperCase() === "GAR")
+      .map((c) => c.id),
+  );
+  if (garIds.size === 0) return [];
+  const { data } = await s
+    .from("items")
+    .select("id, code, name, item_class_id, is_active")
+    .order("name");
+  return ((data ?? []) as (PickerRow & { item_class_id: string | null })[]).filter(
+    (i) => i.item_class_id && garIds.has(i.item_class_id),
+  );
+}
+
+/** The `components` master — it spells its label `short_name` and its flag `inactive`. */
+async function getComponentPickerRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("components")
+    .select("id, short_name, inactive")
+    .order("short_name");
+  return ((data ?? []) as { id: string; short_name: string | null; inactive: boolean | null }[]).map(
+    (c) => ({ id: c.id, code: null, name: c.short_name ?? "(unnamed)", inactive: c.inactive ?? false }),
+  );
+}
+
+/**
+ * Compositions (0225) for the Structure Details picker.
+ *
+ * THE LABEL IS THE MIXTURE, NOT THE HEADER'S NAME (operator, 2026-08-12). The
+ * legacy cell reads "100% BCI CO…", which is the composition SPELLED OUT — and
+ * that is the only form anyone in the trade recognises. `compositions.name` is
+ * an internal handle ("Test Composition"), so a picker showing it offers rows
+ * nobody can identify: the field looked unwired precisely because it was
+ * showing the wrong half of the master.
+ *
+ * So the option name is composed from `composition_lines` — `<pct>% <fibre>`,
+ * joined by " / " for a blend, in `sno` order because that order IS the recipe
+ * (the major fibre is stated first). Percentages are trimmed of trailing zeros:
+ * the column is `numeric(6,2)` and "100.00% COTTON" is not how it is written.
+ *
+ * A COMPOSITION WITH NO LINES FALLS BACK TO ITS NAME rather than rendering
+ * blank. A row that exists must stay pickable — a half-entered master is the
+ * operator's to finish, not this function's to hide.
+ */
+async function getCompositionRows(): Promise<PickerRow[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("compositions")
+    .select("id, short_name, name, blocked, lines:composition_lines(sno, description, mixing_pct)")
+    .order("name", { nullsFirst: false });
+  const pct = (n: number) => (Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2))));
+  return (
+    (data ?? []) as unknown as {
+      id: string;
+      short_name: string | null;
+      name: string | null;
+      blocked: boolean;
+      lines: { sno: number; description: string | null; mixing_pct: number | null }[] | null;
+    }[]
+  ).map((c) => {
+    const mixture = [...(c.lines ?? [])]
+      .sort((a, b) => a.sno - b.sno)
+      .filter((l) => (l.description ?? "").trim())
+      .map((l) => `${pct(Number(l.mixing_pct ?? 0))}% ${(l.description ?? "").trim()}`)
+      .join(" / ");
+    return {
+      id: c.id,
+      code: c.short_name,
+      name: mixture || c.name || c.short_name || "(unnamed composition)",
+      blocked: c.blocked,
+    };
+  });
+}
+
 /** Every picker option list the amendment editor needs, fetched in parallel. */
+/**
+ * The Process master, for Style(s) ▸ Process (0411).
+ *
+ * BOTH applicability flags come down unfiltered, and that is the point. The
+ * screen's Type field switches between `for_garments` and `for_components`
+ * without a round trip, so filtering either one here would mean a fetch per
+ * Type — and would leave the OTHER Type's saved rows unresolvable, showing a
+ * filled field as empty.
+ *
+ * `inactive` is SELECTED and not filtered in SQL, the standing "Disabled rows"
+ * rule: a switched-off process must vanish from the list while still resolving
+ * on the order that already named it. `processesForKind` re-admits the held
+ * value; this function must not pre-empt it.
+ */
+async function getProcessRows(): Promise<ProcessOption[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("processes")
+    .select("id, name, inactive, for_garments, for_components")
+    .order("name");
+  return ((data ?? []) as {
+    id: string; name: string; inactive: boolean | null;
+    for_garments: boolean | null; for_components: boolean | null;
+  }[]).map((p) => ({
+    id: p.id,
+    code: null,
+    name: p.name,
+    inactive: p.inactive ?? false,
+    for_garments: p.for_garments ?? false,
+    for_components: p.for_components ?? false,
+  }));
+}
+
+/**
+ * The Garment Rejection Rules, WITH their tiers, for Approval Qty's Projection
+ * (0413).
+ *
+ * The tiers ride along with the options rather than being fetched when a rule is
+ * picked, because the whole Approval Qty grid recalculates as the operator types
+ * a quantity — a round trip per keystroke is not an option, and `rejectionFor`
+ * is a pure function that only needs the bands.
+ *
+ * `blocked` is the disable flag on THIS master (not `inactive`, not
+ * `is_active` — 0264 predates the 0299 rename), and it is SELECTED rather than
+ * filtered in SQL: a rule switched off after an order named it must still
+ * resolve, or the order's Projection would silently change. `isInactive()` reads
+ * all three spellings, which is why the picker gets the raw flag.
+ *
+ * Rules are VERSIONED by `effective_from` — a revision is a new row, which is
+ * why this master is exempt from the duplicate-name guard. The date rides along
+ * so the picker can tell two same-named revisions apart.
+ */
+async function getRejectionRuleRows(): Promise<RejectionRuleOption[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("garment_rejection_rules")
+    .select(
+      "id, rule, blocked, effective_from, " +
+        "lines:garment_rejection_rule_lines(from_value, to_value, rejection_allowance, allowance_type)",
+    )
+    .order("effective_from", { ascending: false });
+  return ((data ?? []) as unknown as {
+    id: string; rule: string | null; blocked: boolean | null; effective_from: string | null;
+    lines: RejectionTier[] | null;
+  }[]).map((r) => ({
+    id: r.id,
+    code: r.effective_from,
+    name: r.rule ?? "(unnamed rule)",
+    blocked: r.blocked ?? false,
+    tiers: r.lines ?? [],
+  }));
+}
+
 export async function getAmendmentFormData(): Promise<AmendmentFormData> {
   const [
     orders,
@@ -433,6 +737,12 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     consignees,
     warehouses,
     ports,
+    categories,
+    compositions,
+    coordinates,
+    componentRows,
+    processes,
+    rejectionRules,
   ] = await Promise.all([
     getOrderRows(),
     getCustomerRows(),
@@ -448,6 +758,12 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getConsigneeRows(),
     getWarehouseRows(),
     getPortRows(),
+    listCategories(),
+    getCompositionRows(),
+    getCoordinateRows(),
+    getComponentPickerRows(),
+    getProcessRows(),
+    getRejectionRuleRows(),
   ]);
   return {
     orders,
@@ -458,11 +774,20 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     currencies,
     lookups,
     paymentTerms: paymentTermsAsLookups(paymentTermRows),
+    paymentTermDays: Object.fromEntries(
+      paymentTermRows.map((t) => [t.id, t.credit_days ?? 0]),
+    ),
     styles,
     uoms,
     locations,
     consignees,
     warehouses,
     ports,
+    categories,
+    compositions,
+    coordinates,
+    componentRows,
+    processes,
+    rejectionRules,
   };
 }

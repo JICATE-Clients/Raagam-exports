@@ -659,6 +659,7 @@ export function ChildGrid<T extends { key: string }>({
   narrow = false,
   lockExisting = false,
   inlineCards = false,
+  fill = false,
   flushRows = false,
   listRows = false,
   rowSummary,
@@ -760,6 +761,25 @@ export function ChildGrid<T extends { key: string }>({
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
   inlineCards?: boolean;
+  /**
+   * TAKE THE WIDTH GIVEN instead of hugging the columns — for a grid that shares
+   * a row with another grid, where the two cards' edges must line up.
+   *
+   * A grid whose columns all declare a `width` hugs its content (`hugsContent`),
+   * and that is right for a grid standing alone: a card the width of a two-
+   * character Size box beats one with a metre of grey beside it. Put four such
+   * grids in a `SectionGrid` and the same rule turns against itself — Order
+   * Amendment ▸ Color/Print Details drew Yarn Dyeing at ~520px above Roll Form
+   * Prints at ~350px, so a 2×2 that was meant to read as a block had four
+   * different right edges (client 2026-08-12, screenshot 2273).
+   *
+   * It suppresses ONLY the hug. The columns keep their declared widths, so the
+   * fields inside stay the size they were and the slack falls to the right of
+   * them — never "stretch the last picker to fill the card", which is what
+   * dropping a column's `width` would do instead (see the note on Colour in
+   * `dyeColumns`).
+   */
+  fill?: boolean;
   /**
    * Inline rows that read as FIELDS rather than as cards — for a grid sharing a
    * row with a plain `Field`, where the two must line up.
@@ -944,8 +964,11 @@ export function ChildGrid<T extends { key: string }>({
    * `container-type: inline-size` applies `contain: inline-size`, so a
    * content-sized container query element is a cycle the browser resolves by
    * collapsing it. The root stays parent-sized; only the bordered box hugs.
+   *
+   * `fill` opts out — see the prop. A grid standing alone should hug; a grid
+   * sharing a row with another one has an edge to line up with instead.
    */
-  const hugsContent = columns.length > 0 && columns.every((c) => c.width);
+  const hugsContent = !fill && columns.length > 0 && columns.every((c) => c.width);
 
   /**
    * The row keys this grid was handed on its FIRST render — the stored rows.
@@ -1219,7 +1242,20 @@ export function ChildGrid<T extends { key: string }>({
                 key={row.key}
                 data-grid-row
                 className={cn(
-                  "flex items-center gap-2",
+                  // `items-start`, NOT `items-center` — a cell that stacks a hint
+                  // under its control (the Style pickers on Order Amendment print
+                  // the picked line's Article No beneath the box) is taller than
+                  // its neighbours, and centring made EVERY OTHER control in the
+                  // row drop by half that difference. One two-line cell tilted the
+                  // whole row (client 2026-08-12, screenshot 2264).
+                  //
+                  // Aligning the tops is only half of it: a cell holding nothing
+                  // but text would then sit at the row's ceiling instead of level
+                  // with the boxes beside it. So the CELL centres its own content
+                  // inside one control's height (below) and the row aligns those
+                  // slots — short cells stay centred exactly as they were, and a
+                  // tall one grows downwards instead of pushing its row about.
+                  "flex items-start gap-2",
                   flushRows
                     ? // No card inset: the row's own controls draw the boxes, so
                       // the first one sits level with a `Field` beside it. Rows
@@ -1230,11 +1266,30 @@ export function ChildGrid<T extends { key: string }>({
                     : "rounded-md border border-border p-1.5",
                 )}
               >
-                <span className="w-4 shrink-0 text-center text-xs text-muted-foreground">{startIndex + i + 1}</span>
+                {/* The index and the ✕ belong to the row's CONTROL LINE, not to
+                    its full height — on a row carrying a two-line cell, centring
+                    them against the whole thing left the number floating below
+                    the boxes it counts. `min-h-*` matches the control heights the
+                    field primitives use (`h-9`, `@2xl/editor:h-8`), so a row of
+                    plain text keeps the height the ✕ already gave it. */}
+                <span className="flex min-h-9 w-4 shrink-0 items-center justify-center text-xs text-muted-foreground @2xl/editor:min-h-8">
+                  {startIndex + i + 1}
+                </span>
                 {columns.map((c, ci) => (
                   <div
                     key={ci}
-                    className={cn("min-w-0", c.width ? "shrink-0" : "flex-1", c.className)}
+                    className={cn(
+                      // One control's height, content centred in it: a bare
+                      // figure or label lines up with the boxes beside it (the
+                      // derived Qty columns on Order Amendment), while a cell
+                      // that needs two lines simply gets taller. `[&>button]:w-fit`
+                      // undoes the stretch a flex column would otherwise put on
+                      // an auto-width child — a [Detail] / [Process] button in a
+                      // cell keeps the width it draws itself.
+                      "flex min-h-9 min-w-0 flex-col justify-center @2xl/editor:min-h-8 [&>button]:w-fit",
+                      c.width ? "shrink-0" : "flex-1",
+                      c.className,
+                    )}
                     style={c.width ? { width: c.width } : undefined}
                   >
                     <RequiredScope required={c.required} label={c.header}>
@@ -1243,17 +1298,19 @@ export function ChildGrid<T extends { key: string }>({
                   </div>
                 ))}
                 {!locked(row) && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  data-row-remove // Ctrl+Del / mouse — see the note on the table layout above
-                  className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
-                  onClick={() => onRemove(row)}
-                  aria-label="Remove row"
-                >
-                  <X className="h-4 w-4 shrink-0" />
-                </Button>
+                <span className="flex min-h-9 shrink-0 items-center @2xl/editor:min-h-8">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-row-remove // Ctrl+Del / mouse — see the note on the table layout above
+                    className="w-8 shrink-0 px-0 text-muted-foreground hover:text-danger"
+                    onClick={() => onRemove(row)}
+                    aria-label="Remove row"
+                  >
+                    <X className="h-4 w-4 shrink-0" />
+                  </Button>
+                </span>
                 )}
               </div>
               );

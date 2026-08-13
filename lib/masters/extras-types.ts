@@ -97,6 +97,13 @@ export const LOOKUP_KINDS = [
   "vendor_service_type",
   // Orders ▸ Amendment ▸ Quantities grid (0398)
   "assortment_type",
+  // Orders ▸ Amendment ▸ Color/Print Details ▸ Yarn / Fabric Dyeing colour
+  // (0415). The colour was free text from 0403, when Colour Cards was withdrawn
+  // and `public.colors` dropped left nothing to point at; a lookup kind carries
+  // inline create, so the list fills from the orders that need it instead of
+  // waiting on a master screen. Deliberately unseeded — a defaulted colour list
+  // is the mistake the near-miss rule records (AGENTS.md, "Near misses").
+  "fabric_color",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
@@ -154,6 +161,7 @@ export const LOOKUP_KIND_LABELS: Record<LookupKind, string> = {
   vendor_supply_type: "Vendor Supply Types",
   vendor_service_type: "Vendor Service Types",
   assortment_type: "Assortment Types",
+  fabric_color: "Fabric Colours",
 };
 
 /**
