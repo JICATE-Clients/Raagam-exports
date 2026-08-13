@@ -25,6 +25,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate } from "@/lib/format";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
+import { SizeGroupQuickCreateSheet } from "@/components/masters/size-group-quick-create-sheet";
+import type { SizeGroup } from "@/lib/masters/size-group-types";
 import { ComponentPicker } from "@/components/masters/component-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
@@ -407,15 +409,31 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
 
   // ---- size group fill ------------------------------------------------------
 
+  /**
+   * Groups the operator has just created from the picker, merged in front of the
+   * server's list until the next `router.refresh()` brings them down properly.
+   *
+   * WITH THEIR SIZES. A quick-created group whose children were not carried here
+   * would select fine and leave "Fill sizes" disabled — the exact
+   * looks-like-it-worked-and-did-nothing failure the sheet exists to prevent,
+   * reintroduced one layer up.
+   */
+  const [newSizeGroups, setNewSizeGroups] = useState<SizeGroup[]>([]);
+  const [sgQuickCreate, setSgQuickCreate] = useState<((id: string) => void) | null>(null);
+  const allSizeGroups = useMemo(
+    () => [...newSizeGroups, ...data.sizeGroups],
+    [newSizeGroups, data.sizeGroups],
+  );
+
   const sizeGroupItems = useMemo(
     () =>
-      data.sizeGroups.map((g) => ({
+      allSizeGroups.map((g) => ({
         id: g.id,
         code: g.size_group_no,
         name: g.size_group_name ?? g.size_group_no ?? "(unnamed group)",
         inactive: g.inactive,
       })),
-    [data.sizeGroups],
+    [allSizeGroups],
   );
 
   /** Size NAME → the `config_lookups` row that holds it. The group stores names
@@ -426,12 +444,12 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   );
 
   const groupSizeNames = useMemo(() => {
-    const g = data.sizeGroups.find((x) => x.id === form.size_group_id);
+    const g = allSizeGroups.find((x) => x.id === form.size_group_id);
     return [...(g?.sizes ?? [])]
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       .map((s) => s.size_name)
       .filter((n) => !!n?.trim());
-  }, [data.sizeGroups, form.size_group_id]);
+  }, [allSizeGroups, form.size_group_id]);
 
   const fillableSizes = groupSizeNames;
   const unmatchedSizes = useMemo(
@@ -1686,12 +1704,24 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               which group was used. */}
           <FieldGrid>
             <Field label="Size Group" size="sm">
+              {/* "+ Add" opens a real mini-form, not the inline name-only row.
+                  `sizeGroupInput` requires nothing at all, so a name-only group
+                  would save and then fill nothing — leaving "Fill sizes" beside
+                  it disabled with a valid group selected. That is the create
+                  that appears to work and changes nothing, which is why
+                  `RecordPicker` refuses inline CRUD and takes an override
+                  instead. */}
               <RecordPicker
                 label="Size Group"
                 compact
                 items={sizeGroupItems}
                 value={form.size_group_id}
                 onChange={(id) => set({ size_group_id: id })}
+                onAddOverride={
+                  masterPerms.canCreate
+                    ? (commit) => setSgQuickCreate(() => commit)
+                    : undefined
+                }
               />
             </Field>
             <Field label="" size="sm">
@@ -1798,6 +1828,42 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           canSave,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
+        }}
+      />
+
+      {/**
+        * Size Group quick-create, mounted at the EDITOR ROOT rather than in the
+        * cell that opens it. `RequiredScope` follows the render tree, so a sheet
+        * rendered from inside a required field would inherit "required" and hold
+        * the cursor on its own empty boxes while announcing the wrong field's
+        * name — the New Yarn / Purity defect (AGENTS.md, client 2026-08-06).
+        *
+        * `commit` is the picker's own callback: it selects the new id and closes
+        * the panel, so the operator lands back on a filled field rather than an
+        * empty one they have to re-open.
+        */}
+      <SizeGroupQuickCreateSheet
+        open={!!sgQuickCreate}
+        onClose={() => setSgQuickCreate(null)}
+        onCreated={(row) => {
+          setNewSizeGroups((xs) => [
+            {
+              id: row.id,
+              size_group_no: null,
+              size_group_name: row.name,
+              inactive: false,
+              created_at: "",
+              updated_at: "",
+              sizes: row.sizes.map((z, i) => ({
+                id: `new-${i}`,
+                size_name: z.size_name,
+                sort_order: z.sort_order,
+              })),
+            },
+            ...xs,
+          ]);
+          sgQuickCreate?.(row.id);
+          setSgQuickCreate(null);
         }}
       />
     </div>

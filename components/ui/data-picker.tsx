@@ -684,17 +684,20 @@ export function DataPicker({
       return;
     }
 
-    if (!open || !manage) return;
+    // An override-only picker has no `manage`, and Insert must still reach it —
+    // otherwise the mouse can open a quick-create the keyboard cannot, on a
+    // screen whose whole contract is that it does not need one.
+    if (!open || !(manage || onAddOverride)) return;
 
-    if (e.key === "F2" && manage.canEdit) {
+    if (e.key === "F2" && manage?.canEdit) {
       e.preventDefault();
       e.stopPropagation();
       startEdit();
-    } else if (e.key === "Insert" && manage.canCreate) {
+    } else if (e.key === "Insert" && (manage?.canCreate || onAddOverride)) {
       e.preventDefault();
       e.stopPropagation();
       startAdd();
-    } else if (e.key === "Delete" && e.ctrlKey && manage.canDelete) {
+    } else if (e.key === "Delete" && e.ctrlKey && manage?.canDelete) {
       e.preventDefault();
       e.stopPropagation();
       startDelete();
@@ -835,7 +838,14 @@ export function DataPicker({
           );
         })}
       </ul>
-      {manage?.canCreate && (
+      {/* AN OVERRIDE STANDS ON ITS OWN, without a `manage` beside it.
+          `manage` is the INLINE name-only form plus its Modify and Delete, and
+          a field whose record needs more than a name is exactly the field that
+          must not offer it — so requiring the one to enable the other made the
+          richer flow reachable only by declaring the poorer one first. Every
+          existing call site is unchanged: `manage?.canCreate` still opens the
+          inline form, and a picker with neither shows no Add at all. */}
+      {(manage?.canCreate || onAddOverride) && (
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
           <button
             type="button"
