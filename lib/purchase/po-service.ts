@@ -384,3 +384,23 @@ export async function getUoms(): Promise<Uom[]> {
     .order("name");
   return (data ?? []) as Uom[];
 }
+
+/** A garment order a PO line can be bought for (0424). */
+export type OrderForPicker = { id: string; order_number: string | null };
+
+/**
+ * Orders a purchase can be raised against.
+ *
+ * Cancelled and closed are excluded: buying for an order nobody is making is
+ * the mistake, not a case to support. `listOrderOptions` on the Material BOM
+ * side makes the same call, so the two lists agree about what is live.
+ */
+export async function getOrdersForPicker(): Promise<OrderForPicker[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("sales_orders")
+    .select("id, order_number")
+    .not("status", "in", "(cancelled,closed)")
+    .order("order_number", { ascending: false });
+  return (data ?? []) as OrderForPicker[];
+}

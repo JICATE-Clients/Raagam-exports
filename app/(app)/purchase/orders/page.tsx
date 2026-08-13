@@ -6,6 +6,8 @@ import {
   getBudgetsForPicker,
   getCurrencies,
   getLocations,
+  getItems,
+  getOrdersForPicker,
 } from "@/lib/purchase/po-service";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
@@ -87,13 +89,17 @@ const columns: Column<PoWithVendor>[] = [
 export default async function PurchaseOrdersPage() {
   await requirePermission("materials_purchase", "view");
 
-  const [orders, vendors, budgets, currencies, locations, canCreate] =
+  const [orders, vendors, budgets, currencies, locations, items, salesOrders, canCreate] =
     await Promise.all([
       listPurchaseOrders(),
       getVendorsForPicker(),
       getBudgetsForPicker(),
       getCurrencies(),
       getLocations(),
+      // The material a line buys, and the garment order it buys for (0424) —
+      // the two the Material BOM ceiling keys on.
+      getItems(),
+      getOrdersForPicker(),
       can("materials_purchase", "create"),
     ]);
 
@@ -110,6 +116,8 @@ export default async function PurchaseOrdersPage() {
           budgets={budgets}
           currencies={currencies}
           locations={locations}
+          items={items}
+          orders={salesOrders}
         />
       )}
 
