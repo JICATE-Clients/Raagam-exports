@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useRouter } from "next/navigation";
 import { createOrder } from "@/lib/orders/actions";
 import { useToast } from "@/components/ui/toast";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import type { QuoteWithContext } from "@/lib/orders/service";
@@ -17,7 +17,7 @@ import type { Buyer } from "@/lib/masters/types";
 
 type Location = { id: string; code: string; name: string };
 
-type LineRow = { color: string; size: string; quantity: string };
+type LineRow = { key: string; color: string; size: string; quantity: string };
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -59,6 +59,13 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
 
   // line items
   const [lines, setLines] = useState<LineRow[]>([]);
+  const keySeq = useRef(0);
+  const blankLine = (): LineRow => ({
+    key: `k${keySeq.current++}`,
+    color: "",
+    size: "",
+    quantity: "",
+  });
 
   function resetForm() {
     setMode("quote");
@@ -90,16 +97,62 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
   }
 
   function addLine() {
-    setLines((ls) => [...ls, { color: "", size: "", quantity: "" }]);
+    setLines((ls) => [...ls, blankLine()]);
   }
 
-  function removeLine(i: number) {
-    setLines((ls) => ls.filter((_, idx) => idx !== i));
+  function removeLine(row: LineRow) {
+    setLines((ls) => ls.filter((l) => l.key !== row.key));
   }
 
-  function updateLine(i: number, field: keyof LineRow, val: string) {
-    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, [field]: val } : l)));
+  function updateLine(key: string, patch: Partial<LineRow>) {
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
+
+  /* One declaration per column, read by the table AND by the card layout — so a
+     fourth column cannot leave the two disagreeing. `ChildGrid` draws the row ✕
+     itself with `data-row-remove`, which is what puts Ctrl+Del on these rows;
+     the hand-rolled `×` this replaces was on no key at all, and since Tab began
+     landing on fields only it was mouse-only. */
+  const lineColumns: ChildGridColumn<LineRow>[] = [
+    {
+      header: "Colour",
+      cell: (l) => (
+        <Input
+          uppercase
+          placeholder="e.g. Navy"
+          value={l.color}
+          onChange={(e) => updateLine(l.key, { color: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Size",
+      width: "8rem",
+      cell: (l) => (
+        <Input
+          uppercase
+          placeholder="e.g. M"
+          value={l.size}
+          onChange={(e) => updateLine(l.key, { size: e.target.value })}
+        />
+      ),
+    },
+    {
+      header: "Qty",
+      align: "right",
+      width: "8rem",
+      cell: (l) => (
+        <Input
+          type="number"
+          min="0"
+          placeholder="0"
+          className="text-right"
+          value={l.quantity}
+          onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
+        />
+      ),
+    },
+  ];
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -190,35 +243,45 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
             // buttons — one of the ~51 page-level editors AGENTS.md counts as
             // missing this. See the `raagam-keyboard-contract` skill.
             data-focus-scope onSubmit={handleSubmit} className="space-y-4">
-            {mode === "quote" && (
-              <div>
-                <Label htmlFor="quote">Accepted quote</Label>
-                <Select
-                  id="quote"
-                  value={selectedQuoteId}
-                  onChange={(e) => handleQuoteSelect(e.target.value)}
-                  required
-                >
-                  <option value="">— select quote —</option>
-                  {quotes.map((q) => (
-                    <option key={q.id} value={q.id}>
-                      {q.code ?? q.id.slice(0, 8)} — {q.buyers?.name ?? "?"} (
-                      {q.currency_code} {q.fob_price})
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
+            {/* ONE FIELD TRACK for the whole form, in place of a lone quote row
+                above a `grid-cols-1 sm:grid-cols-2`. Two tracks meant the quote
+                box ran the full card width while everything under it was half of
+                it, so nothing shared a left edge with anything — LAYOUT.md §3
+                fixes a field at ~280px precisely so a form reads as columns
+                rather than as boxes sized to their own data. */}
+            <FieldGrid>
+              {mode === "quote" && (
+                // `lg`, not `full`: a quote option carries its code, buyer,
+                // currency and price on one line and reads badly in a quarter row.
+                <Field label="Accepted quote" required size="lg" htmlFor="quote">
+                  <Select
+                    id="quote"
+                    value={selectedQuoteId}
+                    onChange={(e) => handleQuoteSelect(e.target.value)}
+                    required
+                  >
+                    <option value="">— select quote —</option>
+                    {quotes.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        {q.code ?? q.id.slice(0, 8)} — {q.buyers?.name ?? "?"} (
+                        {q.currency_code} {q.fob_price})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* The document date. Required because `sales_orders.order_date`
                   is NOT NULL (0395) — it is also what decides the order
                   number's financial year, but that belongs to the DB, not to a
-                  caption on this generic form. */}
-              <div>
-                <Label htmlFor="order-date">
-                  Date <span className="text-danger">*</span>
-                </Label>
+                  caption on this generic form.
+
+                  `required` on the FIELD, never a `*` typed into the label: the
+                  one prop draws the star AND stamps `data-required-empty`, so
+                  the star and the cursor hold cannot disagree. Typed by hand it
+                  was decoration — the red star was there, and Tab walked
+                  straight past a blank box. */}
+              <Field label="Date" required size="sm" htmlFor="order-date">
                 <Input
                   id="order-date"
                   type="date"
@@ -226,11 +289,12 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   value={orderDate}
                   onChange={(e) => setOrderDate(e.target.value)}
                 />
-              </div>
+              </Field>
 
-              {/* Buyer (editable even when quote mode) */}
-              <div>
-                <Label htmlFor="buyer">Buyer</Label>
+              {/* Buyer (editable even when quote mode). `buyer_id` is a uuid in
+                  `salesOrderInput` — a blank one fails the schema, so this has
+                  always been mandatory and simply never said so. */}
+              <Field label="Buyer" required size="sm" htmlFor="buyer">
                 <Select
                   id="buyer"
                   value={buyerId}
@@ -244,7 +308,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                     </option>
                   ))}
                 </Select>
-              </div>
+              </Field>
 
               {/* MANDATORY since 0395 — not a style choice. The SC No's running
                   number counts per (location, financial year), so an order with
@@ -252,10 +316,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   number it. The `*` holds the cursor here (useRequiredHold),
                   which is right: leaving it blank is not a save that fails
                   validation, it is a save that cannot produce an identifier. */}
-              <div>
-                <Label htmlFor="location">
-                  Location <span className="text-danger">*</span>
-                </Label>
+              <Field label="Location" required size="sm" htmlFor="location">
                 <Select
                   id="location"
                   required
@@ -269,10 +330,13 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                     </option>
                   ))}
                 </Select>
-              </div>
+              </Field>
 
-              <div>
-                <Label htmlFor="fob">FOB price</Label>
+              {/* FOB and Qty carried a native `required` and no star, which is
+                  the drift in the other direction: the browser refused the save
+                  and nothing on screen said why. Declared here they get the
+                  star, the hold and the Save gate from the same prop. */}
+              <Field label="FOB price" required size="sm" htmlFor="fob">
                 <Input
                   id="fob"
                   type="number"
@@ -283,10 +347,9 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   onChange={(e) => setFobPrice(e.target.value)}
                   required
                 />
-              </div>
+              </Field>
 
-              <div>
-                <Label htmlFor="qty">Order quantity</Label>
+              <Field label="Order quantity" required size="sm" htmlFor="qty">
                 <Input
                   id="qty"
                   type="number"
@@ -296,10 +359,9 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   onChange={(e) => setOrderQty(e.target.value)}
                   required
                 />
-              </div>
+              </Field>
 
-              <div>
-                <Label htmlFor="currency">Currency</Label>
+              <Field label="Currency" size="sm" htmlFor="currency">
                 <Input
                   uppercase
                   id="currency"
@@ -308,95 +370,32 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   value={currencyCode}
                   onChange={(e) => setCurrencyCode(e.target.value)}
                 />
-              </div>
+              </Field>
 
-              <div>
-                <Label htmlFor="ship">Ship date</Label>
+              <Field label="Ship date" size="sm" htmlFor="ship">
                 <Input
                   id="ship"
                   type="date"
                   value={shipDate}
                   onChange={(e) => setShipDate(e.target.value)}
                 />
-              </div>
-            </div>
+              </Field>
+            </FieldGrid>
 
-            {/* Line items */}
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <Label className="mb-0">Line items (optional)</Label>
-                <Button type="button" variant="subtle" size="sm" onClick={addLine}>
-                  + Add line
-                </Button>
-              </div>
-
-              {lines.length > 0 && (
-                <div className="overflow-x-auto rounded-md border border-border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-muted">
-                        <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted-foreground">
-                          Colour
-                        </th>
-                        <th className="px-3 py-1.5 text-left text-xs font-semibold text-muted-foreground">
-                          Size
-                        </th>
-                        <th className="px-3 py-1.5 text-right text-xs font-semibold text-muted-foreground">
-                          Qty
-                        </th>
-                        <th className="w-8" />
-                      </tr>
-                    </thead>
-                    {/* ↓/↑ walk a column across order lines — gridKeyNav, see
-                        components/masters/child-grid.tsx. */}
-                    <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
-                      {lines.map((l, i) => (
-                        <tr key={i} data-grid-row className="border-b border-border last:border-0">
-                          <td className="px-3 py-1">
-                            <Input
-                              uppercase
-                              placeholder="e.g. Navy"
-                              value={l.color}
-                              onChange={(e) => updateLine(i, "color", e.target.value)}
-                              className="h-7 text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-1">
-                            <Input
-                              uppercase
-                              placeholder="e.g. M"
-                              value={l.size}
-                              onChange={(e) => updateLine(i, "size", e.target.value)}
-                              className="h-7 text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-1">
-                            <Input
-                              type="number"
-                              min="0"
-                              placeholder="0"
-                              value={l.quantity}
-                              onChange={(e) => updateLine(i, "quantity", e.target.value)}
-                              className="h-7 text-right text-xs"
-                            />
-                          </td>
-                          <td className="px-2 py-1">
-                            <button
-                              type="button"
-                              onClick={() => removeLine(i)}
-                              className="text-muted-foreground hover:text-danger"
-                              aria-label="Remove line"
-                            >
-                              ×
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            {/* `seedRow` — the grid opens holding one blank line rather than an
+                empty frame behind an "+ Add line" button. The lines stay
+                genuinely optional: a blank row is dropped by the
+                `Number(l.quantity) > 0` filter in `handleSubmit`, so seeding one
+                cannot post an empty line. */}
+            <ChildGrid
+              label="Line items (optional)"
+              addLabel="+ Add line"
+              columns={lineColumns}
+              rows={lines}
+              onAdd={addLine}
+              onRemove={removeLine}
+              seedRow
+            />
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={handleClose}>
@@ -405,8 +404,23 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
               {/* One declaration, four enforcers: the `*`, the cursor hold, THIS
                   button, and `salesOrderInput`. Location and Date are the two
                   the SC No is built from, so a save without them has no
-                  identifier to produce. */}
-              <Button type="submit" disabled={isPending || !locationId || !orderDate}>
+                  identifier to produce; Buyer is the uuid the schema rejects
+                  blank; FOB and Qty are what the form's own `required` has
+                  always refused to submit without. The list reads off the
+                  starred fields above — every one of them, or the button and
+                  the stars disagree about what "mandatory" means. */}
+              <Button
+                type="submit"
+                disabled={
+                  isPending ||
+                  !orderDate ||
+                  !buyerId ||
+                  !locationId ||
+                  !fobPrice ||
+                  !orderQty ||
+                  (mode === "quote" && !selectedQuoteId)
+                }
+              >
                 {isPending ? "Creating…" : "Create order"}
               </Button>
             </div>
