@@ -3276,11 +3276,62 @@ export function AmendmentScreen({
    * addition — the same rule `gsmRange` follows on the Combos overlay, and the
    * reason `pcs_per_pack` has no column.
    */
+  /**
+   * IS THIS ORDER PACKED TO AN ASSORTMENT?
+   *
+   * Client rule (2026-08-13): the ratio grid is for orders where "Assort" is
+   * chosen in the packing options. Until now the Assort button opened for any
+   * row naming a style, so a Solid Colour / Solid Size order — one colour and
+   * one size per carton, nothing to ration — offered a ratio matrix anyway.
+   *
+   * IT READS THE ORDER'S PACK TYPES, NOT THE ROW'S `pack`. That column is a
+   * free-text carton note the operator types INSIDE this very overlay, so
+   * gating on it would be circular: you would have to open the sheet to earn
+   * the right to open it. The pack TYPE is a header decision — the Pack type(s)
+   * section, gated on the Pack toggle — and three of its four values assort on
+   * at least one axis.
+   *
+   * EMPTY-AND-EXPLAIN, never a silent disable. Each refusal names the switch
+   * that turns it on; a greyed button with no reason is the failure the
+   * nominated-vendor rule records, where the operator never learns what is
+   * missing.
+   */
+  const assortGate: { ok: boolean; why?: string } = !form.pack
+    ? { ok: false, why: "Turn Pack on in Order Info to declare a pack type" }
+    : packTypes.filter((p) => p.pack_type.trim()).length === 0
+      ? { ok: false, why: "Declare a Pack type first — see the Pack type(s) section" }
+      : packTypes.some((p) => /assort/i.test(p.pack_type))
+        ? { ok: true }
+        : {
+            ok: false,
+            why: "Pack type is Solid Colour / Solid Size — one colour and one size per carton, so there is no ratio to set",
+          };
+
   const ratioTotalOf = (l: AssortLineRow) =>
     l.sizes.reduce((a, z) => a + (Number(z.qty) || 0), 0);
-  const lineQtyOf = (l: AssortLineRow) => (Number(l.no_of_cartons) || 0) * ratioTotalOf(l);
+
+  /**
+   * `is_ratio_wise_pack` DOES SOMETHING NOW.
+   *
+   * It was stored, rendered as a checkbox and read by nothing, so the grid
+   * computed the same total whether it was ticked or not. Its own column
+   * comment (0414) already said what it means: *"when true the line's size
+   * cells are the ratio inside ONE carton and multiply by `no_of_cartons`"*.
+   * So this is a documented meaning being honoured, not a new rule.
+   *
+   * Ticked — the cells are a RATIO (1S : 2M : 1L), four pieces per carton, and
+   * twelve cartons is 48 pieces. Unticked — the cells are the pieces
+   * themselves, already counted across the whole line, and multiplying by the
+   * carton count would inflate the order by that factor.
+   *
+   * The distinction has to be visible, which is why the overlay states which
+   * reading is in force rather than leaving the operator to infer it from a
+   * total that silently changed.
+   */
+  const lineQtyOf = (l: AssortLineRow, ratioWise: boolean) =>
+    ratioWise ? (Number(l.no_of_cartons) || 0) * ratioTotalOf(l) : ratioTotalOf(l);
   const assortTotalOf = (q: QuantityRow) =>
-    q.assort_lines.reduce((a, l) => a + lineQtyOf(l), 0);
+    q.assort_lines.reduce((a, l) => a + lineQtyOf(l, q.is_ratio_wise_pack), 0);
 
   /**
    * The combos this amendment declared, for the line's Combo cell.
@@ -3376,14 +3427,48 @@ export function AmendmentScreen({
       header: "PO Qty",
       align: "right",
       total: { kind: "sum", of: (r) => Number(r.po_qty) || 0 },
-      cell: (r) => (
-        <Input
-          className="h-8 text-right"
-          inputMode="decimal"
-          value={r.po_qty}
-          onChange={(e) => setQty(r.key, { po_qty: e.target.value })}
-        />
-      ),
+      /**
+       * PO QTY AND THE ASSORTMENT TOTAL MUST NOT DISAGREE IN SILENCE.
+       *
+       * The overlay computes cartons × ratio, and this figure is typed off the
+       * buyer's order sheet. Nothing compared them, so an operator could set up
+       * twelve cartons of a 1:2:1 ratio (48 pieces) against a PO Qty of 50 and
+       * see no sign of it — and this is the number the order is invoiced on.
+       *
+       * FLAGGED, NEVER OVERWRITTEN. Writing the computed total over a typed one
+       * discards the figure the buyer actually sent, and the assortment is the
+       * likelier of the two to be half-entered. So it says so and offers the
+       * swap; the operator decides which is right.
+       *
+       * Silent while the assortment is empty — a line with no ratio rows is not
+       * disagreeing with anything, it simply has not been filled in.
+       */
+      cell: (r) => {
+        const computed = assortTotalOf(r);
+        const typed = Number(r.po_qty) || 0;
+        const mismatch = r.assort_lines.length > 0 && computed > 0 && computed !== typed;
+        return (
+          <div className="space-y-1">
+            <Input
+              className="h-8 text-right"
+              inputMode="decimal"
+              value={r.po_qty}
+              onChange={(e) => setQty(r.key, { po_qty: e.target.value })}
+            />
+            {mismatch && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => setQty(r.key, { po_qty: String(computed) })}
+                className="block w-full text-right text-[11px] leading-tight text-warning hover:underline"
+                title="Use the assortment total"
+              >
+                Assort: {fmtNumber(computed)} — use
+              </button>
+            )}
+          </div>
+        );
+      },
     },
     {
       header: "Delivery Dt",
@@ -3444,10 +3529,17 @@ export function AmendmentScreen({
        * screenshot 2026-08-12, 11:27), built at last — 0398 deferred it with
        * "adding it later is additive", and this is that addition.
        *
-       * GATED ON THE ROW NAMING A STYLE. The overlay's grid has one column per
-       * SIZE, and the sizes are the style's; with no style there are no columns
-       * and nothing to fill in, so opening it would present an empty matrix and
-       * no way to tell why. Same shape as the Combos [Detail] gate.
+       * GATED TWICE, and each half answers a different "there is nothing to
+       * fill in here".
+       *
+       * ON THE ROW NAMING A STYLE — the overlay's grid has one column per SIZE,
+       * and the sizes are the style's; with no style there are no columns.
+       * Same shape as the Combos [Detail] gate.
+       *
+       * AND ON THE ORDER BEING PACKED TO AN ASSORTMENT (`assortGate`, client
+       * 2026-08-13) — a Solid Colour / Solid Size order has one colour and one
+       * size in a carton, so there is no ratio to set. Each refusal names the
+       * switch that turns it on rather than greying out in silence.
        *
        * The count is what makes the tree visible from outside — a destination
        * carrying three assortment lines otherwise looks exactly like one
@@ -3458,8 +3550,10 @@ export function AmendmentScreen({
           type="button"
           variant="outline"
           size="sm"
-          disabled={!r.style_ref_no.trim()}
-          title={r.style_ref_no.trim() ? undefined : "Pick a Ref No first"}
+          disabled={!r.style_ref_no.trim() || !assortGate.ok}
+          title={
+            !r.style_ref_no.trim() ? "Pick a Ref No first" : assortGate.why
+          }
           onClick={() => setAssortQtyKey(r.key)}
         >
           Assort
@@ -3872,7 +3966,11 @@ export function AmendmentScreen({
       header: "Qty",
       align: "right",
       cell: (l) => (
-        <Input readOnly className="h-8 text-right" value={fmtNumber(lineQtyOf(l))} />
+        <Input
+          readOnly
+          className="h-8 text-right"
+          value={fmtNumber(lineQtyOf(l, q.is_ratio_wise_pack))}
+        />
       ),
     },
   ];
@@ -5707,6 +5805,16 @@ export function AmendmentScreen({
                 Single style pack
               </label>
             </div>
+            {/* WHICH READING IS IN FORCE, said rather than inferred. The two
+                give different totals from identical cells, so a checkbox that
+                silently changed the answer would be the worst kind of switch —
+                one whose effect is only visible if you were watching the number
+                when you clicked it. */}
+            <p className="text-xs text-muted-foreground">
+              {assortQty.is_ratio_wise_pack
+                ? "Size cells are the ratio inside ONE carton — Qty is cartons × ratio."
+                : "Size cells are the pieces themselves — Qty ignores the carton count. Tick Ratio-wise pack to multiply."}
+            </p>
             {assortGrid(assortQty)}
             {/* DERIVED, never stored. Ratio Total is the pieces in one carton
                 of the LAST line only where legacy shows one figure; the honest
