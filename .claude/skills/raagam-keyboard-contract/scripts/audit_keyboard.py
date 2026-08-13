@@ -223,6 +223,29 @@ def check_unsaved_guard(path: Path, code: str):
         return
     if not re.search(r"<(Sheet|MasterFullScreen|SimpleMasterScreen)\b", code):
         return
+    # A PAGE-MOUNTED `MasterFullScreen` REGISTERS THE GUARD FOR ITS SCREEN, and
+    # is the one surface that does. `master-full-screen.tsx` calls
+    # `useUnsavedGuard(mount === "page" && (dirty || !!footer.isPending))`, so a
+    # screen handing it a `dirty` flag has declared -- calling the hook again
+    # beside it would register the same fact twice.
+    #
+    # Deliberately BOTH conditions. `mount="overlay"` takes the `useModalGuard`
+    # branch instead, and `confirmDiscard()` reads only `useUnsavedGuard` -- so
+    # an overlay-mounted screen that skips the hook loses the Escape confirm
+    # silently, which is the exact failure this check exists to catch. And a
+    # `dirty` prop left off means the component has nothing to register: the
+    # guard would be permanently false and Escape would discard typed work
+    # without asking.
+    # Read the props off the TAG, via `tag_end` -- a `[^>]*?` scan stops at the
+    # `>` of the first inline `onSave={() => ...}` handler and never reaches the
+    # props below it, which is what `tag_end` is quote- and brace-aware for.
+    for m in re.finditer(r"<MasterFullScreen\b", code):
+        end = tag_end(code, m.start())
+        if end == -1:
+            continue
+        props = code[m.start():end]
+        if 'mount="page"' in props and re.search(r"\bdirty=", props):
+            return
     m = re.search(r"\bisPending\b", code) or re.search(r"\buseState\b", code)
     if m and re.search(r"\b(onSave|handleSave|onSubmit)\b", code):
         yield Finding(
