@@ -36,6 +36,12 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
+import {
+  bomStatusHint,
+  bomStatusText,
+  bomStatusTone,
+  type BomStatus,
+} from "@/lib/orders/material-bom-amendment/status";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
 // {key,label,content} items and `sections` maps them, so the shape a tab
@@ -105,11 +111,41 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
   rows: GarmentOrderAmendment[];
   data: AmendmentFormData;
+  /**
+   * Has each order's material been planned, and is that plan still current?
+   *
+   * Keyed by amendment id. Fetched by the loader in its own call rather than
+   * embedded on `getAmendments()` — see the note there. An order missing from
+   * the map reads as "pending", which is what a brand-new order genuinely is.
+   */
+  bomStatus: Record<string, { status: BomStatus; qty: number | null }>;
   perms: Perms;
   /** masters:create/edit — gates inline Add/Modify inside config-list pickers. */
   masterPerms: { canCreate: boolean; canEdit: boolean };
   /** The operator's home Unit (`profiles.default_location_id`), or null. */
   defaultLocationId: string | null;
+  /**
+   * WHICH DOOR THE OPERATOR CAME THROUGH.
+   *
+   * One screen, two routes: `/orders/garment-orders` raises a garment order
+   * (Order Entry ▸ Garment Order) and `/orders/amendments` amends a saved one
+   * (Amendments ▸ Order Amendment). Both were the SAME url until 2026-08-13,
+   * which is why the screen used to say "New Garment Order" at the top and
+   * "Save amendment" at the bottom — there was nothing it could read to tell
+   * which job it was doing.
+   *
+   * The difference is not only wording. `createAmendment` mints a NEW
+   * `sales_orders` row, so amend mode must not be able to create at all.
+   *
+   * NOT called `mode`: that name is already taken below by the list/edit state
+   * of this screen, and two `mode`s in one component is how a condition ends up
+   * reading the wrong one.
+   *
+   * Defaults to entry, so the door that RAISES an order is the one a caller
+   * gets by forgetting — a missing prop that silently disabled order creation
+   * would be the worse failure.
+   */
+  purpose?: "entry" | "amend";
 }
 
 // ---- editable child-row shapes ----
@@ -551,7 +587,18 @@ const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
  */
 const STYLE_COL_W = "14rem";
 
-export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocationId }: Props) {
+export function AmendmentScreen({
+  rows,
+  bomStatus,
+  data,
+  perms,
+  masterPerms,
+  defaultLocationId,
+  purpose = "entry",
+}: Props) {
+  /** Read this, never `purpose` directly, so every site asks the same question. */
+  const amending = purpose === "amend";
+
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
@@ -1280,6 +1327,13 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
   }
 
   function openAdd() {
+    // THE AMEND DOOR CANNOT CREATE, and the refusal lives HERE rather than on
+    // the button, because the button is not the only caller: `?new=1` reaches
+    // this through `useCreateIntent` below, which is how the ＋ quick action and
+    // the command palette both open a form. Guarding only the button would
+    // leave two routes into a create that mints a brand-new `sales_orders` row
+    // from a screen headed "Order Amendment".
+    if (amending) return;
     setEditId(null);
     setSavedOrderNo(null);
     setPreviewNo(null);
@@ -1605,7 +1659,13 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
         ? await updateAmendment(editId, payload)
         : await createAmendment(payload);
       if (res.ok) {
-        success(editId ? "Amendment updated" : "Amendment created");
+        success(
+          amending
+            ? "Amendment updated"
+            : editId
+              ? "Garment order updated"
+              : "Garment order created",
+        );
         setMode("list");
         router.refresh();
       } else {
@@ -1619,7 +1679,7 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     start(async () => {
       const res = await deleteAmendment(r.id);
       if (res.ok) {
-        success("Amendment deleted");
+        success(amending ? "Amendment deleted" : "Garment order deleted");
         router.refresh();
       } else {
         toastError(res.error);
@@ -1659,6 +1719,29 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
         header: "Date",
         cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.amend_date)}</span>,
       },
+      /* MATERIAL BOM — the same pill the BOM dashboard shows, from the same
+         module (`lib/orders/material-bom-amendment/status.ts`).
+
+         It is here because the question "has this order's material been
+         planned?" is asked from BOTH sides: the merchandiser works down the BOM
+         queue, and whoever is looking at the order wants to know without
+         opening another screen. Two screens declaring their own tone map is what
+         the ~8 copy-pasted `bomStatusTone` functions across `planning/**` are.
+
+         BEFORE Status, so `withCreatedColumns` still finds the trailing run it
+         splices the Created pair ahead of. */
+      {
+        header: "Material BOM",
+        cell: (r) => {
+          const b = bomStatus[r.id];
+          const st: BomStatus = b?.status ?? "pending";
+          return (
+            <span title={bomStatusHint(st, b?.qty ?? null)}>
+              <StatusPill tone={bomStatusTone(st)}>{bomStatusText(st)}</StatusPill>
+            </span>
+          );
+        },
+      },
       {
         header: "Status",
         cell: (r) => <StatusPill tone={amendmentStatusTone(r)}>{amendmentStatusText(r)}</StatusPill>,
@@ -1677,24 +1760,38 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
 
     return (
       <div className="space-y-4">
-        {/* NAMED FOR WHAT THIS SCREEN IS (client 2026-08-11). It is the garment
-            order screen — the legacy header and the ten-section rail — and its
-            sidebar row is now Order Entry ▸ Garment Order. A row reading
-            "Garment Order" over a page headed "Garment Order Amendment" would
-            leave half the reported confusion in place. The route, the table and
-            the Amendments card are all unchanged. */}
+        {/* NAMED FOR WHAT THIS SCREEN IS (client 2026-08-11), and since
+            2026-08-13 for which DOOR it was opened by. It is the garment order
+            screen — the legacy header and the ten-section rail — reached from
+            Order Entry ▸ Garment Order to raise one, and from Amendments ▸
+            Order Amendment to change one.
+
+            THE AMEND DOOR OFFERS NO CREATE, and that is a data rule rather than
+            a wording one: `createAmendment` mints a fresh `sales_orders` row, so
+            a "New" button under a heading that says amendment would raise a
+            second order every time an operator meant to correct the first. */}
         <PageHeader
-          title="Garment Orders"
-          description="Garment orders — styles, colours, prices, packing, quantities & logistics."
+          title={amending ? "Order Amendments" : "Garment Orders"}
+          description={
+            amending
+              ? "Amend a saved garment order — styles, colours, prices, packing, quantities & logistics."
+              : "Garment orders — styles, colours, prices, packing, quantities & logistics."
+          }
           actions={
-            perms.canCreate ? <Button onClick={openAdd}>New Garment Order</Button> : undefined
+            perms.canCreate && !amending ? (
+              <Button onClick={openAdd}>New Garment Order</Button>
+            ) : undefined
           }
         />
         <DataTable
           columns={withCreatedColumns(columns, rows)}
           rows={rows}
           getKey={(r) => r.id}
-          empty="No garment orders yet. Use 'New Garment Order' to create the first."
+          empty={
+            amending
+              ? "No garment orders to amend yet. Raise one under Order Entry ▸ Garment Order."
+              : "No garment orders yet. Use 'New Garment Order' to create the first."
+          }
         />
       </div>
     );
@@ -5357,8 +5454,18 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
     // the footer above a strip of empty page.
     <div className="flex h-full flex-col gap-4">
       <PageHeader
-        title={editId ? "Edit Garment Order" : "New Garment Order"}
-        description="Pick an SCNo to load the order, then amend across the tabs. Wire each ⓘ field from stored data."
+        title={
+          amending
+            ? "Amend Garment Order"
+            : editId
+              ? "Edit Garment Order"
+              : "New Garment Order"
+        }
+        description={
+          amending
+            ? "Change a saved order across the tabs. The SC No it was numbered under does not move."
+            : "Fill the header, then work down the tabs. The SC No is minted on save."
+        }
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
@@ -5443,10 +5550,19 @@ export function AmendmentScreen({ rows, data, perms, masterPerms, defaultLocatio
          * separate change — see the business-logic pass.
          */
         footer={{
-          status: tabsHaveRows ? "Unsaved changes" : editId ? "Editing amendment" : "New amendment",
+          // "Unsaved changes" stays the FIRST branch in both doors: it is the
+          // dirty signal, and demoting it behind a wording choice would hide
+          // the one line here that is about losing work.
+          status: tabsHaveRows
+            ? "Unsaved changes"
+            : amending
+              ? "Editing amendment"
+              : editId
+                ? "Editing garment order"
+                : "New garment order",
           onCancel: () => setMode("list"),
           onSave: () => submit(false),
-          saveLabel: "Save amendment",
+          saveLabel: amending ? "Save amendment" : "Save garment order",
           canSave,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,

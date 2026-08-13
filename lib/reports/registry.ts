@@ -106,7 +106,7 @@ export const ITEM_MEASURES: ReportField[] = [
   { key: "qty_transfer_out", label: "Transfer out", kind: "measure", format: "qty", source: "stock_ledger" },
   { key: "qty_adjust_in", label: "Adjust in", kind: "measure", format: "qty", source: "stock_ledger" },
   { key: "qty_adjust_out", label: "Adjust out", kind: "measure", format: "qty", source: "stock_ledger" },
-  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_items", caveat: "Per-piece BOM qty × order qty — a projection, not a posting." },
+  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_requirements", caveat: "The Material BOM's stored requirement — a plan, not a posting." },
   { key: "qty_sent_out", label: "Sent to processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
   { key: "qty_came_back", label: "Back from processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
 
@@ -256,16 +256,22 @@ export const REPORT_SOURCES: ReportSource[] = [
   },
   {
     id: "material_bom_amendments",
-    label: "BOM amendments (planned consumption)",
+    label: "Material BOM (planned consumption)",
     module: "orders",
     factKinds: ["planned"],
-    table: "material_bom_amendment_items",
+    // 0418. It read `material_bom_amendment_items.quantity_nos`, which is the
+    // NUMERATOR of a per-garment ratio and not a quantity at all — the view
+    // multiplied it by `sales_orders.order_qty`, and the Garment Order screen
+    // mints its sales_orders shell without one, so this measure was 0 in every
+    // report. Not an error and not a blank column: "nothing planned", which is
+    // a real and unremarkable answer, so it got believed rather than reported.
+    table: "material_bom_amendment_requirements",
     itemColumn: "item_id",
-    qtyColumn: "quantity_nos",
+    qtyColumn: "required_qty",
     dateColumn: "material_bom_amendments.amend_date",
     postsToLedger: false,
     status: "off_book",
-    note: "A projection (per-piece × order qty), not a posting.",
+    note: "The Material BOM's stored requirement, split by order / colour / size. A refused line stores NULL and is excluded rather than counted as zero.",
   },
   {
     id: "delivery_challans",

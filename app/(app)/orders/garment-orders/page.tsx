@@ -1,17 +1,24 @@
-import { GroupHub } from "@/components/shell/group-hub";
+import { AmendmentScreen } from "../amendments/amendment-screen";
+import { loadGarmentOrderProps } from "../amendments/loader";
 
-// The legacy 14-step Garment Orders hub, restored on request (2026-08-08).
-//
-// It was briefly a `redirect("/orders")` after the 08-07 regrouping dissolved
-// it into sub-modules, and before that a hand-rolled `HubCard` grid whose card
-// list was maintained separately from the sidebar — which is how its 14 screens
-// ended up on the page and in no sidebar row at the same time.
-//
-// Now it is a registered sub-module like every other hub: the cards, the label
-// and the permission all come from `lib/nav/module-groups.ts`, the same
-// registry the sidebar reads, so the two cannot disagree again. Its children
-// are all `cardOnly`, so the hub is one sidebar row and steals no screen from
-// the flow groups (Order Setup, Order Entry, Amendments, …) that own them.
-export default function Page() {
-  return <GroupHub moduleHref="/orders" slug="garment-orders" />;
+/**
+ * THE ENTRY DOOR — Order Entry ▸ Garment Order. Where a garment order is
+ * raised: `createAmendment` inserts a new `sales_orders` row and mints its
+ * SC No.
+ *
+ * This route was the legacy 14-step hub until 2026-08-13 (a page of ten
+ * borrowed cards, hidden from the sidebar since 08-10, and retired with the
+ * rest of the cross-listing). Its name is the one operators have used for this
+ * screen for years, which is why the entry door took it rather than inventing
+ * a third spelling — `/orders/garment-order` singular beside it would have been
+ * one character from the old hub, a pairing the registry had already rejected
+ * in writing.
+ *
+ * The COMPONENT deliberately still lives under `amendments/`. Moving 5,500
+ * lines buys nothing an operator can see, and `scripts/audit_layout.py` keys
+ * three checks on that file's path. The folder name is not the route.
+ */
+export default async function GarmentOrderEntryPage() {
+  const props = await loadGarmentOrderProps();
+  return <AmendmentScreen {...props} />;
 }

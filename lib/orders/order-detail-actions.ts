@@ -9,7 +9,7 @@ type Result = { ok: true } | { ok: false; error: string };
 type CreateResult = { ok: true; id: string } | { ok: false; error: string };
 
 function fail(msg: string): { ok: false; error: string } { return { ok: false, error: msg }; }
-function rev(orderId: string): void { revalidatePath("/orders"); revalidatePath(`/orders/${orderId}`); }
+function rev(orderId: string): void { revalidatePath("/orders/all"); revalidatePath(`/orders/${orderId}`); }
 
 export async function addCoordinateColor(data: unknown, orderId: string): Promise<CreateResult> {
   if (!(await can("orders", "create"))) return fail("Forbidden");

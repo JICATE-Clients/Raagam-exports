@@ -13,7 +13,7 @@ function fail(msg: string): Result {
 }
 function rev(): void {
   revalidatePath("/orders/ta-style");
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
 }
 
 /** Drop blank rows (no Activity picked) and renumber sno. */

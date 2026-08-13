@@ -145,7 +145,7 @@ export async function createOrder(
   });
 
   revalidatePath("/");
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
 
   return { ok: true, orderId: order.id };
 }

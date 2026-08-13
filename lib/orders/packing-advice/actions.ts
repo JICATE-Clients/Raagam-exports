@@ -13,7 +13,7 @@ function fail(msg: string): Result {
 }
 function rev(): void {
   revalidatePath("/orders/packing-advice");
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
 }
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);

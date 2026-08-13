@@ -1,29 +1,22 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { getAmendments, getAmendmentFormData } from "@/lib/orders/amendments/service";
 import { AmendmentScreen } from "./amendment-screen";
+import { loadGarmentOrderProps } from "./loader";
 
-export default async function AmendmentsPage() {
-  // Returns the AppUser, so the operator's home Unit costs no extra query.
-  const user = await requirePermission("orders", "view");
-
-  const [rows, data, canCreate, canEdit, canDelete, mCreate, mEdit] =
-    await Promise.all([
-      getAmendments(),
-      getAmendmentFormData(),
-      can("orders", "create"),
-      can("orders", "edit"),
-      can("orders", "delete"),
-      can("masters", "create"),
-      can("masters", "edit"),
-    ]);
-
-  return (
-    <AmendmentScreen
-      rows={rows}
-      data={data}
-      perms={{ canCreate, canEdit, canDelete }}
-      defaultLocationId={user.defaultLocationId}
-      masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
-    />
-  );
+/**
+ * THE AMEND DOOR — Amendments ▸ Order Amendment.
+ *
+ * Same screen as `/orders/garment-orders`, in amend mode: it lists saved
+ * garment orders and re-opens one, and it offers no way to create. That
+ * matters more than the wording — `createAmendment` mints a brand-new
+ * `sales_orders` row, so a create reachable from a door labelled "amendment"
+ * is the exact confusion this split was made to end.
+ *
+ * The route kept its name deliberately. It is the one that was always honest
+ * about amending; what was wrong was that ENTRY went through it too. Keeping it
+ * means every existing link still lands somewhere sensible — the Approve
+ * Amendment screen's "Details" column, `revalidatePath`, the count map and the
+ * mobile section actions all point here and none of them had to move.
+ */
+export default async function OrderAmendmentsPage() {
+  const props = await loadGarmentOrderProps();
+  return <AmendmentScreen {...props} purpose="amend" />;
 }

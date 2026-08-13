@@ -22,7 +22,7 @@ function fail(msg: string): Failure {
 }
 function rev(): void {
   revalidatePath("/orders/styles");
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
 }
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);

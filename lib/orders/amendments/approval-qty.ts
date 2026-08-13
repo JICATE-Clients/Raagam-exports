@@ -99,3 +99,53 @@ export function totalProductionQty(
   const approval = Number.isFinite(line.approvalQty) ? line.approvalQty : 0;
   return qty + excessQty(qty, excessPct) + approval + (projectionQty(qty, tiers) ?? 0);
 }
+
+/**
+ * The same total, but it REFUSES rather than guesses — for a consumer that will
+ * spend money on the answer.
+ *
+ * `totalProductionQty` above treats a null projection as contributing 0, and on
+ * the Approval Qty tab that is right: the dash sitting in the Projection column
+ * beside it is what says the buffer is unanswered, and a blank Total would hide
+ * three figures that are known.
+ *
+ * NOTHING SITS BESIDE THE NUMBER ONCE IT LEAVES THAT TAB. A Material BOM
+ * multiplies this by a per-garment ratio and stores the result as the quantity a
+ * purchase order is checked against; a report sums it. In those places a rule
+ * that was chosen and then failed to match any tier produces a plausible total
+ * with no dash anywhere near it — the operator has no way to learn that the
+ * defect buffer they configured contributed nothing. That is the "an empty
+ * report reads as a real answer" failure AGENTS.md names, one step removed.
+ *
+ * So the distinction the tab can afford to blur is made explicit here:
+ *
+ *   ruleChosen === false  → computes. No rule is a legitimate zero buffer, and
+ *                           it is the state every existing order is in.
+ *   ruleChosen === true,
+ *     tiers leave a gap   → refuses, naming the reason.
+ *
+ * `totalProductionQty` is deliberately left exactly as it was. The amendment
+ * screen's behaviour must not change: this is an addition for a new consumer,
+ * not a correction of an old one.
+ */
+export type ProductionTarget =
+  | { qty: number; reason?: undefined }
+  | { qty: null; reason: "projection-gap" };
+
+export function productionTarget(
+  line: ApprovalLine,
+  excessPct: number,
+  tiers: readonly RejectionTier[] | null | undefined,
+  ruleChosen: boolean,
+): ProductionTarget {
+  const qty = Number.isFinite(line.qty) ? line.qty : 0;
+  const approval = Number.isFinite(line.approvalQty) ? line.approvalQty : 0;
+  const projection = projectionQty(qty, tiers);
+
+  // A rule was named on the order and the engine could not place this quantity
+  // in any tier. The ladder has a hole in it; that is a rule to fix, not a
+  // buffer of zero. Refusing here is what puts the operator in front of it.
+  if (ruleChosen && projection == null) return { qty: null, reason: "projection-gap" };
+
+  return { qty: qty + excessQty(qty, excessPct) + approval + (projection ?? 0) };
+}
