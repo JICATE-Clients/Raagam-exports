@@ -24,6 +24,15 @@ import { withCreators } from "@/lib/created-by";
 export type PickerRow = { id: string; code: string | null; name: string; inactive?: boolean };
 
 /**
+ * An approved sample, with the column the customer filter reads (0422).
+ *
+ * Widened rather than filtered in the service, for the same reason `PickerRow`
+ * is: the narrowing depends on a field the operator is still answering, so the
+ * data has to reach the browser to be narrowed there.
+ */
+export type SamplePickerRow = PickerRow & { customer_id: string | null };
+
+/**
  * A component option, carrying the two fields that say which coordinates it
  * belongs to (`lib/masters/component-coordinates.ts`).
  *
@@ -115,20 +124,37 @@ async function getUomRows(): Promise<PickerRow[]> {
  * The list is EMPTY in this database — `samples` has no rows at all — which is
  * why "Approved Sample No" is no longer a required field (client 2026-08-13);
  * see the note on the Save gate in the Style screen.
+ *
+ * ## `customer_id` RIDES ALONG, AND IS NOT FILTERED IN SQL
+ *
+ * 0422 gave `samples` a customer so the field can narrow to the style's own
+ * (client 2026-08-13). The narrowing happens on the SCREEN, keyed on a Customer
+ * the operator is still choosing — filtering here would fix the list to
+ * whichever customer was selected when the page was fetched.
+ *
+ * It is carried as `customer_id`, not resolved to a name: nothing renders it.
+ * The screen compares it and nothing else.
  */
-async function getApprovedSampleRows(): Promise<PickerRow[]> {
+async function getApprovedSampleRows(): Promise<SamplePickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("samples")
-    .select("id, code, type, created_at")
+    .select("id, code, type, created_at, customer_id")
     .eq("status", "approved")
     .order("created_at", { ascending: false });
   return (
-    (data ?? []) as { id: string; code: string | null; type: string; created_at: string }[]
+    (data ?? []) as {
+      id: string;
+      code: string | null;
+      type: string;
+      created_at: string;
+      customer_id: string | null;
+    }[]
   ).map((r) => ({
     id: r.id,
     code: r.code ?? r.type,
     name: `${r.code ?? r.type} — ${r.type}, ${r.created_at.slice(0, 10)}`,
+    customer_id: r.customer_id,
   }));
 }
 
@@ -303,7 +329,7 @@ export type StyleFormData = {
      now, and a fetch no caller consumes is work the operator waits for. The
      COLUMN `garment_styles.country_id` is untouched — see types.ts. */
   uoms: PickerRow[];
-  samples: PickerRow[];
+  samples: SamplePickerRow[];
   lookups: ConfigLookup[];
   fabrics: FabricRow[];
   processes: PickerRow[];

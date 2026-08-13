@@ -309,6 +309,24 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
    */
   const coordinateOpts = data.garments;
   const componentOpts = data.componentRows;
+
+  /**
+   * The approved samples this style's customer may choose from (0422).
+   *
+   * The three rules are on the field itself; this is where they are enforced:
+   * an unattributed sample stays offered, the held one always survives, and no
+   * customer means no narrowing rather than an empty list.
+   */
+  const samplesForCustomer = useMemo(() => {
+    const want = form.customer_id;
+    if (!want) return data.samples;
+    return data.samples.filter(
+      (x) =>
+        x.customer_id === want ||
+        x.customer_id === null ||
+        x.id === form.approved_sample_id,
+    );
+  }, [data.samples, form.customer_id, form.approved_sample_id]);
   /** Structure needed no FK change — 'fabric_structure' rows ARE config_lookups.
    *  Only the kind moved, which is why there is no third repoint in 0396. */
   /**
@@ -1271,40 +1289,45 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               />
             </Field>
             {/**
-              * NOT FILTERED BY CUSTOMER, AND THAT IS A DATA FACT, NOT AN
-              * OVERSIGHT (checked 2026-08-11).
+              * NARROWED TO THE CUSTOMER ABOVE (client 2026-08-13, 0422).
               *
-              * The client asked for this list to narrow to the customer chosen
-              * above. `samples` (0005 · 0272 · 0322 · 0338) carries NO customer
-              * column: its only party link is `opportunity_id` →
-              * `opportunities.buyer_id` → `buyers`, and reaching `customers`
-              * from there needs the NULLABLE `buyers.customer_id` bridge (0380).
-              * A filter down that chain would silently drop every approved
-              * sample whose buyer is unlinked — including one a style already
-              * holds, which is the "Disabled rows" failure the whole picker
-              * layer exists to prevent.
+              * This field carried a long note refusing to do exactly that, and
+              * the refusal was right at the time: `samples` (0005) had NO
+              * customer column, and its only party link was `opportunity_id` →
+              * `opportunities.buyer_id` → `buyers`, which reaches `customers`
+              * only through the NULLABLE `buyers.customer_id` bridge (0380) —
+              * set for none of the six buyers. Filtering down that chain would
+              * have dropped every sample silently. The note said narrowing was
+              * a schema question and not a screen one; 0422 answered it with a
+              * direct `samples.customer_id`.
               *
-              * So the field is deliberately left showing every approved sample.
-              * Narrowing it is a schema question (a customer FK on `samples`,
-              * or a decision that the buyer bridge is authoritative), not a
-              * screen one. Do not add a join here without that answer.
+              * THREE RULES, and each is a way to turn this into a worse field
+              * than the unfiltered one:
               *
-              * `customer_reference` on `samples` is a free-text string, not an
-              * FK — it cannot answer this either.
+              * - A sample with NO customer stays offered. Every row is NULL
+              *   today (0422's backfill had nothing to resolve), so a strict
+              *   filter would empty an already-empty list and read as broken.
+              * - The sample this style already holds always survives, whatever
+              *   its customer says now — "Disabled rows", and the same failure
+              *   if skipped: a filled field renders empty and the next save
+              *   writes that emptiness over a real FK.
+              * - With NO customer chosen the list is NOT emptied and the field
+              *   is NOT disabled. Customer sits directly above and is already
+              *   `required`; a control greyed out with no explanation is worse
+              *   than a full list. This is the opposite call from
+              *   `processesForKind`'s blank Type, and deliberately: Type
+              *   DECIDES WHICH LIST, while Customer merely narrows one that is
+              *   already valid.
               */}
-            {/* COMPULSORY (client 2026-08-11): a style is the garment a
-                customer APPROVED a sample of, so a style with no sample behind
-                it records an approval nobody gave. `RecordPicker` has no
-                `required` prop of its own, so the declaration goes on the
-                wrapper and the inner `DataPicker` ORs `RequiredScope` — the
-                same route Customer takes three fields up. `htmlFor` so a
-                blocked Save can land the cursor here. */}
+            {/* NO LONGER COMPULSORY (client 2026-08-13) — `samples` has zero
+                rows, so a required field with an empty picker made the Style
+                master unsaveable. See the Save-gate note above. */}
             <Field label="Approved Sample No" size="sm" htmlFor="st-sample">
               <RecordPicker
                 id="st-sample"
                 label="Approved Sample No"
                 compact
-                items={data.samples}
+                items={samplesForCustomer}
                 value={form.approved_sample_id}
                 onChange={(id) => set({ approved_sample_id: id })}
               />
