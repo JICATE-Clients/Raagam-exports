@@ -18,7 +18,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -156,55 +156,57 @@ export function GarmentProcessesClient({
             // missing this. See the `raagam-keyboard-contract` skill.
             data-focus-scope
             onSubmit={handleAdd}
-            className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface-muted p-3"
+            className="space-y-3 rounded-md border border-border bg-surface-muted p-3"
           >
-            <div>
-              <Label htmlFor="gp-name" className="mb-0.5">
-                Process *
-              </Label>
-              <Input
-                id="gp-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Embroidery"
-                list="common-processes"
-                required
-                className="w-40"
-              />
-              <datalist id="common-processes">
-                {COMMON_PROCESSES.map((p) => (
-                  <option key={p} value={p} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <Label htmlFor="gp-mode" className="mb-0.5">
-                Mode
-              </Label>
-              <Select
-                id="gp-mode"
-                value={mode}
-                onChange={(e) => setMode(e.target.value as ProcessMode)}
-                className="w-36"
-              >
-                {PROCESS_MODES.map((m) => (
-                  <option key={m} value={m}>
-                    {PROCESS_MODE_LABELS[m]}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="min-w-40 flex-1">
-              <Label htmlFor="gp-notes" className="mb-0.5">
-                Notes
-              </Label>
-              <Input
-                id="gp-notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
+            {/* `FieldGrid` and one field width, in place of a
+                `flex flex-wrap items-end gap-3` of `w-40` / `w-36` boxes.
+                Sizing each control to its own data is what LAYOUT.md §3 fixes a
+                field at ~280px to avoid. */}
+            <FieldGrid>
+              {/* `required` on the Field, not a `*` typed into the label — the
+                  same prop draws the star AND stamps `data-required-empty`, so
+                  the cursor holds on a blank box. */}
+              <Field label="Process" required size="sm" htmlFor="gp-name">
+                <Input
+                  id="gp-name"
+                  uppercase
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Embroidery"
+                  list="common-processes"
+                  required
+                />
+                {/* The datalist stays INSIDE the field: it is referenced by the
+                    input's `list` and renders nothing itself, so it belongs with
+                    the control it feeds rather than loose in the form. */}
+                <datalist id="common-processes">
+                  {COMMON_PROCESSES.map((p) => (
+                    <option key={p} value={p} />
+                  ))}
+                </datalist>
+              </Field>
+              <Field label="Mode" size="sm" htmlFor="gp-mode">
+                <Select
+                  id="gp-mode"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as ProcessMode)}
+                >
+                  {PROCESS_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {PROCESS_MODE_LABELS[m]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Notes" size="sm" htmlFor="gp-notes">
+                <Input
+                  id="gp-notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional"
+                />
+              </Field>
+            </FieldGrid>
             <div className="flex gap-2">
               <Button type="submit" size="sm" disabled={isPending || !name.trim()}>
                 {isPending ? "Adding…" : "Add"}
