@@ -369,6 +369,7 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       key: newKey(),
       kind: x.kind,
       process_id: x.process_id,
+      component_id: x.component_id,
       details: txt(x.details),
     };
     if (list) list.push(row);
@@ -1540,6 +1541,7 @@ export function AmendmentScreen({
           style_ref_no: r.style_ref_no || null,
           kind: z.kind,
           process_id: z.process_id,
+          component_id: z.component_id,
           details: z.details || null,
         })),
       ),
@@ -5885,6 +5887,30 @@ export function AmendmentScreen({
           setStyles((xs) => xs.map((x) => (x.key === processFor ? { ...x, processes: next } : x)))
         }
         processes={data.processes}
+        /**
+         * THIS STYLE'S OWN PARTS (0421), narrowed here because this is the
+         * layer that knows which style the open row names — the same split
+         * `scopedComponents` makes for the Combos ▸ Detail pickers, and the
+         * cascading-picker rule's "the narrowing goes at the caller".
+         *
+         * A style that declares no components falls back to NOTHING rather than
+         * to the whole master. That is the opposite of `scopedComponents`
+         * above, and deliberately: there the operator is describing a fabric's
+         * use and an undeclared style should not stop them, while here the
+         * answer is a panel to print on — offering a collar a style has no
+         * sleeve for would be inventing the garment. The cell says which case
+         * it is in rather than going quietly empty.
+         */
+        components={(() => {
+          const st = styles.find((x) => x.key === processFor);
+          const declared = st?.style_id ? styleById.get(st.style_id)?.components : undefined;
+          const ids = new Set(
+            (declared ?? []).map((c) => c.component_id).filter(Boolean) as string[],
+          );
+          return ids.size === 0
+            ? []
+            : data.componentRows.filter((o) => ids.has(o.id));
+        })()}
         newKey={newKey}
         /* No `readOnly`: this editor has no view-only mode to pass on. `openEdit`
            is already gated on `perms.canEdit`, so a viewer never reaches the

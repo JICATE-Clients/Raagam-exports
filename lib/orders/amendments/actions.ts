@@ -118,10 +118,13 @@ function normalizeStyleSizes(
  * - **Drop the orphans**, judged against the very styles being inserted in this
  *   pass — not against what is in the database, which this save is about to
  *   replace wholesale.
- * - **De-duplicate on (style, kind, process)**, matching 0411's unique index.
- *   `kind` is IN the key: a process flagged for both garments and components is
- *   legitimately named under each Type, and dropping `kind` from this key would
- *   silently discard the second, correct row.
+ * - **De-duplicate on (style, kind, process, component)**, matching the index as
+ *   0421 widened it. Both discriminators are IN the key for the same reason: a
+ *   process flagged for both garments and components is legitimately named under
+ *   each Type, and the same process is legitimately done on two PANELS —
+ *   printing on the front body and on the sleeve. Drop either from this key and
+ *   the second, correct row is silently discarded here before the database ever
+ *   sees it.
  * - **Renumber `sno` per style**, so each line's list reads 1..n on its own.
  */
 function normalizeStyleProcesses(
@@ -136,12 +139,18 @@ function normalizeStyleProcesses(
       style_ref_no: clean(r.style_ref_no),
       kind: r.kind,
       process_id: r.process_id,
+      component_id: r.component_id,
       details: clean(r.details),
     }))
     .filter((r) => r.kind && r.process_id)
     .filter((r) => live.has(styleKey(r.style_ref_no)))
     .filter((r) => {
-      const k = JSON.stringify([styleKey(r.style_ref_no), r.kind, r.process_id]);
+      const k = JSON.stringify([
+        styleKey(r.style_ref_no),
+        r.kind,
+        r.process_id,
+        r.component_id,
+      ]);
       if (seen.has(k)) return false;
       seen.add(k);
       return true;

@@ -92,11 +92,59 @@ export type ProcessOption = {
   for_components: boolean;
 };
 
+/** A component as the picker needs it — the style's own parts (0421). */
+export type ComponentOption = {
+  id: string;
+  code: string | null;
+  name: string;
+  /* `boolean | null` rather than `boolean`, so a `PickerRow` from the screen's
+     own option lists is assignable without a cast. The three spellings of this
+     flag are `lib/masters/inactive.ts`'s problem, not this file's. */
+  inactive?: boolean | null;
+};
+
+/**
+ * The components offered for a Type.
+ *
+ * ONLY A COMPONENT PROCESS HAS A PANEL. Work on a made-up garment — washing,
+ * final pressing — is done on the garment, so the question does not apply and
+ * the list is empty rather than full. Same empty-and-explain call
+ * `processesForKind` makes for a blank Type, and for the same reason: a full
+ * list under "Garment Process" would invite an answer the row cannot mean.
+ *
+ * The NARROWING to this style's own parts is the caller's, per the
+ * cascading-picker rule — the layer that knows the style does it, and the sheet
+ * is handed a list already scoped. This decides only whether a panel applies.
+ */
+export function componentsForKind(
+  options: readonly ComponentOption[],
+  opts: { kind: ProcessKind | null; currentValue?: string | null },
+): ComponentOption[] {
+  const held = opts.currentValue ?? null;
+  if (opts.kind !== "component") {
+    const kept = held ? options.find((c) => c.id === held) : undefined;
+    return kept ? [kept] : [];
+  }
+  if (!held || options.some((c) => c.id === held)) return [...options];
+  const kept = options.find((c) => c.id === held);
+  return kept ? [...options, kept] : [...options];
+}
+
 /** One row of the Process screen's grid, in client state. */
 export type StyleProcessRow = {
   key: string;
   kind: ProcessKind | null;
   process_id: string | null;
+  /**
+   * WHICH CUT PANEL the process is done on (0421) — "printing a logo or
+   * embroidery ... before the garment is sewn" (client 2026-08-13).
+   *
+   * Null on a Garment Process, and null on a Component Process nobody has
+   * answered yet. Those are different states and the column cannot tell them
+   * apart, which is why `kind` is the thing that decides whether the cell is
+   * live rather than the value being present.
+   */
+  component_id: string | null;
   /**
    * The legacy grid's fourth column (0412). FREE TEXT, not a lookup — in the
    * client's screenshot the Process cell carries the ⓘ glyph and this one does
@@ -148,9 +196,10 @@ export function processesForKind(
  * operator on a row about to be discarded, or a half-filled row vanishing.
  */
 export function styleProcessRowStarted(
-  r: Pick<StyleProcessRow, "kind" | "process_id" | "details">,
+  r: Pick<StyleProcessRow, "kind" | "process_id" | "details"> &
+    Partial<Pick<StyleProcessRow, "component_id">>,
 ): boolean {
-  return !!r.kind || !!r.process_id || !!r.details.trim();
+  return !!r.kind || !!r.process_id || !!r.component_id || !!r.details.trim();
 }
 
 export const styleProcessInput = z.object({
@@ -158,6 +207,8 @@ export const styleProcessInput = z.object({
   sno: z.coerce.number().default(0),
   kind: z.enum(["garment", "component"]).nullable().default(null),
   process_id: z.string().uuid().nullable().default(null),
+  /* The panel (0421). Nullable for both of the reasons on `StyleProcessRow`. */
+  component_id: z.string().uuid().nullable().default(null),
   /* Not capsed: a free-text remark, the same category `<Textarea>` content is
      exempted under in LAYOUT.md §11. Capsing an operator's note shouts it back. */
   details: z.string().optional().nullable(),

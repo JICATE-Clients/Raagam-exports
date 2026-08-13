@@ -232,6 +232,8 @@ export interface AmendmentStyleProcess {
   sno: number;
   kind: ProcessKind | null;
   process_id: string | null;
+  /** The cut panel this process is done on; null on a Garment Process (0421). */
+  component_id: string | null;
   /** Legacy "Details" — a free-text remark, not a lookup (0412). */
   details: string | null;
 }

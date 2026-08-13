@@ -46,9 +46,11 @@ import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid
 import { RecordPicker } from "@/components/masters/record-picker";
 import {
   PROCESS_KIND_OPTIONS,
+  componentsForKind,
   isProcessKind,
   processesForKind,
   styleProcessRowStarted,
+  type ComponentOption,
   type ProcessKind,
   type ProcessOption,
   type StyleProcessRow,
@@ -79,6 +81,7 @@ export function StyleProcessSheet({
   rows,
   onChange,
   processes,
+  components,
   newKey,
   readOnly = false,
 }: {
@@ -91,6 +94,16 @@ export function StyleProcessSheet({
   onChange: (next: StyleProcessRow[]) => void;
   /** The whole master list, unfiltered — the narrowing is this file's job. */
   processes: ProcessOption[];
+  /**
+   * THIS STYLE'S OWN PARTS, already narrowed by the parent (0421).
+   *
+   * Scoped there rather than here, per the cascading-picker rule: the screen is
+   * what knows which style this line names and which components it declares. A
+   * sheet handed the whole components master would offer a collar on a style
+   * that has none — and `garment_style_components` is the only thing that knows
+   * it does not.
+   */
+  components: ComponentOption[];
   /**
    * The PARENT's key generator, passed in rather than grown here.
    *
@@ -174,6 +187,50 @@ export function StyleProcessSheet({
              master has no processes", which is a different and alarming
              thing to tell an operator. */
           placeholder={r.kind ? "— Select Process —" : "Pick a Type first"}
+          compact
+        />
+      ),
+    },
+    {
+      header: "Component",
+      width: "12rem",
+      /**
+       * WHICH CUT PANEL (0421). "Work on cut panels — printing a logo or
+       * embroidery — before the garment is sewn" (client 2026-08-13).
+       *
+       * DISABLED, NOT HIDDEN, under a Garment Process. That work is on the
+       * made-up garment, so the question does not apply — but a column that
+       * appears and disappears as Type is re-answered reads as a bug, and the
+       * Prices tab already made this call for its Colour and Size cells under a
+       * mode that does not price on that axis.
+       *
+       * NOT `required`, even on a started row. A Component Process whose panel
+       * is still being decided is a legitimate half-answer, and 0421 leaves the
+       * column nullable for exactly that; requiring it would hold the cursor on
+       * the cell the operator opened the sheet to think about.
+       */
+      cell: (r) => (
+        <RecordPicker
+          label=""
+          items={componentsForKind(components, {
+            kind: r.kind,
+            currentValue: r.component_id,
+          })}
+          value={r.component_id}
+          onChange={(id) => patch(r.key, { component_id: id })}
+          disabled={readOnly || r.kind !== "component"}
+          /* Empty-and-explain, three ways — the list being empty means
+             something different in each, and a bare "— Select —" would say
+             none of them. */
+          placeholder={
+            r.kind === "component"
+              ? components.length
+                ? "— Select —"
+                : "This style declares no components"
+              : r.kind
+                ? "Not on a garment process"
+                : "Pick a Type first"
+          }
           compact
         />
       ),
@@ -287,7 +344,12 @@ export function StyleProcessSheet({
         rows={rows}
         seedRow
         hideAdd={readOnly}
-        onAdd={() => onChange([...rows, { key: newKey(), kind: null, process_id: null, details: "" }])}
+        onAdd={() =>
+          onChange([
+            ...rows,
+            { key: newKey(), kind: null, process_id: null, component_id: null, details: "" },
+          ])
+        }
         onRemove={(r) => onChange(rows.filter((x) => x.key !== r.key))}
         addLabel="+ Add process"
       />
