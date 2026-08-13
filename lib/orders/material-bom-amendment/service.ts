@@ -576,8 +576,36 @@ export type BomOrderOption = {
   customer_name: string | null;
   amend_date: string;
   delivery_date: string | null;
-  /** The style refs this order carries, for the line-level Style picker. */
-  styles: string[];
+  /** The styles this order carries, for the line-level Style picker. */
+  styles: BomOrderStyle[];
+};
+
+/**
+ * A style line as the BOM needs it — its ref, and the two facts the module
+ * fetches from Style Entry (0423).
+ *
+ * Until 0423 this was a bare `string[]` of refs, and it was the whole of what
+ * the Material BOM knew about a style: the module never touched
+ * `garment_styles` at all. So it could not say which panel a trim goes on, and
+ * it could not tell a Set from a Piece.
+ */
+export type BomOrderStyle = {
+  ref: string;
+  /**
+   * `piece` / `set` from the Style master, DISPLAYED and never computed with.
+   *
+   * The client asked the BOM to "know if the style is a Piece or a Set". It
+   * makes the difference to `per_pieces` — "1 per piece" on a two-garment Set
+   * means something different from "1 per piece" on a single top — but the
+   * divisor is typed by the operator and stays that way. Turning it into
+   * arithmetic would silently double or halve a requirement the operator
+   * thought they had entered, which is the failure the whole `Refusal` shape in
+   * requirement.ts exists to avoid. Shown beside the Style so the number is
+   * entered knowingly.
+   */
+  unit_kind: string | null;
+  /** The panels this style declares, for the line's Component cell (0423). */
+  components: { id: string; code: string | null; name: string; inactive: boolean }[];
 };
 
 async function getOrderOptions(): Promise<BomOrderOption[]> {
@@ -587,11 +615,13 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
     .select(
       "id, code, po_no, amend_date, delivery_date, " +
         "customer:customers(id,name), sales_order:sales_orders(order_number), " +
-        "styles:garment_order_amendment_styles(style_ref_no)",
+        // `style_id` as well as the ref (0423): the ref is what every child
+        // table keys on, but only the id reaches the Style master.
+        "styles:garment_order_amendment_styles(style_ref_no, style_id)",
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as {
+  const rows = (data ?? []) as unknown as {
     id: string;
     code: string | null;
     po_no: string | null;
@@ -599,8 +629,73 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
     delivery_date: string | null;
     customer: { id: string; name: string } | null;
     sales_order: { order_number: string | null } | null;
-    styles: { style_ref_no: string | null }[] | null;
-  }[]).map((o) => ({
+    styles: { style_ref_no: string | null; style_id: string | null }[] | null;
+  }[];
+
+  /**
+   * THE STYLE STRUCTURE, in two more reads rather than one deep embed.
+   *
+   * `garment_styles` cannot be embedded from here: PostgREST resolves an embed
+   * BY FK and fails the WHOLE query when it cannot — at RUNTIME, invisible to
+   * `tsc` and to the build. `lib/orders/amendments/service.ts` records what that
+   * costs: one unresolvable name emptied the Style picker with no error at all.
+   * Two indexed reads joined in memory cannot fail that way.
+   *
+   * Skipped entirely when no style line names a style, which is the state a
+   * brand-new order is in.
+   */
+  const styleIds = [
+    ...new Set(
+      rows.flatMap((o) => (o.styles ?? []).map((x) => x.style_id).filter(Boolean) as string[]),
+    ),
+  ];
+
+  const [styleRes, compRes] = await Promise.all([
+    styleIds.length
+      ? s
+          .from("garment_styles")
+          .select("id, unit_kind, components:garment_style_components(component_id)")
+          .in("id", styleIds)
+      : Promise.resolve({ data: [] as unknown[] }),
+    styleIds.length
+      ? s.from("components").select("id, short_name, blocked")
+      : Promise.resolve({ data: [] as unknown[] }),
+  ]);
+
+  const componentById = new Map(
+    ((compRes.data ?? []) as { id: string; short_name: string; blocked: boolean }[]).map((c) => [
+      c.id,
+      { id: c.id, code: null, name: c.short_name, inactive: c.blocked },
+    ]),
+  );
+
+  const structureById = new Map(
+    (
+      (styleRes.data ?? []) as unknown as {
+        id: string;
+        unit_kind: string | null;
+        components: { component_id: string | null }[] | null;
+      }[]
+    ).map((g) => [
+      g.id,
+      {
+        unit_kind: g.unit_kind,
+        // De-duplicated: a style may list one component under two coordinates
+        // (a POCKET on the top and on the bottom of a Set), and the BOM asks
+        // which PART a trim goes on, not which coordinate.
+        components: [
+          ...new Map(
+            (g.components ?? [])
+              .map((c) => (c.component_id ? componentById.get(c.component_id) : null))
+              .filter(Boolean)
+              .map((c) => [c!.id, c!] as const),
+          ).values(),
+        ],
+      },
+    ]),
+  );
+
+  return rows.map((o) => ({
     id: o.id,
     code: o.code,
     sc_no: o.sales_order?.order_number ?? null,
@@ -609,7 +704,16 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
     customer_name: o.customer?.name ?? null,
     amend_date: o.amend_date,
     delivery_date: o.delivery_date,
-    styles: (o.styles ?? []).map((x) => x.style_ref_no ?? "").filter(Boolean),
+    styles: (o.styles ?? [])
+      .filter((x) => (x.style_ref_no ?? "").trim())
+      .map((x) => {
+        const st = x.style_id ? structureById.get(x.style_id) : undefined;
+        return {
+          ref: x.style_ref_no as string,
+          unit_kind: st?.unit_kind ?? null,
+          components: st?.components ?? [],
+        };
+      }),
   }));
 }
 

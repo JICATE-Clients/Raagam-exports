@@ -76,6 +76,18 @@ export interface MbaItem {
   requirement_basis: string | null;
   /** Which style this line is for; null = every style. By VALUE (0407). */
   style_ref_no: string | null;
+  /**
+   * Which garment PANEL this material goes on — front body, sleeve, collar
+   * (0423). From the components master, narrowed on screen to the parts the
+   * line's style declares.
+   *
+   * DESCRIPTIVE. It does not split the requirement: one collar interlining is
+   * needed per garment whichever panel it is cut for, so a component axis would
+   * multiply rows without changing the total. `productionSlices` is untouched
+   * and `material_bom_amendment_requirements` has no component column — 0423
+   * asserts that second half, because the decision is only safe while it holds.
+   */
+  component_id: string | null;
   supply_type: string | null;
   vendor_id: string | null;
   purchase_uom_id: string | null;
@@ -192,6 +204,7 @@ export const mbaItemInput = z
     size: capsTextNullable(),
     requirement_basis: z.enum(REQUIREMENT_BASES).nullable().default(null),
     style_ref_no: nullableText,
+    component_id: uuidN,
     supply_type: nullableText,
     vendor_id: uuidN,
     purchase_uom_id: uuidN,
