@@ -193,12 +193,17 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/orders/all": ["New Order", "Import Orders", "Export List"],
   "/orders/styles": ["New Style"],
   "/orders/internal-work-orders": ["New Work Order"],
-  // Named for what the screen IS, not for the table it writes: its sidebar row
-  // is Order Entry ▸ Garment Order (see lib/nav/module-groups.ts). Kept as a
-  // key rather than renamed away — mobile-nav falls back to
-  // `New ${singularize(label)}` when a href has no entry, which would re-invent
-  // a differently-worded action rather than remove one.
-  "/orders/amendments": ["New Garment Order"],
+  // The ENTRY door. Named for what the screen IS, not for the table it writes.
+  "/orders/garment-orders": ["New Garment Order"],
+  // The AMEND door — same screen, and it deliberately cannot create: a "New"
+  // here would mint a second `sales_orders` row for an operator who meant to
+  // correct the first (see `openAdd` in the screen). So the action opens the
+  // list rather than a form.
+  //
+  // A KEY, NOT A DELETION. `mobile-nav` falls back to `New ${singularize(label)}`
+  // for a href with no entry, so removing this would re-invent the exact
+  // "New Order Amendment" button the guard refuses to honour.
+  "/orders/amendments": ["Find Order to Amend"],
   "/orders/process-amendments": ["New Amendment"],
   // Advised Items landing is an accepted-order selector (no create form);
   // create happens on the per-order editor's "New advised item" button.

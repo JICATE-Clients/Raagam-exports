@@ -223,59 +223,30 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     description:
       "The garment order flow — styles and BOMs, entry, amendments, confirmation, execution and closure",
     entries: [
-      // The legacy 14-step Garment Orders hub, restored on request (2026-08-08)
-      // after the 08-07 regrouping dissolved it into sub-modules. It is a GROUP
-      // now rather than the hand-rolled `HubCard` grid it used to be, which is
-      // what keeps the two failures that killed it from coming back:
+      // THE LEGACY 14-STEP GARMENT ORDERS HUB IS GONE (client 2026-08-13).
       //
-      //   - it renders from THIS registry, so a screen cannot be on the hub and
-      //     missing from the sidebar (or the reverse) the way it was before;
-      //   - every child is `cardOnly`, so restoring the hub adds exactly ONE
-      //     sidebar row and no screen gains a second owner or a second search
-      //     hit. The flow groups below still own their screens.
+      // It was restored as a group on 2026-08-08, hidden from the sidebar on
+      // 08-10, and retired here. Each step is the same objection getting
+      // sharper: it carded ten screens that the flow groups below already own,
+      // so it was a second way in rather than a home. Hiding it removed the
+      // row and left the page; this removes the page.
       //
-      // The duplication AGENTS.md objected to is therefore still here by
-      // design — `/orders` is both the module row and this hub's first card —
-      // and it is deliberate: the operator asked for the legacy landing page
-      // back. `owningNavHref`'s module-root guard keeps that card from stealing
-      // the Orders row's highlight.
+      // What settled it was the operator's rule for the whole menu — a
+      // sub-module lists ITS OWN children and nothing borrowed. This hub had no
+      // children of its own at all: every one of its nine was `cardOnly`. It
+      // was nine tenths of every `cardOnly` card in the app, and deleting it
+      // leaves exactly one (Amendments ▸ Order Amendment, below, which now has
+      // a route of its own and no longer needs the flag either — so the count
+      // is zero).
       //
-      // `Material BOM` (/orders/material-bom) was a card on the legacy hub and
-      // is NOT restored: the route has never existed in this app, so it was a
-      // dead tile. Add it here the day the screen is built.
-      {
-        kind: "group",
-        slug: "garment-orders",
-        label: "Garment Orders",
-        // HIDDEN FROM THE SIDEBAR (client 2026-08-10) — it cards every screen
-        // the other Orders groups already own, so the row was a second way in
-        // rather than a home. Safe because every child below is `cardOnly`:
-        // nothing loses its row. The hub still answers at
-        // /orders/garment-orders, so restoring it is deleting this one line.
-        hidden: true,
-        description:
-          "The 14-step garment order flow — BOMs, processes, work orders, amendments, cancellation and completion",
-        children: [
-          { href: "/orders", label: "All Orders", description: "Confirmed orders; create one from an accepted quote", cardOnly: true },
-          { href: "/orders/styles", label: "Style", description: "Order style master", cardOnly: true },
-          { href: "/orders/garment-processes", label: "Garment Processes", description: "Define garment processes for accepted orders", cardOnly: true },
-          { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders", cardOnly: true },
-          // The four amendment screens sit ONE LEVEL FURTHER DOWN (operator
-          // request, 2026-08-08): this single card opens the Amendments hub,
-          // which cards to Order / Material BOM / Process / Approve Amendment.
-          // So the amendment screens are the 4th level — module row, hub row,
-          // Amendments card, screen — and this hub keeps ten cards instead of
-          // thirteen. It is a deliberate hub-to-hub link, which assertion 8
-          // permits only because the target is a REGISTERED group of the same
-          // module (see the carve-out there); an unregistered card grid behind
-          // a card is still the bug that assertion exists to catch.
-          { href: "/orders/changes", label: "Amendments", description: "Raise and approve changes to a confirmed order", cardOnly: true },
-          { href: "/orders/advised-items", label: "Advised Items", description: "Prepare advised items", cardOnly: true },
-          { href: "/orders/packing-advice", label: "Packing List Advice", description: "Packing-list advice for an order", cardOnly: true },
-          { href: "/orders/cancellations", label: "Cancellation", description: "Cancel an order with a logged reason", cardOnly: true },
-          { href: "/orders/completions", label: "Completion", description: "Mark an order complete / closed", cardOnly: true },
-        ],
-      },
+      // Its ROUTE is not gone. `/orders/garment-orders` is the Garment Order
+      // ENTRY screen now — the name operators have used for that screen for
+      // years, freed by this deletion. So `OLD_NAV_LEAVES` still finds it
+      // reachable and no `REDIRECTED` entry is needed; check:nav asserts that.
+      //
+      // It also closes a latent bug. `owningNavHref` does not filter `hidden`,
+      // so this group could win the sidebar highlight for a row that was never
+      // rendered — the operator lands on a screen and nothing lights up.
       {
         kind: "group",
         slug: "setup",
@@ -298,22 +269,28 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Order Entry",
         description: "Raise garment orders, book them, set pack ratios and record excess quantities",
         children: [
-          // THE SCREEN AN ORDER IS ACTUALLY ENTERED ON (client 2026-08-11).
+          // THE SCREEN AN ORDER IS ACTUALLY ENTERED ON.
           //
-          // Its row used to sit under Amendments, labelled "Order Amendment",
-          // because that is the document it writes — while Order Entry's first
-          // child was `/orders`, an eight-field generic scaffold. So the row
-          // named Order Entry opened a stand-in and the real legacy screen (the
-          // SCNo · Date · Initiated · Type · Customer … header and the ten
-          // section rail, dictated tab by tab on 2026-08-10) was filed under a
-          // name that says it CHANGES an order rather than raises one.
+          // Its row sat under Amendments until 2026-08-11, labelled "Order
+          // Amendment", because that is the document it writes — while Order
+          // Entry's first child was `/orders`, an eight-field generic scaffold.
+          // So the row named Order Entry opened a stand-in and the real legacy
+          // screen (the SCNo · Date · Initiated · Type · Customer … header and
+          // the ten section rail, dictated tab by tab on 2026-08-10) was filed
+          // under a name that says it CHANGES an order rather than raises one.
           //
-          // The row moves; the route does not. `/orders/amendments` still
-          // answers, and Amendments still lists it as a `cardOnly` card, so
-          // raising an amendment is one click from the flow group that owns
-          // that work. Exactly one row owns the route, which is what assertion
-          // 5 checks — see the flag's own note on `GroupChild`.
-          { href: "/orders/amendments", label: "Garment Order", description: "Raise a garment order — styles, colours, prices, packing, quantities and logistics" },
+          // MOVING THE ROW FIXED HALF OF IT. The route was still
+          // `/orders/amendments`, so entering a fresh order meant walking a URL
+          // that says amendment — and the screen said both at once, "New
+          // Garment Order" at the top and "Save amendment" at the bottom. The
+          // menu papered over it by listing the one route twice under two
+          // labels, which is the shape a wrong name always takes.
+          //
+          // So the ENTRY screen took a route that means entry (client
+          // 2026-08-13), and `/orders/amendments` kept its name and became what
+          // it says: the amend door, below. `createAmendment` mints a NEW
+          // sales_orders row — this is where an order is raised.
+          { href: "/orders/garment-orders", label: "Garment Order", description: "Raise a garment order — styles, colours, prices, packing, quantities and logistics" },
           // THE REGISTER, and it is a screen of its own since 2026-08-13.
           //
           // It pointed at `/orders` — the module root — while that route WAS the
@@ -339,13 +316,21 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Amendments",
         description: "Raise and approve changes to a confirmed order",
         children: [
-          // A CARD, NOT A ROW (client 2026-08-11) — its row is Order Entry ▸
-          // Garment Order, because this one screen both raises an order and
-          // amends one. Listing it here keeps raising an amendment beside the
-          // other three amendment screens without giving the screen a second
-          // owner or a second search hit; `owningNavHref` and `moduleLeafItems`
-          // both skip a `cardOnly` child for exactly that reason.
-          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a confirmed order across styles, prices, packing and logistics", cardOnly: true },
+          // A ROW AGAIN, AND A REAL ONE (client 2026-08-13).
+          //
+          // It was `cardOnly` here, pointing at the same route as Order Entry ▸
+          // Garment Order — one screen, two labels, one URL, so the two cards
+          // opened the identical list and the labels had no choice but to
+          // contradict each other. The screen has an amend DOOR of its own now:
+          // the entry route above raises an order, `/orders/amendments` amends
+          // a saved one, and the same component answers both from a `mode` prop.
+          //
+          // Dropping `cardOnly` is the point, not tidying. `owningNavHref` now
+          // resolves this route to Amendments rather than to Order Entry, so
+          // the sidebar lights the group the operator is actually in; and
+          // `moduleLeafItems` gives "Order Amendment" a nav-search entry, which
+          // a `cardOnly` child never had.
+          { href: "/orders/amendments", label: "Order Amendment", description: "Amend a saved garment order across styles, prices, packing and logistics" },
           { href: "/orders/material-bom-amendment", label: "Material BOM Amendment", description: "Amend an accepted order's material BOM — items, processes and calculated quantities" },
           { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
           { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },

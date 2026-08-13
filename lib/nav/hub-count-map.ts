@@ -39,6 +39,10 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/orders/order-booking": "order_bookings",
   "/orders/pack-ratios": "order_pack_ratios",
   "/orders/excess-orders": "excess_orders",
+  // Both doors of one screen, so both count the same documents: the entry door
+  // (/orders/garment-orders) raises them, the amend door (/orders/amendments)
+  // changes them, and the register behind them is one table.
+  "/orders/garment-orders": "garment_order_amendments",
   "/orders/amendments": "garment_order_amendments",
   "/orders/material-bom-amendment": "material_bom_amendments",
   "/orders/process-amendments": "garment_process_amendment_docs",
