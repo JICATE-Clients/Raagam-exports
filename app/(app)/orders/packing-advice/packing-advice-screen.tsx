@@ -2,10 +2,9 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody } from "@/components/ui/card";
@@ -14,7 +13,7 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { gridKeyNav } from "@/components/masters/child-grid";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -316,6 +315,74 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
   // ---------------- EDIT MODE ----------------
   const canSave = !!form.advice_date;
 
+  /**
+   * The sixteen columns of a packing line, declared once.
+   *
+   * `className` is the TABLE layout's and nothing reads it while `forceCards` is
+   * on — kept because those are the widths a reverted table would need, and
+   * re-deriving "how wide is Measurement" from scratch is how a reverted grid
+   * comes back squashed.
+   */
+  const lineColumns: ChildGridColumn<LineRow>[] = [
+    { header: "Ctn From", cell: (r) => <Input className="h-8" value={r.ctn_from} onChange={(e) => updateLine(r.key, { ctn_from: e.target.value })} /> },
+    { header: "Ctn To", cell: (r) => <Input className="h-8" value={r.ctn_to} onChange={(e) => updateLine(r.key, { ctn_to: e.target.value })} /> },
+    { header: "Ctns", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.ctns} onChange={(e) => updateLine(r.key, { ctns: e.target.value })} /> },
+    {
+      header: "SC No",
+      className: "min-w-[180px]",
+      cell: (r) => <RecordPicker label="SC No" compact identity="code" items={orderItems} value={r.sc_no_id} onChange={(id) => updateLine(r.key, { sc_no_id: id })} />,
+    },
+    { header: "PO No", cell: (r) => <Input className="h-8" uppercase value={r.po_no} onChange={(e) => updateLine(r.key, { po_no: e.target.value })} /> },
+    {
+      header: "Country",
+      className: "min-w-[160px]",
+      cell: (r) => <CountryPicker compact countries={data.countries} value={r.country_id} onChange={(id) => updateLine(r.key, { country_id: id })} canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} />,
+    },
+    { header: "Ref No", cell: (r) => <Input className="h-8" uppercase value={r.ref_no} onChange={(e) => updateLine(r.key, { ref_no: e.target.value })} /> },
+    {
+      header: "Assort Type",
+      cell: (r) => (
+        <Select className="h-8" value={r.assort_type} onChange={(e) => updateLine(r.key, { assort_type: e.target.value })}>
+          <option value="">—</option>
+          {ASSORT_TYPES.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </Select>
+      ),
+    },
+    { header: "Cust Order No", cell: (r) => <Input className="h-8" uppercase value={r.customer_order_no} onChange={(e) => updateLine(r.key, { customer_order_no: e.target.value })} /> },
+    {
+      // A tick box is a column on the arrow axis (`ROW_FIELDS`), so it keeps its
+      // place in the typing path rather than being reachable only by mouse.
+      header: "Mult. Pack",
+      align: "center",
+      cell: (r) => (
+        <input type="checkbox" checked={r.multiple_pack} onChange={(e) => updateLine(r.key, { multiple_pack: e.target.checked })} className="h-4 w-4 rounded border-border accent-primary" />
+      ),
+    },
+    {
+      // Disabled until the nested Assort screen has a spec. A disabled control is
+      // deliberately NOT a field (`ROW_FIELDS` excludes `[disabled]`), so the
+      // arrows step over it instead of dying on a dead cell.
+      header: "Assort",
+      align: "center",
+      cell: () => (
+        <Button type="button" variant="outline" size="sm" disabled title="Nested Assort screen — awaiting spec">
+          Assort
+        </Button>
+      ),
+    },
+    { header: "Qty/Ctn", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.qty_per_ctn} onChange={(e) => updateLine(r.key, { qty_per_ctn: e.target.value })} /> },
+    { header: "Total Qty", align: "right", cell: (r) => <Input type="number" className="h-8 text-right" value={r.total_qty} onChange={(e) => updateLine(r.key, { total_qty: e.target.value })} /> },
+    {
+      header: "Unit",
+      className: "min-w-[140px]",
+      cell: (r) => <RecordPicker label="Unit" compact items={data.uoms} value={r.unit_id} onChange={(id) => updateLine(r.key, { unit_id: id })} />,
+    },
+    { header: "Measurement", cell: (r) => <Input className="h-8" uppercase value={r.measurement} onChange={(e) => updateLine(r.key, { measurement: e.target.value })} /> },
+  ];
+
+
   return (
     // ONE MARKER, NEVER A HANDLER. `isEditorScope()` is false without it, so Tab
     // keeps native order and walks out of the form. The PageHeader inside is
@@ -332,168 +399,120 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
         }
       />
 
-      {/* Header band */}
+      {/* Header band — `FieldGrid`, not a hand-rolled `lg:grid-cols-4` with
+          `sm:col-span-2` on the wide pair. A screen composes primitives, it does
+          not draw (LAYOUT.md §3). */}
       <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <Label>PL Adv No</Label>
-            <div className="flex h-9 items-center rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground">
-              {editCode ?? "Auto (on save)"}
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="pa-date">Date *</Label>
-            <Input id="pa-date" type="date" value={form.advice_date} onChange={(e) => set({ advice_date: e.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="pa-ref">Reference</Label>
-            <Input id="pa-ref" value={form.reference} onChange={(e) => set({ reference: e.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="pa-carton">Carton SlNo.By</Label>
-            <Select id="pa-carton" value={form.carton_slno_by} onChange={(e) => set({ carton_slno_by: e.target.value })}>
-              <option value="">—</option>
-              {CARTON_SLNO_BY.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </Select>
-          </div>
-          <RecordPicker
-            label="Customer"
-            items={data.buyers}
-            value={form.customer_id}
-            onChange={(id) => set({ customer_id: id })}
-          />
-          <RecordPicker
-            label="Consignee"
-            items={data.consignees}
-            value={form.consignee_id}
-            onChange={(id) => set({ consignee_id: id })}
-          />
-          <div>
-            <Label>Ctns (total)</Label>
-            <div className="flex h-9 items-center justify-end rounded-md border border-border bg-surface-muted px-3 text-sm tabular-nums">
-              {fmtNumber(ctnsTotal)}
-            </div>
-          </div>
-          <div>
-            <Label>Qty (total)</Label>
-            <div className="flex h-9 items-center justify-end rounded-md border border-border bg-surface-muted px-3 text-sm tabular-nums">
-              {fmtNumber(qtyTotal)}
-            </div>
-          </div>
-          <div className="sm:col-span-2">
-            <LookupDialogPicker
-              kind="warehouse"
-              label="Warehouse Name"
-              options={warehouseOpts}
-              value={form.warehouse_id}
-              onChange={(id) => set({ warehouse_id: id })}
-              canCreate={masterPerms.canCreate}
-              canEdit={masterPerms.canEdit}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <Label htmlFor="pa-waddr">Warehouse Address</Label>
-            <Textarea
-              id="pa-waddr"
-              value={form.warehouse_address}
-              onChange={(e) => set({ warehouse_address: e.target.value })}
-              rows={2}
-            />
-          </div>
+        <CardBody>
+          <FieldGrid>
+            {/* `Input readOnly` rather than a styled `<div>`: the div was a value
+                the primitives could not see, and readOnly brings the right look,
+                keeps it in the accessibility tree and sets `tabIndex={-1}` so it
+                stays off the typing path. */}
+            <Field label="PL Adv No" size="sm" htmlFor="pa-no">
+              <Input id="pa-no" className="font-mono" value={editCode ?? "Auto (on save)"} readOnly />
+            </Field>
+            {/* `required` on the Field, not a `*` typed into the label — the same
+                prop draws the star AND stamps `data-required-empty`, so the
+                cursor holds on a blank box. */}
+            <Field label="Date" required size="sm" htmlFor="pa-date">
+              <Input id="pa-date" type="date" value={form.advice_date} onChange={(e) => set({ advice_date: e.target.value })} />
+            </Field>
+            <Field label="Reference" size="sm" htmlFor="pa-ref">
+              <Input id="pa-ref" uppercase value={form.reference} onChange={(e) => set({ reference: e.target.value })} />
+            </Field>
+            <Field label="Carton SlNo.By" size="sm" htmlFor="pa-carton">
+              <Select id="pa-carton" value={form.carton_slno_by} onChange={(e) => set({ carton_slno_by: e.target.value })}>
+                <option value="">—</option>
+                {CARTON_SLNO_BY.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </Select>
+            </Field>
+            {/* The pickers draw their own labels; `Field` carries the span. */}
+            <Field size="sm">
+              <RecordPicker
+                label="Customer"
+                items={data.buyers}
+                value={form.customer_id}
+                onChange={(id) => set({ customer_id: id })}
+              />
+            </Field>
+            <Field size="sm">
+              <RecordPicker
+                label="Consignee"
+                items={data.consignees}
+                value={form.consignee_id}
+                onChange={(id) => set({ consignee_id: id })}
+              />
+            </Field>
+            {/* Derived totals — read-only text, not boxes: they are computed from
+                the grid below and clicking them does nothing. */}
+            <Field label="Ctns (total)" size="sm">
+              <div className="flex h-9 items-center justify-end text-sm font-medium tabular-nums">
+                {fmtNumber(ctnsTotal)}
+              </div>
+            </Field>
+            <Field label="Qty (total)" size="sm">
+              <div className="flex h-9 items-center justify-end text-sm font-medium tabular-nums">
+                {fmtNumber(qtyTotal)}
+              </div>
+            </Field>
+            <Field size="lg">
+              <LookupDialogPicker
+                kind="warehouse"
+                label="Warehouse Name"
+                options={warehouseOpts}
+                value={form.warehouse_id}
+                onChange={(id) => set({ warehouse_id: id })}
+                canCreate={masterPerms.canCreate}
+                canEdit={masterPerms.canEdit}
+              />
+            </Field>
+            {/* An address runs long, so it takes half the row rather than a
+                quarter — `lg` is the widest a FIELD goes (LAYOUT.md §3). */}
+            <Field label="Warehouse Address" size="lg" htmlFor="pa-waddr">
+              <Textarea
+                id="pa-waddr"
+                value={form.warehouse_address}
+                onChange={(e) => set({ warehouse_address: e.target.value })}
+                rows={2}
+              />
+            </Field>
+          </FieldGrid>
         </CardBody>
       </Card>
 
-      {/* Packing List detail grid */}
+      {/* Packing List detail grid — WRAPS, NEVER SCROLLS SIDEWAYS.
+          Sixteen columns at `min-w-[1720px]` was the worst case of the rule in
+          the whole module: the operator filled Ctn From, then dragged a bar past
+          fifteen cells to reach Measurement with the start of the line scrolled
+          out of sight. `forceCards` + `renderMobileRow` lays each line out as the
+          same `FieldGrid` the header uses — four across, flowing onto as many
+          rows as it takes (see "The operator's five", rule 4b). */}
       <Card>
         <CardBody>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">Packing List — Details</h3>
-            <Button type="button" variant="subtle" size="sm" onClick={() => setLines((xs) => [...xs, blankLine()])}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1720px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">SlNo</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Ctn From</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Ctn To</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Ctns</th>
-                  <th className="px-2 py-1.5 text-left font-medium">SC No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">PO No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Country</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Ref No</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Assort Type</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Cust Order No</th>
-                  <th className="px-2 py-1.5 text-center font-medium">Mult. Pack</th>
-                  <th className="px-2 py-1.5 text-center font-medium">Assort</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Qty/Ctn</th>
-                  <th className="px-2 py-1.5 text-right font-medium">Total Qty</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Unit</th>
-                  <th className="px-2 py-1.5 text-left font-medium">Measurement</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              {/* Row markers give ↓/↑ Excel-style column-wise movement across
-                  carton lines — see gridKeyNav in components/masters/child-grid.tsx.
-                  Widest grid in the app, so walking a column beats tabbing 13
-                  cells to reach the same field on the next line. */}
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => setLines((xs) => [...xs, blankLine()]))}>
-                {lines.map((r, i) => (
-                  <tr key={r.key} data-grid-row className="border-b border-border align-top last:border-0">
-                    <td className="px-2 py-1 text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="px-2 py-1"><Input value={r.ctn_from} onChange={(e) => updateLine(r.key, { ctn_from: e.target.value })} className="h-8 w-20" /></td>
-                    <td className="px-2 py-1"><Input value={r.ctn_to} onChange={(e) => updateLine(r.key, { ctn_to: e.target.value })} className="h-8 w-20" /></td>
-                    <td className="px-2 py-1"><Input type="number" value={r.ctns} onChange={(e) => updateLine(r.key, { ctns: e.target.value })} className="h-8 w-20 text-right" /></td>
-                    <td className="px-2 py-1 min-w-[180px]">
-                      <RecordPicker label="SC No" compact identity="code" items={orderItems} value={r.sc_no_id} onChange={(id) => updateLine(r.key, { sc_no_id: id })} />
-                    </td>
-                    <td className="px-2 py-1"><Input value={r.po_no} onChange={(e) => updateLine(r.key, { po_no: e.target.value })} className="h-8 w-28" /></td>
-                    <td className="px-2 py-1 min-w-[160px]">
-                      <CountryPicker compact countries={data.countries} value={r.country_id} onChange={(id) => updateLine(r.key, { country_id: id })} canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} />
-                    </td>
-                    <td className="px-2 py-1"><Input value={r.ref_no} onChange={(e) => updateLine(r.key, { ref_no: e.target.value })} className="h-8 w-24" /></td>
-                    <td className="px-2 py-1">
-                      <Select value={r.assort_type} onChange={(e) => updateLine(r.key, { assort_type: e.target.value })} className="h-8 min-w-[130px]">
-                        <option value="">—</option>
-                        {ASSORT_TYPES.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </Select>
-                    </td>
-                    <td className="px-2 py-1"><Input value={r.customer_order_no} onChange={(e) => updateLine(r.key, { customer_order_no: e.target.value })} className="h-8 w-28" /></td>
-                    <td className="px-2 py-1 text-center">
-                      <input type="checkbox" checked={r.multiple_pack} onChange={(e) => updateLine(r.key, { multiple_pack: e.target.checked })} className="h-4 w-4 rounded border-border" />
-                    </td>
-                    <td className="px-2 py-1 text-center">
-                      <Button type="button" variant="outline" size="sm" disabled title="Nested Assort screen — awaiting spec">
-                        Assort
-                      </Button>
-                    </td>
-                    <td className="px-2 py-1"><Input type="number" value={r.qty_per_ctn} onChange={(e) => updateLine(r.key, { qty_per_ctn: e.target.value })} className="h-8 w-24 text-right" /></td>
-                    <td className="px-2 py-1"><Input type="number" value={r.total_qty} onChange={(e) => updateLine(r.key, { total_qty: e.target.value })} className="h-8 w-24 text-right" /></td>
-                    <td className="px-2 py-1 min-w-[140px]">
-                      <RecordPicker label="Unit" compact items={data.uoms} value={r.unit_id} onChange={(id) => updateLine(r.key, { unit_id: id })} />
-                    </td>
-                    <td className="px-2 py-1"><Input value={r.measurement} onChange={(e) => updateLine(r.key, { measurement: e.target.value })} className="h-8 w-28" /></td>
-                    <td className="px-2 py-1">
-                      <RowRemove onClick={() => setLines((xs) => xs.filter((x) => x.key !== r.key))} />
-                    </td>
-                  </tr>
+          <ChildGrid<LineRow>
+            label="Packing List — Details"
+            columns={lineColumns}
+            rows={lines}
+            seedRow
+            forceCards
+            renderMobileRow={(row, i) => (
+              <FieldGrid>
+                {lineColumns.map((c, ci) => (
+                  // Labels and cells both read off `lineColumns`, so a new column
+                  // cannot leave the card and the declaration disagreeing.
+                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                    {c.cell(row, i)}
+                  </Field>
                 ))}
-                {lines.length === 0 && (
-                  <tr>
-                    <td colSpan={17} className="px-2 py-6 text-center text-xs text-muted-foreground">
-                      No lines. Use “Add row”.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              </FieldGrid>
+            )}
+            onAdd={() => setLines((xs) => [...xs, blankLine()])}
+            onRemove={(r) => setLines((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add line"
+          />
         </CardBody>
       </Card>
 
@@ -515,15 +534,3 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
   );
 }
 
-function RowRemove({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Remove row"
-      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-    >
-      <Trash2 className="h-4 w-4" />
-    </button>
-  );
-}
