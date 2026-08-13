@@ -19,7 +19,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -207,66 +207,72 @@ export function AdvisedItemsEditor({
               // missing this. See the `raagam-keyboard-contract` skill.
               data-focus-scope
               onSubmit={handleAdd}
-              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              className="space-y-4"
             >
-              <div>
-                <Label htmlFor="ai-desc">Item *</Label>
-                <Input
-                  id="ai-desc"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g. Main label"
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="ai-attr">Attribute</Label>
-                <Input
-                  id="ai-attr"
-                  value={attribute}
-                  onChange={(e) => setAttribute(e.target.value)}
-                  placeholder="e.g. woven, red"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ai-qty">Quantity</Label>
-                <Input
-                  id="ai-qty"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ai-unit">Unit</Label>
-                <Input
-                  id="ai-unit"
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  placeholder="pcs / m / kg"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ai-supp">Suggested supplier</Label>
-                <Input
-                  id="ai-supp"
-                  value={supplier}
-                  onChange={(e) => setSupplier(e.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="sm:col-span-2 lg:col-span-1">
-                <Label htmlFor="ai-rem">Remarks</Label>
-                <Input
-                  id="ai-rem"
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
+              {/* `FieldGrid`, not a hand-rolled `lg:grid-cols-3` with a
+                  `col-span-*` on Remarks — a screen composes primitives, it does
+                  not draw (LAYOUT.md §3). */}
+              <FieldGrid>
+                {/* `required` on the Field, not a `*` typed into the label — the
+                    same prop draws the star AND stamps `data-required-empty`, so
+                    the cursor holds on a blank box. */}
+                <Field label="Item" required size="sm" htmlFor="ai-desc">
+                  <Input
+                    id="ai-desc"
+                    uppercase
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="e.g. Main label"
+                    required
+                  />
+                </Field>
+                <Field label="Attribute" size="sm" htmlFor="ai-attr">
+                  <Input
+                    id="ai-attr"
+                    uppercase
+                    value={attribute}
+                    onChange={(e) => setAttribute(e.target.value)}
+                    placeholder="e.g. woven, red"
+                  />
+                </Field>
+                <Field label="Quantity" size="sm" htmlFor="ai-qty">
+                  <Input
+                    id="ai-qty"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    placeholder="0"
+                  />
+                </Field>
+                <Field label="Unit" size="sm" htmlFor="ai-unit">
+                  <Input
+                    id="ai-unit"
+                    uppercase
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value)}
+                    placeholder="pcs / m / kg"
+                  />
+                </Field>
+                <Field label="Suggested supplier" size="sm" htmlFor="ai-supp">
+                  <Input
+                    id="ai-supp"
+                    uppercase
+                    value={supplier}
+                    onChange={(e) => setSupplier(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </Field>
+                <Field label="Remarks" size="sm" htmlFor="ai-rem">
+                  <Input
+                    id="ai-rem"
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </Field>
+              </FieldGrid>
               <div className="flex items-end">
                 <Button type="submit" disabled={isPending || !description.trim()}>
                   {isPending ? "Adding…" : "Add advised item"}
