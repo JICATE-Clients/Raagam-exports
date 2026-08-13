@@ -291,6 +291,31 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // it says: the amend door, below. `createAmendment` mints a NEW
           // sales_orders row — this is where an order is raised.
           { href: "/orders/garment-orders", label: "Garment Order", description: "Raise a garment order — styles, colours, prices, packing, quantities and logistics" },
+          // STEP 3 OF THE CLIENT'S SIX — Style, Order Entry, Material BOM,
+          // Fabric BOM, Budget, Budget Approval — and it belongs beside the
+          // order it plans for, not under Amendments where it sat until
+          // 2026-08-13.
+          //
+          // It moved for the reason the row above did. The screen plans an
+          // order's material FOR THE FIRST TIME more often than it revises one:
+          // `material_bom_amendments` (0265) has no link to a prior BOM — no
+          // base id, no parent, no revision column, only `sales_order_id` — and
+          // Approve Amendment does not look at it. A screen filed under
+          // Amendments that mostly does first-time entry is the same mis-filing
+          // the Garment Order had, one door along.
+          //
+          // Amending a BOM needs no second row: `bomStatus`'s `recalculate`
+          // state (status.ts) already means "the order moved since this was
+          // computed", so the work queue surfaces the revision work in place. A
+          // route filtered to one status would be a filter dressed as a screen —
+          // unlike the Garment Order, where the two doors exist because one
+          // MINTS A NEW `sales_orders` ROW and the other must not.
+          //
+          // THE ROUTE STILL SAYS `material-bom-amendment` and is next. It is
+          // four references (this line, the count-map key, one `revalidatePath`,
+          // one doc heading), not the fifteen 188ff5b moved — held only because
+          // renaming the folder would `git mv` files another session has open.
+          { href: "/orders/material-bom-amendment", label: "Material BOM", description: "Plan every sewing and packing accessory a confirmed order needs, and how much of each" },
           // THE REGISTER, and it is a screen of its own since 2026-08-13.
           //
           // It pointed at `/orders` — the module root — while that route WAS the
@@ -331,7 +356,6 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // `moduleLeafItems` gives "Order Amendment" a nav-search entry, which
           // a `cardOnly` child never had.
           { href: "/orders/amendments", label: "Order Amendment", description: "Amend a saved garment order across styles, prices, packing and logistics" },
-          { href: "/orders/material-bom-amendment", label: "Material BOM Amendment", description: "Amend an accepted order's material BOM — items, processes and calculated quantities" },
           { href: "/orders/process-amendments", label: "Process Amendment", description: "Amend an order's component / garment process" },
           { href: "/orders/approve-amendments", label: "Approve Amendment", description: "Approve or reject raised amendments" },
         ],
