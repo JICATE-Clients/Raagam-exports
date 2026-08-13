@@ -185,17 +185,23 @@ export const garmentStyleInput = z
      * nothing to offer and the record has no way out. It would also block
      * `is_draft` saves, which exist precisely to park an incomplete style.
      *
-     * So the split is: **required on create (`createGarmentStyle` refuses a
-     * null), grandfathered on update.** The FORM marks it `required` in both
-     * modes, so the red `*` and the cursor hold push every edit toward
-     * answering it — the same deliberate-backfill shape `unit_kind` below
-     * already uses, and this screen already documents.
+     * IT IS OPTIONAL EVERYWHERE AS OF 2026-08-13 (client), and the paragraph
+     * above is the reason rather than an aside. The split used to be "required
+     * on create, grandfathered on update" — but the sentence about ZERO
+     * approved samples applies to a NEW style just as completely as to a legacy
+     * one, so the create half was a rule with nothing that could satisfy it.
+     * The Style master could not be saved at all, and the Garment Order's
+     * Style(s) tab requires a style, so order entry stopped behind it.
+     *
+     * The `uuidN` below has not changed and never needed to: the schema was
+     * already permissive, and it was `createGarmentStyle` plus the form's `*`
+     * that did the refusing. Both are withdrawn.
      *
      * `lib/data-io`: `garment_styles` is NOT a data-io entity (nothing in
-     * `lib/data-io/entities.ts` names it), so there is no import path that
-     * bypasses the action — this guard has no hole today. If a Styles importer
-     * is ever added, the create guard must move into this schema or be repeated
-     * there, because data-io writes straight to Postgres.
+     * `lib/data-io/entities.ts` names it), so no import path bypasses the
+     * action. That mattered while a create guard existed; if the guard comes
+     * back — the day a sample can be raised from the picker — it must live here
+     * or be repeated there, because data-io writes straight to Postgres.
      */
     approved_sample_id: uuidN,
     style_name: z.string().min(1, "Style name is required"),
