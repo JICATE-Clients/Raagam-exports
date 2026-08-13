@@ -59,6 +59,6 @@ export async function decideAmendment(
 
   revalidatePath(LIST_PATH);
   revalidatePath("/orders/amendments");
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
   return { ok: true };
 }

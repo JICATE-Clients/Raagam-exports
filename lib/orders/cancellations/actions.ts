@@ -61,6 +61,6 @@ export async function cancelOrder(
   });
 
   revalidatePath(LIST_PATH);
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
   return { ok: true };
 }

@@ -13,7 +13,7 @@ function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
   revalidatePath("/orders/order-booking");
   revalidatePath("/orders/due-date-confirmations");
   revalidatePath("/orders/contract-review");

@@ -34,7 +34,7 @@
  */
 export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // ---------------------------------------------------------------- orders
-  "/orders": "sales_orders",
+  "/orders/all": "sales_orders",
   "/orders/styles": "garment_styles",
   "/orders/order-booking": "order_bookings",
   "/orders/pack-ratios": "order_pack_ratios",

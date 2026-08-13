@@ -184,7 +184,13 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/sales": ["New Opportunity"],
   "/sales/quotes": ["Prepare Quote"],
 
+  // The module ROOT's entry, which `sectionActions` falls back to for every
+  // Orders route without a key of its own — so it stays even though `/orders`
+  // itself is now a card index with nothing to create on it.
   "/orders": ["New Order", "Import Orders", "Export List"],
+  // The All Orders register, which is where those actions actually land since
+  // it moved off the module root (2026-08-13).
+  "/orders/all": ["New Order", "Import Orders", "Export List"],
   "/orders/styles": ["New Style"],
   "/orders/internal-work-orders": ["New Work Order"],
   // Named for what the screen IS, not for the table it writes: its sidebar row

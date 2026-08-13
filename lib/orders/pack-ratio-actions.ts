@@ -10,7 +10,7 @@ type Result = { ok: true } | { ok: false; error: string };
 type CreateResult = { ok: true; id: string } | { ok: false; error: string };
 
 function fail(msg: string): { ok: false; error: string } { return { ok: false, error: msg }; }
-function rev(): void { revalidatePath("/orders"); revalidatePath("/orders/pack-ratios"); revalidatePath("/orders/excess-orders"); }
+function rev(): void { revalidatePath("/orders/all"); revalidatePath("/orders/pack-ratios"); revalidatePath("/orders/excess-orders"); }
 
 export async function createPackRatio(data: PackRatioInput): Promise<CreateResult> {
   if (!(await can("orders", "create"))) return fail("Forbidden");

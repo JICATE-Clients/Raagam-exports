@@ -182,6 +182,15 @@ export interface ModuleGrouping {
   /** Module label, held here so a hub page can render its breadcrumb without
    *  importing `nav.ts` — which imports this file, and would be a cycle. */
   label: string;
+  /**
+   * One line under the title on the module's own landing page (`ModuleHub`).
+   *
+   * Optional because the sidebar never showed one and most modules have not
+   * been given one yet; `ModuleHub` falls back to a count of sub-modules rather
+   * than inventing a sentence, since a made-up summary on a landing page is the
+   * drift the hand-written grids were already in.
+   */
+  description?: string;
   /** Permission key for `requirePermission` on the hub page. */
   module: Module;
   entries: ModuleEntry[];
@@ -211,6 +220,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
   "/orders": {
     label: "Orders",
     module: "orders",
+    description:
+      "The garment order flow — styles and BOMs, entry, amendments, confirmation, execution and closure",
     entries: [
       // The legacy 14-step Garment Orders hub, restored on request (2026-08-08)
       // after the 08-07 regrouping dissolved it into sub-modules. It is a GROUP
@@ -303,17 +314,15 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // that work. Exactly one row owns the route, which is what assertion
           // 5 checks — see the flag's own note on `GroupChild`.
           { href: "/orders/amendments", label: "Garment Order", description: "Raise a garment order — styles, colours, prices, packing, quantities and logistics" },
-          // The module root, listed as a CARD — not as a sidebar row. The "no
-          // row duplicates its module root" rule is about two SIDEBAR ROWS
-          // opening one page, and this is one row and one card. `owningNavHref`
-          // skips it so /orders still highlights the Orders row rather than this
-          // group.
+          // THE REGISTER, and it is a screen of its own since 2026-08-13.
           //
-          // It was labelled "Garment Orders" while it was the only order screen
-          // here. Now that the entry screen is the row above, this is the LIST —
-          // and two children reading "Garment Order" and "Garment Orders" would
-          // be the same confusion one level down.
-          { href: "/orders", label: "All Orders", description: "Every confirmed order, with its SC No and status" },
+          // It pointed at `/orders` — the module root — while that route WAS the
+          // All Orders table. The root is now an index of these seven
+          // sub-modules (`components/shell/module-hub.tsx`), so the register
+          // moved to a route of its own and this card follows it. That also
+          // retires the special case it used to need: `owningNavHref` skips a
+          // child equal to the module root, and there is no longer one here.
+          { href: "/orders/all", label: "All Orders", description: "Every confirmed order, with its SC No and status" },
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
           { href: "/orders/excess-orders", label: "Excess Orders", description: "Supplementary quantities beyond the planned order, size-wise" },

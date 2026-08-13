@@ -53,6 +53,6 @@ export async function createTaCompletion(payload: TaCompletionInput): Promise<Re
   });
 
   revalidatePath(LIST_PATH);
-  revalidatePath("/orders");
+  revalidatePath("/orders/all");
   return { ok: true };
 }
