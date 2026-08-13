@@ -52,6 +52,7 @@ import {
   type BomStatus,
 } from "@/lib/orders/material-bom-amendment/status";
 import type { BomTaskRow, MbaFormData } from "@/lib/orders/material-bom-amendment/service";
+import { materialsForCategory } from "@/lib/orders/material-bom-amendment/material-options";
 import {
   isRefusal,
   moqRollup,
@@ -248,6 +249,26 @@ export function MbaMasterScreen({
     () => data.lookups.filter((l) => l.kind === "material_category"),
     [data.lookups],
   );
+
+  /**
+   * A line's Category cell narrows the Material picker beside it — the
+   * cascading-filter rule, which this grid was breaking in its most literal
+   * form: two facets side by side, one of them answering the other's question
+   * and neither of them wired.
+   *
+   * `data.items` already arrives narrowed to accessories (the server refuses to
+   * ship anything else); this is the second, per-line half, and it has to live
+   * here because it depends on a cell the operator is still typing into.
+   */
+  const categoryCodeById = useMemo(
+    () => new Map(materialCategories.map((c) => [c.id, c.code])),
+    [materialCategories],
+  );
+  const materialsFor = (categoryId: string | null, currentValue: string | null) =>
+    materialsForCategory(data.items, {
+      categoryCode: categoryId ? categoryCodeById.get(categoryId) : null,
+      currentValue,
+    });
 
   /**
    * The SAME colour list the garment's own colours come from (kind
@@ -851,7 +872,7 @@ export function MbaMasterScreen({
       cell: (r) => (
         <RecordPicker
           label="Material"
-          items={data.items}
+          items={materialsFor(r.category_id, r.item_id)}
           value={r.item_id}
           onChange={(id) => updItem(r.key, { item_id: id })}
           required
@@ -1227,7 +1248,10 @@ export function MbaMasterScreen({
       cell: (r) => (
         <RecordPicker
           label="Material"
-          items={data.items}
+          // Accessories only, same as the Items grid. No Category cell on this
+          // row to cascade from, so it stays the full accessory list with each
+          // option prefixed by its class.
+          items={materialsFor(null, r.item_id)}
           value={r.item_id}
           onChange={(id) => updProc(r.key, { item_id: id })}
           compact

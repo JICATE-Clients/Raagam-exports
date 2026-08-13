@@ -8,6 +8,7 @@ import type { Customer } from "@/lib/masters/customer-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { MaterialBomAmendment, BomCopySource } from "./types";
 import { isInactive } from "@/lib/masters/inactive";
+import { isAccessoryClass, type MaterialOption } from "./material-options";
 import { withCreators } from "@/lib/created-by";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import {
@@ -196,6 +197,15 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
     s
       .from("garment_order_amendments")
       .select(ORDER_SELECT)
+      // CONFIRMED ORDERS ONLY (client 2026-08-13: "lists all confirmed RE
+      // Numbers"). A draft order is someone's half-entered thinking — its
+      // styles, combos and quantities are all still moving, so a material plan
+      // built against it is planned against numbers that have not settled.
+      //
+      // It is the ORDER's draft flag, not the BOM's. The queue's own `draft`
+      // status means "a BOM exists and is unfinished", which is a different
+      // sentence and stays.
+      .eq("is_draft", false)
       .order("created_at", { ascending: false }),
     s
       .from("material_bom_amendments")
@@ -430,6 +440,55 @@ async function getConversionRows(): Promise<MbaConversionRow[]> {
   return (data ?? []) as MbaConversionRow[];
 }
 
+/**
+ * The materials a BOM line may name — Sewing and Packing accessories only.
+ *
+ * NARROWED HERE, NOT ON THE CLIENT. The option list is what the picker filters,
+ * so a client-side narrowing would still ship every item id in the database to
+ * the browser and only hide them. The Category cascade beside it IS a client
+ * concern (it depends on a cell the operator is typing into), and it reads
+ * `class_code` off these rows.
+ *
+ * `item_class_id` resolves through `config_lookups` in a second query rather
+ * than a PostgREST embed. Embeds resolve BY FK and fail at runtime with "could
+ * not find a relationship" — invisible to `tsc` and to `next build` (see the
+ * two-party-table note in AGENTS.md) — and this one column is not worth that
+ * risk. Two indexed reads, joined in memory.
+ *
+ * `inactive` rides along and is NOT filtered in SQL: a material a saved line
+ * already names must still resolve, or the cell renders empty and the next save
+ * blanks the FK. The picker hides the switched-off ones itself.
+ */
+async function getMaterialRows(): Promise<MaterialOption[]> {
+  const s = await createClient();
+  const [itemsRes, classRes] = await Promise.all([
+    s.from("items").select("id, code, name, is_active, item_class_id").order("name"),
+    s.from("config_lookups").select("id, code").eq("kind", "item_class"),
+  ]);
+
+  const classCode = new Map<string, string | null>(
+    ((classRes.data ?? []) as { id: string; code: string | null }[]).map((c) => [c.id, c.code]),
+  );
+
+  type ItemRowRaw = {
+    id: string;
+    code: string | null;
+    name: string;
+    is_active: boolean;
+    item_class_id: string | null;
+  };
+
+  return ((itemsRes.data ?? []) as ItemRowRaw[])
+    .map((r) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      inactive: isInactive(r),
+      class_code: (r.item_class_id ? classCode.get(r.item_class_id) : null) ?? null,
+    }))
+    .filter((r) => isAccessoryClass(r.class_code));
+}
+
 async function pickerRows(table: string): Promise<PickerRow[]> {
   const s = await createClient();
   // `items` spells the flag `is_active`; normalized here so the shape handed to
@@ -557,7 +616,7 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
 export type MbaFormData = {
   orders: BomOrderOption[];
   customers: Customer[];
-  items: PickerRow[];
+  items: MaterialOption[];
   vendors: PickerRow[];
   /** Every customer's nominated / recommended vendors — see `VendorNomination`. */
   nominations: VendorNomination[];
@@ -573,7 +632,7 @@ export async function getMbaFormData(): Promise<MbaFormData> {
     await Promise.all([
       getOrderOptions(),
       listCustomers(),
-      pickerRows("items"),
+      getMaterialRows(),
       getVendorRows(),
       listVendorNominations(),
       getProcessRows(),

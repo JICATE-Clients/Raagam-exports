@@ -1703,7 +1703,11 @@ export function AmendmentScreen({
         ),
       },
       {
-        header: "Order #",
+        // "SC No", the same name the editor's field carries (see the SCNo Field
+        // in Order Info). It read "Order #" here — one value under two names,
+        // and this is the number the whole business tracks an order by, so the
+        // list and the record have to call it the same thing.
+        header: "SC No",
         cell: (r) => (
           <span className="font-mono text-xs">{r.sales_order?.order_number ?? "—"}</span>
         ),
