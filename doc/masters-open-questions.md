@@ -523,11 +523,26 @@ untouched (still reachable at `/planning/bom-amendments`). Every ⓘ field is a 
 2. **Type / Supply Type — provisional fixed dropdowns** 🟡 — no legacy option list captured. Placed as
    `MATERIAL_TYPE_OPTIONS` (Production/Sample/Trial) and `SUPPLY_TYPE_OPTIONS`
    (Local/Import/Nominated/Free Issue) in `types.ts`. *Share the real legacy option lists.*
+2b. **"Attribute" was the SPLIT BASIS all along** ✅ — 0265 modelled it as a `config_lookups`
+   pointer (kind `material_attribute`), whose entire live content turned out to be one hand-typed
+   row, "STYLE". 0418 replaced it with `requirement_basis`, a CHECKed enum, and left the column and
+   its values untouched. A lookup name is operator-editable and stored in CAPITALS, so it could
+   never have driven the maths.
+
 3. **Combination — free text** 🟡 — no backing/spec for the "Combination" column; captured as text.
    *What master or rule does Combination reference?*
-4. **Calculated Quantities formula unknown** 🔴 — the tab is a **read-only provisional projection**:
-   Calc Qty = per-piece Qty × order qty; **Process** and **Size** columns are shown blank (no mapping
-   captured). *Provide the real calculation (how Process/Size explode, loss %, MOQ rounding).*
+4. **Calculated Quantities formula** ✅ **ANSWERED AND BUILT (0418, 2026-08-13).** The client gave
+   the rule: `Total Material Required = SKU Quantity × (No. of Items / No. of Pieces)`, plus a
+   per-line Wastage %. "SKU Quantity" is the production target the Approval Qty tab already computes
+   (`totalProductionQty`, 0413). The tab is now **Requirement**, and the explosion is driven by the
+   line's **Basis** — the legacy "Attribute" column — which is Order Number / Color-wise / Size-wise.
+   Engine: `lib/orders/material-bom/requirement.ts`; vectors: `npm run check:bom-requirement`.
+   - **Size** explodes from the Assort break-up (0414) used as a RATIO and apportioned by largest
+     remainder, never as absolute pieces and never as an even split.
+   - **MOQ** is a per-material ROLLUP, not a per-row floor — applying it per row buys N× too much.
+   - **Process** is not a column of this tab: it is the Processes grid, which 0418 extended with
+     process / vendor / qty out / qty in.
+   - Loss % is the line's Wastage %; it multiplies the material figure, never the pieces.
 5. **Items columns off the right edge** 🟡 — the screenshot's Item Details grid scrolls past MOQ;
    columns to the right of MOQ were not captured. Built the visible set (through MOQ + a Qty basis).
    *Share a wider screenshot to add the remaining columns.*

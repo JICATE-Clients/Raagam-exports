@@ -53,23 +53,67 @@ export function conversionFactor(line: ConversionLine): number | null {
 }
 
 /**
+ * The decimal precision a quantity in `uom` may carry: `decimal_places_allowed`
+ * (0309), clamped to [2, 6].
+ *
+ * THE CLAMP IS THE POINT, and it is why this is a function rather than a number
+ * read at each call site. Every UOM in the live DB stores 0 in the OTHER
+ * precision column (`decimal_places`, 0224), and honouring a 0 renders 16.67
+ * Gross as "17" — quietly reinstating the round-up the client rejected. A caller
+ * that genuinely wants whole units rounds at the call site, where it is visible.
+ *
+ * `null` is not "no decimals"; it is "the master has not said", which takes the
+ * same floor of 2.
+ */
+export function uomPrecision(dp: number | null | undefined): number {
+  if (dp == null || !Number.isFinite(dp)) return 2;
+  return Math.min(Math.max(Math.trunc(dp), 2), 6);
+}
+
+/**
+ * Round UP to `dp` decimal places.
+ *
+ *   ceilToPrecision(85.714285, 2) → 85.72
+ *   ceilToPrecision(150,       2) → 150      ← not 150.01
+ *
+ * UP, not to-nearest, and that is a different choice from `toPurchaseQty`'s
+ * deliberately. This is for a REQUIREMENT: the amount production is short of if
+ * the number is wrong. Shipping short is the failure a material buffer exists to
+ * prevent, and the cost the other way is at most one unit — the same reasoning
+ * `rejectionFor` records for its own `Math.ceil`.
+ *
+ * THE `toFixed(6)` IS NOT DECORATION. `150.0000000000001 * 100` ceils to 15001,
+ * so a value that is exactly 150 in every way an operator can see comes back as
+ * 150.01. Every clean example silently gains a hundredth. It is the same binary
+ * float artefact `money()` in lib/orders/amendments/order-value.ts absorbs
+ * (`5000 * 4.2 = 21000.000000000004`), and it has to be absorbed BEFORE the
+ * ceil, because ceiling is what turns an invisible artefact into a visible one.
+ */
+export function ceilToPrecision(value: number, dp: number): number {
+  if (!Number.isFinite(value)) return value;
+  const places = uomPrecision(dp);
+  const scale = 10 ** places;
+  return Math.ceil(Number((value * scale).toFixed(6))) / scale;
+}
+
+/**
  * Total base requirement → quantity in the alternative (purchase) unit.
  *
  *   toPurchaseQty(200_000, { alt_qty: 1, base_qty: 2500 }, 2) → 80
  *   toPurchaseQty(  2_400, { alt_qty: 1, base_qty:  144 }, 2) → 16.67
  *
  * @param totalBase  order qty × consumption per piece, in the base unit
- * @param decimals   the alternative UOM's `uoms.decimal_places`
+ * @param decimals   the alternative UOM's `uoms.decimal_places_allowed`
+ *                   (0309) — NOT `decimal_places` (0224), which is 0 on
+ *                   every live row. Clamped by `uomPrecision` below.
  *
  * Returns `null` when the line has no usable factor.
  *
  * The client chose EXACT DECIMALS over rounding up to whole packs — 16.67
  * Gross, not 17. Two things protect that choice:
  *
- *  - `decimals` is floored at 2. Every UOM in the live DB stores 0 in the
- *    precision column, and honouring a 0 here would render 16.67 as "17" and
- *    quietly reinstate the round-up that was rejected. A caller that genuinely
- *    wants whole units must round at the call site, where it is visible.
+ *  - `decimals` goes through `uomPrecision`, which floors it at 2 for the
+ *    reason set out there.
  *  - the result is ROUNDED, not truncated. Truncating 16.666… to 16.66 quietly
  *    understates the requirement, and under-buying stops a production line.
  */
@@ -81,7 +125,7 @@ export function toPurchaseQty(
   const factor = conversionFactor(line);
   if (factor == null) return null;
   if (!Number.isFinite(totalBase)) return null;
-  const dp = Number.isFinite(decimals) ? Math.min(Math.max(decimals, 2), 6) : 2;
+  const dp = uomPrecision(decimals);
   return Number((totalBase / factor).toFixed(dp));
 }
 

@@ -36,6 +36,12 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
+import {
+  bomStatusHint,
+  bomStatusText,
+  bomStatusTone,
+  type BomStatus,
+} from "@/lib/orders/material-bom-amendment/status";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
 // {key,label,content} items and `sections` maps them, so the shape a tab
@@ -105,6 +111,14 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 interface Props {
   rows: GarmentOrderAmendment[];
   data: AmendmentFormData;
+  /**
+   * Has each order's material been planned, and is that plan still current?
+   *
+   * Keyed by amendment id. Fetched by the loader in its own call rather than
+   * embedded on `getAmendments()` — see the note there. An order missing from
+   * the map reads as "pending", which is what a brand-new order genuinely is.
+   */
+  bomStatus: Record<string, { status: BomStatus; qty: number | null }>;
   perms: Perms;
   /** masters:create/edit — gates inline Add/Modify inside config-list pickers. */
   masterPerms: { canCreate: boolean; canEdit: boolean };
@@ -575,6 +589,7 @@ const STYLE_COL_W = "14rem";
 
 export function AmendmentScreen({
   rows,
+  bomStatus,
   data,
   perms,
   masterPerms,
@@ -1703,6 +1718,29 @@ export function AmendmentScreen({
       {
         header: "Date",
         cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.amend_date)}</span>,
+      },
+      /* MATERIAL BOM — the same pill the BOM dashboard shows, from the same
+         module (`lib/orders/material-bom-amendment/status.ts`).
+
+         It is here because the question "has this order's material been
+         planned?" is asked from BOTH sides: the merchandiser works down the BOM
+         queue, and whoever is looking at the order wants to know without
+         opening another screen. Two screens declaring their own tone map is what
+         the ~8 copy-pasted `bomStatusTone` functions across `planning/**` are.
+
+         BEFORE Status, so `withCreatedColumns` still finds the trailing run it
+         splices the Created pair ahead of. */
+      {
+        header: "Material BOM",
+        cell: (r) => {
+          const b = bomStatus[r.id];
+          const st: BomStatus = b?.status ?? "pending";
+          return (
+            <span title={bomStatusHint(st, b?.qty ?? null)}>
+              <StatusPill tone={bomStatusTone(st)}>{bomStatusText(st)}</StatusPill>
+            </span>
+          );
+        },
       },
       {
         header: "Status",

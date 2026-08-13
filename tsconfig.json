@@ -43,6 +43,7 @@
     "node_modules",
     "scripts/check-amendment-diff.mts",
     "scripts/check-order-value.mts",
+    "scripts/check-bom-requirement.mts",
     "scripts/check-gstin.mts",
     "scripts/check-name-suggest.mts",
     "scripts/check-keyboard-holds.mts",

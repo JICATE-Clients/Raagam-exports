@@ -1,6 +1,7 @@
 import "server-only";
 import { requirePermission, can } from "@/lib/auth/server";
 import { getAmendments, getAmendmentFormData } from "@/lib/orders/amendments/service";
+import { listMaterialBomStatus } from "@/lib/orders/material-bom-amendment/service";
 
 /**
  * Everything `AmendmentScreen` needs, fetched once and shared by BOTH its
@@ -18,10 +19,16 @@ import { getAmendments, getAmendmentFormData } from "@/lib/orders/amendments/ser
 export async function loadGarmentOrderProps() {
   const user = await requirePermission("orders", "view");
 
-  const [rows, data, canCreate, canEdit, canDelete, mCreate, mEdit] =
+  const [rows, data, bomStatus, canCreate, canEdit, canDelete, mCreate, mEdit] =
     await Promise.all([
       getAmendments(),
       getAmendmentFormData(),
+      // A SEPARATE call, deliberately not a new embed on `getAmendments()`.
+      // That select already names 14 relationships and ONE unresolvable name
+      // fails the whole query, so growing it would put the entire Garment Order
+      // screen at risk to add a column. It reads `computed_basis_hash`, so no
+      // BOM child rows are fetched to answer it.
+      listMaterialBomStatus(),
       can("orders", "create"),
       can("orders", "edit"),
       can("orders", "delete"),
@@ -32,6 +39,7 @@ export async function loadGarmentOrderProps() {
   return {
     rows,
     data,
+    bomStatus,
     perms: { canCreate, canEdit, canDelete },
     defaultLocationId: user.defaultLocationId,
     masterPerms: { canCreate: mCreate, canEdit: mEdit },

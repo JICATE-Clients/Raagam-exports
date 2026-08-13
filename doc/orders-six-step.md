@@ -70,7 +70,7 @@ They are kept as reference for column names and legacy semantics. Next free numb
 |---|---|---|---|
 | 1 | **Style** | legacy 1 | live · blocked on `0392` |
 | 2 | **Order Entry** | legacy 2 | **live, unchanged** |
-| 3 | **Material BOM** | legacy 3 + 7 | build |
+| 3 | **Material BOM** | legacy 3 + 7 | **built 2026-08-13** (`0418`) |
 | 4 | **Fabric BOM** | split out of legacy 3 | build |
 | 5 | **Budget** | legacy 8 | build |
 | 6 | **Budget Approval** | legacy 9 | build |
@@ -178,8 +178,14 @@ field approves the document.
 Dependencies, not preference:
 
 1. **Apply `0392`.** Step 1 is dead without it and step 4 seeds from Style components.
-2. **Step 3 — Material BOM.** The only step buildable *today*: it needs `sales_orders`
-   and the item masters, both live.
+2. ~~**Step 3 — Material BOM.**~~ **DONE, 2026-08-13 (`0418`).** It is `/orders/material-bom-amendment`,
+   and it hangs off `garment_order_amendments` rather than `sales_orders` — the production target it
+   multiplies (qty + excess + approval + projection) lives on the Approval Qty tab (`0413`), and the
+   20-column order scaffold cannot reach it. The requirement is STORED, not projected, because a
+   quantity controller needs a number that cannot move under the purchaser's feet and because
+   `report_item_movements` is SQL that would otherwise have to re-derive the maths in plpgsql.
+   `required_by` carries legacy step 7. Engine + vectors: `lib/orders/material-bom/requirement.ts`,
+   `npm run check:bom-requirement`.
 3. **Step 4 — Fabric BOM.** Needs `0392`.
 4. **Step 5 — Budget**, then **step 6 — Budget Approval** (a queue over the same table).
 5. **Nav.** Fold the 27 `unavailable` Planning entries down as each step lands, and
