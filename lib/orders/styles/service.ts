@@ -94,24 +94,42 @@ async function getUomRows(): Promise<PickerRow[]> {
 }
 
 /**
- * Approved samples for the "Approved Sample No" picker. NOTE: samples have no
- * human sample-number column (only id + type + status) — see
- * doc/masters-open-questions.md. We surface approved ones labelled by type.
+ * Approved samples for the "Approved Sample No" picker.
+ *
+ * IT SHOWS THE SAMPLE NUMBER NOW. The note that used to sit here — "samples
+ * have no human sample-number column (only id + type + status)" — stopped being
+ * true at migration 0272, which added `samples.code` (SMP-0001) with a unique
+ * index and an `assign_code` trigger. It went on labelling rows `proto —
+ * 2026-08-13` regardless, so a field called "Approved Sample **No**" was the
+ * one place in the app that could not show one.
+ *
+ * The type and date stay in the label, after the number: two samples of one
+ * style differ by exactly that, and a bare SMP-0004 is not something an
+ * operator can recognise across a list.
+ *
+ * `code` FALLS BACK TO THE TYPE rather than to nothing. Every row inserted
+ * since 0272 has a number; anything older does not, and a picker row with a
+ * blank code is unsearchable — the operator types what they see and matches
+ * nothing.
+ *
+ * The list is EMPTY in this database — `samples` has no rows at all — which is
+ * why "Approved Sample No" is no longer a required field (client 2026-08-13);
+ * see the note on the Save gate in the Style screen.
  */
 async function getApprovedSampleRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("samples")
-    .select("id, type, created_at")
+    .select("id, code, type, created_at")
     .eq("status", "approved")
     .order("created_at", { ascending: false });
-  return ((data ?? []) as { id: string; type: string; created_at: string }[]).map(
-    (r) => ({
-      id: r.id,
-      code: r.type,
-      name: `${r.type} — ${r.created_at.slice(0, 10)}`,
-    }),
-  );
+  return (
+    (data ?? []) as { id: string; code: string | null; type: string; created_at: string }[]
+  ).map((r) => ({
+    id: r.id,
+    code: r.code ?? r.type,
+    name: `${r.code ?? r.type} — ${r.type}, ${r.created_at.slice(0, 10)}`,
+  }));
 }
 
 /**

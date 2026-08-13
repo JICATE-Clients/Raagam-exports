@@ -481,12 +481,28 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
        * leave together.
        */
       { section: "style", id: "st-customer", label: "Customer", required: true, empty: (f) => !f.customer_id },
-      // Approved Sample No — compulsory from 2026-08-11 (client). Both halves,
-      // as the note above insists: the `*` and hold come from `<Field required>`
-      // on the control, the Save gate from this entry, and a screen carrying one
-      // without the other is either a star Save ignores or a Save nothing can
-      // unblock.
-      { section: "style", id: "st-sample", label: "Approved Sample No", required: true, empty: (f) => !f.approved_sample_id },
+      // APPROVED SAMPLE NO IS OPTIONAL AGAIN (client 2026-08-13), and its Save
+      // gate left with its `*` — both halves together, as the note above
+      // insists.
+      //
+      // It was compulsory from 2026-08-11 and that made the Style master
+      // UNSAVEABLE: the picker lists `samples where status = 'approved'`, and
+      // `samples` has zero rows in the live database — not zero approved, zero
+      // samples. So the field could not be filled, Save could not be unblocked,
+      // and Style is required by the Garment Order's Style(s) tab, which put a
+      // hard stop in front of order entry.
+      //
+      // Nothing about the requirement was wrong except that nothing could
+      // satisfy it. Recording a sample today needs a `buyers` row, then an
+      // opportunity, then a sample, then an approval — four steps in Sales —
+      // and it hangs the sample off `buyers` while the order's Customer is a
+      // `customers` row (0404). Of 6 buyers, 0 are linked (`buyers.customer_id`,
+      // 0380). That empty bridge is the same one `lib/orders/amendments/
+      // style-options.ts` records as blocking this very field's customer filter.
+      //
+      // Make it compulsory again the day a sample can be RAISED from here — see
+      // the quick-create shape in the picker rules. A `required` nothing can
+      // answer is not a stricter rule, it is a stopped screen.
       { section: "style", id: "st-category", label: "Style Category", required: true, empty: (f) => !f.style_category_id },
       // Country's entry left with its field (2026-08-11). An entry outlasting
       // its control is the dead-Save trap the note above describes.
@@ -1283,7 +1299,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 wrapper and the inner `DataPicker` ORs `RequiredScope` — the
                 same route Customer takes three fields up. `htmlFor` so a
                 blocked Save can land the cursor here. */}
-            <Field label="Approved Sample No" required size="sm" htmlFor="st-sample">
+            <Field label="Approved Sample No" size="sm" htmlFor="st-sample">
               <RecordPicker
                 id="st-sample"
                 label="Approved Sample No"

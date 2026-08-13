@@ -163,25 +163,24 @@ export async function createGarmentStyle(data: GarmentStyleInput): Promise<Resul
   const p = garmentStyleInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
 
-  /**
-   * APPROVED SAMPLE IS MANDATORY ON A NEW STYLE.
+  /*
+   * APPROVED SAMPLE IS OPTIONAL AGAIN (client 2026-08-13). The create guard
+   * that stood here is gone, with the form's `*` and its Save-gate entry.
    *
-   * Here rather than in `garmentStyleInput` because the schema is shared with
-   * `updateGarmentStyle`, and every style that predates this rule holds NULL —
-   * requiring it there would make those unsaveable with nothing to fill them
-   * with (there are no approved samples in the data yet). The full reasoning,
-   * and what must change if a Styles importer is ever added to `lib/data-io`,
-   * is on the field in ./types.
+   * It refused a null `approved_sample_id` on create — and its own comment had
+   * already noticed the hole it was standing in ("there are no approved samples
+   * in the data yet"), which is why it exempted UPDATE. The exemption was aimed
+   * at the wrong half: `samples` has ZERO rows, so it was CREATE that could
+   * never be satisfied, and every new style was refused by a rule whose field
+   * had nothing to offer. Style is required by the Garment Order's Style(s)
+   * tab, so this stopped order entry outright.
    *
-   * A DRAFT IS NOT EXEMPT. It is tempting to let `is_draft` through, and it is
-   * wrong: the client's reason for the field is to count how many marketing
-   * samples become bulk production, and a style parked as a draft and finished
-   * next week is exactly the conversion being counted. Exempting drafts would
-   * make "save as draft" the way to never answer.
+   * The old note argued a draft must not be exempt, because the client wants to
+   * count how many marketing samples become bulk production. That reasoning
+   * still holds and is why this is a WITHDRAWAL rather than a loosening: bring
+   * the guard back — drafts included — the day a sample can be raised from the
+   * picker. Until then it counts nothing and refuses everything.
    */
-  if (!p.data.approved_sample_id) {
-    return fail("Approved Sample is required — a new style must name the sample it came from.");
-  }
 
   const s = await createClient();
   const { data: created, error } = await s
