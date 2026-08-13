@@ -15,8 +15,13 @@ function fail(msg: string): { ok: false; error: string } {
   return { ok: false, error: msg };
 }
 function rev(): void {
-  revalidatePath("/admin");
-  revalidatePath("/admin/document-no-formats");
+  // THE SCREEN MOVED to Master Data ▸ System (client 2026-08-12), and this had
+  // to move with it. `/admin/document-no-formats` is now a `redirect()` stub, so
+  // revalidating it refreshes nothing the operator is looking at: the save would
+  // commit and the list behind it would keep showing the pre-save rows until a
+  // hard reload. A stale list after a successful save reads as "it didn't save".
+  revalidatePath("/masters/system/document-no-format");
+  revalidatePath("/masters/system");
 }
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);

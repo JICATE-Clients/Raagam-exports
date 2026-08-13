@@ -470,7 +470,19 @@ const OLD_NAV_LEAVES: Record<string, string[]> = {
 // sub-module hub again (restored on request, 2026-08-08), so it is reachable
 // through MODULE_GROUPS and never consults this table — an entry for it now
 // would be dead weight that reads as a live rule.
-const REDIRECTED: Record<string, string> = {};
+const REDIRECTED: Record<string, string> = {
+  // Document No Format is the legacy Configure ▸ System screen, filed under
+  // Administration by the 2026-07-18 dissolution of that submodule and moved
+  // back when System was restored (client 2026-08-12). The Admin row is gone —
+  // MOVED, not copied, because two sidebar rows opening one page is what this
+  // check exists to catch — so the old URL answers as a redirect.
+  //
+  // The target is in ANOTHER module, which is new for this table: it resolves
+  // through `lib/masters/submodules.ts`, not MODULE_GROUPS, so nothing above
+  // can confirm it. What is still asserted below is the pair — the page exists
+  // and it really does `redirect("…")` to exactly this string.
+  "/admin/document-no-formats": "/masters/system/document-no-format",
+};
 
 for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {
   const grouping = MODULE_GROUPS[moduleHref];

@@ -192,7 +192,11 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
   ];
 
   return (
-    <div className="space-y-4">
+    // ONE MARKER, NEVER A HANDLER. `isEditorScope()` is false without it, so Tab
+    // keeps native order and walks out of the form. The PageHeader inside is
+    // stamped `data-focus-region="header"` by the component itself, so its
+    // actions sort as chrome rather than with the fields.
+    <div data-focus-scope className="space-y-4">
       <PageHeader
         title="Approve Amendment"
         description="Review and approve or reject raised garment order amendments."

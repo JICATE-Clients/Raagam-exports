@@ -787,11 +787,22 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "organisation",
         label: "Organisation",
-        description: "Company profile, divisions and document numbering",
+        description: "Company profile and divisions",
+        // DOCUMENT NO FORMAT LEFT THIS GROUP (client 2026-08-12). It is the
+        // legacy Configure ▸ System screen and now lives at
+        // /masters/system/document-no-format; /admin/document-no-formats is a
+        // `redirect()`, declared in `REDIRECTED` in
+        // scripts/check-module-groups.mts so assertion 6 keeps checking it
+        // rather than being quietly relieved of an entry.
+        //
+        // MOVED, NOT COPIED. Leaving the card here as well would be two sidebar
+        // rows opening one page — the duplication this whole registry exists to
+        // ban. `cardOnly` is not the escape hatch either: that flag is for a
+        // second listing WITHIN a module, and the row now belongs to a different
+        // module entirely.
         children: [
           { href: "/admin/company", label: "Company Profile", description: "Legal entity, address and identifiers" },
           { href: "/admin/divisions", label: "Divisions", description: "Divisions and units" },
-          { href: "/admin/document-no-formats", label: "Document No Format", description: "Numbering series per document type" },
         ],
       },
       {

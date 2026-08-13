@@ -2,10 +2,10 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus } from "lucide-react";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -165,8 +165,48 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
   }
 
   // ---------------- EDIT ----------------
+  const activityColumns: ChildGridColumn<LineRow>[] = [
+    {
+      header: "Activity",
+      cell: (r) => (
+        <RecordPicker
+          label="Activity"
+          items={data.activities}
+          value={r.activity_id}
+          onChange={(id) =>
+            setLines((xs) => xs.map((x) => (x.key === r.key ? { ...x, activity_id: id } : x)))
+          }
+          compact
+        />
+      ),
+    },
+    {
+      // A tick box IS a column on the arrow axis (`ROW_FIELDS` in child-grid.tsx
+      // counts it), so left/right reach it and Enter ticks it — neither of which
+      // worked while this row sat outside a `data-grid-body`.
+      header: "Owner",
+      align: "center",
+      width: "6rem",
+      cell: (r) => (
+        <input
+          type="checkbox"
+          aria-label="Owner"
+          className="h-4 w-4 rounded border-border accent-primary"
+          checked={r.is_owner}
+          onChange={(e) =>
+            setLines((xs) => xs.map((x) => (x.key === r.key ? { ...x, is_owner: e.target.checked } : x)))
+          }
+        />
+      ),
+    },
+  ];
+
   return (
-    <div className="space-y-4">
+    // ONE MARKER, NEVER A HANDLER. `isEditorScope()` is false without it, so Tab
+    // keeps native order and walks out of the form. The PageHeader inside is
+    // stamped `data-focus-region="header"` by the component itself, so its
+    // actions sort as chrome rather than with the fields.
+    <div data-focus-scope className="space-y-4">
       <PageHeader
         title={editId ? "Edit Assignment" : "New Assignment"}
         description="Pick a Location & Department, then assign activities. Blank rows are ignored."
@@ -177,108 +217,67 @@ export function TaDepartmentAssignScreen({ rows, data, perms, masterPerms }: Pro
         }
       />
 
+      {/* `FieldGrid`, not a hand-rolled `lg:grid-cols-4` — a screen composes
+          primitives, it does not draw (LAYOUT.md §3). */}
       <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <Label>Entry No</Label>
+        <CardBody>
+          <FieldGrid>
             {/* `readOnly`, not `disabled` — see the twin note in
                 ta-plan-screen.tsx. `disabled` greys an auto value at
                 `opacity-50` so it reads as switched off, and drops it from the
                 accessibility tree. */}
-            <Input value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"} readOnly />
-          </div>
-          <div>
-            <Label htmlFor="tda-date">Entered Dt *</Label>
-            <Input
-              id="tda-date"
-              type="date"
-              value={enteredDate}
-              onChange={(e) => setEnteredDate(e.target.value)}
-            />
-          </div>
-          <LocationPicker locations={data.locations} value={locationId} onChange={setLocationId} />
-          <LookupDialogPicker
-            kind="department"
-            label="Department"
-            options={data.departments}
-            value={departmentId}
-            onChange={setDepartmentId}
-            canCreate={masterPerms.canCreate}
-            canEdit={masterPerms.canEdit}
-          />
+            <Field label="Entry No" size="sm" htmlFor="tda-entry">
+              <Input
+                id="tda-entry"
+                className="font-mono"
+                value={editId ? (rows.find((r) => r.id === editId)?.code ?? "") : "(auto)"}
+                readOnly
+              />
+            </Field>
+            {/* `required` on the Field, not a `*` typed into the label — the same
+                prop draws the star AND stamps `data-required-empty`, so the
+                cursor holds on a blank box. */}
+            <Field label="Entered Dt" required size="sm" htmlFor="tda-date">
+              <Input
+                id="tda-date"
+                type="date"
+                value={enteredDate}
+                onChange={(e) => setEnteredDate(e.target.value)}
+              />
+            </Field>
+            {/* The pickers draw their own labels; `Field` carries the span. */}
+            <Field size="sm">
+              <LocationPicker locations={data.locations} value={locationId} onChange={setLocationId} />
+            </Field>
+            <Field size="sm">
+              <LookupDialogPicker
+                kind="department"
+                label="Department"
+                options={data.departments}
+                value={departmentId}
+                onChange={setDepartmentId}
+                canCreate={masterPerms.canCreate}
+                canEdit={masterPerms.canEdit}
+              />
+            </Field>
+          </FieldGrid>
         </CardBody>
       </Card>
 
+      {/* `ChildGrid`, not the hand-rolled <table> this carried. That one had no
+          `data-grid-body` at all, so its rows were off the arrow axis entirely,
+          and its remove button was a bare `<button>` Tab stopped on. */}
       <Card>
         <CardBody>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">Activities</h3>
-            <Button
-              type="button"
-              variant="subtle"
-              size="sm"
-              onClick={() =>
-                setLines((xs) => [...xs, { key: newKey(), activity_id: null, is_owner: false }])
-              }
-            >
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-muted text-xs text-muted-foreground">
-                  <th className="w-12 px-3 py-1.5 text-left font-medium">S No</th>
-                  <th className="px-3 py-1.5 text-left font-medium">Activity</th>
-                  <th className="w-24 px-3 py-1.5 text-center font-medium">Owner</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((r, i) => (
-                  <tr key={r.key} className="border-b border-border last:border-0">
-                    <td className="px-3 py-1 text-xs text-muted-foreground">{i + 1}</td>
-                    <td className="px-3 py-1">
-                      <RecordPicker
-                        label="Activity"
-                        items={data.activities}
-                        value={r.activity_id}
-                        onChange={(id) =>
-                          setLines((xs) =>
-                            xs.map((x) => (x.key === r.key ? { ...x, activity_id: id } : x)),
-                          )
-                        }
-                        compact
-                      />
-                    </td>
-                    <td className="px-3 py-1 text-center">
-                      <input
-                        type="checkbox"
-                        aria-label="Owner"
-                        className="h-4 w-4 rounded border-border accent-primary"
-                        checked={r.is_owner}
-                        onChange={(e) =>
-                          setLines((xs) =>
-                            xs.map((x) => (x.key === r.key ? { ...x, is_owner: e.target.checked } : x)),
-                          )
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-1">
-                      <button
-                        type="button"
-                        onClick={() => setLines((xs) => xs.filter((x) => x.key !== r.key))}
-                        aria-label="Remove row"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-danger"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ChildGrid<LineRow>
+            label="Activities"
+            columns={activityColumns}
+            rows={lines}
+            seedRow
+            onAdd={() => setLines((xs) => [...xs, { key: newKey(), activity_id: null, is_owner: false }])}
+            onRemove={(r) => setLines((xs) => xs.filter((x) => x.key !== r.key))}
+            addLabel="+ Add activity"
+          />
         </CardBody>
       </Card>
 

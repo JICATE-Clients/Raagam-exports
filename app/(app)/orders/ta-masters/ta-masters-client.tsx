@@ -15,7 +15,7 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Ban, CheckCircle2 } from "lucide-react";
@@ -230,74 +230,96 @@ export function TaMastersClient({
           </CardHeader>
           <CardBody>
             <form
+              // ONE MARKER, NEVER A HANDLER. Without it `isEditorScope()` is
+              // false, so Tab keeps native order, leaves the form and stops on
+              // buttons — one of the ~51 page-level editors AGENTS.md counts as
+              // missing this. See the `raagam-keyboard-contract` skill.
+              data-focus-scope
               onSubmit={handleSave}
-              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              className="space-y-4"
             >
-              <div>
-                <Label htmlFor="ta-short">
-                  Short name <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="ta-short"
-                  value={shortName}
-                  onChange={(e) => setShortName(e.target.value)}
-                  placeholder="e.g. KNIT"
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="ta-name">
-                  Name <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="ta-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Knitting"
-                  required
-                />
-              </div>
-              <div>
-                <LookupDialogPicker
-                  kind="ta_activity_type"
-                  label="Type"
-                  options={types}
-                  value={typeId}
-                  onChange={setTypeId}
-                  canCreate={masterCanCreate}
-                  canEdit={masterCanEdit}
-                />
-              </div>
+              {/* `FieldGrid`, not a hand-rolled `lg:grid-cols-3` with
+                  `col-span-*` on the tick boxes — a screen composes primitives,
+                  it does not draw (LAYOUT.md §3). */}
+              <FieldGrid>
+                {/* `required` on the Field, not a `<span className="text-danger">*</span>`
+                    typed into the label. That drew the same red star and did
+                    nothing else: no `RequiredScope`, no `data-required-empty`, so
+                    Tab walked straight past a blank box. One prop now draws the
+                    star AND holds the cursor. */}
+                <Field label="Short name" required size="sm" htmlFor="ta-short">
+                  <Input
+                    id="ta-short"
+                    uppercase
+                    value={shortName}
+                    onChange={(e) => setShortName(e.target.value)}
+                    placeholder="e.g. KNIT"
+                    required
+                  />
+                </Field>
+                <Field label="Name" required size="sm" htmlFor="ta-name">
+                  <Input
+                    id="ta-name"
+                    uppercase
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Knitting"
+                    required
+                  />
+                </Field>
+                {/* The picker draws its own label; `Field` carries the span. */}
+                <Field size="sm">
+                  <LookupDialogPicker
+                    kind="ta_activity_type"
+                    label="Type"
+                    options={types}
+                    value={typeId}
+                    onChange={setTypeId}
+                    canCreate={masterCanCreate}
+                    canEdit={masterCanEdit}
+                  />
+                </Field>
 
-              <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-border accent-primary"
-                  checked={hasSub}
-                  onChange={(e) => setHasSub(e.target.checked)}
-                />
-                <span className="text-sm">Has sub-activities</span>
-              </label>
-              <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-border accent-primary"
-                  checked={considerDelivery}
-                  onChange={(e) => setConsiderDelivery(e.target.checked)}
-                />
-                <span className="text-sm">Consider for delivery date</span>
-              </label>
-              <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-border accent-danger"
-                  checked={blocked}
-                  onChange={(e) => setBlocked(e.target.checked)}
-                />
-                <span className="text-sm">Blocked</span>
-              </label>
+                {/* The three tick boxes take a field slot each rather than
+                    `sm:col-span-2 lg:col-span-1`, so they sit on the same track
+                    as the fields above instead of a second width. A checkbox IS
+                    a field on the arrow axis, so it stays in the typing path. */}
+                <Field size="sm">
+                  <label className="flex h-9 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border accent-primary"
+                      checked={hasSub}
+                      onChange={(e) => setHasSub(e.target.checked)}
+                    />
+                    <span className="text-sm">Has sub-activities</span>
+                  </label>
+                </Field>
+                <Field size="sm">
+                  <label className="flex h-9 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border accent-primary"
+                      checked={considerDelivery}
+                      onChange={(e) => setConsiderDelivery(e.target.checked)}
+                    />
+                    <span className="text-sm">Consider for delivery date</span>
+                  </label>
+                </Field>
+                <Field size="sm">
+                  <label className="flex h-9 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border accent-danger"
+                      checked={blocked}
+                      onChange={(e) => setBlocked(e.target.checked)}
+                    />
+                    <span className="text-sm">Blocked</span>
+                  </label>
+                </Field>
+              </FieldGrid>
 
-              <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-3">
+              <div className="flex items-end gap-2">
                 <Button
                   type="submit"
                   disabled={isPending || !shortName.trim() || !name.trim()}

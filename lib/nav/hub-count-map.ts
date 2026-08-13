@@ -210,7 +210,14 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
 
   // ----------------------------------------------------------------- admin
   "/admin/divisions": "divisions",
-  "/admin/document-no-formats": "document_no_formats",
+  // `/admin/document-no-formats` was here until 2026-08-12. The screen moved to
+  // Master Data ▸ System and the Admin card went with it, so this key belonged to
+  // no card — and these key on the CARD'S OWN href, which is the property that
+  // makes one place state one fact. Removed rather than repointed: the Master
+  // Data hubs render their cards without a `count` at all, so a
+  // `/masters/system/document-no-format` entry would be the same dead config one
+  // href along. Assertion 15 would not have caught either — it only guards an
+  // `unavailable` card naming a table.
   "/admin/users": "profiles",
   "/admin/roles": "roles",
   "/admin/assets": "assets",
