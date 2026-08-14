@@ -271,7 +271,7 @@ export function PrepareCostSheetClient({
           <div className="flex items-center gap-2">
             <Link href="/sales">
               <Button variant="outline" size="md">
-                ← Sales Pipeline
+                ← Sample Pipeline
               </Button>
             </Link>
             {perms.canCreate && (

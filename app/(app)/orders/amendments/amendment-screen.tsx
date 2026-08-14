@@ -511,7 +511,6 @@ type HeaderForm = {
   po_date: string;
   merchandiser_id: string | null;
   season: string;
-  amend_year: string;
   delivery_date: string;
   excess_pct: string;
   pack: boolean;
@@ -550,7 +549,6 @@ const BLANK: HeaderForm = {
   po_date: "",
   merchandiser_id: null,
   season: "",
-  amend_year: "",
   delivery_date: "",
   excess_pct: "",
   pack: false,
@@ -1186,6 +1184,7 @@ export function AmendmentScreen({
         name: s.name,
         blocked: s.blocked,
         season: s.season,
+        customer_id: s.customer_id,
       })),
     [data.styles],
   );
@@ -1194,25 +1193,38 @@ export function AmendmentScreen({
    * The Style options for ONE row (client: "Once a customer and season are
    * selected, the Style field should only list relevant styles").
    *
-   * SEASON ONLY, BUT NO LONGER BLOCKED. Until 0404 the customer half was
-   * unbuildable: styles key on `customers` and this order keyed on `buyers`,
-   * with an empty bridge between them, so a customer filter would either empty
-   * the picker on every order or narrow nothing while looking like it works.
-   * 0404 repointed this order's party at `customers`, so both sides now key on
-   * one table and `data.styles` already carries `customer_id`.
+   * CUSTOMER-FIRST, AND BOTH FACETS ARE LIVE (client 2026-08-14). The order of
+   * entry is Customer → Approved Sample No → Style, and the narrowing is what
+   * makes that order mean something rather than just being advice.
    *
-   * TURNING IT ON IS A SEPARATE, DELIBERATE CHANGE — it is a visible change to
-   * what the picker offers, and with one style in the master it can legitimately
-   * empty the list for a customer. `style-options.ts` holds the rule and takes
-   * the argument; adding `customer: form.customer_id` below is the whole edit.
+   * The customer half was unbuildable until 0404: styles key on `customers` and
+   * this order keyed on `buyers`, with an empty bridge between them, so the
+   * filter would either empty the picker on every order or narrow nothing while
+   * looking like it works. 0404 repointed this order's party at `customers`, and
+   * the comment that used to sit here said "adding `customer: form.customer_id`
+   * below is the whole edit". It was — plus carrying the column into
+   * `styleFilterRows` above, which is the half that would have failed silently:
+   * a filter reading `undefined` on every row narrows nothing and looks correct.
+   *
+   * WHY IT IS SAFE TO SWITCH ON. The two worries were that it is a visible change
+   * to what the picker offers, and that with a thin master it can legitimately
+   * empty the list. Both are answered by `style-options.ts` rather than by
+   * hedging here: an unassigned style stays on offer, and an empty list explains
+   * WHICH facet emptied it and where to go.
    *
    * Per ROW, not per grid, for one reason only: `currentValue`. The style a line
    * already holds must survive a filter that would now exclude it — the header's
-   * Season edited after the line was saved — or the field renders empty and the
-   * next save blanks the FK. The narrowing itself is identical on every row.
+   * Customer or Season edited after the line was saved — or the field renders
+   * empty and the next save blanks the FK. The narrowing itself is identical on
+   * every row.
    */
   const styleOptionsFor = (currentValue: string | null) =>
-    styleOptions({ styles: styleFilterRows, season: form.season, currentValue });
+    styleOptions({
+      styles: styleFilterRows,
+      customer: form.customer_id,
+      season: form.season,
+      currentValue,
+    });
 
   const styleById = useMemo(() => {
     const m = new Map<string, StylePickerRow>();
@@ -1399,15 +1411,12 @@ export function AmendmentScreen({
     setEditId(null);
     setSavedOrderNo(null);
     setPreviewNo(null);
-    // Yr PREFILLED WITH THE CURRENT YEAR, and still editable (client
-    // 2026-08-11). In `openAdd` and NOT in `BLANK`: this is the only path that
-    // starts a new order, so a default stated here can never reach a loaded
-    // one. `openEdit` builds its own literal off the record and sets
-    // `amend_year` from `r.amend_year`, which is what must keep winning.
+    // The Yr prefill lived here (current year, editable — client 2026-08-11)
+    // until the field was withdrawn on 2026-08-14; see the header comment on the
+    // row it left. Nothing replaces it: the year comes from the linked style.
     setForm({
       ...BLANK,
       amend_date: today(),
-      amend_year: String(new Date().getFullYear()),
       location_id: startingLocationId,
     });
     setStyles([]);
@@ -1471,7 +1480,6 @@ export function AmendmentScreen({
       po_date: r.po_date ?? "",
       merchandiser_id: r.merchandiser_id,
       season: r.season ?? "",
-      amend_year: r.amend_year != null ? String(r.amend_year) : "",
       delivery_date: r.delivery_date ?? "",
       excess_pct: r.excess_pct ? String(r.excess_pct) : "",
       pack: r.pack,
@@ -1553,7 +1561,6 @@ export function AmendmentScreen({
       po_date: form.po_date || null,
       merchandiser_id: form.merchandiser_id,
       season: form.season || null,
-      amend_year: form.amend_year ? Number(form.amend_year) : null,
       delivery_date: form.delivery_date || null,
       excess_pct: numOrNull(form.excess_pct) ?? 0,
       rejection_rule_id: form.rejection_rule_id,
@@ -6301,13 +6308,22 @@ export function AmendmentScreen({
             * they qualify.
             *
             * SINCE 2026-08-14 THE WHOLE HEADER IS `xs` and Pack + Mult. Ord
-            * share one cell, so this row is Deli.Dt · Season · Yr · Excess % ·
-            * [Pack · Mult. Ord] · Rejection Rule — six cells, twelve columns,
-            * and no field left over.
+            * share one cell, so this row is Deli.Dt · Season · Excess % ·
+            * [Pack · Mult. Ord] · Rejection Rule — FIVE cells and ten columns,
+            * with the spare two falling at the end of the row.
+            *
+            * YR WAS THE SIXTH AND IS WITHDRAWN (client 2026-08-14): the year is
+            * already defined on the linked Style Master (`style_year`), so
+            * re-typing it on the order was a second place to state one fact.
+            * Withdrawn the way this file withdraws every field — the
+            * `amend_year` COLUMN and its stored values stay, and it left
+            * `garmentAmendmentInput` too, which is the half that stops an
+            * update writing NULL over what is already there.
+            *
+            * SEASON DID NOT GO WITH IT, and the asymmetry is deliberate: Season
+            * is a live FACET, the second one narrowing the Style picker
+            * (`styleOptionsFor`). Yr narrowed nothing and fed nothing.
             */}
-          <Field label="Yr" size="xs" htmlFor="hd-year">
-            <Input id="hd-year" type="number" value={form.amend_year} onChange={(e) => set({ amend_year: e.target.value })} placeholder="2026" />
-          </Field>
           <Field label="Excess %" size="xs" htmlFor="hd-excess">
             <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
           </Field>

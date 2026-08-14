@@ -264,11 +264,35 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // It also closes a latent bug. `owningNavHref` does not filter `hidden`,
       // so this group could win the sidebar highlight for a row that was never
       // rendered — the operator lands on a screen and nothing lights up.
+      // THE CLIENT'S SIX-STEP SETUP, IN ONE ROW (client 2026-08-14).
+      //
+      // The legacy nine-step process is now six, and all six are declared here
+      // in step order rather than scattered across three sub-modules. Before
+      // this, Style was the group's ONLY child while steps 2 and 3 sat under
+      // "Order Entry", step 4 under "Order Execution", and steps 5 and 6 in
+      // Planning — so the flow the operator is taught existed nowhere in the
+      // menu, and the row named after it held one screen.
+      //
+      // THE STEPS MOVED SINCE THEY WERE LAST WRITTEN DOWN, and the change is in
+      // the tail: this file used to record them as Style · Order Entry ·
+      // Material BOM · Fabric BOM · Budget · Budget Approval. Steps 4-6 are now
+      // Garment Process Plan · Fabric Plan · Budgeting, with Prepare and Approve
+      // collapsed into that last one. Both lists are the client's; the second
+      // supersedes.
+      //
+      // "ORDER ENTRY" IS A CARD HERE, NOT A ROW. That group is dissolved — its
+      // register became a standalone row (below), its two flow screens are steps
+      // 2 and 3, and its three legacy screens are retired at the bottom of this
+      // table. Cross-listing the steps as `cardOnly` instead was the alternative
+      // and is the shape that was already deleted once: the 14-step Garment
+      // Orders hub went on 2026-08-13 precisely because every one of its nine
+      // children was borrowed, so it was a second way in rather than a home.
       {
         kind: "group",
         slug: "setup",
         label: "Order Setup",
-        description: "Garment styles, defined before an order is raised",
+        description:
+          "The six-step setup for a bulk order — style, entry, material, process, fabric and budget",
         // Colour Cards was the other half of this group and was removed with its
         // routes and service (client, 2026-08-11): the screen had no rows, its
         // only consumer was the Garment Order colour picker, and that picker is
@@ -277,16 +301,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         // 0332 mistake this repo has already spent a session repairing, and
         // empty tables cost nothing to keep.
         children: [
+          // 1 · STYLE — the garment's DNA: coordinates, components, structures.
           { href: "/orders/styles", label: "Style", description: "Define garment styles — coordinates, components and sizes" },
-        ],
-      },
-      {
-        kind: "group",
-        slug: "entry",
-        label: "Order Entry",
-        description: "Raise garment orders, book them, set pack ratios and record excess quantities",
-        children: [
-          // THE SCREEN AN ORDER IS ACTUALLY ENTERED ON.
+          // 2 · ORDER ENTRY — THE SCREEN AN ORDER IS ACTUALLY ENTERED ON.
           //
           // Its row sat under Amendments until 2026-08-11, labelled "Order
           // Amendment", because that is the document it writes — while Order
@@ -307,13 +324,17 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // 2026-08-13), and `/orders/amendments` kept its name and became what
           // it says: the amend door, below. `createAmendment` mints a NEW
           // sales_orders row — this is where an order is raised.
-          { href: "/orders/garment-orders", label: "Garment Order", description: "Raise a garment order — styles, colours, prices, packing, quantities and logistics" },
-          // STEP 3 OF THE CLIENT'S SIX — Style, Order Entry, Material BOM,
-          // Fabric BOM, Budget, Budget Approval — and it belongs beside the
-          // order it plans for, not under Amendments where it sat until
-          // 2026-08-13.
           //
-          // It moved for the reason the row above did. The screen plans an
+          // THE LABEL IS THE STEP NAME NOW. It read "Garment Order" while its
+          // group was "Order Entry"; with the group gone the card has to carry
+          // the step, or the operator's step 2 has no row and no card bearing
+          // its name. The route still says `garment-orders`, which is the name
+          // operators have used for the screen for years.
+          { href: "/orders/garment-orders", label: "Order Entry", description: "Raise a garment order — buyer PO, styles, colours, prices, packing, quantities and logistics" },
+          // 3 · MATERIAL BOM — and it belongs beside the order it plans for, not
+          // under Amendments where it sat until 2026-08-13.
+          //
+          // It moved for the reason the card above did. The screen plans an
           // order's material FOR THE FIRST TIME more often than it revises one:
           // `material_bom_amendments` (0265) has no link to a prior BOM — no
           // base id, no parent, no revision column, only `sales_order_id` — and
@@ -333,20 +354,47 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // one doc heading), not the fifteen 188ff5b moved — held only because
           // renaming the folder would `git mv` files another session has open.
           { href: "/orders/material-bom-amendment", label: "Material BOM", description: "Plan every sewing and packing accessory a confirmed order needs, and how much of each" },
-          // THE REGISTER, and it is a screen of its own since 2026-08-13.
+          // 4 · GARMENT PROCESS PLAN — the production stages and any out-process
+          // (printing, embroidery). Its ROW moved here from Order Execution,
+          // where it stays as a `cardOnly` card: defining the plan is setup work
+          // and running it is execution work, and the operator looks for it in
+          // both places. Cross-list, never re-parent — the same call the file
+          // header records for Order Amendment.
+          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
+          // 5 AND 6 ARE GREYED, AND THAT IS THE HONEST STATE.
           //
-          // It pointed at `/orders` — the module root — while that route WAS the
-          // All Orders table. The root is now an index of these seven
-          // sub-modules (`components/shell/module-hub.tsx`), so the register
-          // moved to a route of its own and this card follows it. That also
-          // retires the special case it used to need: `owningNavHref` skips a
-          // child equal to the module root, and there is no longer one here.
-          { href: "/orders/all", label: "All Orders", description: "Every confirmed order, with its SC No and status" },
-          { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
-          { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
-          { href: "/orders/excess-orders", label: "Excess Orders", description: "Supplementary quantities beyond the planned order, size-wise" },
+          // Both screens are BUILT — in Planning, complete with their [id]
+          // details and actions — and neither can be opened, because migration
+          // 0332 dropped the Planning tables and the replacement schema has
+          // never been applied. That is exactly what `status: "unavailable"`
+          // means, and it is why they are not `todo`: a "Not set up yet" tile
+          // over finished work hides it.
+          //
+          // LISTING THEM AT ALL is the point. Leaving steps 5 and 6 out would
+          // make the menu accurate and the FLOW invisible — the operator is
+          // taught six steps and would find four, with nothing saying where the
+          // other two went. A greyed card with its reason on it says both.
+          //
+          // THEY ARE CROSS-MODULE AND CARRY NO ↗, deliberately. An `unavailable`
+          // card renders `href: null` (`group-hub.tsx`), so it does not navigate
+          // anywhere — the glyph that promises "this leaves the module" would be
+          // promising a click that cannot happen. `cardIssues` and assertion 5
+          // in `scripts/check-module-groups.mts` were both taught this, each
+          // with a self-test fixture; see the notes there.
+          { href: "/planning/fabric-bom", label: "Fabric Plan", description: "Plan yarn and fabric requirements and the processing path — solid, Y/D, melange or printed", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
+          { href: "/planning/budgets", label: "Budgeting", description: "Prepare and approve the order budget — the final quantity and financial control", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
         ],
       },
+      // THE REGISTER, a standalone row since the Order Entry group dissolved.
+      //
+      // It pointed at `/orders` — the module root — while that route WAS the All
+      // Orders table. The root is now an index of these sub-modules
+      // (`components/shell/module-hub.tsx`), so the register moved to a route of
+      // its own on 2026-08-13 and became a card of Order Entry. With that group
+      // gone it is a row: looking an order up is not one of the six setup steps
+      // and putting it inside that hub would have made the flow seven cards
+      // long, one of which is not a step.
+      { kind: "link", href: "/orders/all", label: "All Orders" },
       // Sits directly under Order Entry by request (operator, 2026-08-08), not
       // in 14-step flow position — amending an order is what the operator does
       // next after raising one, so the two rows belong side by side. Row ORDER
@@ -394,7 +442,15 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Order Execution",
         description: "Process plans, work orders, advised items and packing advice",
         children: [
-          { href: "/orders/garment-processes", label: "Garment Processes", description: "Select an accepted order and define its process plan" },
+          // ITS ROW IS NOW ORDER SETUP ▸ STEP 4, and the card stays here because
+          // the screen answers two questions: "what are this order's production
+          // stages?" is setup, and "run them" is execution. That is the same
+          // call the file header records for Order Amendment — cross-list, never
+          // re-parent — and `cardOnly` is what keeps a second LISTING from
+          // becoming a second ROW: `owningNavHref` skips it, so the sidebar
+          // lights Order Setup when the operator is on the screen, and
+          // `moduleLeafItems` skips it, so the command palette offers it once.
+          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan", cardOnly: true },
           { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders" },
           { href: "/orders/advised-items", label: "Advised Items", description: "Select an accepted order and prepare its advised items" },
           { href: "/orders/packing-advice", label: "Packing List Advice", description: "Prepare packing list advice for an order" },
@@ -436,6 +492,48 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // `shipment_plan_id` is nullable, so a plan saves fine without it.
           { href: "/orders/ta-plan", label: "TA Plan", description: "Build a Time & Action plan for an order" },
           { href: "/orders/ta-completion", label: "TA Completion", description: "Record T&A completion" },
+        ],
+      },
+      // OFF THE MENU, STILL ON THE URL (client 2026-08-14).
+      //
+      // Order Booking, Pack Ratios and Excess Orders were named as redundant
+      // legacy menus and their rows are gone. What was asked for is a MENU
+      // change, and the standing rule for one is exact: "a screen that loses its
+      // sidebar row keeps its URL". These three are not dissolved hubs — they
+      // are working screens over live tables — so a `redirect()` would not be
+      // retiring a row, it would be deleting three screens and guessing at three
+      // successors. `hidden` removes precisely what was asked to go.
+      //
+      // WHAT SURVIVES: the hub page at /orders/retired, every child's route, and
+      // every child's entry in the command palette (`moduleLeafItems` does not
+      // filter `hidden`, and that is the property doing the work here — an
+      // operator who still needs Pack Ratios can type it). What goes: one
+      // sidebar row per screen, and the group's own row.
+      //
+      // THIS READS AGAINST THE FLAG'S OWN PRECONDITION and the difference is the
+      // reason, not the shape. `hidden` is documented as safe exactly when every
+      // child is `cardOnly`, because a non-cardOnly child would LOSE ITS ONLY ROW
+      // — which is an accident there and the entire request here. The clause
+      // guards against stranding a screen by mistake; nothing about it argues
+      // against stranding one on purpose, with the way back written down.
+      //
+      // Preferred over deleting the entries for the reason the flag itself
+      // records: a registry entry that is gone stops being type-checked and its
+      // routes stop being asserted, so it rots. These stay in the type system,
+      // stay in assertion 2's route check, and come back by deleting one word.
+      {
+        kind: "group",
+        slug: "retired",
+        hidden: true,
+        label: "Retired Screens",
+        description: "Legacy order screens kept reachable, but no longer in the menu",
+        status: "provisional",
+        note:
+          "These screens were taken off the Orders menu because the six-step Order Setup replaces them. They still work and still open from search — nothing has been deleted.",
+        children: [
+          { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
+          { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
+          { href: "/orders/excess-orders", label: "Excess Orders", description: "Supplementary quantities beyond the planned order, size-wise" },
         ],
       },
     ],

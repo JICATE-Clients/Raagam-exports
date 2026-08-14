@@ -16,8 +16,10 @@
 // rather than waived — `onAddOverride` is the escape hatch it contemplates.
 // Precedent: YarnQuickCreateSheet, GarmentQuickCreateSheet, CategoryQuickCreateSheet.
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { normName } from "@/lib/masters/name-dictionary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
@@ -67,7 +69,31 @@ export function SizeGroupQuickCreateSheet({
   });
 
   const filled = sizes.map((s) => s.name.trim()).filter(Boolean);
-  const canSave = !!name.trim() && filled.length > 0 && !dupError && !isPending;
+
+  /**
+   * The same size twice — refused here as well as on the master screen. This
+   * sheet is a genuine SECOND DOOR into `size_group_sizes`: it calls
+   * `createSizeGroup` directly, so it inherits the server guard and 0425's
+   * index either way, but a surface that appears to accept a row and then fails
+   * on Save teaches the operator nothing. `normName` so this agrees exactly with
+   * both of those.
+   */
+  const duplicateSizeKeys = useMemo(() => {
+    const seen = new Set<string>();
+    const dup = new Set<string>();
+    for (const s of sizes) {
+      const key = normName(s.name);
+      if (!key) continue; // blank rows are dropped, not duplicated
+      if (seen.has(key)) dup.add(key);
+      else seen.add(key);
+    }
+    return dup;
+  }, [sizes]);
+
+  const hasDuplicateSize = duplicateSizeKeys.size > 0;
+
+  const canSave =
+    !!name.trim() && filled.length > 0 && !dupError && !hasDuplicateSize && !isPending;
 
   function save() {
     startTransition(async () => {
@@ -140,31 +166,44 @@ export function SizeGroupQuickCreateSheet({
               so Save is gated on at least one — and the list opens with a blank
               row, because entering the first size must cost no click (the same
               `seedRow` rule ChildGrid follows). */}
-          {sizes.map((s, i) => (
-            <div key={s.key} className="flex items-center gap-2">
-              <Input
-                uppercase
-                aria-label={`Size ${i + 1}`}
-                value={s.name}
-                onChange={(e) =>
-                  setSizes((xs) =>
-                    xs.map((x) => (x.key === s.key ? { ...x, name: e.target.value } : x)),
-                  )
-                }
-              />
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-label={`Remove size ${i + 1}`}
-                data-row-remove
-                disabled={sizes.length === 1}
-                onClick={() => setSizes((xs) => xs.filter((x) => x.key !== s.key))}
-                className="rounded p-1 text-muted-foreground hover:text-danger disabled:opacity-30"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
+          {sizes.map((s, i) => {
+            const dup = duplicateSizeKeys.has(normName(s.name));
+            return (
+              <div key={s.key}>
+                <div className="flex items-center gap-2">
+                  <Input
+                    uppercase
+                    aria-label={`Size ${i + 1}`}
+                    value={s.name}
+                    onChange={(e) =>
+                      setSizes((xs) =>
+                        xs.map((x) => (x.key === s.key ? { ...x, name: e.target.value } : x)),
+                      )
+                    }
+                    /* Red border + Save blocked, never `dupFieldProps` — that
+                       would stamp `data-dup-error` and HOLD the cursor, caging
+                       the operator in the second box when either box is a valid
+                       place to fix the pair. */
+                    aria-invalid={dup ? true : undefined}
+                    className={cn(dup && "border-danger")}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={`Remove size ${i + 1}`}
+                    data-row-remove
+                    disabled={sizes.length === 1}
+                    onClick={() => setSizes((xs) => xs.filter((x) => x.key !== s.key))}
+                    className="rounded p-1 text-muted-foreground hover:text-danger disabled:opacity-30"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                {/* Both copies flagged, not only the later one. */}
+                {dup && <p className="mt-1 text-xs text-danger">Already listed in this group</p>}
+              </div>
+            );
+          })}
           <button
             type="button"
             tabIndex={-1}

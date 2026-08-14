@@ -6,9 +6,10 @@
  * to every style the business has ever made, and an operator entering a PO for
  * one buyer's Spring range should not be scrolling past their Winter one.
  *
- * **HALF OF THAT REQUIREMENT IS BUILT. THE CUSTOMER HALF IS BLOCKED ON SCHEMA,
- * NOT ON EFFORT** — see "Why there is no customer filter" below, which is the
- * more important half of this comment.
+ * **BOTH HALVES ARE BUILT AS OF 2026-08-14.** The customer half was blocked on
+ * schema rather than effort for months; 0404 removed the blocker and the client
+ * re-stated the requirement as CUSTOMER-FIRST — Customer, then Approved Sample
+ * No, then Style. See "The customer filter, and why it took a migration" below.
  *
  * Client-safe on purpose (no `server-only`, the same shape as
  * `lib/masters/vendor-nominations.ts`, which this module is modelled on): the
@@ -45,28 +46,45 @@
  * "SS26" against a typed "ss26" must match, or the filter compiles, runs and
  * quietly matches nothing.
  *
- * ## Why there is no customer filter
+ * ## The customer filter, and why it took a migration
  *
- * NOT AN OVERSIGHT, AND NOT SOMETHING TO "FINISH" WITHOUT FIXING THE DATA FIRST.
+ * KEPT IN FULL, because the reason it was absent is the reason to be careful
+ * about how it is switched on — and because "just add the filter" was the wrong
+ * answer for four months.
+ *
+ * Until 0404 the two sides named different tables:
  *
  *   - `garment_styles.customer_id` → **`customers`** (0124).
- *   - The order's Customer field holds `buyer_id` → **`buyers`**.
- *   - Two different tables behind one word on screen. The only link is
- *     `buyers.customer_id` (0380), which is NULLABLE and backfilled by nothing.
- *   - Verified against the live database (2026-08-11): **6 buyers exist, ZERO
- *     have `customer_id` set.**
+ *   - The order's Customer field held `buyer_id` → **`buyers`**.
+ *   - The only link was `buyers.customer_id` (0380), NULLABLE and backfilled by
+ *     nothing. Verified against the live database (2026-08-11): **6 buyers
+ *     existed, ZERO had `customer_id` set.**
  *
- * So resolving an order's buyer to a customer returns null for every order that
- * exists. A strict filter would show ZERO styles on every order and break the
- * Style(s) tab outright; a lenient one would show ALL styles and be a filter
- * that does nothing while claiming to. **The second is the worse of the two**,
- * because it passes review and the next reader believes it works.
+ * So resolving an order's buyer to a customer returned null for every order that
+ * existed. A strict filter would have shown ZERO styles on every order; a lenient
+ * one would have shown ALL styles while claiming to narrow. **The second is the
+ * worse of the two**, because it passes review and the next reader believes it
+ * works — which is exactly why this was left unbuilt rather than half-built.
  *
- * `StylePickerRow.customer_id` IS selected and carried, so the data is ready and
- * turning this on is a small edit — but it is a schema/data decision first: link
- * buyers to customers, or point one of the two at the other's table. This is the
- * SECOND client requirement blocked by that same empty bridge; the first is
- * filtering Approved Sample No on the Style screen. One fix unblocks both.
+ * 0404 repointed the Garment Order's party at `customers`. Both sides now key on
+ * ONE table, so the comparison is finally meaningful and the filter is live.
+ *
+ * ## It offers UNASSIGNED styles, and that is not a loophole
+ *
+ * The rule is the same shape as the season rule above, deliberately: **a style is
+ * offered unless it is KNOWN to belong to a different customer.** A style with a
+ * NULL `customer_id` is unassigned, not "someone else's", so it stays on offer.
+ *
+ * The client's wording is stricter — "only list styles previously linked to that
+ * customer" — and taken literally it would hide every style entered before
+ * Customer became mandatory on the Style master. Those rows are exactly the ones
+ * an operator reaches for while the new master is still filling up, and a picker
+ * that silently drops them reads as data loss. The strict reading arrives on its
+ * own as the nulls disappear; nothing has to be changed for that to happen.
+ *
+ * This is the same trap AGENTS.md records twice — under "Nominated vendors" (a
+ * guard phrased for one case leaks through every other) and in the season rule
+ * above (restricting on a comparison one side cannot answer).
  */
 import type { Deactivatable } from "@/lib/masters/inactive";
 
@@ -74,21 +92,32 @@ import type { Deactivatable } from "@/lib/masters/inactive";
  *  to a `"use client"` file and can be imported from either side. */
 export type StyleOption = { id: string; code: string | null; name: string } & Deactivatable;
 
-/**
- * A style master row, with the column the filter reads.
- *
- * `customer_id` is deliberately NOT here. It is carried as far as
- * `StylePickerRow` so the data is ready, but a filter input that accepts a value
- * it cannot honestly use is how a dead parameter becomes a live bug later.
- */
+/** A style master row, with the two columns the filter reads. */
 export type StyleFilterRow = StyleOption & {
   /** Free text (0124). Null means unassigned, which is never excluded. */
   season: string | null;
+  /**
+   * → `customers` (0124). Null means unassigned, and is never excluded — see
+   * "It offers UNASSIGNED styles" above.
+   *
+   * This field was deliberately absent until 2026-08-14, on the grounds that "a
+   * filter input that accepts a value it cannot honestly use is how a dead
+   * parameter becomes a live bug later". That was right while the order keyed on
+   * `buyers`; 0404 made the value honest.
+   */
+  customer_id: string | null;
 };
 
 export type StyleOptionsArgs = {
   /** Every style in the master, inactive rows included. */
   styles: readonly StyleFilterRow[];
+  /**
+   * The order header's Customer — a `customers` id, same table as
+   * `StyleFilterRow.customer_id` since 0404. Blank narrows nothing, which is
+   * what makes Customer-first a prompt rather than a trap: an operator who has
+   * not chosen one yet sees the whole master rather than an empty box.
+   */
+  customer: string | null | undefined;
   /** The order header's Season, in whatever casing its list uses. */
   season: string | null | undefined;
   /** What this row already holds; never filtered out. See below. */
@@ -125,7 +154,12 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
  * (AGENTS.md, "Disabled rows"). `RecordPicker` still greys it and refuses to
  * re-pick it.
  */
-export function styleOptions({ styles, season, currentValue }: StyleOptionsArgs): StyleOptions {
+export function styleOptions({
+  styles,
+  customer,
+  season,
+  currentValue,
+}: StyleOptionsArgs): StyleOptions {
   const keep = (
     items: StyleOption[],
     hint: string | null,
@@ -142,22 +176,58 @@ export function styleOptions({ styles, season, currentValue }: StyleOptionsArgs)
   };
 
   const wanted = norm(season);
+  // NOT `norm`ed: a uuid is compared as an id, not as text. Running it through
+  // the season's case-folding would work by accident today and stop working the
+  // day either side is compared against something that is not a uuid.
+  const forCustomer = customer ?? null;
 
-  // A blank Season on the order narrows nothing. Not "restrict unless blank" —
-  // the filter below is simply inert, which is the same statement without a
-  // second branch to get wrong.
-  const items = styles.filter((s) => !wanted || !norm(s.season) || norm(s.season) === wanted);
+  // Both filters state the same shape: blank on the ORDER narrows nothing, and
+  // null on the STYLE is unassigned rather than "someone else's". Neither is
+  // written as "restrict unless blank" — each clause is simply inert when it has
+  // nothing to say, which is the same statement without a second branch to get
+  // wrong.
+  const items = styles.filter(
+    (s) =>
+      (!forCustomer || !s.customer_id || s.customer_id === forCustomer) &&
+      (!wanted || !norm(s.season) || norm(s.season) === wanted),
+  );
 
   if (items.length) return keep(items, null);
 
-  // Empty, and the reason has to distinguish "nothing matches" from "there is
-  // nothing at all" — an operator told "no styles for this season" while the
-  // master is empty goes and edits the wrong thing.
-  if (!wanted) {
+  // Empty, and the reason has to name the RIGHT facet — an operator told "no
+  // styles for this season" who then edits Season, on a list actually emptied by
+  // Customer, has been sent to the wrong field. So the customer is tested first
+  // and separately: it is the facet the client made primary, and re-running the
+  // filter without it is what distinguishes "this customer has none" from "this
+  // season has none".
+  if (!styles.length) {
     return keep(
       [],
       "There are no styles in the Style Master yet — add one on Orders ▸ Order Setup ▸ Style.",
       "— No styles yet —",
+    );
+  }
+
+  if (forCustomer) {
+    const seasonOnly = styles.filter(
+      (s) => !wanted || !norm(s.season) || norm(s.season) === wanted,
+    );
+    if (seasonOnly.length) {
+      return keep(
+        [],
+        "No styles for this customer. Enter the style on Orders ▸ Order Setup ▸ Style with this customer on it, or change the header's Customer.",
+        "— No styles for this customer —",
+      );
+    }
+  }
+
+  if (!wanted) {
+    // Reachable only when a customer is set and it alone empties the list — the
+    // branch above returns first whenever season is the cause.
+    return keep(
+      [],
+      "No styles for this customer. Enter the style on Orders ▸ Order Setup ▸ Style with this customer on it, or change the header's Customer.",
+      "— No styles for this customer —",
     );
   }
   return keep(

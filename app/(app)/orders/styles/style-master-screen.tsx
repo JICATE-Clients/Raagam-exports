@@ -1106,10 +1106,25 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const sizeColumns: ChildGridColumn<SizeRow>[] = [
     {
       header: "Size",
-      // Declared so the table HUGS instead of stretching: `ChildGrid` switches
-      // to `w-auto` once every column has a width. A size is "S" or "XXL";
-      // without this it inherited all the grid's slack.
-      width: "14rem",
+      /**
+       * NO DECLARED WIDTH ANY MORE (client 2026-08-14, screenshot 2307).
+       *
+       * It was `14rem`, and the reason was sound at the time: `ChildGrid`
+       * switches to `w-auto` once EVERY column has a width, so declaring one
+       * made the table hug ~410px instead of stretching a "S"/"XXL" picker
+       * across the whole section.
+       *
+       * The section is no longer what it stretches into. The grid now shares a
+       * 12-column row with Description and sits in a 4-column cell, so hugging
+       * stopped protecting anything and started causing the fault: a fixed 410px
+       * inside a fluid cell is 54px short of it at 1920 and ~130px WIDER than it
+       * on a 1366 laptop, where it would have overflowed into the prose. Letting
+       * the column flex makes the grid exactly its cell at every width, which is
+       * the only way two columns stay aligned across viewports.
+       *
+       * `narrow` still caps the whole grid at 32rem, so the picker cannot run
+       * away even if this cell is ever widened.
+       */
       cell: (r) => (
         <LookupDialogPicker
           kind="size" label="Size" options={sizeOpts}
@@ -1351,11 +1366,20 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               />
             </Field>
             <Field label="Style" required size="sm" htmlFor="st-name">
+              {/* `uppercase` is the SCREEN half of AGENTS.md §CAPITALS (client
+                  2026-08-14). It does two things a `.toUpperCase()` in the
+                  handler would not: it uppercases the keystroke, and it adds the
+                  CSS transform that also shouts a name saved BEFORE this rule —
+                  a value loaded from the DB and never re-typed is unreachable
+                  from a keystroke handler. The write half is `capsName()` on
+                  `style_name` in `lib/orders/styles/types.ts`; both are
+                  required. */}
               <Input
                 id="st-name"
                 value={form.style_name}
                 onChange={(e) => set({ style_name: e.target.value })}
                 placeholder="Style name"
+                uppercase
               />
             </Field>
             {/* STYLE DESCRIPTION SITS BESIDE STYLE, AND UNIT MOVED UP HERE TOO
@@ -1450,7 +1474,11 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               />
             </Field>
             <Field label="Article No." size="sm" htmlFor="st-article">
-              <Input id="st-article" value={form.article_no} onChange={(e) => set({ article_no: e.target.value })} />
+              {/* CAPS for the same reason as Style: an article number is a stored
+                  VALUE, and the CAPITALS exemptions cover free prose, digits,
+                  email and auto fields — not a code an operator types. Write half
+                  is `capsTextNullable()` on `article_no`. */}
+              <Input id="st-article" value={form.article_no} onChange={(e) => set({ article_no: e.target.value })} uppercase />
             </Field>
             {/**
               * STYLE CATEGORY — the Garment master, scoped to the class above.
@@ -1606,30 +1634,15 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 addLabel="+ Add coordinate"
               />
             </Field>
-            {/* DESCRIPTION SITS HERE, BESIDE THE GRID, AND THAT BENDS A RULE ON
-                PURPOSE. LAYOUT.md §3: "a textarea in particular must never share
-                a row — every grid row is as tall as its tallest item, so the
-                fields beside it end up floating above a band of dead space."
-                That rule guards against a ONE-LINE field stranded beside a tall
-                textarea; here the neighbour is a grid of comparable height, so
-                the harm is small and the client asked for it twice (2026-08-11).
+            {/* DESCRIPTION LEFT THIS SECTION FOR SIZES (client 2026-08-14) — see
+                the note at its new home at the end of the Sizes section.
 
-                Do NOT "fix" this by making Description a single-line `Input` —
-                that trades a layout nicety for a real capability on a free-prose
-                field. `rows={3}` keeps it close to the grid's height; a Set style
-                may grow the grid to 6 rows, at which point the box floats. That
-                is a client call, not a lint fix.
-
-                Still CAPS-exempt by construction — a Textarea is listed among the
-                CAPITALS exemptions. */}
-            <Field label="Description" size="lg" htmlFor="st-desc">
-              <Textarea
-                id="st-desc"
-                value={form.description}
-                onChange={(e) => set({ description: e.target.value })}
-                rows={3}
-              />
-            </Field>
+                The grid keeps its `lg` span rather than growing to fill the row.
+                It is `narrow` and single-column, so a wider span would reserve
+                section width it does not draw in; what is left beside it is the
+                same empty band this section had before Description arrived on
+                2026-08-11, which is a cosmetic state and not the rule breach the
+                textarea's presence was. */}
           </DetailSection>
         </SectionBody>
       ),
@@ -1753,17 +1766,85 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 : `${unmatchedSizes.length} of this group’s sizes are not in the Sizes list yet (${unmatchedSizes.join(", ")}) — add them with “+ Add” on a row.`}
             </p>
           )}
-          {/* `narrow`: one column holding a two-character value. Without it the
-              Size picker stretched the full width of the section. */}
-          <ChildGrid<SizeRow>
-            narrow
-            columns={sizeColumns}
-            rows={sizes}
-            seedRow
-            onAdd={() => mutSizes((xs) => [...xs, blankSize()])}
-            onRemove={(r) => mutSizes((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add size"
-          />
+          {/* DESCRIPTION SITS BESIDE THE SIZE GRID (client 2026-08-14,
+              screenshot 2305: "move that description field right to that size
+              field blank area").
+
+              The grid is `narrow` and single-column, so it draws ~410px and left
+              the rest of the section blank while a full-width textarea sat under
+              it. 6 + 6 puts the prose in that band and closes the section up.
+
+              THE SAME SHAPE COORDINATES USES, and the same two rules it
+              records: a `ChildGrid` is not a `<Field>` and has no span of its
+              own, so the sanctioned way to give it one is an UNLABELLED
+              `<Field size>` around it (LAYOUT.md §3, "a not-field that SHARES its
+              row"); and the row MUST sum to 12, so any non-`<Field>` child
+              dropped in here costs a column and wraps the last one.
+
+              4 + 8, NOT 6 + 6 (client 2026-08-14, screenshot 2307: "realign,
+              now it looks uneven"). An even split reads as even only when both
+              halves DRAW their half. This grid is `narrow` — capped at 32rem and
+              hugging a two-character Size cell, so it draws ~410px whatever it
+              is given — and in a 6-column cell it left ~300px of white between
+              itself and a Description that started at the 50% mark under
+              nothing. `md` is the smallest span that still clears the grid's
+              drawn width, which closes that gap to one gutter, and `xl` spends
+              what it gives back on the prose instead of on the margin: the box
+              now reaches the section's right edge rather than stopping a column
+              short. `xl` is the sanctioned span for a textarea SHARING a row —
+              see its own note in `field.tsx`, and the skill's "one width" rule,
+              which bars `xl` for making a plain FIELD wider, not for this.
+
+              `label=""` ON THE GRID'S CELL, which is the vertical half of the
+              same complaint. An omitted label draws no label line at all, so the
+              grid's card started ~16px above the textarea beside it; `label=""`
+              RESERVES the row without drawing one, and the two tops line up.
+              That is the documented purpose of the empty string — it is what put
+              "Fill sizes" back beside the Size Group select it belongs to
+              (client 2026-08-11), and the button two lines up already uses it.
+
+              IT WAS ALONE ON ITS OWN ROW FOR ONE DAY, and the note that put it
+              there argued textareas should not share a row at all — the 08-11
+              exemption in Coordinates carried a stated expiry, that a Set style
+              grows the grid past the box and leaves the prose floating beside
+              dead space. That risk is unchanged and now applies here: a style
+              with eight sizes will out-grow a 3-row textarea. The operator has
+              asked for this arrangement twice across two sections, which settles
+              it — recorded rather than re-argued the next time the grid is long.
+
+              LAST IN THE SECTION either way. It is free prose about the whole
+              style, so it has no business between the Size Group shortcut and the
+              size rows those two lines are about.
+
+              `rows={3}` is unchanged. Do NOT "fix" it into a single-line `Input`:
+              that trades a layout nicety for a real capability on a prose field.
+
+              Still CAPS-exempt by construction — a `Textarea` is listed among the
+              CAPITALS exemptions, so this box is deliberately not `uppercase`
+              even though the Style fields around it are. */}
+          <FieldGrid>
+            {/* `narrow`: one column holding a two-character value. Without it the
+                Size picker stretched the full width of the section. */}
+            <Field label="" size="md">
+              <ChildGrid<SizeRow>
+                narrow
+                columns={sizeColumns}
+                rows={sizes}
+                seedRow
+                onAdd={() => mutSizes((xs) => [...xs, blankSize()])}
+                onRemove={(r) => mutSizes((xs) => xs.filter((x) => x.key !== r.key))}
+                addLabel="+ Add size"
+              />
+            </Field>
+            <Field label="Description" size="xl" htmlFor="st-desc">
+              <Textarea
+                id="st-desc"
+                value={form.description}
+                onChange={(e) => set({ description: e.target.value })}
+                rows={3}
+              />
+            </Field>
+          </FieldGrid>
         </SectionBody>
       ),
     },

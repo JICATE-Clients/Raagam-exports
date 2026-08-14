@@ -26,7 +26,7 @@ export default async function OpportunitiesCostingHubPage() {
   await requirePermission("sales", "view");
   return (
     <HubPage
-      breadcrumb={{ href: "/sales", label: "Sales" }}
+      breadcrumb={{ href: "/sales", label: "Sample" }}
       title="Opportunities & Costing"
       description="Customer engagement from opportunity through style definition, costing and quoting."
       cards={CARDS}

@@ -13,7 +13,7 @@ export default async function SamplesDevelopmentHubPage() {
   await requirePermission("sales", "view");
   return (
     <HubPage
-      breadcrumb={{ href: "/sales", label: "Sales" }}
+      breadcrumb={{ href: "/sales", label: "Sample" }}
       title="Samples & Development"
       description="Sample lifecycle and product-development requests for confirmed styles."
       cards={CARDS}
