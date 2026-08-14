@@ -3363,9 +3363,10 @@ export function AmendmentScreen({
    * NO `width` ON ANY COLUMN, deliberately. They each carried one, ~100rem in
    * total, to force `table-fixed` so the table would scroll instead of
    * collapsing every picker to "— S…". The grid is carded now, so a per-column
-   * width is both dead and contrary to the standing one-width rule: every field
-   * is `<Field size="sm">` so a Year box and a Consignee picker line up down the
-   * page. Leaving them would have preserved, in code, the argument for the
+   * width is both dead and contrary to the one-width rule: every field on this
+   * screen is `<Field size="xs">` so a Year box and a Consignee picker line up
+   * down the page. (`xs` since 2026-08-14, six a row — the width changed, the
+   * ONE-width part did not.) Leaving them would have preserved, in code, the argument for the
    * layout that was just removed.
    */
   const quantityColumns: ChildGridColumn<QuantityRow>[] = [
@@ -3581,9 +3582,9 @@ export function AmendmentScreen({
    * width (operator screenshot 2026-08-12, 12:26). Same cause and same fix as
    * that grid had.
    *
-   * Nothing is lost: a card lays its cells out through `<Field size="sm">`,
-   * which is the standing one-width rule, and a table would want its widths
-   * chosen for a table anyway.
+   * Nothing is lost: a card lays its cells out through `<Field size="xs">`,
+   * which is this screen's one width — six a row since 2026-08-14 — and a table
+   * would want its widths chosen for a table anyway.
    */
   const approvalQtyColumns: ChildGridColumn<ApprovalQtyRow>[] = [
     {
@@ -3886,7 +3887,7 @@ export function AmendmentScreen({
           ["Delivery Dt", fmtDate(q.delivery_date) || ""],
         ] as [string, string][]
       ).map(([label, value]) => (
-        <Field key={label} label={label} size="sm">
+        <Field key={label} label={label} size="xs">
           <Input readOnly className="h-8" value={value} placeholder="—" />
         </Field>
       ))}
@@ -4006,7 +4007,7 @@ export function AmendmentScreen({
                   // The three named columns keep the standing field width; a
                   // size cell is `xs` so six wrap per row instead of one line
                   // of sixteen running off the side.
-                  size={ci >= 2 && ci < 2 + sizes.length ? "xs" : "sm"}
+                  size="xs"
                 >
                   {c.cell(row, i)}
                 </Field>
@@ -4036,7 +4037,7 @@ export function AmendmentScreen({
           ["Combo Description", r.combo_description],
         ] as [string, string][]
       ).map(([label, value]) => (
-        <Field key={label} label={label} size="sm">
+        <Field key={label} label={label} size="xs">
           {/* `readOnly`, never `disabled` — `Input` gives a readOnly field
               `tabIndex={-1}` itself, so it leaves the Tab path with no
               per-screen opt-out while the value stays selectable. */}
@@ -4105,7 +4106,7 @@ export function AmendmentScreen({
               </Button>
             </div>
             <FieldGrid>
-              <Field label="Coordinate" size="sm">
+              <Field label="Coordinate" size="xs">
                 {/* The style's own coordinates (client 2026-08-12). */}
                 <RecordPicker
                   label="Coordinate"
@@ -4127,7 +4128,7 @@ export function AmendmentScreen({
                   }
                 />
               </Field>
-              <Field label="Component" size="sm">
+              <Field label="Component" size="xs">
                 {/* Narrowed by the coordinate beside it: the style declares the
                     PAIR (FRONT BODY *of* PIECES), so an unscoped list would
                     offer a collar under a coordinate that has none. */}
@@ -4139,7 +4140,7 @@ export function AmendmentScreen({
                   onChange={(id) => patchComp(r.key, st.key, c.key, { component_id: id })}
                 />
               </Field>
-              <Field label="Fabric Color" size="sm">
+              <Field label="Fabric Color" size="xs">
                 {/*
                  * THE ORDER'S OWN DYEING PALETTE, and only when the fabric is
                  * SOLID (client 2026-08-12).
@@ -4167,7 +4168,7 @@ export function AmendmentScreen({
                   clearable
                 />
               </Field>
-              <Field label="Fabric Print" size="sm">
+              <Field label="Fabric Print" size="xs">
                 {/* ONE FIELD (0410), and scoped to the prints THIS order
                     declared (2026-08-12) — the all-over / rotary print, not a
                     placement print. No inline create: adding a lookup row here
@@ -4292,7 +4293,7 @@ export function AmendmentScreen({
         return (
           <div className="space-y-3">
             <FieldGrid>
-              <Field label="Structure" required size="sm">
+              <Field label="Structure" required size="xs">
                 {/* A fabric CATEGORY (0409). The knit family beside it is
                     DERIVED from this one answer — never asked again, so the
                     two cannot disagree. */}
@@ -4305,7 +4306,7 @@ export function AmendmentScreen({
                   onChange={(id) => pickComboStructure(r.key, st.key, id)}
                 />
               </Field>
-              <Field label="Type" size="sm">
+              <Field label="Type" size="xs">
                 {/* Main Fabric / Trims Fabric — `order_fabrics.fabric_type`.
                     NOT the Style master's "Type", which is a different question
                     wearing the same word (see combo-rules.ts). */}
@@ -4321,7 +4322,7 @@ export function AmendmentScreen({
                   ))}
                 </Select>
               </Field>
-              <Field label="Composition" size="sm">
+              <Field label="Composition" size="xs">
                 <RecordPicker
                   label="Composition"
                   compact
@@ -4330,7 +4331,7 @@ export function AmendmentScreen({
                   onChange={(id) => patchStruct(r.key, st.key, { composition_id: id })}
                 />
               </Field>
-              <Field label="Gsm" size="sm">
+              <Field label="Gsm" size="xs">
                 <Input
                   type="number"
                   className="text-right"
@@ -4338,7 +4339,7 @@ export function AmendmentScreen({
                   onChange={(e) => patchStruct(r.key, st.key, { gsm: e.target.value })}
                 />
               </Field>
-              <Field label="Tolerance" size="sm">
+              <Field label="Tolerance" size="xs">
                 <Input
                   type="number"
                   className="text-right"
@@ -4346,13 +4347,13 @@ export function AmendmentScreen({
                   onChange={(e) => patchStruct(r.key, st.key, { gsm_tolerance: e.target.value })}
                 />
               </Field>
-              <Field label="Gsm Range" size="sm">
+              <Field label="Gsm Range" size="xs">
                 {/* DERIVED, never stored (0408) — 200 ± 5 is 195 - 205. A
                     column for it would be a second source of truth for a
                     subtraction. */}
                 <Input readOnly className="h-8" value={range} placeholder="—" />
               </Field>
-              <Field label="Fabric Type" size="sm">
+              <Field label="Fabric Type" size="xs">
                 <Select
                   value={st.item_sub_type}
                   onChange={(e) => patchStruct(r.key, st.key, { item_sub_type: e.target.value })}
@@ -4403,7 +4404,7 @@ export function AmendmentScreen({
             <span className="w-5 shrink-0 text-right text-[11px] text-muted-foreground">
               {j + 1}
             </span>
-            <div className="min-w-0 flex-1 sm:max-w-[14rem]">
+            <div className="min-w-0 flex-1">
               <LookupDialogPicker
                 kind="size"
                 label="Size"
@@ -4915,7 +4916,7 @@ export function AmendmentScreen({
             renderMobileRow={(row, i) => (
               <FieldGrid>
                 {quantityColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                  <Field key={ci} label={c.header} required={c.required} size="xs">
                     {c.cell(row, i)}
                   </Field>
                 ))}
@@ -4965,12 +4966,13 @@ export function AmendmentScreen({
               dyeing grids hit and recorded above (2246/2247), where "Colour
               carried nothing and rendered ~1080px wide".
 
-              THE WIDTHS BELOW ARE NOW DEAD. `hugsContent` is a table/inline
-              concern; the cards branch ignores every `width`. They are left in
-              place deliberately — `hugsContent` is `columns.every(c => c.width)`,
-              all-or-nothing, so a half-removal would change nothing while
-              pretending to, and they still record the intended proportions if
-              this ever goes back to a table.
+              THERE ARE NO WIDTHS BELOW. `approvalQtyColumns` declares none —
+              `hugsContent` is a table/inline concern and the cards branch
+              ignores `width` entirely, so there was nothing to keep. (A note
+              here used to say they were "left in place deliberately"; they were
+              not left, they were never written, and a comment describing
+              columns that do not exist is the kind that survives long enough to
+              be believed.)
 
               The totals band survives the move: `ChildGridColumn.total` sums
               over EVERY row rather than the visible page, so the production
@@ -5000,7 +5002,7 @@ export function AmendmentScreen({
             renderMobileRow={(row, i) => (
               <FieldGrid>
                 {approvalQtyColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                  <Field key={ci} label={c.header} required={c.required} size="xs">
                     {c.cell(row, i)}
                   </Field>
                 ))}
@@ -5045,9 +5047,12 @@ export function AmendmentScreen({
               {/* Department, Agent and Received (mode) withdrawn 2026-08-10
                   (client). Their columns and stored values remain; they left the
                   Zod input too, which is what stops a save nulling them. */}
-              {/* ONE SIZE, EVERY FIELD — `size="sm"` (3 of 12), four per row, so
-                  these 12 fields fill three flush rows and line up with the
-                  Order Info section rather than agreeing with it by coincidence.
+              {/* ONE SIZE, EVERY FIELD — `size="xs"` (2 of 12), SIX per row, so
+                  these fields line up with the Order Info section rather than
+                  agreeing with it by coincidence. They were `sm` (four per row)
+                  until 2026-08-14; the whole screen moved together, because a
+                  density that changes as you move down the rail is the thing
+                  the client was reading as clutter.
                   The `FieldGrid` above was never the problem: a span comes ONLY
                   from `<Field size>`, so a child that is not a sized `Field`
                   takes ONE of the 12 columns. Nine of these were bare pickers and
@@ -5071,7 +5076,7 @@ export function AmendmentScreen({
                   08-10. Their columns and stored values are untouched; they left
                   `amendmentInput` too, which is the half that stops
                   `headerOnly()` nulling them on the next save. */}
-              <Field label="Ship Type" required size="sm">
+              <Field label="Ship Type" required size="xs">
                 <LookupDialogPicker
                   kind="ship_type"
                   label="Ship Type"
@@ -5087,7 +5092,7 @@ export function AmendmentScreen({
               {/* `<Field required>` rather than a bare Label: a `<Select>` reads
                   requiredness from context (`select.tsx` → `useRequiredHold`), so
                   the star and the cursor hold both come from this one prop. */}
-              <Field label="Ship Mode" required size="sm" htmlFor="lg-shipmode">
+              <Field label="Ship Mode" required size="xs" htmlFor="lg-shipmode">
                 <Select
                   id="lg-shipmode"
                   value={form.ship_mode}
@@ -5104,7 +5109,7 @@ export function AmendmentScreen({
                   `compact` suppresses that label and its star together, which is
                   why the wrapper has to say `required` out loud — leaving it off
                   would quietly unmark a mandatory field (a122adc). */}
-              <Field label="Country" required size="sm">
+              <Field label="Country" required size="xs">
                 <CountryPicker
                   compact
                   countries={data.countries}
@@ -5118,7 +5123,7 @@ export function AmendmentScreen({
                   scope comes from the wrapper — its inner `DataPicker` ORs the
                   context (`data-picker.tsx:292`). `compact` because the Field
                   now draws the label. */}
-              <Field label="Currency" required size="sm">
+              <Field label="Currency" required size="xs">
                 <CurrencyPicker
                   label="Currency"
                   compact
@@ -5129,7 +5134,7 @@ export function AmendmentScreen({
                   canEdit={masterPerms.canEdit}
                 />
               </Field>
-              <Field label="Ex-Rate" size="sm" htmlFor="lg-exrate">
+              <Field label="Ex-Rate" size="xs" htmlFor="lg-exrate">
                 <Input
                   id="lg-exrate"
                   type="number"
@@ -5137,7 +5142,7 @@ export function AmendmentScreen({
                   onChange={(e) => set({ ex_rate: e.target.value })}
                 />
               </Field>
-              <Field label="Pay Mode" required size="sm" htmlFor="lg-paymode">
+              <Field label="Pay Mode" required size="xs" htmlFor="lg-paymode">
                 <Select
                   id="lg-paymode"
                   value={form.pay_mode}
@@ -5149,7 +5154,7 @@ export function AmendmentScreen({
                   ))}
                 </Select>
               </Field>
-              <Field label="Pay Terms" required size="sm">
+              <Field label="Pay Terms" required size="xs">
                 <PaymentTermPicker
                   label="Pay Terms"
                   compact
@@ -5172,7 +5177,7 @@ export function AmendmentScreen({
                   field never HOLDS the cursor, which is right — the operator
                   cannot fill it, so holding them here would be a cage with no
                   key (AGENTS.md, "Mandatory fields"). */}
-              <Field label="Days" size="sm" htmlFor="lg-days">
+              <Field label="Days" size="xs" htmlFor="lg-days">
                 <Input
                   id="lg-days"
                   readOnly
@@ -5197,7 +5202,7 @@ export function AmendmentScreen({
                   the rows carry no colour column to weight them by, so there is
                   no single rate; the total refuses rather than under-reporting,
                   because a partial Gross Value looks exactly like a real one. */}
-              <Field label="Avg Rate" size="sm" htmlFor="lg-avgrate">
+              <Field label="Avg Rate" size="xs" htmlFor="lg-avgrate">
                 <Input
                   id="lg-avgrate"
                   readOnly
@@ -5205,7 +5210,7 @@ export function AmendmentScreen({
                   value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
                 />
               </Field>
-              <Field label="Gross Value" size="sm" htmlFor="lg-gross">
+              <Field label="Gross Value" size="xs" htmlFor="lg-gross">
                 <Input
                   id="lg-gross"
                   readOnly
@@ -5302,9 +5307,35 @@ export function AmendmentScreen({
   /**
    * The document header, as the FIRST rail section.
    *
-   * Every field is `size="sm"` — the standing "ONE SIZE, EVERY FIELD" rule
-   * (3 of 12, four per row, ~280px). Nothing here is sized to its own data, so
-   * a Yr box and an SCNo picker line up down the page.
+   * SIX FIELDS A ROW, EVERY FIELD THE SAME WIDTH (client 2026-08-14).
+   *
+   * `xs` is `col-span-2` on `FIELD_TRACK`'s twelve columns, so six sum to
+   * exactly 12. It is the ONLY span that puts six on a line: `sm` (3 of 12)
+   * gives four, `lg` (6 of 12) gives two. Thirteen fields therefore read
+   * 6 · 6 · 1, and the spare columns fall at the END of the last row rather
+   * than between the fields.
+   *
+   * The client reported the screen as hard to read and diagnosed it as fields
+   * being too long — width spent on values that do not need it, so the form
+   * sprawled. Five of these were already `xs` on their instruction (2026-08-12,
+   * the row of order terms); this finishes the thought across all thirteen.
+   *
+   * STILL ONE WIDTH, JUST A NARROWER ONE. Nothing here is sized to its own
+   * data, so a Yr box and an SCNo picker line up down the page — that half of
+   * the rule is unchanged and is what "evenly aligned" meant when the client
+   * was asked which way to resolve it.
+   *
+   * `xs` IS NOT THE MASTERS FIELD WIDTH, and must not be swept into
+   * `components/masters/**`. The one-width-`sm` rule governs a masters FORM,
+   * eight fields describing one reference record. This is a 53-field document
+   * editor across nine rail sections, and the two are deliberately no longer
+   * the same density — the Styles row and the Assortments size cells already
+   * made that distinction in writing.
+   *
+   * DO NOT WIDEN THE LAST FIELD to fill the trailing gap. That was tried, as a
+   * hand-rolled 14-column track so one cell could be double width, and the
+   * surplus read as a HOLE rather than as room: a cell sized for its fullest
+   * state is empty space in its commonest one.
    *
    * `Field required` on Date replaces a literally typed `"Date *"`: one
    * declaration now draws the red star AND holds the cursor while the box is
@@ -5352,7 +5383,7 @@ export function AmendmentScreen({
               hold on it would cage the operator. The requiredness moved to
               Unit and Date, the two fields the number is built from — the same
               shape a composed name uses (AGENTS.md, "Mandatory fields"). */}
-          <Field label="SCNo" size="sm" htmlFor="hd-scno">
+          <Field label="SCNo" size="xs" htmlFor="hd-scno">
             <Input
               id="hd-scno"
               readOnly
@@ -5365,7 +5396,7 @@ export function AmendmentScreen({
               rather than invent a shared bucket. READ-ONLY once saved: the
               number is stamped on insert only, so changing the Unit afterwards
               would leave an HO/… number on a different unit's order. */}
-          <Field label="Unit" required={!editId} size="sm">
+          <Field label="Unit" required={!editId} size="xs">
             <RecordPicker
               label="Unit"
               identity="code"
@@ -5376,7 +5407,7 @@ export function AmendmentScreen({
               onChange={(id) => set({ location_id: id })}
             />
           </Field>
-          <Field label="Date" required size="sm" htmlFor="hd-date">
+          <Field label="Date" required size="xs" htmlFor="hd-date">
             <Input id="hd-date" type="date" value={form.amend_date} onChange={(e) => set({ amend_date: e.target.value })} />
           </Field>
           {/* "Initiated" (By Customer / By Us) WITHDRAWN 2026-08-11 (client).
@@ -5396,7 +5427,7 @@ export function AmendmentScreen({
               flow: `onSelectOrder` fills it from the picked order, so choosing an
               SCNo satisfies this field too. It still has to be declared, because
               the Customer can be cleared by hand after the order is picked. */}
-          <Field label="Customer" required size="sm">
+          <Field label="Customer" required size="xs">
             <RecordPicker
               label="Customer"
               compact
@@ -5405,10 +5436,10 @@ export function AmendmentScreen({
               onChange={(id) => set({ customer_id: id })}
             />
           </Field>
-          <Field label="PO No" size="sm" htmlFor="hd-pono">
+          <Field label="PO No" size="xs" htmlFor="hd-pono">
             <Input id="hd-pono" value={form.po_no} onChange={(e) => set({ po_no: e.target.value })} />
           </Field>
-          <Field label="Merchand." size="sm">
+          <Field label="Merchand." size="xs">
             <RecordPicker
               label="Merchand."
               compact
@@ -5423,10 +5454,10 @@ export function AmendmentScreen({
               it in the middle. They stay in the header — the client was explicit
               that they belong here and not on the style rows, where they have
               never been. */}
-          <Field label="Deli.Dt" size="sm" htmlFor="hd-deli">
+          <Field label="Deli.Dt" size="xs" htmlFor="hd-deli">
             <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
           </Field>
-          <Field label="Season" size="sm" htmlFor="hd-season">
+          <Field label="Season" size="xs" htmlFor="hd-season">
             <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
               <option value="">—</option>
               {SEASON_OPTIONS.map((o) => (
@@ -5733,14 +5764,14 @@ export function AmendmentScreen({
           <div className="space-y-4">
             {assortHeader(assortQty)}
             <FieldGrid>
-              <Field label="Pack" size="sm">
+              <Field label="Pack" size="xs">
                 <Input
                   uppercase
                   value={assortQty.pack}
                   onChange={(e) => setQty(assortQty.key, { pack: e.target.value })}
                 />
               </Field>
-              <Field label="Ratio For" size="sm">
+              <Field label="Ratio For" size="xs">
                 {/* 0328's tuple, and the column carries the same CHECK — so a
                     free-text box here would fail on save rather than on entry. */}
                 <Select
@@ -5752,7 +5783,7 @@ export function AmendmentScreen({
                   <option value="inner">Inner</option>
                 </Select>
               </Field>
-              <Field label="Master CTN Name" size="sm">
+              <Field label="Master CTN Name" size="xs">
                 <Input
                   uppercase
                   value={assortQty.master_carton_name}
@@ -5761,7 +5792,7 @@ export function AmendmentScreen({
                   }
                 />
               </Field>
-              <Field label="Inner CTN Name" size="sm">
+              <Field label="Inner CTN Name" size="xs">
                 <Input
                   uppercase
                   value={assortQty.inner_carton_name}
@@ -5770,7 +5801,7 @@ export function AmendmentScreen({
                   }
                 />
               </Field>
-              <Field label="Pack Description" size="lg">
+              <Field label="Pack Description" size="full">
                 <Input
                   uppercase
                   value={assortQty.pack_description}
