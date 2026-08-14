@@ -4675,15 +4675,22 @@ export function AmendmentScreen({
              to, and 98% of orders are one style, so the common case is untouched
              by this entirely. */
           const openKey = openStyleKey ?? styles[styles.length - 1]?.key ?? null;
-          /* ONLY A COMPLETE STYLE FOLDS — the client's own word ("if the first
-             style is completed"), and it is also what keeps Save reachable.
-             A folded row's fields are UNMOUNTED, so a blank required cell inside
-             one has no `data-required-empty` node for `onBlockedSave` to land
-             on: Save would refuse and the cursor would have nowhere to go. The
-             two required cells are Style and PO Qty, read from state rather than
-             from the DOM for exactly that reason. */
-          const rowComplete = !!r.style_ref_no.trim() && !!r.po_qty.trim();
-          const isOpen = styles.length < 2 || r.key === openKey || !rowComplete;
+          /* A ROW FOLDS ONCE IT NAMES A STYLE — nothing more.
+             
+             It used to require PO Qty as well, on the reasoning that a folded
+             row's fields are UNMOUNTED, so a blank REQUIRED cell inside one
+             would have no `data-required-empty` node for a blocked Save to land
+             on. That reasoning was wrong, and checking it is what showed why:
+             `canSave` gates on the HEADER and the Logistics fields only — never
+             on a style row — so a blank PO Qty does not block Save, and the
+             condition was protecting nothing while stopping the fold the client
+             actually asked for (they enter styles first and quantities later,
+             screenshot 2296: both rows open, both PO Qty blank).
+             
+             A style is still the one thing a row cannot fold without: with no
+             style there is no identity to fold TO, and the summary would be a
+             blank line the operator cannot tell from an empty row. */
+          const isOpen = styles.length < 2 || r.key === openKey || !r.style_ref_no.trim();
           /* What a folded row says about itself: the unit, the quantity and the
              sizes it carries — the three an operator scans a PO for. Sizes are
              NAMED, not counted: a count is what the client has just had removed
@@ -4695,6 +4702,12 @@ export function AmendmentScreen({
           ]
             .filter(Boolean)
             .join("  ·  ");
+          /* WHAT THE FOLD WOULD OTHERWISE HIDE. Folding on style alone means a
+             row can be put away with its PO Qty still blank, and the summary
+             would simply not mention it — an absence the operator cannot see.
+             So the row says so instead: the fold stays out of the way without
+             quietly swallowing the one field it is still missing. */
+          const missing = !r.po_qty.trim() ? "PO Qty missing" : null;
           return (
           <div
             className={cn(
@@ -4877,6 +4890,9 @@ export function AmendmentScreen({
                     <Truncated className="text-sm text-muted-foreground">
                       {summary || "Not filled in yet"}
                     </Truncated>
+                    {missing && (
+                      <span className="ml-3 shrink-0 text-xs text-warning">{missing}</span>
+                    )}
                   </div>
                 </Field>
               )}
