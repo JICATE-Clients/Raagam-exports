@@ -174,6 +174,23 @@ export interface ModuleLink {
   kind: "link";
   href: string;
   label: string;
+  /**
+   * BUILT, BUT ITS TABLE IS NOT IN THIS DATABASE — the same flag a `GroupChild`
+   * carries, and it is here because its absence let one screen lie.
+   *
+   * `/planning/budgets` is a standalone link, so it was the one Planning entry
+   * that could not be marked while its 25 siblings all were — and
+   * `hub-count-map.ts` had already recorded it as unavailable. It therefore
+   * presented as a working screen over a table 0332 dropped.
+   *
+   * A `link` has no `todo` state on purpose: a route that does not exist yet has
+   * no business being a sidebar row of its own.
+   */
+  status?: "unavailable";
+  /** Why it cannot be used, in the operator's words. Same contract as
+   *  `GroupChild.unavailableNote` — required in practice, optional in the type
+   *  so the check reports it with a message worth reading. */
+  unavailableNote?: string;
 }
 
 export type ModuleEntry = ModuleGroup | ModuleLink;
@@ -497,7 +514,17 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/planning/production-planning", label: "Production Planning", description: "Schedule production against capacity", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
         ],
       },
-      { kind: "link", href: "/planning/budgets", label: "Budgets" },
+      // The one Planning entry that was not marked, because until now a `link`
+      // had no way to say it. `hub-count-map.ts` already pinned its count to
+      // null for exactly this reason, so the two now agree.
+      {
+        kind: "link",
+        href: "/planning/budgets",
+        label: "Budgets",
+        status: "unavailable",
+        unavailableNote:
+          "Screens are built — the Planning tables are not in this database (0332 dropped them)",
+      },
     ],
   },
 

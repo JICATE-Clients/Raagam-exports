@@ -81,13 +81,23 @@ export async function ModuleHub({ moduleHref }: { moduleHref: string }) {
         }
       : {
           key: e.href,
-          href: e.href,
+          // An unavailable link is INERT, exactly as an unavailable card is: its
+          // route exists and its service swallows the missing-relation error and
+          // returns [], so following it lands the operator on a clean, empty,
+          // finished-looking screen. Sending them there is the failure this
+          // state was added to end.
+          href: e.status === "unavailable" ? null : e.href,
           label: e.label,
           // A `ModuleLink` carries no description — it is a bare row in the
           // sidebar. Absent, not invented: a made-up subtitle on a landing page
-          // is the kind of claim these grids were drifting into.
-          description: "",
-          count: resolved.get(e.href),
+          // is the kind of claim these grids were drifting into. An unavailable
+          // one says WHY instead, which is not something a greyed tile conveys.
+          description:
+            e.status === "unavailable"
+              ? (e.unavailableNote ?? "Not available in this database")
+              : "",
+          unavailable: e.status === "unavailable",
+          count: e.status === "unavailable" ? undefined : resolved.get(e.href),
         },
   );
 
