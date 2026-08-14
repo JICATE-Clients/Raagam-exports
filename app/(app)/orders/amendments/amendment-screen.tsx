@@ -2320,13 +2320,17 @@ export function AmendmentScreen({
              Process the one cell that did not reach its column's edge. */
           className="w-full"
           onClick={() => setProcessFor(r.key)}
-          /* The count is on the button because the list lives behind it: with
-             the sheet closed there is otherwise nothing on the line to say a
-             style HAS processes, and an operator would have to open each one to
-             find out. Same reason `ChildGrid` puts a badge on a collapsed
-             section. */
+          /* NO COUNT (client 2026-08-14, with Detail and Assort beside it).
+             It read "Process (2)".
+
+             Stated because it is a real trade rather than tidying: unlike the
+             Sizes count — which went out because the sizes themselves are now
+             on screen — this list lives BEHIND the button, so nothing on the row
+             now says a style has processes at all. An operator wanting to know
+             opens it. The client asked for the numbers gone everywhere; this is
+             what "everywhere" costs. */
         >
-          {r.processes.length ? `Process (${r.processes.length})` : "Process"}
+          Process
         </Button>
       ),
     },
@@ -2677,12 +2681,9 @@ export function AmendmentScreen({
           title={r.combo.trim() ? undefined : "Name the combo first"}
           onClick={() => setDetailComboKey(r.key)}
         >
+          {/* No count — see the Process button. Same button-hides-a-list shape,
+              same client removal. */}
           Detail
-          {r.structures.length > 0 && (
-            <span className="ml-1 text-xs text-muted-foreground">
-              ({r.structures.length})
-            </span>
-          )}
         </Button>
       ),
     },
@@ -3565,12 +3566,8 @@ export function AmendmentScreen({
           }
           onClick={() => setAssortQtyKey(r.key)}
         >
+          {/* No count — see the Process button. */}
           Assort
-          {r.assort_lines.length > 0 && (
-            <span className="ml-1 text-xs text-muted-foreground">
-              ({r.assort_lines.length})
-            </span>
-          )}
         </Button>
       ),
     },
