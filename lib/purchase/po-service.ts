@@ -324,6 +324,29 @@ export async function getPoItemSizeDeliveries(
 
 // ---------- shared pickers ----------
 
+/**
+ * Approved budgets, for the Budget picker on the PO and RFQ forms.
+ *
+ * IT RETURNS AN EMPTY LIST IN THIS DATABASE, AND THAT IS NOT A BUG TO CHASE.
+ * `budgets` was dropped by 0332 with the rest of the Planning module. The
+ * rebuild (0369) declares it again but is UNAPPLIED — every number in the
+ * 0368-0373 range collides with a live non-planning migration, which
+ * `doc/orders-six-step.md` records as the reason the whole rebuild is parked.
+ *
+ * So PostgREST returns a missing-relation error, `data` is null, and the caller
+ * gets `[]`. Both forms hide the Budget field entirely when the list is empty
+ * rather than rendering a dropdown with nothing in it, so the operator sees no
+ * broken control — which is why this has been quiet.
+ *
+ * Left in place rather than removed: `purchase_orders.budget_id` and
+ * `purchase_indents.budget_id` still exist (0332 only dropped the table they
+ * point at), and the day a budget table returns this is the query that feeds
+ * them. Deleting it would mean rediscovering the wiring instead of un-parking it.
+ *
+ * The step-5 Budget the client asked for is a DIFFERENT table —
+ * `order_budgets`, hanging off the garment order — see doc/orders-six-step.md.
+ * Do not resurrect this one to satisfy that requirement.
+ */
 export async function getBudgetsForPicker(): Promise<BudgetForPicker[]> {
   const supabase = await createClient();
   const { data } = await supabase
@@ -334,6 +357,19 @@ export async function getBudgetsForPicker(): Promise<BudgetForPicker[]> {
   return (data ?? []) as BudgetForPicker[];
 }
 
+/**
+ * Lines of an approved budget, to prefill a PO.
+ *
+ * WORSE OFF THAN ITS SIBLING ABOVE: `budget_lines` was dropped by 0332 and is
+ * **never re-declared anywhere** — not even in the unapplied 0369, whose child
+ * tables are the different `budget_purchases` / `budget_processes` /
+ * `budget_cmts` shape. So this cannot come back by un-parking the rebuild; it
+ * would need writing.
+ *
+ * Unreachable in practice, because the picker that supplies `budgetId` is empty
+ * (see above). `ASSUMPTIONS.md` still describes "PO from budget prefills lines
+ * from budget_lines" as live behaviour; it has not been true since 0332.
+ */
 export async function getBudgetLines(
   budgetId: string,
 ): Promise<BudgetLineRow[]> {
@@ -383,4 +419,24 @@ export async function getUoms(): Promise<Uom[]> {
     .eq("is_active", true)
     .order("name");
   return (data ?? []) as Uom[];
+}
+
+/** A garment order a PO line can be bought for (0424). */
+export type OrderForPicker = { id: string; order_number: string | null };
+
+/**
+ * Orders a purchase can be raised against.
+ *
+ * Cancelled and closed are excluded: buying for an order nobody is making is
+ * the mistake, not a case to support. `listOrderOptions` on the Material BOM
+ * side makes the same call, so the two lists agree about what is live.
+ */
+export async function getOrdersForPicker(): Promise<OrderForPicker[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("sales_orders")
+    .select("id, order_number")
+    .not("status", "in", "(cancelled,closed)")
+    .order("order_number", { ascending: false });
+  return (data ?? []) as OrderForPicker[];
 }

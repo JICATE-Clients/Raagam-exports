@@ -60,6 +60,7 @@ export function RecordPicker({
   id,
   identity = "name",
   placeholder,
+  onAddOverride,
 }: {
   label: string;
   items: PickerItem[];
@@ -91,6 +92,21 @@ export function RecordPicker({
    * through to `DataPicker`; a selected value always wins over it.
    */
   placeholder?: string;
+  /**
+   * "+ Add" opens a CALLER-SUPPLIED create surface, and commits the id it
+   * returns.
+   *
+   * THIS IS NOT A REVERSAL OF THE NO-CRUD RULE ABOVE — it is the case that rule
+   * points at. The refusal is to an INLINE name-only row, because these fields
+   * reference records that carry more than a name and would be born unusable;
+   * `LookupDialogPicker` gets the inline variant precisely because a config
+   * list genuinely is just a name. An override hands the operator the real
+   * form instead, which is the thing the refusal says is needed.
+   *
+   * Opt-in and undefined by default, so every existing call site is unchanged:
+   * with no override, `DataPicker` shows no Add affordance at all.
+   */
+  onAddOverride?: (commit: (id: string) => void) => void;
 }) {
   const rows: PickerRow[] = useMemo(() => {
     const decorate = (i: PickerItem): PickerRow => ({
@@ -118,6 +134,7 @@ export function RecordPicker({
       disabled={disabled}
       id={id}
       placeholder={placeholder}
+      onAddOverride={onAddOverride}
     />
   );
 }

@@ -3,13 +3,21 @@
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
-import { createPurchaseOrder, fetchBudgetLines } from "@/lib/purchase/po-actions";
+import {
+  createPurchaseOrder,
+  fetchBudgetLines,
+  fetchBomCeiling,
+  raiseOverQuantity,
+} from "@/lib/purchase/po-actions";
+import { judgeLine, type BomCeiling } from "@/lib/purchase/bom-ceiling";
 import type { PurchaseOrderInput, PoLineInput } from "@/lib/purchase/types";
 import type {
   VendorForPicker,
   BudgetForPicker,
   LocationForPicker,
+  OrderForPicker,
 } from "@/lib/purchase/po-service";
+import type { Item } from "@/lib/masters/types";
 import type { Currency } from "@/lib/masters/types";
 import { Button } from "@/components/ui/button";
 import { gridKeyNav } from "@/components/masters/child-grid";
@@ -21,13 +29,17 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 
 type PoLineFields = {
+  /** The material, so the BOM ceiling has something to key on (0424). It was
+   *  hardcoded `null` on this form until then — the column existed and nothing
+   *  ever filled it, so a quantity control keyed on it could never have fired. */
+  item_id: string;
   description: string;
   quantity: string;
   unit_price: string;
 };
 
 function emptyLine(): PoLineFields {
-  return { description: "", quantity: "1", unit_price: "0" };
+  return { item_id: "", description: "", quantity: "1", unit_price: "0" };
 }
 
 export function NewPoForm({
@@ -35,11 +47,15 @@ export function NewPoForm({
   budgets,
   currencies,
   locations,
+  items,
+  orders,
 }: {
   vendors: VendorForPicker[];
   budgets: BudgetForPicker[];
   currencies: Currency[];
   locations: LocationForPicker[];
+  items: Item[];
+  orders: OrderForPicker[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -59,6 +75,19 @@ export function NewPoForm({
   );
   const [expectedDate, setExpectedDate] = useState("");
   const [notes, setNotes] = useState("");
+
+  /**
+   * WHICH ORDER THIS PO BUYS FOR (0424).
+   *
+   * Held once for the whole form and written onto every line, because the COLUMN
+   * is per-line and the common PO is for one order. The grain is right where it
+   * matters — the detail editor can vary a line later, and one PO covering two
+   * orders is a real thing — while the form asks the question once.
+   */
+  const [orderId, setOrderId] = useState("");
+  /** The BOM's plan for that order, fetched once per order. */
+  const [ceiling, setCeiling] = useState<BomCeiling | null>(null);
+  const [overReason, setOverReason] = useState("");
 
   // lines
   const [lines, setLines] = useState<PoLineFields[]>([emptyLine()]);
@@ -92,6 +121,9 @@ export function NewPoForm({
       if (budgetLines.length > 0) {
         setLines(
           budgetLines.map((l) => ({
+            // A budget line names no material, so the ceiling cannot judge one
+            // prefilled from it until the buyer picks one.
+            item_id: "",
             description: l.description,
             quantity: String(l.quantity),
             unit_price: String(l.unit_cost),
@@ -112,8 +144,32 @@ export function NewPoForm({
     setExpectedDate("");
     setNotes("");
     setLines([emptyLine()]);
+    setOrderId("");
+    setCeiling(null);
+    setOverReason("");
     setShow(false);
   }
+
+  /**
+   * Lines that exceed the BOM's plan, judged by the one rule both sides read
+   * (`judgeLine`). Derived per render rather than held in state, so it cannot
+   * disagree with the numbers on screen.
+   */
+  const overLines = ceiling
+    ? lines
+        .map((line) => ({
+          line,
+          verdict: judgeLine(ceiling, {
+            itemId: line.item_id || null,
+            quantity: parseFloat(line.quantity) || 0,
+          }),
+        }))
+        .flatMap((x) =>
+          x.verdict.kind === "over"
+            ? [{ line: x.line, planned: x.verdict.planned, ordered: x.verdict.ordered }]
+            : [],
+        )
+    : [];
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -125,7 +181,8 @@ export function NewPoForm({
         description: l.description.trim(),
         quantity: parseFloat(l.quantity) || 0,
         unit_price: parseFloat(l.unit_price) || 0,
-        item_id: null,
+        item_id: l.item_id || null,
+        sales_order_id: orderId || null,
         uom_id: null,
         sort_order: i,
       }));
@@ -147,6 +204,26 @@ export function NewPoForm({
     startTransition(async () => {
       const result = await createPurchaseOrder(payload);
       if (result.ok) {
+        /**
+         * The overage is recorded AFTER the PO exists, not instead of it — the
+         * client chose warn-and-record over a hard block. The confirmation is a
+         * justification document routed through submit/approve, exactly as
+         * `over_budget_confirmations` is for rate.
+         */
+        if (overLines.length > 0 && overReason.trim()) {
+          const res = await raiseOverQuantity(
+            overLines.map((o) => ({
+              purchase_order_id: result.poId,
+              sales_order_id: orderId || null,
+              item_id: o.line.item_id || null,
+              description: o.line.description.trim(),
+              planned_qty: o.planned,
+              ordered_qty: o.ordered,
+              reason: overReason.trim(),
+            })),
+          );
+          if (!res.ok) toastError(`Order saved, but the over-quantity note failed: ${res.error}`);
+        }
         success("Purchase order created.");
         reset();
         router.push(`/purchase/orders/${result.poId}`);
@@ -293,6 +370,51 @@ export function NewPoForm({
               />
             </div>
 
+            <div>
+              {/* THE GARMENT ORDER THIS PO BUYS FOR (0424).
+                  Asked once and written onto every line: the COLUMN is per-line,
+                  because one PO legitimately covers two orders and the detail
+                  editor can vary a line later, but the common PO is for one
+                  order and asking per line would be a question repeated down the
+                  form. Blank is general stock, and blank means UNCHECKED rather
+                  than blocked. */}
+              <Label htmlFor="po-order">Garment order</Label>
+              <Select
+                id="po-order"
+                value={orderId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setOrderId(id);
+                  setCeiling(null);
+                  setOverReason("");
+                  if (!id) return;
+                  startTransition(async () => {
+                    const c = await fetchBomCeiling(id);
+                    setCeiling({
+                      byItem: new Map(c.entries),
+                      bomId: c.bomId,
+                      bomCode: c.bomCode,
+                      unanswered: c.unanswered,
+                    });
+                  });
+                }}
+              >
+                <option value="">— General stock —</option>
+                {orders.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.order_number ?? "(no SC No)"}
+                  </option>
+                ))}
+              </Select>
+              {ceiling && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {ceiling.bomCode
+                    ? `Checked against Material BOM ${ceiling.bomCode}`
+                    : "This order has no recorded Material BOM — nothing to check against"}
+                </p>
+              )}
+            </div>
+
             <div className="sm:col-span-2 md:col-span-3">
               <Label htmlFor="po-notes">Notes</Label>
               <Textarea
@@ -314,8 +436,31 @@ export function NewPoForm({
                 components/masters/child-grid.tsx. Highest-traffic data-entry
                 screen in the app. */}
             <div className="space-y-2" data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
-              {lines.map((line, idx) => (
-                <div key={idx} data-grid-row className="flex items-center gap-2">
+              {lines.map((line, idx) => {
+                const verdict = ceiling
+                  ? judgeLine(ceiling, {
+                      itemId: line.item_id || null,
+                      quantity: parseFloat(line.quantity) || 0,
+                    })
+                  : null;
+                return (
+                <div key={idx} data-grid-row className="flex flex-wrap items-center gap-2">
+                  {/* THE MATERIAL. It was never captured on this form — `item_id`
+                      was hardcoded null — so the column existed and nothing
+                      filled it, and any control keyed on it could never fire. */}
+                  <div className="w-44">
+                    <Select
+                      value={line.item_id}
+                      onChange={(e) => updateLine(idx, "item_id", e.target.value)}
+                    >
+                      <option value="">— Material —</option>
+                      {items.map((it) => (
+                        <option key={it.id} value={it.id}>
+                          {it.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                   <div className="flex-1">
                     <Input
                       placeholder="Description *"
@@ -366,8 +511,26 @@ export function NewPoForm({
                       ×
                     </Button>
                   )}
+                  {/* THE CEILING, said on the line it judges. `unchecked` is
+                      printed as well as `over` — a control that goes quiet when
+                      it cannot measure teaches the operator it is always
+                      watching, which is the worst thing a warning can do. */}
+                  {verdict && verdict.kind !== "within" && (
+                    <p
+                      className={
+                        verdict.kind === "over"
+                          ? "w-full text-xs text-warning"
+                          : "w-full text-xs text-muted-foreground"
+                      }
+                    >
+                      {verdict.kind === "over"
+                        ? `BOM plans ${verdict.planned} — this line is ${verdict.variance} over`
+                        : `Not checked — ${verdict.why.toLowerCase()}`}
+                    </p>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
             <Button
               type="button"
@@ -378,6 +541,36 @@ export function NewPoForm({
             >
               + Add line
             </Button>
+
+            {/* WARN AND RECORD, not refuse (client 2026-08-13). The PO still
+                saves — a buyer with a real reason should not be stopped by a
+                plan — but going past it has to be said out loud and approved,
+                exactly as over_budget_confirmations works for rate. Save is
+                gated on the reason, not on the overage. */}
+            {overLines.length > 0 && (
+              <div className="mt-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2">
+                <p className="text-sm font-medium text-warning">
+                  {overLines.length === 1
+                    ? "1 line exceeds the Material BOM's plan"
+                    : `${overLines.length} lines exceed the Material BOM's plan`}
+                </p>
+                {/* required-star: exempt -- this form predates the `Field`
+                    primitive and uses raw `<Label>` + control throughout (see
+                    the Vendor label above, which this check already flags), so
+                    one `<Field required>` here would be the odd one out. The
+                    star is not decoration: Save is genuinely disabled until the
+                    reason is filled, which is the gate this warning exists to
+                    impose. Converting the whole form to `Field` is its own job. */}
+                <Label htmlFor="po-over-reason" className="mt-2 block">Reason <span className="text-danger">*</span></Label>
+                <Textarea
+                  id="po-over-reason"
+                  rows={2}
+                  value={overReason}
+                  onChange={(e) => setOverReason(e.target.value)}
+                  placeholder="Why is more being bought than the BOM planned?"
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-2">
@@ -392,7 +585,11 @@ export function NewPoForm({
             <Button
               type="submit"
               size="sm"
-              disabled={isPending || !vendorId}
+              /* The overage does not block Save — the REASON does. That is the
+                 whole difference between warn-and-record and the hard block
+                 that was considered and not chosen: the buyer may proceed, and
+                 must say why. */
+              disabled={isPending || !vendorId || (overLines.length > 0 && !overReason.trim())}
             >
               {isPending ? "Creating…" : "Create PO"}
             </Button>

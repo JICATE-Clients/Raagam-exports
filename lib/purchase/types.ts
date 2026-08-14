@@ -410,6 +410,15 @@ export type RfqQuoteLineInput = z.infer<typeof rfqQuoteLineInput>;
 
 export const poLineInput = z.object({
   item_id: z.string().uuid().optional().nullable(),
+  /**
+   * Which garment order this line buys for (0424).
+   *
+   * NULL is general stock, and such a line is not quantity-checked against any
+   * Material BOM. On the LINE rather than the header because one PO legitimately
+   * covers two orders — and because there was no other route: 0373's
+   * `purchase_orders.purchase_indent_id` was never applied to this database.
+   */
+  sales_order_id: z.string().uuid().optional().nullable(),
   description: z.string().min(1),
   quantity: z.coerce.number().nonnegative().default(0),
   uom_id: z.string().uuid().optional().nullable(),

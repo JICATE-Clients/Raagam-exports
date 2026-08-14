@@ -52,6 +52,7 @@ import {
   type BomStatus,
 } from "@/lib/orders/material-bom-amendment/status";
 import type { BomTaskRow, MbaFormData } from "@/lib/orders/material-bom-amendment/service";
+import { materialsForCategory } from "@/lib/orders/material-bom-amendment/material-options";
 import {
   isRefusal,
   moqRollup,
@@ -111,6 +112,8 @@ type ItemRow = {
   size: string;
   requirement_basis: string;
   style_ref_no: string;
+  /** The garment panel this material goes on (0423) — descriptive, see MbaItem. */
+  component_id: string | null;
   supply_type: string;
   vendor_id: string | null;
   purchase_uom_id: string | null;
@@ -157,6 +160,7 @@ const blankItem = (key: string): ItemRow => ({
   size: "",
   requirement_basis: "",
   style_ref_no: "",
+  component_id: null,
   supply_type: "",
   vendor_id: null,
   purchase_uom_id: null,
@@ -244,10 +248,41 @@ export function MbaMasterScreen({
    */
   useUnsavedGuard(dirty || isPending);
 
+  /**
+   * The style a line names, and the panels it declares (0423).
+   *
+   * Narrowed HERE rather than in the service, per the cascading-picker rule: the
+   * layer that knows which style the line names does the narrowing, and the line
+   * may name none at all ("All styles"), which is a state only the row knows.
+   */
+  const styleOf = (ref: string) =>
+    ref.trim() ? (selectedOrder?.styles ?? []).find((x) => x.ref === ref) : undefined;
+  const componentsOf = (ref: string) => styleOf(ref)?.components ?? [];
+
   const materialCategories = useMemo(
     () => data.lookups.filter((l) => l.kind === "material_category"),
     [data.lookups],
   );
+
+  /**
+   * A line's Category cell narrows the Material picker beside it — the
+   * cascading-filter rule, which this grid was breaking in its most literal
+   * form: two facets side by side, one of them answering the other's question
+   * and neither of them wired.
+   *
+   * `data.items` already arrives narrowed to accessories (the server refuses to
+   * ship anything else); this is the second, per-line half, and it has to live
+   * here because it depends on a cell the operator is still typing into.
+   */
+  const categoryCodeById = useMemo(
+    () => new Map(materialCategories.map((c) => [c.id, c.code])),
+    [materialCategories],
+  );
+  const materialsFor = (categoryId: string | null, currentValue: string | null) =>
+    materialsForCategory(data.items, {
+      categoryCode: categoryId ? categoryCodeById.get(categoryId) : null,
+      currentValue,
+    });
 
   /**
    * The SAME colour list the garment's own colours come from (kind
@@ -365,6 +400,7 @@ export function MbaMasterScreen({
         size: c.size ?? "",
         requirement_basis: c.requirement_basis ?? "",
         style_ref_no: c.style_ref_no ?? "",
+        component_id: c.component_id,
         supply_type: c.supply_type ?? "",
         vendor_id: c.vendor_id,
         purchase_uom_id: c.purchase_uom_id,
@@ -443,6 +479,10 @@ export function MbaMasterScreen({
           size: c.size ?? "",
           requirement_basis: c.requirement_basis ?? "",
           style_ref_no: "",
+          // The panel is a property of THIS order's style, and copy deliberately
+          // drops the style ref (a source order's styles are not this one's), so
+          // the component it named cannot travel either.
+          component_id: null,
           supply_type: c.supply_type ?? "",
           vendor_id: c.vendor_id ?? null,
           purchase_uom_id: c.purchase_uom_id ?? null,
@@ -494,6 +534,7 @@ export function MbaMasterScreen({
         size: c.size || null,
         requirement_basis: (c.requirement_basis || null) as RequirementBasis | null,
         style_ref_no: c.style_ref_no || null,
+        component_id: c.component_id,
         supply_type: c.supply_type || null,
         vendor_id: c.vendor_id,
         purchase_uom_id: c.purchase_uom_id,
@@ -851,7 +892,7 @@ export function MbaMasterScreen({
       cell: (r) => (
         <RecordPicker
           label="Material"
-          items={data.items}
+          items={materialsFor(r.category_id, r.item_id)}
           value={r.item_id}
           onChange={(id) => updItem(r.key, { item_id: id })}
           required
@@ -939,20 +980,88 @@ export function MbaMasterScreen({
       className: "min-w-[130px]",
       // Blank means every style on the order — the common case, which is why it
       // is not required.
-      cell: (r) => (
-        <Select
-          value={r.style_ref_no}
-          onChange={(e) => updItem(r.key, { style_ref_no: e.target.value })}
-          className="h-8"
-        >
-          <option value="">All styles</option>
-          {(selectedOrder?.styles ?? []).map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </Select>
-      ),
+      //
+      // THE UNIT RIDES UNDER IT (0423). "1 per piece" on a two-garment Set means
+      // something different from "1 per piece" on a single top, and `per_pieces`
+      // is typed by the operator — so the fact is SHOWN and never computed with.
+      // Turning it into arithmetic would silently double or halve a requirement
+      // the operator thought they had entered.
+      cell: (r) => {
+        const st = styleOf(r.style_ref_no);
+        return (
+          <div className="space-y-0.5">
+            <Select
+              value={r.style_ref_no}
+              onChange={(e) =>
+                updItem(r.key, {
+                  style_ref_no: e.target.value,
+                  // The panel belongs to the style. Changing the style must drop
+                  // a component the new one does not declare — the
+                  // cascading-filter rule's "clear a held value ONLY when it
+                  // really is out of scope".
+                  ...(r.component_id &&
+                  !componentsOf(e.target.value).some((c) => c.id === r.component_id)
+                    ? { component_id: null }
+                    : {}),
+                })
+              }
+              className="h-8"
+            >
+              <option value="">All styles</option>
+              {(selectedOrder?.styles ?? []).map((x) => (
+                <option key={x.ref} value={x.ref}>
+                  {x.ref}
+                </option>
+              ))}
+            </Select>
+            {st?.unit_kind && (
+              <span className="block text-[11px] leading-tight text-muted-foreground">
+                {st.unit_kind.toUpperCase() === "SET" ? "Set (multi-garment)" : "Piece"}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      header: "Component",
+      className: "min-w-[140px]",
+      /**
+       * WHICH PANEL the material goes on (0423) — "interlining or specialized
+       * tapes are only required for specific parts of the garment" (client
+       * 2026-08-13).
+       *
+       * DESCRIPTIVE, and that is the client's own call over the alternative: it
+       * does not split the requirement, because one collar interlining is needed
+       * per garment whichever panel it is cut for. `requirement_basis` is
+       * untouched and the requirement table has no component column — 0423
+       * asserts that, since the decision is only safe while it holds.
+       *
+       * Empty-and-explain, twice over: a line on "All styles" has no panel list
+       * to offer, and a style that declares no components has none either. Both
+       * say which case it is rather than showing an empty dropdown, which reads
+       * as "the master is empty" — a different and more alarming thing.
+       */
+      cell: (r) => {
+        const opts = componentsOf(r.style_ref_no);
+        return (
+          <RecordPicker
+            label="Component"
+            items={opts}
+            value={r.component_id}
+            onChange={(id) => updItem(r.key, { component_id: id })}
+            disabled={!r.style_ref_no.trim() || opts.length === 0}
+            placeholder={
+              !r.style_ref_no.trim()
+                ? "Pick a style first"
+                : opts.length === 0
+                  ? "This style declares no parts"
+                  : "— Whole garment —"
+            }
+            compact
+          />
+        );
+      },
     },
     {
       header: "Type",
@@ -1227,7 +1336,10 @@ export function MbaMasterScreen({
       cell: (r) => (
         <RecordPicker
           label="Material"
-          items={data.items}
+          // Accessories only, same as the Items grid. No Category cell on this
+          // row to cascade from, so it stays the full accessory list with each
+          // option prefixed by its class.
+          items={materialsFor(null, r.item_id)}
           value={r.item_id}
           onChange={(id) => updProc(r.key, { item_id: id })}
           compact

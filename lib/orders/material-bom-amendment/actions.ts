@@ -560,6 +560,11 @@ export async function copyMaterialBomFrom(
     size: (c.size as string) ?? null,
     requirement_basis: (c.requirement_basis as RequirementBasis) ?? null,
     style_ref_no: null,
+    // The PANEL goes with the style ref, and for the same reason (0423): a
+    // component belongs to a style, the source order's styles are not this
+    // order's, and the screen narrows the cell to the style the line names.
+    // Carrying it would offer a sleeve this garment may not have.
+    component_id: null,
     supply_type: (c.supply_type as string) ?? null,
     vendor_id: sameCustomer ? ((c.vendor_id as string) ?? null) : null,
     purchase_uom_id: (c.purchase_uom_id as string) ?? null,

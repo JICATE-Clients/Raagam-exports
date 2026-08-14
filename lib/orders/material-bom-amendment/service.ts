@@ -8,6 +8,7 @@ import type { Customer } from "@/lib/masters/customer-types";
 import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { MaterialBomAmendment, BomCopySource } from "./types";
 import { isInactive } from "@/lib/masters/inactive";
+import { isAccessoryClass, type MaterialOption } from "./material-options";
 import { withCreators } from "@/lib/created-by";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import {
@@ -196,6 +197,15 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
     s
       .from("garment_order_amendments")
       .select(ORDER_SELECT)
+      // CONFIRMED ORDERS ONLY (client 2026-08-13: "lists all confirmed RE
+      // Numbers"). A draft order is someone's half-entered thinking — its
+      // styles, combos and quantities are all still moving, so a material plan
+      // built against it is planned against numbers that have not settled.
+      //
+      // It is the ORDER's draft flag, not the BOM's. The queue's own `draft`
+      // status means "a BOM exists and is unfinished", which is a different
+      // sentence and stays.
+      .eq("is_draft", false)
       .order("created_at", { ascending: false }),
     s
       .from("material_bom_amendments")
@@ -430,6 +440,55 @@ async function getConversionRows(): Promise<MbaConversionRow[]> {
   return (data ?? []) as MbaConversionRow[];
 }
 
+/**
+ * The materials a BOM line may name — Sewing and Packing accessories only.
+ *
+ * NARROWED HERE, NOT ON THE CLIENT. The option list is what the picker filters,
+ * so a client-side narrowing would still ship every item id in the database to
+ * the browser and only hide them. The Category cascade beside it IS a client
+ * concern (it depends on a cell the operator is typing into), and it reads
+ * `class_code` off these rows.
+ *
+ * `item_class_id` resolves through `config_lookups` in a second query rather
+ * than a PostgREST embed. Embeds resolve BY FK and fail at runtime with "could
+ * not find a relationship" — invisible to `tsc` and to `next build` (see the
+ * two-party-table note in AGENTS.md) — and this one column is not worth that
+ * risk. Two indexed reads, joined in memory.
+ *
+ * `inactive` rides along and is NOT filtered in SQL: a material a saved line
+ * already names must still resolve, or the cell renders empty and the next save
+ * blanks the FK. The picker hides the switched-off ones itself.
+ */
+async function getMaterialRows(): Promise<MaterialOption[]> {
+  const s = await createClient();
+  const [itemsRes, classRes] = await Promise.all([
+    s.from("items").select("id, code, name, is_active, item_class_id").order("name"),
+    s.from("config_lookups").select("id, code").eq("kind", "item_class"),
+  ]);
+
+  const classCode = new Map<string, string | null>(
+    ((classRes.data ?? []) as { id: string; code: string | null }[]).map((c) => [c.id, c.code]),
+  );
+
+  type ItemRowRaw = {
+    id: string;
+    code: string | null;
+    name: string;
+    is_active: boolean;
+    item_class_id: string | null;
+  };
+
+  return ((itemsRes.data ?? []) as ItemRowRaw[])
+    .map((r) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      inactive: isInactive(r),
+      class_code: (r.item_class_id ? classCode.get(r.item_class_id) : null) ?? null,
+    }))
+    .filter((r) => isAccessoryClass(r.class_code));
+}
+
 async function pickerRows(table: string): Promise<PickerRow[]> {
   const s = await createClient();
   // `items` spells the flag `is_active`; normalized here so the shape handed to
@@ -517,8 +576,36 @@ export type BomOrderOption = {
   customer_name: string | null;
   amend_date: string;
   delivery_date: string | null;
-  /** The style refs this order carries, for the line-level Style picker. */
-  styles: string[];
+  /** The styles this order carries, for the line-level Style picker. */
+  styles: BomOrderStyle[];
+};
+
+/**
+ * A style line as the BOM needs it — its ref, and the two facts the module
+ * fetches from Style Entry (0423).
+ *
+ * Until 0423 this was a bare `string[]` of refs, and it was the whole of what
+ * the Material BOM knew about a style: the module never touched
+ * `garment_styles` at all. So it could not say which panel a trim goes on, and
+ * it could not tell a Set from a Piece.
+ */
+export type BomOrderStyle = {
+  ref: string;
+  /**
+   * `piece` / `set` from the Style master, DISPLAYED and never computed with.
+   *
+   * The client asked the BOM to "know if the style is a Piece or a Set". It
+   * makes the difference to `per_pieces` — "1 per piece" on a two-garment Set
+   * means something different from "1 per piece" on a single top — but the
+   * divisor is typed by the operator and stays that way. Turning it into
+   * arithmetic would silently double or halve a requirement the operator
+   * thought they had entered, which is the failure the whole `Refusal` shape in
+   * requirement.ts exists to avoid. Shown beside the Style so the number is
+   * entered knowingly.
+   */
+  unit_kind: string | null;
+  /** The panels this style declares, for the line's Component cell (0423). */
+  components: { id: string; code: string | null; name: string; inactive: boolean }[];
 };
 
 async function getOrderOptions(): Promise<BomOrderOption[]> {
@@ -528,11 +615,13 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
     .select(
       "id, code, po_no, amend_date, delivery_date, " +
         "customer:customers(id,name), sales_order:sales_orders(order_number), " +
-        "styles:garment_order_amendment_styles(style_ref_no)",
+        // `style_id` as well as the ref (0423): the ref is what every child
+        // table keys on, but only the id reaches the Style master.
+        "styles:garment_order_amendment_styles(style_ref_no, style_id)",
     )
     .order("created_at", { ascending: false });
 
-  return ((data ?? []) as unknown as {
+  const rows = (data ?? []) as unknown as {
     id: string;
     code: string | null;
     po_no: string | null;
@@ -540,8 +629,73 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
     delivery_date: string | null;
     customer: { id: string; name: string } | null;
     sales_order: { order_number: string | null } | null;
-    styles: { style_ref_no: string | null }[] | null;
-  }[]).map((o) => ({
+    styles: { style_ref_no: string | null; style_id: string | null }[] | null;
+  }[];
+
+  /**
+   * THE STYLE STRUCTURE, in two more reads rather than one deep embed.
+   *
+   * `garment_styles` cannot be embedded from here: PostgREST resolves an embed
+   * BY FK and fails the WHOLE query when it cannot — at RUNTIME, invisible to
+   * `tsc` and to the build. `lib/orders/amendments/service.ts` records what that
+   * costs: one unresolvable name emptied the Style picker with no error at all.
+   * Two indexed reads joined in memory cannot fail that way.
+   *
+   * Skipped entirely when no style line names a style, which is the state a
+   * brand-new order is in.
+   */
+  const styleIds = [
+    ...new Set(
+      rows.flatMap((o) => (o.styles ?? []).map((x) => x.style_id).filter(Boolean) as string[]),
+    ),
+  ];
+
+  const [styleRes, compRes] = await Promise.all([
+    styleIds.length
+      ? s
+          .from("garment_styles")
+          .select("id, unit_kind, components:garment_style_components(component_id)")
+          .in("id", styleIds)
+      : Promise.resolve({ data: [] as unknown[] }),
+    styleIds.length
+      ? s.from("components").select("id, short_name, blocked")
+      : Promise.resolve({ data: [] as unknown[] }),
+  ]);
+
+  const componentById = new Map(
+    ((compRes.data ?? []) as { id: string; short_name: string; blocked: boolean }[]).map((c) => [
+      c.id,
+      { id: c.id, code: null, name: c.short_name, inactive: c.blocked },
+    ]),
+  );
+
+  const structureById = new Map(
+    (
+      (styleRes.data ?? []) as unknown as {
+        id: string;
+        unit_kind: string | null;
+        components: { component_id: string | null }[] | null;
+      }[]
+    ).map((g) => [
+      g.id,
+      {
+        unit_kind: g.unit_kind,
+        // De-duplicated: a style may list one component under two coordinates
+        // (a POCKET on the top and on the bottom of a Set), and the BOM asks
+        // which PART a trim goes on, not which coordinate.
+        components: [
+          ...new Map(
+            (g.components ?? [])
+              .map((c) => (c.component_id ? componentById.get(c.component_id) : null))
+              .filter(Boolean)
+              .map((c) => [c!.id, c!] as const),
+          ).values(),
+        ],
+      },
+    ]),
+  );
+
+  return rows.map((o) => ({
     id: o.id,
     code: o.code,
     sc_no: o.sales_order?.order_number ?? null,
@@ -550,14 +704,23 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
     customer_name: o.customer?.name ?? null,
     amend_date: o.amend_date,
     delivery_date: o.delivery_date,
-    styles: (o.styles ?? []).map((x) => x.style_ref_no ?? "").filter(Boolean),
+    styles: (o.styles ?? [])
+      .filter((x) => (x.style_ref_no ?? "").trim())
+      .map((x) => {
+        const st = x.style_id ? structureById.get(x.style_id) : undefined;
+        return {
+          ref: x.style_ref_no as string,
+          unit_kind: st?.unit_kind ?? null,
+          components: st?.components ?? [],
+        };
+      }),
   }));
 }
 
 export type MbaFormData = {
   orders: BomOrderOption[];
   customers: Customer[];
-  items: PickerRow[];
+  items: MaterialOption[];
   vendors: PickerRow[];
   /** Every customer's nominated / recommended vendors — see `VendorNomination`. */
   nominations: VendorNomination[];
@@ -573,7 +736,7 @@ export async function getMbaFormData(): Promise<MbaFormData> {
     await Promise.all([
       getOrderOptions(),
       listCustomers(),
-      pickerRows("items"),
+      getMaterialRows(),
       getVendorRows(),
       listVendorNominations(),
       getProcessRows(),

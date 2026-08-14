@@ -38,6 +38,7 @@ import {
   getPoItemSizeDeliveries,
 } from "./po-service";
 import type { BudgetLineRow } from "./po-service";
+import { bomCeilingForOrder } from "./bom-ceiling-service";
 import type {
   PoSizeDelivery,
   PoDeliverySize,
@@ -787,5 +788,86 @@ export async function updatePoGeneral(
   if (error) return { ok: false, error: error.message };
 
   revalidatePurchase(`/purchase/orders/${poId}`);
+  return { ok: true };
+}
+
+/**
+ * The Material BOM's planned quantity per material, for the order a PO line
+ * names (0424).
+ *
+ * A server ACTION rather than a prop on the form: the ceiling depends on an
+ * order the operator picks while the form is open, and prefetching one for every
+ * order on the system would ship the whole plan to the browser to use one row of
+ * it. Fetched once per order and cached by the caller.
+ *
+ * The `Map` is serialised to entries because a Map does not survive the
+ * server/client boundary — it arrives as `{}`, silently empty, which would read
+ * as "the BOM plans none of this" for every line.
+ */
+export async function fetchBomCeiling(salesOrderId: string): Promise<{
+  entries: [string, number][];
+  bomId: string | null;
+  bomCode: string | null;
+  unanswered: number;
+}> {
+  if (!(await can("materials_purchase", "view"))) {
+    return { entries: [], bomId: null, bomCode: null, unanswered: 0 };
+  }
+  const c = await bomCeilingForOrder(salesOrderId);
+  return {
+    entries: [...c.byItem.entries()],
+    bomId: c.bomId,
+    bomCode: c.bomCode,
+    unanswered: c.unanswered,
+  };
+}
+
+/**
+ * Record that a PO went past the Material BOM's plan, with the buyer's reason
+ * (0424).
+ *
+ * WARN AND RECORD, not refuse — the client chose this over a hard block. The PO
+ * is already saved by the time this runs, and deliberately so: a buyer with a
+ * real reason should not be stopped by a plan, they should have to say why and
+ * someone should approve it. Same four-state routing as
+ * `over_budget_confirmations`, which does the identical job for rate.
+ *
+ * The figures are STORED rather than recomputed at read time. A BOM is a living
+ * document, so a confirmation has to record what the ceiling WAS when it was
+ * approved — the same reason 0418 freezes a requirement's own inputs.
+ *
+ * `po_line_item_id` is left null: `createPurchaseOrder` returns the PO id and
+ * not its line ids, and (PO, material, order) already identifies the line for a
+ * justification document. Wiring the line id would mean re-reading the lines
+ * back purely to decorate an audit row.
+ */
+export async function raiseOverQuantity(rows: {
+  purchase_order_id: string;
+  sales_order_id: string | null;
+  item_id: string | null;
+  description: string;
+  planned_qty: number;
+  ordered_qty: number;
+  reason: string;
+}[]): Promise<{ ok: true } | ErrResult> {
+  if (!(await can("materials_purchase", "create"))) throw new Error("Forbidden");
+  if (rows.length === 0) return { ok: true };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("over_quantity_confirmations").insert(
+    rows.map((r) => ({
+      purchase_order_id: r.purchase_order_id,
+      sales_order_id: r.sales_order_id,
+      item_id: r.item_id,
+      description: r.description,
+      planned_qty: r.planned_qty,
+      ordered_qty: r.ordered_qty,
+      variance_qty: r.ordered_qty - r.planned_qty,
+      reason: r.reason,
+      status: "submitted",
+    })),
+  );
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/purchase/orders");
   return { ok: true };
 }

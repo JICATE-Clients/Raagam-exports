@@ -25,6 +25,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate } from "@/lib/format";
 import { CustomerPicker } from "@/components/masters/customer-picker";
 import { RecordPicker } from "@/components/masters/record-picker";
+import { SizeGroupQuickCreateSheet } from "@/components/masters/size-group-quick-create-sheet";
+import type { SizeGroup } from "@/lib/masters/size-group-types";
 import { ComponentPicker } from "@/components/masters/component-picker";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
 import {
@@ -309,6 +311,24 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
    */
   const coordinateOpts = data.garments;
   const componentOpts = data.componentRows;
+
+  /**
+   * The approved samples this style's customer may choose from (0422).
+   *
+   * The three rules are on the field itself; this is where they are enforced:
+   * an unattributed sample stays offered, the held one always survives, and no
+   * customer means no narrowing rather than an empty list.
+   */
+  const samplesForCustomer = useMemo(() => {
+    const want = form.customer_id;
+    if (!want) return data.samples;
+    return data.samples.filter(
+      (x) =>
+        x.customer_id === want ||
+        x.customer_id === null ||
+        x.id === form.approved_sample_id,
+    );
+  }, [data.samples, form.customer_id, form.approved_sample_id]);
   /** Structure needed no FK change — 'fabric_structure' rows ARE config_lookups.
    *  Only the kind moved, which is why there is no third repoint in 0396. */
   /**
@@ -389,15 +409,31 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
 
   // ---- size group fill ------------------------------------------------------
 
+  /**
+   * Groups the operator has just created from the picker, merged in front of the
+   * server's list until the next `router.refresh()` brings them down properly.
+   *
+   * WITH THEIR SIZES. A quick-created group whose children were not carried here
+   * would select fine and leave "Fill sizes" disabled — the exact
+   * looks-like-it-worked-and-did-nothing failure the sheet exists to prevent,
+   * reintroduced one layer up.
+   */
+  const [newSizeGroups, setNewSizeGroups] = useState<SizeGroup[]>([]);
+  const [sgQuickCreate, setSgQuickCreate] = useState<((id: string) => void) | null>(null);
+  const allSizeGroups = useMemo(
+    () => [...newSizeGroups, ...data.sizeGroups],
+    [newSizeGroups, data.sizeGroups],
+  );
+
   const sizeGroupItems = useMemo(
     () =>
-      data.sizeGroups.map((g) => ({
+      allSizeGroups.map((g) => ({
         id: g.id,
         code: g.size_group_no,
         name: g.size_group_name ?? g.size_group_no ?? "(unnamed group)",
         inactive: g.inactive,
       })),
-    [data.sizeGroups],
+    [allSizeGroups],
   );
 
   /** Size NAME → the `config_lookups` row that holds it. The group stores names
@@ -408,12 +444,12 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   );
 
   const groupSizeNames = useMemo(() => {
-    const g = data.sizeGroups.find((x) => x.id === form.size_group_id);
+    const g = allSizeGroups.find((x) => x.id === form.size_group_id);
     return [...(g?.sizes ?? [])]
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       .map((s) => s.size_name)
       .filter((n) => !!n?.trim());
-  }, [data.sizeGroups, form.size_group_id]);
+  }, [allSizeGroups, form.size_group_id]);
 
   const fillableSizes = groupSizeNames;
   const unmatchedSizes = useMemo(
@@ -1271,40 +1307,45 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               />
             </Field>
             {/**
-              * NOT FILTERED BY CUSTOMER, AND THAT IS A DATA FACT, NOT AN
-              * OVERSIGHT (checked 2026-08-11).
+              * NARROWED TO THE CUSTOMER ABOVE (client 2026-08-13, 0422).
               *
-              * The client asked for this list to narrow to the customer chosen
-              * above. `samples` (0005 · 0272 · 0322 · 0338) carries NO customer
-              * column: its only party link is `opportunity_id` →
-              * `opportunities.buyer_id` → `buyers`, and reaching `customers`
-              * from there needs the NULLABLE `buyers.customer_id` bridge (0380).
-              * A filter down that chain would silently drop every approved
-              * sample whose buyer is unlinked — including one a style already
-              * holds, which is the "Disabled rows" failure the whole picker
-              * layer exists to prevent.
+              * This field carried a long note refusing to do exactly that, and
+              * the refusal was right at the time: `samples` (0005) had NO
+              * customer column, and its only party link was `opportunity_id` →
+              * `opportunities.buyer_id` → `buyers`, which reaches `customers`
+              * only through the NULLABLE `buyers.customer_id` bridge (0380) —
+              * set for none of the six buyers. Filtering down that chain would
+              * have dropped every sample silently. The note said narrowing was
+              * a schema question and not a screen one; 0422 answered it with a
+              * direct `samples.customer_id`.
               *
-              * So the field is deliberately left showing every approved sample.
-              * Narrowing it is a schema question (a customer FK on `samples`,
-              * or a decision that the buyer bridge is authoritative), not a
-              * screen one. Do not add a join here without that answer.
+              * THREE RULES, and each is a way to turn this into a worse field
+              * than the unfiltered one:
               *
-              * `customer_reference` on `samples` is a free-text string, not an
-              * FK — it cannot answer this either.
+              * - A sample with NO customer stays offered. Every row is NULL
+              *   today (0422's backfill had nothing to resolve), so a strict
+              *   filter would empty an already-empty list and read as broken.
+              * - The sample this style already holds always survives, whatever
+              *   its customer says now — "Disabled rows", and the same failure
+              *   if skipped: a filled field renders empty and the next save
+              *   writes that emptiness over a real FK.
+              * - With NO customer chosen the list is NOT emptied and the field
+              *   is NOT disabled. Customer sits directly above and is already
+              *   `required`; a control greyed out with no explanation is worse
+              *   than a full list. This is the opposite call from
+              *   `processesForKind`'s blank Type, and deliberately: Type
+              *   DECIDES WHICH LIST, while Customer merely narrows one that is
+              *   already valid.
               */}
-            {/* COMPULSORY (client 2026-08-11): a style is the garment a
-                customer APPROVED a sample of, so a style with no sample behind
-                it records an approval nobody gave. `RecordPicker` has no
-                `required` prop of its own, so the declaration goes on the
-                wrapper and the inner `DataPicker` ORs `RequiredScope` — the
-                same route Customer takes three fields up. `htmlFor` so a
-                blocked Save can land the cursor here. */}
+            {/* NO LONGER COMPULSORY (client 2026-08-13) — `samples` has zero
+                rows, so a required field with an empty picker made the Style
+                master unsaveable. See the Save-gate note above. */}
             <Field label="Approved Sample No" size="sm" htmlFor="st-sample">
               <RecordPicker
                 id="st-sample"
                 label="Approved Sample No"
                 compact
-                items={data.samples}
+                items={samplesForCustomer}
                 value={form.approved_sample_id}
                 onChange={(id) => set({ approved_sample_id: id })}
               />
@@ -1663,12 +1704,24 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               which group was used. */}
           <FieldGrid>
             <Field label="Size Group" size="sm">
+              {/* "+ Add" opens a real mini-form, not the inline name-only row.
+                  `sizeGroupInput` requires nothing at all, so a name-only group
+                  would save and then fill nothing — leaving "Fill sizes" beside
+                  it disabled with a valid group selected. That is the create
+                  that appears to work and changes nothing, which is why
+                  `RecordPicker` refuses inline CRUD and takes an override
+                  instead. */}
               <RecordPicker
                 label="Size Group"
                 compact
                 items={sizeGroupItems}
                 value={form.size_group_id}
                 onChange={(id) => set({ size_group_id: id })}
+                onAddOverride={
+                  masterPerms.canCreate
+                    ? (commit) => setSgQuickCreate(() => commit)
+                    : undefined
+                }
               />
             </Field>
             <Field label="" size="sm">
@@ -1775,6 +1828,42 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           canSave,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
+        }}
+      />
+
+      {/**
+        * Size Group quick-create, mounted at the EDITOR ROOT rather than in the
+        * cell that opens it. `RequiredScope` follows the render tree, so a sheet
+        * rendered from inside a required field would inherit "required" and hold
+        * the cursor on its own empty boxes while announcing the wrong field's
+        * name — the New Yarn / Purity defect (AGENTS.md, client 2026-08-06).
+        *
+        * `commit` is the picker's own callback: it selects the new id and closes
+        * the panel, so the operator lands back on a filled field rather than an
+        * empty one they have to re-open.
+        */}
+      <SizeGroupQuickCreateSheet
+        open={!!sgQuickCreate}
+        onClose={() => setSgQuickCreate(null)}
+        onCreated={(row) => {
+          setNewSizeGroups((xs) => [
+            {
+              id: row.id,
+              size_group_no: null,
+              size_group_name: row.name,
+              inactive: false,
+              created_at: "",
+              updated_at: "",
+              sizes: row.sizes.map((z, i) => ({
+                id: `new-${i}`,
+                size_name: z.size_name,
+                sort_order: z.sort_order,
+              })),
+            },
+            ...xs,
+          ]);
+          sgQuickCreate?.(row.id);
+          setSgQuickCreate(null);
         }}
       />
     </div>

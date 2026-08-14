@@ -35,7 +35,9 @@ function rev(): void {
   revalidatePath("/orders/styles");
 }
 
-type ChildSize = { size_name: string; sort_order: number | null };
+/** One size row under a group. Exported so a quick-create surface can build the
+ *  same shape the master screen does, rather than re-declaring it. */
+export type ChildSize = { size_name: string; sort_order: number | null };
 
 /**
  * THE NAME IS THE GUARD, NOT THE CODE.
