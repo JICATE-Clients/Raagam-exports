@@ -506,13 +506,31 @@ export function gridKeyNav(
     // does on a typed field.
     //
     // Opt-IN, hence `!== "false"` rather than a bare `hasAttribute`: a picker
-    // states its emptiness through `data-field-empty="true|false"`, and only the
-    // two shared pickers (lookup-picker.tsx, lookup-dialog-picker.tsx) do. The
+    // states its emptiness through `data-field-empty="true|false"`, which
+    // `DataPicker` itself now emits (data-picker.tsx), so every picker built on
+    // it inherits the behaviour rather than only the two shared wrappers. The
     // dozen-odd bespoke triggers (customer / vendor / bank / country …) declare
     // nothing and keep the old no-op — reading their silence as "filled" would
     // hand the runaway-blank-row bug straight back to the grids it came from.
     // Space still opens the picker either way.
-    if (isTrigger && el.getAttribute("data-field-empty") !== "false") return;
+    //
+    // AND IT MUST NOT BLOCK THE HAND-OFF (`!fromChildGrid`). The guard exists to
+    // stop a picker-only grid spawning blank rows of ITS OWN; it has nothing to
+    // say about the row a PARENT grid would add. Applied to the escalation it
+    // was fatal rather than merely strict: a nested grid whose last cell is an
+    // empty picker declined the key (correctly), the parent re-ran this same
+    // guard on the same element, and Enter died between the two — the only
+    // keyboard route out of the nested list.
+    //
+    // Reported 2026-08-14 on the Garment Order: with the size list moved to the
+    // end of a style row, Enter at the end of the row hit a blank size picker
+    // and "+ Add style" became unreachable from the keyboard. It was invisible
+    // until then only because the row used to end in a typed field.
+    //
+    // Runaway rows cannot come back through this door: after the parent adds,
+    // `focusColIn` lands on the NEW row's first field, so the next Enter is on
+    // the parent's own empty picker and the guard fires there normally.
+    if (!fromChildGrid && isTrigger && el.getAttribute("data-field-empty") !== "false") return;
     // ASK FIRST, THEN CLAIM THE KEY. A grid that cannot grow right now must
     // DECLINE, so Enter carries on up to the parent grid — the same
     // decline-and-bubble hand-off the `e.currentTarget` note above exists for.
