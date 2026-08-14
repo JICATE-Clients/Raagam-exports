@@ -646,6 +646,9 @@ export function AmendmentScreen({
    * other side, and the reason those are not memos is the reason this is here.
    */
   const [openStyleKey, setOpenStyleKey] = useState<string | null>(null);
+  /** The same fold, on the Quantities grid — see `openStyleKey` for the whole
+   *  reasoning, which is identical down to why a folded row keeps one field. */
+  const [openQtyKey, setOpenQtyKey] = useState<string | null>(null);
   /**
    * WHICH STYLE'S PRICES ARE OPEN, keyed by `styleKey` rather than by row key —
    * the Prices tab groups its rows by style, so the thing that folds is a GROUP
@@ -2181,7 +2184,21 @@ export function AmendmentScreen({
       },
     ]);
   };
-  const addPriceDetail = () => setPriceDetails((xs) => [...xs, blankPriceDetail()]);
+  /**
+   * A NEW STYLE TO PRICE — and it becomes the open group, so the one before it
+   * folds (client 2026-08-14: "if user choose another add price button it should
+   * fold, how we folding the style in first tab"). Same two lines as `addStyle`,
+   * same rule.
+   *
+   * KEYED BY THE ROW, because a group with no style yet has no `styleKey` to be
+   * keyed by — which is why `priceStyleCell` has to move this pointer across
+   * when the style is picked and the group's identity changes under it.
+   */
+  const addPriceDetail = () => {
+    const row = blankPriceDetail();
+    setPriceDetails((xs) => [...xs, row]);
+    setOpenPriceKey(row.key);
+  };
   const addApprovalQty = () => setApprovalQtys((xs) => [...xs, blankApprovalQty()]);
 
   /**
@@ -2911,26 +2928,19 @@ export function AmendmentScreen({
     });
   };
 
-  /**
-   * Is this row left over from a mode its style no longer uses?
+  /*
+   * `priceRowStale(row)` STOOD HERE and is gone with the grid that needed it
+   * (2026-08-14). It answered "is this row left over from a mode its style no
+   * longer uses?" one row at a time, because the flat grid could only ask one
+   * row at a time — its whole job was to tell two visually identical rows apart.
    *
-   * The flag half of "keep rows, never delete them". A style's CURRENT mode is
-   * the one on its most recently touched row, which is not knowable — so this
-   * asks the honest question instead: does this style hold rows of more than one
-   * mode, and is this row not on the majority one? Any row of a minority mode is
-   * shown as stale, which is exactly the set the operator has to resolve before
-   * `styleRate` will answer.
+   * The question it answered has not gone anywhere: it is "keep rows, never
+   * delete them" (operator decision 2026-08-12), and a leftover rate is still
+   * what makes `styleRate` refuse and the Logistic tab's Avg Rate go blank. It
+   * is now asked ONCE PER STYLE, in `rateGrid`, by the same majority rule this
+   * used — `groupMode` below — and the leftovers are listed together under one
+   * amber line instead of a repeated note down the grid. One rule, one reader.
    */
-  const priceRowStale = (r: PriceDetailRow) => {
-    const key = styleKey(r.style_ref_no);
-    if (!key || !r.price_type) return false;
-    const rows = priceDetails.filter((x) => styleKey(x.style_ref_no) === key);
-    const top = groupMode(rows);
-    // Only stale if the style really does hold two modes. `groupMode` answers
-    // with the majority either way, so this second clause is what stops every
-    // row of a single-mode style being compared against itself and passing.
-    return rows.some((x) => x.price_type && x.price_type !== top) && r.price_type !== top;
-  };
 
   /**
    * THE MODE OF A STYLE, from its rows — the majority one, exactly as
@@ -2990,175 +3000,331 @@ export function AmendmentScreen({
     return out;
   })();
 
-  const priceDetailColumns: ChildGridColumn<PriceDetailRow>[] = [
-    {
-      header: "Style",
-      required: true,
-      width: STYLE_COL_W,
-      cell: (r) => (
-        <div className="space-y-1">
-          <RecordPicker
-            label="Style"
-            compact
-            items={styleLineItems}
-            identity="code"
-            value={styleLineKeyOf(r.style_ref_no)}
-            onChange={(key) => {
-              const line = key ? styles.find((x) => x.key === key) : null;
-              setPriceDetails((xs) =>
-                xs.map((x) =>
-                  x.key === r.key
-                    ? {
-                        ...x,
-                        style_ref_no: line?.style_ref_no ?? "",
-                        style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
-                        article_no: line?.article_no ?? "",
-                        // "Unit ... is pulled from the Order Unit established in
-                        // the initial Style Entry" — so it arrives with the line
-                        // rather than being asked for again.
-                        unit: line ? unitTextOf(line) : "",
-                      }
-                    : x,
-                ),
-              );
-            }}
-          />
-          {(r.article_no || r.unit) && (
-            <p className="text-xs text-muted-foreground">
-              {[r.article_no, r.unit && `per ${r.unit}`].filter(Boolean).join(" · ")}
-            </p>
-          )}
-        </div>
-      ),
-    },
-    {
-      header: "Price Type",
-      required: true,
-      width: "11rem",
-      /**
-       * THE MODE, and it drives the two cells after it (client 2026-08-12:
-       * "when a user selects a mode like Color wise or Size wise, the system
-       * automatically opens a grid listing the relevant colors or sizes").
-       *
-       * Choosing it SEEDS the rows — one per colourway, per size, or per
-       * combination — through `applyPriceMode`. The dropdown stays per ROW
-       * rather than moving to the style, because that is where the column has
-       * always been and a saved row must keep answering for itself.
-       */
-      cell: (r) => (
-        <div className="space-y-1">
-          <Select
-            value={r.price_type}
-            onChange={(e) => applyPriceMode(r, e.target.value)}
-          >
-            <option value="">—</option>
-            {PRICE_TYPE_OPTIONS.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </Select>
-          {/* THE FLAG HALF of "keep rows, never delete them". Without it a
-              left-over row from a previous mode is indistinguishable from a
-              current one, and the only symptom is that the Logistic tab's Avg
-              Rate quietly refuses to answer. Amber and advisory — it never
-              holds the cursor (AGENTS.md: a hold is only for an error that
-              genuinely blocks Save, and this row is valid, just superseded). */}
-          {priceRowStale(r) && (
-            <p className="text-xs text-warning">Stale — this style now prices {""}
-              {priceDetails.find(
-                (x) => styleKey(x.style_ref_no) === styleKey(r.style_ref_no) && !priceRowStale(x),
-              )?.price_type ?? "differently"}
-              . Remove it or the order&rsquo;s value cannot be calculated.
-            </p>
-          )}
-        </div>
-      ),
-    },
-    {
-      header: "Colour",
-      width: "10rem",
-      /**
-       * WHICH colourway this rate is for — the combos the Combos tab declared,
-       * which is why Prices sits after it in the rail.
-       *
-       * DISABLED, NOT HIDDEN, when the mode does not price by colour. A hidden
-       * cell would make the row's own columns shift under the shared header
-       * band (`inlineCards` draws one header for every row), so a Style-wise row
-       * beside a Color-wise one would put its Price under the Colour heading.
-       * Greyed-and-empty says the same thing and keeps the grid a grid.
-       */
-      cell: (r) => {
-        const on = priceAxes(r.price_type).colour;
-        return (
-          <Select
-            value={r.combo}
-            disabled={!on}
-            onChange={(e) =>
-              setPriceDetails((xs) =>
-                xs.map((x) => (x.key === r.key ? { ...x, combo: e.target.value } : x)),
-              )
-            }
-          >
-            <option value="">{on ? "—" : ""}</option>
-            {comboOptionsForStyle(r.style_ref_no).map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
+  /**
+   * THE STYLE, ASKED ONCE FOR THE WHOLE GROUP (client 2026-08-14: "already we
+   * choosed the style, why need show for all size").
+   *
+   * It writes the four identity fields to EVERY row of the group, not to one:
+   * they are a property of the style, and a group whose rows disagreed about
+   * `style_ref_no` would split into two groups on the next render — the row the
+   * operator re-pointed would leave, taking its rates with it.
+   *
+   * The article number is no longer drawn beside it. It was a caption under this
+   * picker on every one of six identical rows, which is exactly the repetition
+   * this change removes; it is answered on the Style(s) tab and reaches the
+   * saved row untouched.
+   */
+  const priceStyleCell = (g: PriceGroup) => (
+    <RecordPicker
+      label="Style"
+      compact
+      required
+      items={styleLineItems}
+      identity="code"
+      value={styleLineKeyOf(g.refNo)}
+      onChange={(key) => {
+        const line = key ? styles.find((x) => x.key === key) : null;
+        const mine = new Set(g.rows.map((r) => r.key));
+        /* THE GROUP'S IDENTITY CHANGES HERE, so the "which group is open"
+           pointer has to follow it. A blank group is keyed by its row; the
+           moment a style is picked it is keyed by `styleKey`, and a pointer left
+           on the old key would stop matching — the group would fold itself out
+           from under the operator the instant its last rate was filled. Only the
+           pointer AT THIS GROUP moves; another group's stays where it is. */
+        setOpenPriceKey((k) =>
+          k === g.key ? styleKey(line?.style_ref_no ?? "") || null : k,
         );
-      },
-    },
-    {
-      header: "Size",
-      width: "9rem",
-      /** WHICH size — the style line's OWN size set (0407), not every size in
-       *  the master: a rate for a size this style is not made in prices nothing,
-       *  and could never be matched to a quantity. */
-      cell: (r) => {
-        const on = priceAxes(r.price_type).size;
-        return (
-          <Select
-            value={r.size_id ?? ""}
-            disabled={!on}
-            onChange={(e) =>
-              setPriceDetails((xs) =>
-                xs.map((x) => (x.key === r.key ? { ...x, size_id: e.target.value || null } : x)),
-              )
-            }
-          >
-            <option value="">{on ? "—" : ""}</option>
-            {sizeOptionsForStyle(r.style_ref_no).map((z) => (
-              <option key={z.id} value={z.id}>
-                {z.name}
-              </option>
-            ))}
-          </Select>
+        setPriceDetails((xs) =>
+          xs.map((x) =>
+            mine.has(x.key)
+              ? {
+                  ...x,
+                  style_ref_no: line?.style_ref_no ?? "",
+                  style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
+                  article_no: line?.article_no ?? "",
+                  // "Unit ... is pulled from the Order Unit established in the
+                  // initial Style Entry" — so it arrives with the line rather
+                  // than being asked for again.
+                  unit: line ? unitTextOf(line) : "",
+                }
+              : x,
+          ),
         );
-      },
-    },
-    {
-      header: "Price",
-      align: "right",
-      required: true,
-      width: "8rem",
-      // The rate off the buyer's order sheet. Its CURRENCY is the document's,
-      // set on the Logistic tab — there is deliberately no per-row currency.
-      cell: (r) => (
-        <Input
-          type="number"
-          className="text-right"
-          value={r.price}
-          onChange={(e) =>
-            setPriceDetails((xs) =>
-              xs.map((x) => (x.key === r.key ? { ...x, price: e.target.value } : x)),
-            )
-          }
-        />
-      ),
-    },
-  ];
+      }}
+    />
+  );
+
+  /**
+   * THE MODE, now asked once per style rather than once per rate (client
+   * 2026-08-12: "when a user selects a mode like Color wise or Size wise, the
+   * system automatically opens a grid listing the relevant colors or sizes").
+   *
+   * The old column carried a note saying the dropdown "stays per ROW ... because
+   * a saved row must keep answering for itself". The row still does — nothing
+   * rewrites `price_type` on a row the operator did not touch, and a row left on
+   * an earlier mode still shows up, below, as a leftover. What changed is only
+   * where the question is ASKED: six rows of one style could never legitimately
+   * answer it six different ways, and the six identical dropdowns were the
+   * clearest half of the repetition being removed.
+   *
+   * `applyPriceMode` is unchanged and still seeds only what is missing.
+   */
+  const priceModeCell = (g: PriceGroup, mode: string) => (
+    <Select
+      required
+      value={mode}
+      onChange={(e) => applyPriceMode(g.rows[0], e.target.value)}
+    >
+      <option value="">—</option>
+      {PRICE_TYPE_OPTIONS.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /** WHICH colourway this rate is for — the combos the Combos tab declared,
+   *  which is why Prices sits after it in the rail. It is a COLUMN of the rate
+   *  list now, rendered only under a mode that prices by colour, so the cell no
+   *  longer has to be drawn disabled to hold a column open in a shared header. */
+  const priceColourCell = (r: PriceDetailRow) => (
+    <Select
+      value={r.combo}
+      onChange={(e) =>
+        setPriceDetails((xs) =>
+          xs.map((x) => (x.key === r.key ? { ...x, combo: e.target.value } : x)),
+        )
+      }
+    >
+      <option value="">—</option>
+      {comboOptionsForStyle(r.style_ref_no).map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /** WHICH size — the style line's OWN size set (0407), not every size in the
+   *  master: a rate for a size this style is not made in prices nothing, and
+   *  could never be matched to a quantity. */
+  const priceSizeCell = (r: PriceDetailRow) => (
+    <Select
+      value={r.size_id ?? ""}
+      onChange={(e) =>
+        setPriceDetails((xs) =>
+          xs.map((x) => (x.key === r.key ? { ...x, size_id: e.target.value || null } : x)),
+        )
+      }
+    >
+      <option value="">—</option>
+      {sizeOptionsForStyle(r.style_ref_no).map((z) => (
+        <option key={z.id} value={z.id}>
+          {z.name}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /**
+   * The rate off the buyer's order sheet. Its CURRENCY is the document's, set on
+   * the Logistic tab — there is deliberately no per-row currency.
+   *
+   * `required` ON THE CONTROL, which is the sanctioned second declaration when a
+   * grid renders its own row (AGENTS.md: "A GRID THAT RENDERS ITS OWN ROW MUST
+   * DECLARE `required` TWICE"). It was `ChildGridColumn.required` before this
+   * change and the hold must not be lost with the column — an unpriced rate row
+   * is the one thing that makes `styleRate` refuse.
+   */
+  const priceRateCell = (r: PriceDetailRow) => (
+    <Input
+      type="number"
+      required
+      className="text-right"
+      value={r.price}
+      onChange={(e) =>
+        setPriceDetails((xs) =>
+          xs.map((x) => (x.key === r.key ? { ...x, price: e.target.value } : x)),
+        )
+      }
+    />
+  );
+
+  /** One more rate for this style, carrying the group's identity and mode so it
+   *  lands in the same group rather than starting a second one. Inserted after
+   *  the group's last row, not appended to the document, so a two-style order
+   *  keeps its rates together. */
+  const addRate = (g: PriceGroup, mode: string) => {
+    const src = g.rows[0];
+    const last = g.rows[g.rows.length - 1];
+    setPriceDetails((xs) => {
+      const at = xs.findIndex((x) => x.key === last.key);
+      const row: PriceDetailRow = {
+        ...blankPriceDetail(),
+        style_ref_no: src.style_ref_no,
+        style: src.style,
+        article_no: src.article_no,
+        unit: src.unit,
+        price_type: mode,
+      };
+      return at === -1 ? [...xs, row] : [...xs.slice(0, at + 1), row, ...xs.slice(at + 1)];
+    });
+  };
+
+  /**
+   * THE RATE LIST OF ONE STYLE — the legacy child table (screenshot 2295), where
+   * a style's row carries a small `Combo · Price` list beneath it rather than
+   * repeating the style down the page.
+   *
+   * HAND-ROLLED, NOT A NESTED `ChildGrid`, and that is the established idiom in
+   * this file rather than a shortcut: `sizeGrid` and the combo parts list are
+   * both built this way. A nested `ChildGrid` in `responsive` mode mounts its
+   * table AND its cards and hides one by CSS, which `enterNestedGrid` has to
+   * work around by hand (`offsetParent`) — a complication worth avoiding for a
+   * two-column list. The four markers are what matter and they are all here:
+   * `data-grid-body` + `gridKeyNav` (arrows and Enter), `data-grid-row` (the Tab
+   * axis), `data-row-remove` (Ctrl+Del) and `data-row-add` INSIDE the body,
+   * which is where `enterNestedGrid` looks for Tab's way into an empty list.
+   *
+   * FIXED WIDTHS PER COLUMN, not `flex-1`: they have to line up down the list,
+   * and an unsized item absorbs the row's slack — the same failure `hugsContent`
+   * records about a grid column left without a `width`.
+   */
+  const rateGrid = (g: PriceGroup, mode: string) => {
+    const axes = priceAxes(mode);
+    // A row with no mode yet is one of THIS set — it is the blank the operator
+    // is about to fill, not a leftover from a mode they have moved off.
+    const rows = g.rows.filter((r) => !r.price_type || r.price_type === mode);
+    const leftovers = g.rows.filter((r) => r.price_type && r.price_type !== mode);
+    const noun = axes.size ? (axes.colour ? "rate" : "size") : axes.colour ? "colour" : "rate";
+    return (
+      <div className="space-y-1.5">
+        {/* The header line the legacy grid has, and the reason the rate rows
+            need no labels of their own — six `<Field>`s down the list would put
+            14px of label above every rate. The `*` is drawn here for the same
+            reason `ChildGrid` draws it in its `<th>`: the hold itself is
+            declared on the control (`priceRateCell`). */}
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          {axes.colour && <span className="w-40 shrink-0">Colour</span>}
+          {axes.size && <span className="w-32 shrink-0">Size</span>}
+          <span className="w-28 shrink-0">Price *</span>
+        </div>
+        <div
+          data-grid-body
+          className="space-y-1"
+          onKeyDown={(e) => gridKeyNav(e, () => addRate(g, mode))}
+        >
+          {rows.map((r) => (
+            <div key={r.key} data-grid-row className="flex items-center gap-2">
+              {axes.colour && <div className="w-40 shrink-0">{priceColourCell(r)}</div>}
+              {axes.size && <div className="w-32 shrink-0">{priceSizeCell(r)}</div>}
+              <div className="w-28 shrink-0">{priceRateCell(r)}</div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-row-remove
+                className="shrink-0 text-muted-foreground hover:text-danger"
+                onClick={() => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))}
+                aria-label={`Remove ${sizeLabel(r.size_id) || r.combo || "rate"}`}
+              >
+                <Trash2 className="h-4 w-4 shrink-0" />
+              </Button>
+            </div>
+          ))}
+          {/* THE SAME BUTTON AS "+ Add style price" above it — `ChildGrid`'s own
+              is `variant="outline" size="sm"` at content width, so matching it
+              is the only way the pair reads as a pair. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-row-add
+            onClick={() => addRate(g, mode)}
+          >
+            + Add {noun} price
+          </Button>
+        </div>
+        {/* THE FLAG HALF of "keep rows, never delete them" (operator decision
+            2026-08-12), and it says it ONCE PER STYLE now rather than once per
+            row. Without it a left-over rate from a previous mode is
+            indistinguishable from a current one, and the only symptom is that
+            the Logistic tab's Avg Rate quietly refuses to answer. Amber and
+            advisory — it never holds the cursor, because these rows are valid,
+            just superseded. */}
+        {leftovers.length > 0 && (
+          <div className="space-y-1 rounded-md border border-warning/40 bg-warning/10 p-2">
+            <p className="text-xs text-warning">
+              {leftovers.length === 1 ? "One rate is" : `${leftovers.length} rates are`} left
+              over from {leftovers[0].price_type}. Remove {leftovers.length === 1 ? "it" : "them"}{" "}
+              or the order&rsquo;s value cannot be calculated.
+            </p>
+            {leftovers.map((r) => (
+              <div key={r.key} className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="w-40 shrink-0 truncate">{r.combo || "—"}</span>
+                <span className="w-32 shrink-0 truncate">{sizeLabel(r.size_id) || "—"}</span>
+                <span className="w-28 shrink-0">{r.price || "—"}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-focus-optional
+                  className="shrink-0 text-muted-foreground hover:text-danger"
+                  onClick={() => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))}
+                  aria-label={`Remove leftover ${r.price_type} rate`}
+                >
+                  <Trash2 className="h-4 w-4 shrink-0" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /**
+   * What the tab knows about one style's prices, computed ONCE and read by both
+   * the folded summary and the row body. Two copies of the fold test is how a
+   * row comes to summarise itself as complete while rendering as open.
+   */
+  const priceGroupView = (g: PriceGroup) => {
+    const mode = groupMode(g.rows);
+    const rates = g.rows.filter((r) => !r.price_type || r.price_type === mode);
+    const priced = rates.filter((r) => r.price.trim());
+    /* ONLY A COMPLETE GROUP FOLDS — the same rule the Style(s) grid follows, and
+       for the same hard reason: a folded group's fields are UNMOUNTED, so a
+       blank required rate inside one would have no `data-required-empty` node
+       for `onBlockedSave` to land on. Save would refuse and the cursor would
+       have nowhere to go. */
+    const complete = !!g.refNo && !!mode && rates.length > 0 && priced.length === rates.length;
+    const openKey = openPriceKey ?? priceGroups[priceGroups.length - 1]?.key ?? null;
+    /* A SINGLE STYLE NEVER FOLDS — there is no next style to move on to, and 98%
+       of orders are one style, so the common case is untouched by this. */
+    const isOpen = priceGroups.length < 2 || g.key === openKey || !complete;
+    const nums = priced.map((r) => Number(r.price)).filter((n) => Number.isFinite(n));
+    const lo = nums.length ? Math.min(...nums) : null;
+    const hi = nums.length ? Math.max(...nums) : null;
+    /* What a folded group says about itself: the mode, how many rates, and the
+       spread. Named, not counted, wherever a name is the more useful answer —
+       but a rate list is numbers, so here the range IS the useful summary. */
+    /* THE LEFTOVER COUNT SURVIVES THE FOLD, and that is not decoration. The
+       amber block naming those rows lives inside the row body, so folding the
+       group would hide the one thing standing between this order and a value —
+       a warning that disappears when the row it belongs to is tidied away is a
+       warning the operator never acts on. */
+    const leftovers = g.rows.length - rates.length;
+    const summary = [
+      mode,
+      rates.length > 1 ? `${rates.length} rates` : null,
+      lo == null ? null : lo === hi ? String(lo) : `${lo} – ${hi}`,
+      leftovers > 0 ? `${leftovers} left over` : null,
+    ]
+      .filter(Boolean)
+      .join("  ·  ");
+    return { mode, isOpen, complete, summary };
+  };
 
   /**
    * Approval Quantity — the production TARGET, not just a sample count.
@@ -3525,6 +3691,30 @@ export function AmendmentScreen({
    * ONE-width part did not.) Leaving them would have preserved, in code, the argument for the
    * layout that was just removed.
    */
+  /**
+   * THE SIX A QUANTITY LINE IS READ BY (client 2026-08-14), in the order they
+   * are read in. The other five — Assortment Type, Earlier Shipment Dt, Style
+   * No, WareHouse, Discharge Port — appear only while the row is open.
+   *
+   * Eleven fields cannot share one line at a readable width: the track is twelve
+   * columns, so eleven would be ~100px each, and a date clips below ~120px while
+   * a Country or Consignee picker needs more. Six at the one width (2 of 12)
+   * fill the line exactly.
+   *
+   * BY HEADER, NOT BY INDEX — the same anchoring the Style column uses, and for
+   * the same reason: these columns have been reordered before, and a header that
+   * stops matching fails loudly where a slice would quietly promote the wrong
+   * field.
+   */
+  const QTY_PRIMARY = [
+    "Country",
+    "Ref No",
+    "Consignee",
+    "PO Qty",
+    "Delivery Dt",
+    "Assort",
+  ] as const;
+
   const quantityColumns: ChildGridColumn<QuantityRow>[] = [
     {
       header: "Country",
@@ -5117,19 +5307,94 @@ export function AmendmentScreen({
       label: "Prices",
       content: (
         <>
-          {/* THREE real inputs now that Style/Article/Unit are wired from the
-              Style(s) tab rather than typed — LAYOUT.md §6's "<=3 -> inlineCards"
-              band. It was `forceCards` while it had six, which is the point of
-              choosing by input count rather than by habit: the same grid moves
-              band when its content changes. */}
-          <ChildGrid<PriceDetailRow>
+          {/* ONE ROW PER STYLE, RATES BENEATH IT (client 2026-08-14), which is
+              the legacy shape in screenshot 2295: a style's row carries a small
+              `Combo · Price` table under it and the style is named once.
+
+              The grid was `inlineCards` over the RAW rows, so a Size-wise order
+              drew `STL/2627/0002` and `Size-wise` six times, once per size, each
+              in its own bordered box ~90px tall (screenshot 2293). Nothing was
+              wrong with the band it had chosen — three real inputs really is
+              LAYOUT.md §6's `<=3 -> inlineCards` — because the band is about a
+              ROW's width and the complaint was about the LIST's repetition. The
+              answer is not a denser row, it is fewer rows: the style and the
+              mode are properties of the group, and only the rate varies.
+
+              `forceCards` + `renderMobileRow` for the same reason `stylesGrid`
+              and the Combos ▸ Structure Details grid use them — a row that
+              carries a nested list is past any width a table row has.
+
+              THE STORED SHAPE IS UNCHANGED. `priceGroups` groups for display
+              only; `price_details` still holds one row per (style, colour,
+              size), which is what `styleRate` and the Logistic tab's Avg Rate
+              read. `npm run check:order-value` is the proof of that. */}
+          <ChildGrid<PriceGroup>
             label="Price Details"
-            columns={priceDetailColumns}
-            rows={priceDetails}
-            inlineCards
+            /* EMPTY ON PURPOSE: `renderMobileRow` owns the whole row, and a
+               column declaring `required` that the row never reads would draw a
+               header `*` with nothing behind it (`--check grid-required-mobile`).
+               The `required` that matters is on the controls inside. */
+            columns={[]}
+            rows={priceGroups}
+            forceCards
+            rowSummary={(g) => {
+              const v = priceGroupView(g);
+              if (!g.refNo) return <span className="text-muted-foreground">New style price</span>;
+              return v.isOpen ? g.refNo : `${g.refNo}  ·  ${v.summary}`;
+            }}
+            renderMobileRow={(g) => {
+              const v = priceGroupView(g);
+              return (
+                <div
+                  className="space-y-3"
+                  /* FOCUS OPENS THE GROUP, which is what keeps the fold
+                     keyboard-operable: Tab out of one style's rates lands on the
+                     next group's Style field and the group unfolds around the
+                     cursor. `onFocus` bubbles, so it catches mouse and keyboard
+                     with one handler. */
+                  onFocus={() => {
+                    if (!v.isOpen) setOpenPriceKey(g.key);
+                  }}
+                >
+                  <FieldGrid>
+                    {/* A FOLDED GROUP KEEPS ITS STYLE FIELD. Tab lands on
+                        fields, so a row rendering none would be reachable by
+                        mouse only — the same requirement the Style(s) fold
+                        records. */}
+                    <Field label="Style" required size="xs">
+                      {priceStyleCell(g)}
+                    </Field>
+                    {v.isOpen && (
+                      <Field label="Price Type" required size="xs">
+                        {priceModeCell(g, v.mode)}
+                      </Field>
+                    )}
+                    {v.isOpen && (
+                      <Field label="Unit" size="xs">
+                        {/* READ-ONLY FACT, not a field: it arrives with the
+                            style line (its Order Unit) and there is nothing to
+                            type. Rendered as text rather than a disabled input
+                            so it neither invites a click nor sits in the Tab
+                            path. */}
+                        <div className="flex min-h-8 items-center text-sm text-muted-foreground">
+                          {g.rows[0]?.unit || "—"}
+                        </div>
+                      </Field>
+                    )}
+                  </FieldGrid>
+                  {v.isOpen && rateGrid(g, v.mode)}
+                </div>
+              );
+            }}
             onAdd={addPriceDetail}
-            onRemove={(r) => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add price"
+            /* REMOVING A GROUP TAKES ITS RATES WITH IT — the ✕ beside a style is
+               the only control that names the style, so it can only mean "this
+               style is not priced here". */
+            onRemove={(g) => {
+              const mine = new Set(g.rows.map((r) => r.key));
+              setPriceDetails((xs) => xs.filter((x) => !mine.has(x.key)));
+            }}
+            addLabel="+ Add style price"
           />
           <EmptyNote rows={priceDetails.length} label="prices" seeded={seeded} />
         </>
@@ -5253,27 +5518,88 @@ export function AmendmentScreen({
                `renderMobileRow` supplied, ChildGrid stops wrapping cells in its
                own `RequiredScope`, so this `Field` is the only place a column's
                declaration can reach the control. */
-            renderMobileRow={(row, i) => (
-              <FieldGrid>
-                {quantityColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="xs">
-                    {c.cell(row, i)}
-                  </Field>
-                ))}
-              </FieldGrid>
-            )}
-            /* Who the row IS, beside its #N — the country and consignee a card
-               is about, so paging through identical boxes does not mean reading
-               the fields to tell them apart. */
-            rowSummary={(row) =>
-              [
+            /* `listRows` drops ChildGrid's own `#N` band, which was a third line
+               above two lines of fields. The row draws its own header below —
+               summary and remove — exactly as the Styles grid does. */
+            listRows
+            renderMobileRow={(row, i) => {
+              const openKey = openQtyKey ?? quantities[quantities.length - 1]?.key ?? null;
+              /* Country is this row's identity, the way Style is a style row's:
+                 with none there is nothing to fold TO and the summary would be a
+                 blank line the operator cannot tell from an empty row. */
+              const isOpen =
+                quantities.length < 2 || row.key === openKey || !row.country_id;
+              const byHeader = (h: string) => quantityColumns.find((c) => c.header === h);
+              const primary = QTY_PRIMARY.map(byHeader).filter(Boolean) as ChildGridColumn<QuantityRow>[];
+              const secondary = quantityColumns.filter(
+                (c) => !QTY_PRIMARY.includes(c.header as (typeof QTY_PRIMARY)[number]),
+              );
+              const summary = [
                 data.countries.find((c) => c.id === row.country_id)?.name,
                 data.consignees.find((c) => c.id === row.consignee_id)?.name,
+                row.po_qty.trim(),
+                fmtDate(row.delivery_date) || null,
               ]
                 .filter(Boolean)
-                .join(" · ") || <span className="text-muted-foreground">New quantity</span>
-            }
-            onAdd={() => setQuantities((xs) => [...xs, blankQuantity()])}
+                .join("  ·  ");
+              return (
+                <div
+                  className={cn(
+                    "space-y-2",
+                    !isOpen && "-mx-2 cursor-pointer rounded-md px-2 hover:bg-surface-muted",
+                  )}
+                  title={isOpen ? undefined : "Open this quantity line"}
+                  onFocus={() => {
+                    if (!isOpen) setOpenQtyKey(row.key);
+                  }}
+                  onClick={(e) => {
+                    if (isOpen) return;
+                    if ((e.target as HTMLElement).closest("button")) return;
+                    setOpenQtyKey(row.key);
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                      #{i + 1}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-row-remove
+                      className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
+                      onClick={() =>
+                        setQuantities((xs) => xs.filter((x) => x.key !== row.key))
+                      }
+                      aria-label="Remove quantity line"
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" />
+                    </Button>
+                  </div>
+                  <FieldGrid>
+                    {(isOpen ? [...primary, ...secondary] : primary.slice(0, 1)).map((c) => (
+                      <Field key={c.header} label={c.header} required={c.required} size="xs">
+                        {c.cell(row, i)}
+                      </Field>
+                    ))}
+                    {!isOpen && (
+                      <Field key="__summary" label="" size="xl">
+                        <div className="flex min-h-8 items-center">
+                          <Truncated className="text-sm text-muted-foreground">
+                            {summary || "Not filled in yet"}
+                          </Truncated>
+                        </div>
+                      </Field>
+                    )}
+                  </FieldGrid>
+                </div>
+              );
+            }}
+            onAdd={() => {
+              const row = blankQuantity();
+              setQuantities((xs) => [...xs, row]);
+              setOpenQtyKey(row.key);
+            }}
             onRemove={(r) => setQuantities((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add quantity"
           />
