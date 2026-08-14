@@ -23,6 +23,7 @@ import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Sheet } from "@/components/ui/sheet";
 import { StyleProcessSheet } from "@/components/orders/style-process-sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import type { StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import {
   excessQty,
@@ -5751,6 +5752,7 @@ export function AmendmentScreen({
             : "Structure Details"
         }
         zIndexBase={120}
+        footer={<SubSheetFooter onDone={() => setDetailComboKey(null)} />}
       >
         {detailCombo && (
           <div className="space-y-4">
@@ -5785,6 +5787,7 @@ export function AmendmentScreen({
             : "Assortments"
         }
         zIndexBase={120}
+        footer={<SubSheetFooter onDone={() => setAssortQtyKey(null)} />}
       >
         {assortQty && (
           <div className="space-y-4">

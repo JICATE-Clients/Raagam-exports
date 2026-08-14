@@ -44,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import {
   PROCESS_KIND_OPTIONS,
   componentsForKind,
@@ -282,12 +283,19 @@ export function StyleProcessSheet({
        */
       size="lg"
       title={styleLabel ? `Process — ${styleLabel}` : "Process"}
-      /* NO FOOTER, AND NO SAVE OF ITS OWN — the same call the Structure Details
-         sheet on this screen makes, and for its reason: the rows are part of the
-         amendment and are written by the amendment's Save, so a button here
-         would imply they commit on their own. Closing is Escape or the ✕, one
-         layer at a time, per the keyboard contract. */
+      /* STILL NO SAVE OF ITS OWN — the rows are part of the amendment and are
+         written by the amendment's Save, so a Save here would imply they commit
+         on their own, and on a NEW order there is no amendment id to commit
+         them against.
+         
+         BUT NO FOOTER AT ALL READ AS BROKEN. The client reported this sheet as
+         "missing save button" (2026-08-14): fields, a grid, an "+ Add process"
+         button, then nothing but an ✕. `SubSheetFooter` says what actually
+         happens rather than leaving it to be inferred — the same footer the
+         Structure Details and Assortments overlays now carry, so the three
+         cannot answer the question differently. */
       zIndexBase={120}
+      footer={<SubSheetFooter onDone={onClose} />}
     >
       {/**
         * THE STYLE LINE, READ-ONLY — the block the legacy screen puts above its
