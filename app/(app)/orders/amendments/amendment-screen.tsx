@@ -4509,6 +4509,28 @@ export function AmendmentScreen({
         rows={styles}
         forceCards
         listRows
+        /**
+         * FLUSH WITH THE HEADER ABOVE IT (client 2026-08-14).
+         *
+         * The style row's five fields did not line up with the header's six.
+         * Same span (`xs`, 2 of 12) and the same track, but this grid drew its
+         * own bordered card INSIDE the Order Info section — and that card's
+         * `p-2` pushed the whole 12-column track 8px right and made it 16px
+         * narrower. So Style sat 9px right of SCNo and every column after it
+         * drifted by another ~1.3px: near enough to read as a mistake, far
+         * enough to see.
+         *
+         * `frameless` is exactly this case — its own note says "drop the outer
+         * bordered card so the grid can nest INSIDE a DetailSection without a
+         * double border". The Order Info section already draws one card; this
+         * was a second one inside it. The border and the padding go together,
+         * which is why there is no prop for dropping only the padding: a border
+         * with nothing between it and the fields would be worse than the
+         * misalignment.
+         *
+         * The label band is untouched — "Styles Details" still heads the grid.
+         */
+        frameless
         pageSize={5}
         /**
          * MULT. ORD IS THE CAP, and this is the whole of its meaning.
