@@ -3198,6 +3198,29 @@ export function AmendmentScreen({
     const rows = g.rows.filter((r) => !r.price_type || r.price_type === mode);
     const leftovers = g.rows.filter((r) => r.price_type && r.price_type !== mode);
     const noun = axes.size ? (axes.colour ? "rate" : "size") : axes.colour ? "colour" : "rate";
+    /**
+     * CAN THIS STYLE CARRY MORE THAN ONE RATE? Only if the mode gives the rates
+     * something to differ BY.
+     *
+     * Style-wise — and a group with no Price Type chosen yet — is one price for
+     * the style, so a second rate row is not a second price, it is the same
+     * price twice with no way to tell them apart. Avg Rate is
+     * quantity-weighted over these rows, so the duplicate does not merely look
+     * wrong, it moves the number.
+     *
+     * That is also what the client was reporting (screenshot 2304,
+     * 2026-08-14): "+ Add rate price" and "+ Add style price" one above the
+     * other, "doing the same work". On a blank group they genuinely did — the
+     * only honest thing either could add was another undifferentiated line. So
+     * the inner one stands down until the mode earns it, and the tab is left
+     * with the one add button that always means something.
+     *
+     * `|| rows.length === 0` keeps it alive in the one case that would
+     * otherwise be a dead end: switching mode turns every existing rate into a
+     * leftover, and with no button and no row there is nothing to add a rate
+     * with and nothing for `enterNestedGrid` to click Tab's way in on.
+     */
+    const canAddRate = axes.colour || axes.size || rows.length === 0;
     return (
       <div className="space-y-1.5">
         {/* The header line the legacy grid has, and the reason the rate rows
@@ -3213,7 +3236,11 @@ export function AmendmentScreen({
         <div
           data-grid-body
           className="space-y-1"
-          onKeyDown={(e) => gridKeyNav(e, () => addRate(g, mode))}
+          /* DECLINING (`false`) rather than adding is what lets Enter LEAVE a
+             single-rate list — `gridKeyNav` passes a declined key to the parent
+             grid. Adding here would mint the same duplicate the button no
+             longer offers, off a key instead of a click. */
+          onKeyDown={(e) => gridKeyNav(e, () => (canAddRate ? addRate(g, mode) : false))}
         >
           {rows.map((r) => (
             <div key={r.key} data-grid-row className="flex items-center gap-2">
@@ -3233,18 +3260,21 @@ export function AmendmentScreen({
               </Button>
             </div>
           ))}
-          {/* THE SAME BUTTON AS "+ Add style price" above it — `ChildGrid`'s own
-              is `variant="outline" size="sm"` at content width, so matching it
-              is the only way the pair reads as a pair. */}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-row-add
-            onClick={() => addRate(g, mode)}
-          >
-            + Add {noun} price
-          </Button>
+          {/* SHOWN ONLY WHERE A SECOND RATE MEANS SOMETHING — see `canAddRate`.
+              When it does show it matches `ChildGrid`'s own add button
+              (`variant="outline" size="sm"` at content width), which is the only
+              way the pair reads as a pair rather than as two rival controls. */}
+          {canAddRate && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-row-add
+              onClick={() => addRate(g, mode)}
+            >
+              + Add {noun} price
+            </Button>
+          )}
         </div>
         {/* THE FLAG HALF of "keep rows, never delete them" (operator decision
             2026-08-12), and it says it ONCE PER STYLE now rather than once per
@@ -4626,6 +4656,51 @@ export function AmendmentScreen({
           <span className="text-muted-foreground">New structure</span>
         )
       }
+      /* ONE STRUCTURE OPEN AT A TIME (client 2026-08-14, module-wide). Seven
+         fields plus a nested components panel is three or four wrapped lines
+         per structure, and a combo with three structures filled the overlay
+         before "+ Add structure" came into view. `ChildGrid` owns the fold; the
+         `#N` band and the family chip `rowSummary` already draws stay above it,
+         so a closed structure still says which one it is. */
+      foldRows
+      /* Nothing to summarise until a Structure is named — and `rowSummary`
+         would be showing "New structure" beside it. */
+      canFold={(st) => !!st.structure_id}
+      renderFoldedRow={(st) => {
+        const parts = st.components?.length ?? 0;
+        const summary = [
+          data.compositions.find((c) => c.id === st.composition_id)?.name,
+          gsmRange(st.gsm, st.gsm_tolerance) || null,
+          ITEM_SUB_TYPE_OPTIONS.find((o) => o.value === st.item_sub_type)?.label,
+          parts > 0 ? `${parts} ${parts === 1 ? "part" : "parts"}` : null,
+        ]
+          .filter(Boolean)
+          .join("  ·  ");
+        return (
+          <FieldGrid>
+            {/* THE STRUCTURE STAYS A REAL FIELD — Tab lands on fields, so a
+                folded row rendering none is mouse-only, and focusing it is what
+                opens the row again. */}
+            <Field label="Structure" required size="xs">
+              <RecordPicker
+                label="Structure"
+                compact
+                required
+                items={scopedStructures(r, st.structure_id)}
+                value={st.structure_id}
+                onChange={(id) => pickComboStructure(r.key, st.key, id)}
+              />
+            </Field>
+            <Field label="" size="lg">
+              <div className="flex min-h-8 items-center">
+                <Truncated className="text-sm text-muted-foreground">
+                  {summary || "Nothing else filled in yet"}
+                </Truncated>
+              </div>
+            </Field>
+          </FieldGrid>
+        );
+      }}
       onAdd={() => addStruct(r.key)}
       onRemove={(st) => mutStructs(r.key, (sts) => sts.filter((x) => x.key !== st.key))}
       addLabel="+ Add structure"

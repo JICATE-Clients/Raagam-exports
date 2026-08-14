@@ -681,6 +681,9 @@ export function ChildGrid<T extends { key: string }>({
   flushRows = false,
   listRows = false,
   rowSummary,
+  foldRows = false,
+  canFold,
+  renderFoldedRow,
   seedRow = false,
   startIndex = 0,
   totalsLabel = "Total",
@@ -856,6 +859,43 @@ export function ChildGrid<T extends { key: string }>({
    */
   rowSummary?: (row: T, index: number) => ReactNode;
   /**
+   * ONE ROW OPEN AT A TIME — finish an item, start the next, and the finished
+   * one folds to a single line (client 2026-08-14, across the Orders module).
+   *
+   * A card row that carries more than six fields wraps to two or three lines, so
+   * three records is a screenful before the operator reaches "+ Add". Folding
+   * the ones not being worked on is what keeps a multi-record document readable.
+   *
+   * IT LIVES HERE RATHER THAN ON THE SCREENS. It was hand-rolled twice — the
+   * Garment Order's styles and quantities — and the module has ~18 card grids;
+   * a third and fourth copy is how a contract-level behaviour becomes eighteen
+   * slightly different behaviours. Same reason `gridKeyNav` and `landOnAddedRow`
+   * are single implementations.
+   *
+   * WHAT A FOLDED ROW MUST STILL DO, and none of it is optional:
+   *   - keep ONE field, so Tab can still reach the row. Tab lands on fields, and
+   *     `data-focus-optional` takes controls OFF that path with nothing to put
+   *     one on — a row rendering no field is reachable by mouse alone. That is
+   *     the caller's job, in `renderFoldedRow`.
+   *   - open on FOCUS, so tabbing into a folded row unfolds it around the cursor.
+   *   - open on CLICK anywhere, because the summary is the larger target and a
+   *     picker is a poor one (it opens its own list on the way).
+   */
+  foldRows?: boolean;
+  /**
+   * Has this row enough identity to fold TO? Default: yes.
+   *
+   * A row with nothing filled in has no summary worth showing, and a folded
+   * blank line is indistinguishable from an empty record — so it stays open
+   * until it says who it is.
+   */
+  canFold?: (row: T) => boolean;
+  /**
+   * What a folded row shows instead of its fields. Required by `foldRows`; it
+   * must include at least one real field (see above).
+   */
+  renderFoldedRow?: (row: T, index: number) => ReactNode;
+  /**
    * OPEN WITH ONE BLANK ROW instead of an empty state (operator, 2026-08-11).
    *
    * An empty grid shows a header, a line of prose and an "+ Add row" button —
@@ -895,6 +935,8 @@ export function ChildGrid<T extends { key: string }>({
   useEffect(() => {
     onAddRef.current = onAdd;
   });
+  /** Which row shows its fields, when `foldRows` is on. Null = the last row. */
+  const [openRowKey, setOpenRowKey] = useState<string | null>(null);
   const seeded = useRef(false);
   useEffect(() => {
     if (!seedRow || hideAdd) return;
@@ -922,6 +964,10 @@ export function ChildGrid<T extends { key: string }>({
   const handleAdd = () => {
     const added = onAdd();
     if (added === false) return false;
+    // The new row is the one being worked on. Clearing the key rather than
+    // setting it lets the "last row" fallback name it — the grid never sees the
+    // key the caller just minted.
+    if (foldRows) setOpenRowKey(null);
     if (paginated) pg.setPage(Number.MAX_SAFE_INTEGER);
     return true;
   };
@@ -1376,6 +1422,20 @@ export function ChildGrid<T extends { key: string }>({
         >
           {view.map((row, localI) => {
             const i = offset + localI;
+            /**
+             * OPEN = the row being worked on. `openRowKey` unset resolves to the
+             * LAST row, which is why `handleAdd` clears it rather than tracking
+             * the new key: the grid does not mint row keys, the caller does, and
+             * falling back to "the last one" needs no key at all.
+             *
+             * A SINGLE ROW NEVER FOLDS — there is no next item to move on to.
+             */
+            const folded =
+              foldRows &&
+              !!renderFoldedRow &&
+              rows.length > 1 &&
+              row.key !== (openRowKey ?? rows[rows.length - 1]?.key ?? null) &&
+              (canFold ? canFold(row) : true);
             return (
             <div
               key={row.key}
@@ -1385,7 +1445,26 @@ export function ChildGrid<T extends { key: string }>({
                 // `py-2` only — no horizontal padding, so a flat row's fields keep
                 // the grid's own left edge and line up with the sections above it.
                 listRows ? "py-2 first:pt-0 last:pb-0" : "rounded-lg border border-border p-2.5",
+                // A folded row reads as one thing you can open, and says so.
+                folded && "cursor-pointer hover:bg-surface-muted",
               )}
+              title={folded ? "Open this row" : undefined}
+              /* FOCUS OPENS IT, which is what keeps the fold keyboard-operable:
+                 Tab out of one row lands on the next row's remaining field and
+                 the row unfolds around the cursor. `onFocus` bubbles, so one
+                 handler catches the mouse and the keyboard. */
+              onFocus={folded ? () => setOpenRowKey(row.key) : undefined}
+              /* AND A CLICK ANYWHERE, minus buttons: the row's own ✕ is inside
+                 this handler's reach, and unfolding a row on the way to deleting
+                 it is a flicker with no purpose. */
+              onClick={
+                folded
+                  ? (e) => {
+                      if ((e.target as HTMLElement).closest("button")) return;
+                      setOpenRowKey(row.key);
+                    }
+                  : undefined
+              }
             >
               {!listRows && (
                 /* `ml-auto` on the remove button, not `justify-between` on the
@@ -1404,7 +1483,9 @@ export function ChildGrid<T extends { key: string }>({
                   )}
                 </div>
               )}
-              {renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (
+              {folded ? (
+                renderFoldedRow!(row, i)
+              ) : renderMobileRow ? renderMobileRow(row, i) : columns.map((c, ci) => (
                       <div key={ci}>
                         <RequiredScope required={c.required} label={c.header}>
                           {c.cell(row, i)}
