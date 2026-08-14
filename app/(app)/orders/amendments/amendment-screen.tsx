@@ -646,6 +646,18 @@ export function AmendmentScreen({
    * other side, and the reason those are not memos is the reason this is here.
    */
   const [openStyleKey, setOpenStyleKey] = useState<string | null>(null);
+  /**
+   * WHICH STYLE'S PRICES ARE OPEN, keyed by `styleKey` rather than by row key —
+   * the Prices tab groups its rows by style, so the thing that folds is a GROUP
+   * and a row key would not name one.
+   *
+   * Everything above about `openStyleKey` holds here too: null means the last
+   * group, resolved at render; a completed group folds so the next style can be
+   * priced; the group keeps its Style field while folded so Tab has somewhere to
+   * land. And it lives up here for the same hard reason — a hook below the
+   * `if (mode === "list")` return crashes this screen on every load.
+   */
+  const [openPriceKey, setOpenPriceKey] = useState<string | null>(null);
   /** Which style line's Process sheet is open, by row key (0411). */
   const [processFor, setProcessFor] = useState<string | null>(null);
   const [dyeings, setDyeings] = useState<DyeingRow[]>([]);
@@ -1402,6 +1414,11 @@ export function AmendmentScreen({
     // style rather than opening one. Same lesson as the missing `setQuantities`
     // above: clearing the grids and leaving what indexes them is half a reset.
     setOpenStyleKey(null);
+    // `openPriceKey` is a styleKey, not a row key, so it survives differently
+    // and is cleared for a different reason: the next document's first style may
+    // legitimately BE the last one's, and a pointer at it would open a group the
+    // operator has not reached yet.
+    setOpenPriceKey(null);
     setDyeings([]);
     setPrints([]);
     setStructures([]);
@@ -1482,6 +1499,7 @@ export function AmendmentScreen({
     // row at all. Null resolves to the LAST style, which is where a loaded order
     // is meant to open.
     setOpenStyleKey(null);
+    setOpenPriceKey(null);
     // The saved rows, through the same mapping the order seed uses. A saved
     // amendment always wins over the order: it records what was decided, and
     // the order has moved on since.
@@ -2906,15 +2924,71 @@ export function AmendmentScreen({
   const priceRowStale = (r: PriceDetailRow) => {
     const key = styleKey(r.style_ref_no);
     if (!key || !r.price_type) return false;
-    const modes = new Map<string, number>();
-    for (const x of priceDetails) {
-      if (styleKey(x.style_ref_no) !== key || !x.price_type) continue;
-      modes.set(x.price_type, (modes.get(x.price_type) ?? 0) + 1);
-    }
-    if (modes.size < 2) return false;
-    const top = [...modes.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return r.price_type !== top;
+    const rows = priceDetails.filter((x) => styleKey(x.style_ref_no) === key);
+    const top = groupMode(rows);
+    // Only stale if the style really does hold two modes. `groupMode` answers
+    // with the majority either way, so this second clause is what stops every
+    // row of a single-mode style being compared against itself and passing.
+    return rows.some((x) => x.price_type && x.price_type !== top) && r.price_type !== top;
   };
+
+  /**
+   * THE MODE OF A STYLE, from its rows — the majority one, exactly as
+   * `priceRowStale` above has always computed it.
+   *
+   * ONE FUNCTION, TWO READERS, and that is the point of extracting it. The
+   * Prices tab now asks for the mode in ONE place per style rather than on every
+   * rate row, so the select needs the same answer the stale flag gives — and a
+   * second majority rule beside the first would let a group show "Size-wise"
+   * while flagging its size rows as the stale ones.
+   */
+  function groupMode(rows: PriceDetailRow[]) {
+    const modes = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.price_type) continue;
+      modes.set(r.price_type, (modes.get(r.price_type) ?? 0) + 1);
+    }
+    if (!modes.size) return "";
+    return [...modes.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
+
+  /**
+   * THE RATES OF ONE STYLE, which is what the tab lists (client 2026-08-14:
+   * "already we choosed the style, why need show for all size — just like the
+   * legacy... just show the size and price").
+   *
+   * The stored shape is unchanged — one `price_details` row per (style, colour,
+   * size), which is what `styleRate` and the Logistic tab's Avg Rate read. This
+   * groups them for DISPLAY only, and it groups by `styleKey` because that is
+   * the key `applyPriceMode`, `priceRowStale` and `styleRate` already group by.
+   * A second grouping rule here is how the screen and the valuation would come
+   * to disagree about what "this style's rows" means.
+   *
+   * A ROW WITH NO STYLE IS ITS OWN GROUP, keyed by the row. Otherwise every
+   * unanswered row would collapse into one group under the empty key, and "+ Add
+   * style price" twice would look like it had done nothing the second time.
+   */
+  type PriceGroup = { key: string; refNo: string; rows: PriceDetailRow[] };
+  const priceGroups: PriceGroup[] = (() => {
+    const out: PriceGroup[] = [];
+    const seen = new Map<string, PriceGroup>();
+    for (const r of priceDetails) {
+      const k = styleKey(r.style_ref_no);
+      if (!k) {
+        out.push({ key: r.key, refNo: "", rows: [r] });
+        continue;
+      }
+      const g = seen.get(k);
+      if (g) {
+        g.rows.push(r);
+        continue;
+      }
+      const next = { key: k, refNo: r.style_ref_no, rows: [r] };
+      seen.set(k, next);
+      out.push(next);
+    }
+    return out;
+  })();
 
   const priceDetailColumns: ChildGridColumn<PriceDetailRow>[] = [
     {
@@ -4583,7 +4657,11 @@ export function AmendmentScreen({
           variant="outline"
           size="sm"
           data-row-add
-          className="@lg/section:col-span-2"
+          /* `justify-self-start` is the part that actually does it, and dropping
+             `w-full` alone did NOT: a grid item's default `justify-self` is
+             STRETCH, so this button filled its column because it IS a grid cell,
+             whatever its own display says. Content width has to be asked for. */
+          className="justify-self-start @lg/section:col-span-2"
           onClick={() => addSize(r.key)}
         >
           + Add size
