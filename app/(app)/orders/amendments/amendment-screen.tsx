@@ -4565,14 +4565,24 @@ export function AmendmentScreen({
             This style has no sizes recorded. Add them here, or fill them on the Style master.
           </p>
         )}
-        {/* FILLS ITS CELL, like every other control on the track. Content-width
-            it left a ragged gap in the one cell of six that is not a picker. */}
+        {/* THE SAME BUTTON AS "+ Add style" (client 2026-08-14). That one is
+            `ChildGrid`'s own — `variant="outline" size="sm"`, content-width, and
+            it takes no className — so the only way to make the pair match is to
+            match IT.
+
+            It briefly filled its cell, on the reasoning that every control on
+            the track should reach its column's edge. That is right for a FIELD
+            and wrong for an action: the two Add buttons sit near each other and
+            read as a pair, and one of them being twice the width of the other is
+            the mismatch the operator actually sees. It keeps its column slot, so
+            it still lines up with the sizes above it — it simply no longer
+            stretches inside it. */}
         <Button
           type="button"
           variant="outline"
           size="sm"
           data-row-add
-          className="w-full @lg/section:col-span-2"
+          className="@lg/section:col-span-2"
           onClick={() => addSize(r.key)}
         >
           + Add size
@@ -4892,16 +4902,17 @@ export function AmendmentScreen({
               for, 1 2 / 3 4, and the container query means the same four grids
               fall back to one column inside anything narrower — a phone, or the
               nested picker this screen opens — with no prop to set. `items-start`
-              is what stops the short Prints grid stretching to the height of the
-              grid beside it.
+              is what stopped the short Prints grid stretching to the height of
+              the grid beside it, and is why the two that remain sit level.
 
-              ALL FOUR CARRY `fill`, and that is the half that makes it read as a
-              block rather than as four cards that happen to be near each other.
+              BOTH CARRY `fill`, and that is the half that makes them read as a
+              block rather than as two cards that happen to be near each other.
               Every column here declares a width, so each grid hugged its own
-              content and the 2×2 came out with four different right edges — Yarn
-              Dyeing ~520px above Roll Form Prints ~350px (client 2026-08-12,
-              screenshot 2273). `fill` suppresses only the hug: the fields keep
-              their declared widths and the slack falls to the right of them. */}
+              content and the old 2×2 came out with four different right edges —
+              Yarn Dyeing ~520px above Roll Form Prints ~350px (client
+              2026-08-12, screenshot 2273). `fill` suppresses only the hug: the
+              fields keep their declared widths and the slack falls to the right
+              of them. */}
           <SectionGrid>
             {/* Yarn dyeing */}
             <div>
