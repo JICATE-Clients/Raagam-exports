@@ -56,6 +56,7 @@ import {
 } from "@/components/masters/master-full-screen";
 import { Field, FieldGrid, FIELD_TRACK } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
+import { cn } from "@/lib/utils";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
@@ -4696,14 +4697,33 @@ export function AmendmentScreen({
             .join("  ·  ");
           return (
           <div
-            className="space-y-2"
+            className={cn(
+              "space-y-2",
+              // A folded row reads as one thing you can open, so it says so on
+              // hover. The open row gets nothing — there is nothing to click.
+              !isOpen && "-mx-2 cursor-pointer rounded-md px-2 hover:bg-surface-muted",
+            )}
+            title={isOpen ? undefined : "Open this style"}
             /* FOCUS OPENS THE ROW, which is what keeps this keyboard-operable:
                Tab out of one style lands on the next row's Style field and the
                row unfolds around the cursor. `onFocus` bubbles, so it catches
-               the mouse and the keyboard with one handler and no per-control
-               wiring. */
+               both paths with one handler and no per-control wiring. */
             onFocus={() => {
               if (!isOpen) setOpenStyleKey(r.key);
+            }}
+            /* AND THE WHOLE FOLDED ROW OPENS ON CLICK. Focus alone left the
+               mouse one target — the Style picker — which also opens its own
+               list, so the only way back into a folded style was to open a
+               dropdown one did not want. The summary is the larger part of the
+               row and was inert.
+
+               Buttons are excluded: the row's own ✕ sits inside this handler's
+               reach, and expanding a row on the way to deleting it is a flicker
+               with no purpose. */
+            onClick={(e) => {
+              if (isOpen) return;
+              if ((e.target as HTMLElement).closest("button")) return;
+              setOpenStyleKey(r.key);
             }}
           >
             <div className="flex items-center gap-2">
