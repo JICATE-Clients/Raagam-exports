@@ -5665,15 +5665,56 @@ export function AmendmentScreen({
                a template literal carrying the header's own percentage, so it
                changes as the operator types in Excess % — a header key would
                remount that field on every keystroke and drop the cursor. */
-            renderMobileRow={(row, i) => (
-              <FieldGrid>
-                {approvalQtyColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="xs">
-                    {c.cell(row, i)}
-                  </Field>
-                ))}
-              </FieldGrid>
-            )}
+            renderMobileRow={(row, i) => {
+              /**
+               * THE CALCULATION READS ALONG THE FIRST LINE (client 2026-08-14).
+               *
+               * Eight fields at the one width are 16 of 12 columns, so they wrap
+               * 6 + 2 — and the two that fell to the second line were Projection
+               * and Total Production: the allowance and the ANSWER, orphaned
+               * below the figures they come from.
+               *
+               * Reordered so the line carries the chain an operator follows —
+               * Qty, Approval Qty, Projection, Total Production — beside the
+               * identity that names it. What moves down is CONTEXT: Style PO Qty
+               * is the style's overall figure (the Quantities tab's number, not
+               * this combo's), and Excess is derived from the header's own %.
+               *
+               * EIGHT INTO SIX DOES NOT GO, and that is the trade rather than an
+               * oversight: something had to take the second line. Total
+               * Production is what the floor plans raw material against, so it
+               * was never a candidate — if Excess turns out to be read more than
+               * Style PO Qty, swap those two and the line still works.
+               */
+              const order = [
+                "Style",
+                "Combo",
+                "Qty",
+                "Approval Qty",
+                "Projection",
+                "Total Production",
+              ];
+              const rank = (h: string) => {
+                const at = order.indexOf(h);
+                return at === -1 ? order.length : at;
+              };
+              /* KEYED BY THE COLUMN'S ORIGINAL INDEX, never by its header: the
+                 Excess header is a template literal carrying the live percentage,
+                 so a header key remounts that field on every keystroke in Excess
+                 % and drops the cursor. Sorting must not change the keys. */
+              const ordered = approvalQtyColumns
+                .map((c, ci) => ({ c, ci }))
+                .sort((a, b) => rank(a.c.header as string) - rank(b.c.header as string));
+              return (
+                <FieldGrid>
+                  {ordered.map(({ c, ci }) => (
+                    <Field key={ci} label={c.header} required={c.required} size="xs">
+                      {c.cell(row, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              );
+            }}
             /* Who the row IS, beside its #N. Eight boxes of mostly-numbers look
                identical when paged; the style and its colour are what tell two
                approval lines apart. */
