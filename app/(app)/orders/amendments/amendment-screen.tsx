@@ -2200,8 +2200,20 @@ export function AmendmentScreen({
            cell has. The wider `hint` is rendered ONCE above the grid instead of
            per row — see the note there. */
         const opts = styleOptionsFor(r.style_id);
+        /* THE DERIVED SUB-LINE IS WITHDRAWN (client 2026-08-14). It printed
+           `article_no · style_category` under the picker — "23 · TEST" — and
+           the client asked for it gone. Reverses the 2026-08-12 note that said
+           it stays; that reasoning (Article No and Category are what the picked
+           style IS, so they are not columns) still holds and is exactly why
+           nothing replaces it with a column.
+
+           THE DATA IS UNTOUCHED, and on this screen that is not automatic.
+           `article_no` and `style_category` stay in `StyleRow`, in `toRows` and
+           in the save payload: `writeChildren` deletes and reinserts every child
+           grid wholesale, so a field dropped from the payload is NULLED on the
+           next save rather than merely hidden. Same treatment `trims` and the
+           withdrawn Fabric column already have. */
         return (
-        <div className="space-y-1">
           <RecordPicker
             label="Style"
             compact
@@ -2210,18 +2222,6 @@ export function AmendmentScreen({
             onChange={(id) => pickStyle(r.key, id)}
             placeholder={opts.shortHint ?? undefined}
           />
-          {/* Article No and Category are DERIVED by `pickStyle`, never typed, so
-              they are not columns — they are what the picked style IS. Legacy
-              agrees: its header is two rows deep, pairing "Style / Article No"
-              and "Style Category / Style Description" in single columns. The app
-              had flattened those pairs into four columns, which is most of why
-              the table needed `min-w-[1000px]` and scrolled sideways. */}
-          {(r.article_no || r.style_category) && (
-            <p className="text-xs text-muted-foreground">
-              {[r.article_no, r.style_category].filter(Boolean).join(" · ")}
-            </p>
-          )}
-        </div>
         );
       },
     },
@@ -4655,15 +4655,14 @@ export function AmendmentScreen({
                 * above `sizeGrid` said this was the arrangement all along — it
                 * described the pre-08-12 layout and is true again.
                 *
-                * The count still rides in the label: `Field` has no badge slot,
-                * and it is what says the row is complete without opening
-                * anything.
+                * NO COUNT IN THE LABEL (client 2026-08-14). It read "Sizes (4)",
+                * which earned its place while the list was a 180px cell that
+                * could not show four sizes at once — the number said what the
+                * cell could not. On a full-width line every size is visible, so
+                * the count restates what is already on screen, one word to the
+                * left of the answer.
                 */}
-              <Field
-                key="__sizes"
-                label={r.sizes.length ? `Sizes (${r.sizes.length})` : "Sizes"}
-                size="full"
-              >
+              <Field key="__sizes" label="Sizes" size="full">
                 {sizeGrid(r)}
               </Field>
             </FieldGrid>
