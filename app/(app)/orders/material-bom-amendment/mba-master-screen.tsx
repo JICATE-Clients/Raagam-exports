@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
+import { Truncated } from "@/components/ui/truncated";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
@@ -1582,6 +1583,48 @@ export function MbaMasterScreen({
             columns={itemColumns}
             rows={items}
             forceCards
+            /* ONE LINE OPEN AT A TIME (client 2026-08-14). 22 columns is four
+               wrapped lines per material, so three materials filled the screen
+               before "+ Add" came into view — on the document where ten lines is
+               ordinary. The fold itself is `ChildGrid`'s, so this says only what
+               a closed line looks like; the grid draws the #N and the ✕ above it. */
+            foldRows
+            /* A line with no material named has nothing to summarise, and a
+               folded blank reads as an empty record. */
+            canFold={(row) => !!row.item_id}
+            renderFoldedRow={(row, i) => {
+              const material = itemColumns.find((c) => c.header === "Material")!;
+              const summary = [
+                row.specification.trim(),
+                row.size.trim(),
+                row.combination.trim(),
+                // The arithmetic is what a BOM line IS — showing it closed is
+                // what makes the fold safe to scan past.
+                row.no_of_items.trim() && row.per_pieces.trim()
+                  ? `${row.no_of_items.trim()} / ${row.per_pieces.trim()} pcs`
+                  : null,
+                row.excess_pct.trim() ? `+${row.excess_pct.trim()}%` : null,
+              ]
+                .filter(Boolean)
+                .join("  ·  ");
+              return (
+                <FieldGrid>
+                  {/* THE MATERIAL STAYS A REAL FIELD. Tab lands on fields, so a
+                      folded line rendering none would be reachable by mouse
+                      alone — and focusing it is what opens it again. */}
+                  <Field label={material.header} required={material.required} size="sm">
+                    {material.cell(row, i)}
+                  </Field>
+                  <Field label="" size="lg">
+                    <div className="flex min-h-8 items-center">
+                      <Truncated className="text-sm text-muted-foreground">
+                        {summary || "Nothing else filled in yet"}
+                      </Truncated>
+                    </div>
+                  </Field>
+                </FieldGrid>
+              );
+            }}
             renderMobileRow={(row, i) => (
               <FieldGrid>
                 {itemColumns.map((c, ci) => (
@@ -1618,6 +1661,33 @@ export function MbaMasterScreen({
             columns={procColumns}
             rows={procs}
             forceCards
+            /* Same fold as the Items grid above — see it for the reasoning. */
+            foldRows
+            canFold={(row) => !!row.item_id}
+            renderFoldedRow={(row, i) => {
+              const material = procColumns.find((c) => c.header === "Material")!;
+              const summary = [
+                data.processes.find((p) => p.id === row.process_id)?.name,
+                row.qty_out.trim() ? `out ${row.qty_out.trim()}` : null,
+                row.qty_in.trim() ? `in ${row.qty_in.trim()}` : null,
+              ]
+                .filter(Boolean)
+                .join("  ·  ");
+              return (
+                <FieldGrid>
+                  <Field label={material.header} required={material.required} size="sm">
+                    {material.cell(row, i)}
+                  </Field>
+                  <Field label="" size="lg">
+                    <div className="flex min-h-8 items-center">
+                      <Truncated className="text-sm text-muted-foreground">
+                        {summary || "No process named yet"}
+                      </Truncated>
+                    </div>
+                  </Field>
+                </FieldGrid>
+              );
+            }}
             renderMobileRow={(row, i) => (
               <FieldGrid>
                 {procColumns.map((c, ci) => (

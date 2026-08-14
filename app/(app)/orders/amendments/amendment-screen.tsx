@@ -23,6 +23,7 @@ import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Sheet } from "@/components/ui/sheet";
 import { StyleProcessSheet } from "@/components/orders/style-process-sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import type { StyleProcessRow } from "@/lib/orders/amendments/style-processes";
 import {
   excessQty,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/orders/amendments/approval-qty";
 import { orderValue } from "@/lib/orders/amendments/order-value";
 import { Textarea } from "@/components/ui/textarea";
+import { Toggle } from "@/components/ui/toggle";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -52,7 +54,9 @@ import {
   SectionBody,
   type FullScreenSection,
 } from "@/components/masters/master-full-screen";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldGrid, FIELD_TRACK } from "@/components/ui/field";
+import { Truncated } from "@/components/ui/truncated";
+import { cn } from "@/lib/utils";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
@@ -609,6 +613,54 @@ export function AmendmentScreen({
   const [form, setForm] = useState<HeaderForm>(BLANK);
   // Phase 2 data-tab grids
   const [styles, setStyles] = useState<StyleRow[]>([]);
+  /**
+   * WHICH STYLE ROW IS OPEN (client 2026-08-14): finish one style, start the
+   * next, and the finished one folds away.
+   *
+   * A style row is now two lines — five fields and a size list — so three styles
+   * is a screenful before the operator reaches "+ Add style". Collapsing the
+   * ones not being worked on is what keeps a multi-style PO readable.
+   *
+   * NULL MEANS "THE LAST ROW", resolved at render rather than seeded into state.
+   * Seeding would go stale the moment a row is added, removed or loaded from a
+   * saved order, and every one of those paths would have to remember to update
+   * it.
+   *
+   * A COLLAPSED ROW KEEPS ITS STYLE FIELD, and that is a keyboard requirement
+   * rather than a design flourish. Tab lands on FIELDS — `data-focus-optional`
+   * takes controls OFF that path and nothing puts one on — so a row rendering no
+   * field at all would be reachable by mouse only, on a screen whose whole
+   * premise is that it is not. One field keeps the row on the Tab path, and
+   * focusing it opens the row.
+   *
+   * UP HERE WITH THE OTHER STATE, NOT DOWN BESIDE `addStyle` WHERE IT READS
+   * BETTER. This component returns early — `if (mode === "list")` — so a hook
+   * declared after that line runs in edit mode and not in list mode, and this
+   * screen crosses that boundary on EVERY load: `mode` starts "list" and
+   * `useCreateIntent` opens the form on mount. Declared below the branch it
+   * was React's 46th hook in one render and its 45th-and-nothing in the next,
+   * which is "Rendered more hooks than during the previous render" — a blank
+   * screen on /orders/garment-orders, not a subtle bug. The file already says
+   * this three times over derived values that had to stay plain
+   * (`orderStructureIds` and the two beside it); this is the same rule from the
+   * other side, and the reason those are not memos is the reason this is here.
+   */
+  const [openStyleKey, setOpenStyleKey] = useState<string | null>(null);
+  /** The same fold, on the Quantities grid — see `openStyleKey` for the whole
+   *  reasoning, which is identical down to why a folded row keeps one field. */
+  const [openQtyKey, setOpenQtyKey] = useState<string | null>(null);
+  /**
+   * WHICH STYLE'S PRICES ARE OPEN, keyed by `styleKey` rather than by row key —
+   * the Prices tab groups its rows by style, so the thing that folds is a GROUP
+   * and a row key would not name one.
+   *
+   * Everything above about `openStyleKey` holds here too: null means the last
+   * group, resolved at render; a completed group folds so the next style can be
+   * priced; the group keeps its Style field while folded so Tab has somewhere to
+   * land. And it lives up here for the same hard reason — a hook below the
+   * `if (mode === "list")` return crashes this screen on every load.
+   */
+  const [openPriceKey, setOpenPriceKey] = useState<string | null>(null);
   /** Which style line's Process sheet is open, by row key (0411). */
   const [processFor, setProcessFor] = useState<string | null>(null);
   const [dyeings, setDyeings] = useState<DyeingRow[]>([]);
@@ -1088,6 +1140,15 @@ export function AmendmentScreen({
       return held ? printOpts.filter((o) => o.id === held) : [];
     }
     const ids = new Set(prints.map((p) => p.print_id).filter(Boolean) as string[]);
+    // AND THE FULL LIST WHEN THE ORDER DECLARES NONE (2026-08-14). The grid that
+    // fed this came off the Color/Print tab, so "declared" is now only ever what
+    // a previously saved order carries — and the paragraph above turned an
+    // inline create down precisely BECAUSE the declaration belonged on that tab.
+    // With no tab to send the operator to, an empty list stops being a prompt
+    // and becomes a dead end on a Printed component. Same three clauses as
+    // `scopedStructures`: a held value always survives, nothing declared falls
+    // back to the whole list, a declared set narrows to it.
+    if (ids.size === 0) return printOpts;
     return printOpts.filter((o) => ids.has(o.id) || o.id === held);
   };
 
@@ -1350,6 +1411,17 @@ export function AmendmentScreen({
       location_id: startingLocationId,
     });
     setStyles([]);
+    // The pointer at the open style row is cleared with the rows it points at.
+    // It holds a ROW KEY, and keys are minted per row, so one carried over from
+    // the last document matches nothing here — and "matches nothing" folds every
+    // style rather than opening one. Same lesson as the missing `setQuantities`
+    // above: clearing the grids and leaving what indexes them is half a reset.
+    setOpenStyleKey(null);
+    // `openPriceKey` is a styleKey, not a row key, so it survives differently
+    // and is cleared for a different reason: the next document's first style may
+    // legitimately BE the last one's, and a pointer at it would open a group the
+    // operator has not reached yet.
+    setOpenPriceKey(null);
     setDyeings([]);
     setPrints([]);
     setStructures([]);
@@ -1425,6 +1497,12 @@ export function AmendmentScreen({
       amend_in_garment_process_bom: r.amend_in_garment_process_bom,
       reason_text: r.reason_text ?? "",
     });
+    // Same reset as `openAdd`, for the same reason: the incoming document's
+    // style rows carry new keys, so a pointer held from the last one opens no
+    // row at all. Null resolves to the LAST style, which is where a loaded order
+    // is meant to open.
+    setOpenStyleKey(null);
+    setOpenPriceKey(null);
     // The saved rows, through the same mapping the order seed uses. A saved
     // amendment always wins over the order: it records what was decided, and
     // the order has moved on since.
@@ -1826,7 +1904,15 @@ export function AmendmentScreen({
   // ---- Phase 2 grid row updaters / adders / removers ----
   const updateStyle = (key: string, patch: Partial<StyleRow>) =>
     setStyles((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-  const addStyle = () => setStyles((xs) => [...xs, blankStyle()]);
+  /** Opens the new row and folds the finished one — `openStyleKey` is declared
+      with the other state, above the list-mode return. */
+  const addStyle = () => {
+    const row = blankStyle();
+    setStyles((xs) => [...xs, row]);
+    // The new row is the one being worked on, so it opens and the finished one
+    // folds — which is the whole of what the client asked for.
+    setOpenStyleKey(row.key);
+  };
   /**
    * Picking a Style fills everything the Style Entry already knows, so the
    * operator types only what the buyer's order sheet adds (client 2026-08-10).
@@ -1983,6 +2069,13 @@ export function AmendmentScreen({
 
   const addDyeing = (section: "yarn" | "fabric") =>
     setDyeings((xs) => [...xs, blankDyeing(section)]);
+  /* UNUSED SINCE 2026-08-14, AND KEPT ON PURPOSE — with `printColumns` and
+     `structureColumns` below, these are the whole of what a restore needs, and
+     the state they add to is still loaded, seeded and written. `eslint` says so
+     as a warning; that is the cost of keeping the pair together rather than
+     unpicking `structureColumns` → `scopedOrderStructures` →
+     `styleStructuresDeclared` → `orderStructureIds`, a chain three other
+     comments use as a landmark for where hooks stop being legal in this file. */
   const addPrint = () => setPrints((xs) => [...xs, blankPrint()]);
   const addStructure = () => setStructures((xs) => [...xs, blankStructure()]);
   const addCombo = () => setCombos((xs) => [...xs, blankCombo()]);
@@ -2091,7 +2184,21 @@ export function AmendmentScreen({
       },
     ]);
   };
-  const addPriceDetail = () => setPriceDetails((xs) => [...xs, blankPriceDetail()]);
+  /**
+   * A NEW STYLE TO PRICE — and it becomes the open group, so the one before it
+   * folds (client 2026-08-14: "if user choose another add price button it should
+   * fold, how we folding the style in first tab"). Same two lines as `addStyle`,
+   * same rule.
+   *
+   * KEYED BY THE ROW, because a group with no style yet has no `styleKey` to be
+   * keyed by — which is why `priceStyleCell` has to move this pointer across
+   * when the style is picked and the group's identity changes under it.
+   */
+  const addPriceDetail = () => {
+    const row = blankPriceDetail();
+    setPriceDetails((xs) => [...xs, row]);
+    setOpenPriceKey(row.key);
+  };
   const addApprovalQty = () => setApprovalQtys((xs) => [...xs, blankApprovalQty()]);
 
   /**
@@ -2155,7 +2262,12 @@ export function AmendmentScreen({
     // Info, and that section carries its own `done` (which reads `has(styles)`,
     // the same expression this entry held). A key left here would be read by
     // nothing and would drift.
-    colors: has(dyeings) || has(prints) || has(structures),
+    // READS ONLY WHAT THE TAB SHOWS. Prints and Structures came off this tab on
+    // 2026-08-14 and their state stayed (see the tab body), so keeping them in
+    // this expression would light the dot for rows `pickStyle` seeded — a tab
+    // reporting "has data" over two visibly empty dyeing grids, which is the
+    // confident lie the note above is about.
+    colors: has(dyeings),
     combos: has(combos),
     prices: has(priceDetails),
     approvalqty: has(approvalQtys),
@@ -2198,8 +2310,20 @@ export function AmendmentScreen({
            cell has. The wider `hint` is rendered ONCE above the grid instead of
            per row — see the note there. */
         const opts = styleOptionsFor(r.style_id);
+        /* THE DERIVED SUB-LINE IS WITHDRAWN (client 2026-08-14). It printed
+           `article_no · style_category` under the picker — "23 · TEST" — and
+           the client asked for it gone. Reverses the 2026-08-12 note that said
+           it stays; that reasoning (Article No and Category are what the picked
+           style IS, so they are not columns) still holds and is exactly why
+           nothing replaces it with a column.
+
+           THE DATA IS UNTOUCHED, and on this screen that is not automatic.
+           `article_no` and `style_category` stay in `StyleRow`, in `toRows` and
+           in the save payload: `writeChildren` deletes and reinserts every child
+           grid wholesale, so a field dropped from the payload is NULLED on the
+           next save rather than merely hidden. Same treatment `trims` and the
+           withdrawn Fabric column already have. */
         return (
-        <div className="space-y-1">
           <RecordPicker
             label="Style"
             compact
@@ -2208,18 +2332,6 @@ export function AmendmentScreen({
             onChange={(id) => pickStyle(r.key, id)}
             placeholder={opts.shortHint ?? undefined}
           />
-          {/* Article No and Category are DERIVED by `pickStyle`, never typed, so
-              they are not columns — they are what the picked style IS. Legacy
-              agrees: its header is two rows deep, pairing "Style / Article No"
-              and "Style Category / Style Description" in single columns. The app
-              had flattened those pairs into four columns, which is most of why
-              the table needed `min-w-[1000px]` and scrolled sideways. */}
-          {(r.article_no || r.style_category) && (
-            <p className="text-xs text-muted-foreground">
-              {[r.article_no, r.style_category].filter(Boolean).join(" · ")}
-            </p>
-          )}
-        </div>
         );
       },
     },
@@ -2313,14 +2425,22 @@ export function AmendmentScreen({
           type="button"
           variant="outline"
           size="sm"
+          /* FULL WIDTH, so the fifth cell of the row is the same width as the
+             four filled controls beside it. It was content-width, which made
+             Process the one cell that did not reach its column's edge. */
+          className="w-full"
           onClick={() => setProcessFor(r.key)}
-          /* The count is on the button because the list lives behind it: with
-             the sheet closed there is otherwise nothing on the line to say a
-             style HAS processes, and an operator would have to open each one to
-             find out. Same reason `ChildGrid` puts a badge on a collapsed
-             section. */
+          /* NO COUNT (client 2026-08-14, with Detail and Assort beside it).
+             It read "Process (2)".
+
+             Stated because it is a real trade rather than tidying: unlike the
+             Sizes count — which went out because the sizes themselves are now
+             on screen — this list lives BEHIND the button, so nothing on the row
+             now says a style has processes at all. An operator wanting to know
+             opens it. The client asked for the numbers gone everywhere; this is
+             what "everywhere" costs. */
         >
-          {r.processes.length ? `Process (${r.processes.length})` : "Process"}
+          Process
         </Button>
       ),
     },
@@ -2671,12 +2791,9 @@ export function AmendmentScreen({
           title={r.combo.trim() ? undefined : "Name the combo first"}
           onClick={() => setDetailComboKey(r.key)}
         >
+          {/* No count — see the Process button. Same button-hides-a-list shape,
+              same client removal. */}
           Detail
-          {r.structures.length > 0 && (
-            <span className="ml-1 text-xs text-muted-foreground">
-              ({r.structures.length})
-            </span>
-          )}
         </Button>
       ),
     },
@@ -2811,198 +2928,433 @@ export function AmendmentScreen({
     });
   };
 
-  /**
-   * Is this row left over from a mode its style no longer uses?
+  /*
+   * `priceRowStale(row)` STOOD HERE and is gone with the grid that needed it
+   * (2026-08-14). It answered "is this row left over from a mode its style no
+   * longer uses?" one row at a time, because the flat grid could only ask one
+   * row at a time — its whole job was to tell two visually identical rows apart.
    *
-   * The flag half of "keep rows, never delete them". A style's CURRENT mode is
-   * the one on its most recently touched row, which is not knowable — so this
-   * asks the honest question instead: does this style hold rows of more than one
-   * mode, and is this row not on the majority one? Any row of a minority mode is
-   * shown as stale, which is exactly the set the operator has to resolve before
-   * `styleRate` will answer.
+   * The question it answered has not gone anywhere: it is "keep rows, never
+   * delete them" (operator decision 2026-08-12), and a leftover rate is still
+   * what makes `styleRate` refuse and the Logistic tab's Avg Rate go blank. It
+   * is now asked ONCE PER STYLE, in `rateGrid`, by the same majority rule this
+   * used — `groupMode` below — and the leftovers are listed together under one
+   * amber line instead of a repeated note down the grid. One rule, one reader.
    */
-  const priceRowStale = (r: PriceDetailRow) => {
-    const key = styleKey(r.style_ref_no);
-    if (!key || !r.price_type) return false;
+
+  /**
+   * THE MODE OF A STYLE, from its rows — the majority one, exactly as
+   * `priceRowStale` above has always computed it.
+   *
+   * ONE FUNCTION, TWO READERS, and that is the point of extracting it. The
+   * Prices tab now asks for the mode in ONE place per style rather than on every
+   * rate row, so the select needs the same answer the stale flag gives — and a
+   * second majority rule beside the first would let a group show "Size-wise"
+   * while flagging its size rows as the stale ones.
+   */
+  function groupMode(rows: PriceDetailRow[]) {
     const modes = new Map<string, number>();
-    for (const x of priceDetails) {
-      if (styleKey(x.style_ref_no) !== key || !x.price_type) continue;
-      modes.set(x.price_type, (modes.get(x.price_type) ?? 0) + 1);
+    for (const r of rows) {
+      if (!r.price_type) continue;
+      modes.set(r.price_type, (modes.get(r.price_type) ?? 0) + 1);
     }
-    if (modes.size < 2) return false;
-    const top = [...modes.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return r.price_type !== top;
+    if (!modes.size) return "";
+    return [...modes.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
+
+  /**
+   * THE RATES OF ONE STYLE, which is what the tab lists (client 2026-08-14:
+   * "already we choosed the style, why need show for all size — just like the
+   * legacy... just show the size and price").
+   *
+   * The stored shape is unchanged — one `price_details` row per (style, colour,
+   * size), which is what `styleRate` and the Logistic tab's Avg Rate read. This
+   * groups them for DISPLAY only, and it groups by `styleKey` because that is
+   * the key `applyPriceMode`, `priceRowStale` and `styleRate` already group by.
+   * A second grouping rule here is how the screen and the valuation would come
+   * to disagree about what "this style's rows" means.
+   *
+   * A ROW WITH NO STYLE IS ITS OWN GROUP, keyed by the row. Otherwise every
+   * unanswered row would collapse into one group under the empty key, and "+ Add
+   * style price" twice would look like it had done nothing the second time.
+   */
+  type PriceGroup = { key: string; refNo: string; rows: PriceDetailRow[] };
+  const priceGroups: PriceGroup[] = (() => {
+    const out: PriceGroup[] = [];
+    const seen = new Map<string, PriceGroup>();
+    for (const r of priceDetails) {
+      const k = styleKey(r.style_ref_no);
+      if (!k) {
+        out.push({ key: r.key, refNo: "", rows: [r] });
+        continue;
+      }
+      const g = seen.get(k);
+      if (g) {
+        g.rows.push(r);
+        continue;
+      }
+      const next = { key: k, refNo: r.style_ref_no, rows: [r] };
+      seen.set(k, next);
+      out.push(next);
+    }
+    return out;
+  })();
+
+  /**
+   * THE STYLE, ASKED ONCE FOR THE WHOLE GROUP (client 2026-08-14: "already we
+   * choosed the style, why need show for all size").
+   *
+   * It writes the four identity fields to EVERY row of the group, not to one:
+   * they are a property of the style, and a group whose rows disagreed about
+   * `style_ref_no` would split into two groups on the next render — the row the
+   * operator re-pointed would leave, taking its rates with it.
+   *
+   * The article number is no longer drawn beside it. It was a caption under this
+   * picker on every one of six identical rows, which is exactly the repetition
+   * this change removes; it is answered on the Style(s) tab and reaches the
+   * saved row untouched.
+   */
+  const priceStyleCell = (g: PriceGroup) => (
+    <RecordPicker
+      label="Style"
+      compact
+      required
+      items={styleLineItems}
+      identity="code"
+      value={styleLineKeyOf(g.refNo)}
+      onChange={(key) => {
+        const line = key ? styles.find((x) => x.key === key) : null;
+        const mine = new Set(g.rows.map((r) => r.key));
+        /* THE GROUP'S IDENTITY CHANGES HERE, so the "which group is open"
+           pointer has to follow it. A blank group is keyed by its row; the
+           moment a style is picked it is keyed by `styleKey`, and a pointer left
+           on the old key would stop matching — the group would fold itself out
+           from under the operator the instant its last rate was filled. Only the
+           pointer AT THIS GROUP moves; another group's stays where it is. */
+        setOpenPriceKey((k) =>
+          k === g.key ? styleKey(line?.style_ref_no ?? "") || null : k,
+        );
+        setPriceDetails((xs) =>
+          xs.map((x) =>
+            mine.has(x.key)
+              ? {
+                  ...x,
+                  style_ref_no: line?.style_ref_no ?? "",
+                  style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
+                  article_no: line?.article_no ?? "",
+                  // "Unit ... is pulled from the Order Unit established in the
+                  // initial Style Entry" — so it arrives with the line rather
+                  // than being asked for again.
+                  unit: line ? unitTextOf(line) : "",
+                }
+              : x,
+          ),
+        );
+      }}
+    />
+  );
+
+  /**
+   * THE MODE, now asked once per style rather than once per rate (client
+   * 2026-08-12: "when a user selects a mode like Color wise or Size wise, the
+   * system automatically opens a grid listing the relevant colors or sizes").
+   *
+   * The old column carried a note saying the dropdown "stays per ROW ... because
+   * a saved row must keep answering for itself". The row still does — nothing
+   * rewrites `price_type` on a row the operator did not touch, and a row left on
+   * an earlier mode still shows up, below, as a leftover. What changed is only
+   * where the question is ASKED: six rows of one style could never legitimately
+   * answer it six different ways, and the six identical dropdowns were the
+   * clearest half of the repetition being removed.
+   *
+   * `applyPriceMode` is unchanged and still seeds only what is missing.
+   */
+  const priceModeCell = (g: PriceGroup, mode: string) => (
+    <Select
+      required
+      value={mode}
+      onChange={(e) => applyPriceMode(g.rows[0], e.target.value)}
+    >
+      <option value="">—</option>
+      {PRICE_TYPE_OPTIONS.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /** WHICH colourway this rate is for — the combos the Combos tab declared,
+   *  which is why Prices sits after it in the rail. It is a COLUMN of the rate
+   *  list now, rendered only under a mode that prices by colour, so the cell no
+   *  longer has to be drawn disabled to hold a column open in a shared header. */
+  const priceColourCell = (r: PriceDetailRow) => (
+    <Select
+      value={r.combo}
+      onChange={(e) =>
+        setPriceDetails((xs) =>
+          xs.map((x) => (x.key === r.key ? { ...x, combo: e.target.value } : x)),
+        )
+      }
+    >
+      <option value="">—</option>
+      {comboOptionsForStyle(r.style_ref_no).map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /** WHICH size — the style line's OWN size set (0407), not every size in the
+   *  master: a rate for a size this style is not made in prices nothing, and
+   *  could never be matched to a quantity. */
+  const priceSizeCell = (r: PriceDetailRow) => (
+    <Select
+      value={r.size_id ?? ""}
+      onChange={(e) =>
+        setPriceDetails((xs) =>
+          xs.map((x) => (x.key === r.key ? { ...x, size_id: e.target.value || null } : x)),
+        )
+      }
+    >
+      <option value="">—</option>
+      {sizeOptionsForStyle(r.style_ref_no).map((z) => (
+        <option key={z.id} value={z.id}>
+          {z.name}
+        </option>
+      ))}
+    </Select>
+  );
+
+  /**
+   * The rate off the buyer's order sheet. Its CURRENCY is the document's, set on
+   * the Logistic tab — there is deliberately no per-row currency.
+   *
+   * `required` ON THE CONTROL, which is the sanctioned second declaration when a
+   * grid renders its own row (AGENTS.md: "A GRID THAT RENDERS ITS OWN ROW MUST
+   * DECLARE `required` TWICE"). It was `ChildGridColumn.required` before this
+   * change and the hold must not be lost with the column — an unpriced rate row
+   * is the one thing that makes `styleRate` refuse.
+   */
+  const priceRateCell = (r: PriceDetailRow) => (
+    <Input
+      type="number"
+      required
+      className="text-right"
+      value={r.price}
+      onChange={(e) =>
+        setPriceDetails((xs) =>
+          xs.map((x) => (x.key === r.key ? { ...x, price: e.target.value } : x)),
+        )
+      }
+    />
+  );
+
+  /** One more rate for this style, carrying the group's identity and mode so it
+   *  lands in the same group rather than starting a second one. Inserted after
+   *  the group's last row, not appended to the document, so a two-style order
+   *  keeps its rates together. */
+  const addRate = (g: PriceGroup, mode: string) => {
+    const src = g.rows[0];
+    const last = g.rows[g.rows.length - 1];
+    setPriceDetails((xs) => {
+      const at = xs.findIndex((x) => x.key === last.key);
+      const row: PriceDetailRow = {
+        ...blankPriceDetail(),
+        style_ref_no: src.style_ref_no,
+        style: src.style,
+        article_no: src.article_no,
+        unit: src.unit,
+        price_type: mode,
+      };
+      return at === -1 ? [...xs, row] : [...xs.slice(0, at + 1), row, ...xs.slice(at + 1)];
+    });
   };
 
-  const priceDetailColumns: ChildGridColumn<PriceDetailRow>[] = [
-    {
-      header: "Style",
-      required: true,
-      width: STYLE_COL_W,
-      cell: (r) => (
-        <div className="space-y-1">
-          <RecordPicker
-            label="Style"
-            compact
-            items={styleLineItems}
-            identity="code"
-            value={styleLineKeyOf(r.style_ref_no)}
-            onChange={(key) => {
-              const line = key ? styles.find((x) => x.key === key) : null;
-              setPriceDetails((xs) =>
-                xs.map((x) =>
-                  x.key === r.key
-                    ? {
-                        ...x,
-                        style_ref_no: line?.style_ref_no ?? "",
-                        style: (line?.style_id ? styleById.get(line.style_id)?.name : null) ?? "",
-                        article_no: line?.article_no ?? "",
-                        // "Unit ... is pulled from the Order Unit established in
-                        // the initial Style Entry" — so it arrives with the line
-                        // rather than being asked for again.
-                        unit: line ? unitTextOf(line) : "",
-                      }
-                    : x,
-                ),
-              );
-            }}
-          />
-          {(r.article_no || r.unit) && (
-            <p className="text-xs text-muted-foreground">
-              {[r.article_no, r.unit && `per ${r.unit}`].filter(Boolean).join(" · ")}
-            </p>
+  /**
+   * THE RATE LIST OF ONE STYLE — the legacy child table (screenshot 2295), where
+   * a style's row carries a small `Combo · Price` list beneath it rather than
+   * repeating the style down the page.
+   *
+   * HAND-ROLLED, NOT A NESTED `ChildGrid`, and that is the established idiom in
+   * this file rather than a shortcut: `sizeGrid` and the combo parts list are
+   * both built this way. A nested `ChildGrid` in `responsive` mode mounts its
+   * table AND its cards and hides one by CSS, which `enterNestedGrid` has to
+   * work around by hand (`offsetParent`) — a complication worth avoiding for a
+   * two-column list. The four markers are what matter and they are all here:
+   * `data-grid-body` + `gridKeyNav` (arrows and Enter), `data-grid-row` (the Tab
+   * axis), `data-row-remove` (Ctrl+Del) and `data-row-add` INSIDE the body,
+   * which is where `enterNestedGrid` looks for Tab's way into an empty list.
+   *
+   * FIXED WIDTHS PER COLUMN, not `flex-1`: they have to line up down the list,
+   * and an unsized item absorbs the row's slack — the same failure `hugsContent`
+   * records about a grid column left without a `width`.
+   */
+  const rateGrid = (g: PriceGroup, mode: string) => {
+    const axes = priceAxes(mode);
+    // A row with no mode yet is one of THIS set — it is the blank the operator
+    // is about to fill, not a leftover from a mode they have moved off.
+    const rows = g.rows.filter((r) => !r.price_type || r.price_type === mode);
+    const leftovers = g.rows.filter((r) => r.price_type && r.price_type !== mode);
+    const noun = axes.size ? (axes.colour ? "rate" : "size") : axes.colour ? "colour" : "rate";
+    /**
+     * CAN THIS STYLE CARRY MORE THAN ONE RATE? Only if the mode gives the rates
+     * something to differ BY.
+     *
+     * Style-wise — and a group with no Price Type chosen yet — is one price for
+     * the style, so a second rate row is not a second price, it is the same
+     * price twice with no way to tell them apart. Avg Rate is
+     * quantity-weighted over these rows, so the duplicate does not merely look
+     * wrong, it moves the number.
+     *
+     * That is also what the client was reporting (screenshot 2304,
+     * 2026-08-14): "+ Add rate price" and "+ Add style price" one above the
+     * other, "doing the same work". On a blank group they genuinely did — the
+     * only honest thing either could add was another undifferentiated line. So
+     * the inner one stands down until the mode earns it, and the tab is left
+     * with the one add button that always means something.
+     *
+     * `|| rows.length === 0` keeps it alive in the one case that would
+     * otherwise be a dead end: switching mode turns every existing rate into a
+     * leftover, and with no button and no row there is nothing to add a rate
+     * with and nothing for `enterNestedGrid` to click Tab's way in on.
+     */
+    const canAddRate = axes.colour || axes.size || rows.length === 0;
+    return (
+      <div className="space-y-1.5">
+        {/* The header line the legacy grid has, and the reason the rate rows
+            need no labels of their own — six `<Field>`s down the list would put
+            14px of label above every rate. The `*` is drawn here for the same
+            reason `ChildGrid` draws it in its `<th>`: the hold itself is
+            declared on the control (`priceRateCell`). */}
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          {axes.colour && <span className="w-40 shrink-0">Colour</span>}
+          {axes.size && <span className="w-32 shrink-0">Size</span>}
+          <span className="w-28 shrink-0">Price *</span>
+        </div>
+        <div
+          data-grid-body
+          className="space-y-1"
+          /* DECLINING (`false`) rather than adding is what lets Enter LEAVE a
+             single-rate list — `gridKeyNav` passes a declined key to the parent
+             grid. Adding here would mint the same duplicate the button no
+             longer offers, off a key instead of a click. */
+          onKeyDown={(e) => gridKeyNav(e, () => (canAddRate ? addRate(g, mode) : false))}
+        >
+          {rows.map((r) => (
+            <div key={r.key} data-grid-row className="flex items-center gap-2">
+              {axes.colour && <div className="w-40 shrink-0">{priceColourCell(r)}</div>}
+              {axes.size && <div className="w-32 shrink-0">{priceSizeCell(r)}</div>}
+              <div className="w-28 shrink-0">{priceRateCell(r)}</div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-row-remove
+                className="shrink-0 text-muted-foreground hover:text-danger"
+                onClick={() => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))}
+                aria-label={`Remove ${sizeLabel(r.size_id) || r.combo || "rate"}`}
+              >
+                <Trash2 className="h-4 w-4 shrink-0" />
+              </Button>
+            </div>
+          ))}
+          {/* SHOWN ONLY WHERE A SECOND RATE MEANS SOMETHING — see `canAddRate`.
+              When it does show it matches `ChildGrid`'s own add button
+              (`variant="outline" size="sm"` at content width), which is the only
+              way the pair reads as a pair rather than as two rival controls. */}
+          {canAddRate && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-row-add
+              onClick={() => addRate(g, mode)}
+            >
+              + Add {noun} price
+            </Button>
           )}
         </div>
-      ),
-    },
-    {
-      header: "Price Type",
-      required: true,
-      width: "11rem",
-      /**
-       * THE MODE, and it drives the two cells after it (client 2026-08-12:
-       * "when a user selects a mode like Color wise or Size wise, the system
-       * automatically opens a grid listing the relevant colors or sizes").
-       *
-       * Choosing it SEEDS the rows — one per colourway, per size, or per
-       * combination — through `applyPriceMode`. The dropdown stays per ROW
-       * rather than moving to the style, because that is where the column has
-       * always been and a saved row must keep answering for itself.
-       */
-      cell: (r) => (
-        <div className="space-y-1">
-          <Select
-            value={r.price_type}
-            onChange={(e) => applyPriceMode(r, e.target.value)}
-          >
-            <option value="">—</option>
-            {PRICE_TYPE_OPTIONS.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </Select>
-          {/* THE FLAG HALF of "keep rows, never delete them". Without it a
-              left-over row from a previous mode is indistinguishable from a
-              current one, and the only symptom is that the Logistic tab's Avg
-              Rate quietly refuses to answer. Amber and advisory — it never
-              holds the cursor (AGENTS.md: a hold is only for an error that
-              genuinely blocks Save, and this row is valid, just superseded). */}
-          {priceRowStale(r) && (
-            <p className="text-xs text-warning">Stale — this style now prices {""}
-              {priceDetails.find(
-                (x) => styleKey(x.style_ref_no) === styleKey(r.style_ref_no) && !priceRowStale(x),
-              )?.price_type ?? "differently"}
-              . Remove it or the order&rsquo;s value cannot be calculated.
+        {/* THE FLAG HALF of "keep rows, never delete them" (operator decision
+            2026-08-12), and it says it ONCE PER STYLE now rather than once per
+            row. Without it a left-over rate from a previous mode is
+            indistinguishable from a current one, and the only symptom is that
+            the Logistic tab's Avg Rate quietly refuses to answer. Amber and
+            advisory — it never holds the cursor, because these rows are valid,
+            just superseded. */}
+        {leftovers.length > 0 && (
+          <div className="space-y-1 rounded-md border border-warning/40 bg-warning/10 p-2">
+            <p className="text-xs text-warning">
+              {leftovers.length === 1 ? "One rate is" : `${leftovers.length} rates are`} left
+              over from {leftovers[0].price_type}. Remove {leftovers.length === 1 ? "it" : "them"}{" "}
+              or the order&rsquo;s value cannot be calculated.
             </p>
-          )}
-        </div>
-      ),
-    },
-    {
-      header: "Colour",
-      width: "10rem",
-      /**
-       * WHICH colourway this rate is for — the combos the Combos tab declared,
-       * which is why Prices sits after it in the rail.
-       *
-       * DISABLED, NOT HIDDEN, when the mode does not price by colour. A hidden
-       * cell would make the row's own columns shift under the shared header
-       * band (`inlineCards` draws one header for every row), so a Style-wise row
-       * beside a Color-wise one would put its Price under the Colour heading.
-       * Greyed-and-empty says the same thing and keeps the grid a grid.
-       */
-      cell: (r) => {
-        const on = priceAxes(r.price_type).colour;
-        return (
-          <Select
-            value={r.combo}
-            disabled={!on}
-            onChange={(e) =>
-              setPriceDetails((xs) =>
-                xs.map((x) => (x.key === r.key ? { ...x, combo: e.target.value } : x)),
-              )
-            }
-          >
-            <option value="">{on ? "—" : ""}</option>
-            {comboOptionsForStyle(r.style_ref_no).map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
+            {leftovers.map((r) => (
+              <div key={r.key} className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="w-40 shrink-0 truncate">{r.combo || "—"}</span>
+                <span className="w-32 shrink-0 truncate">{sizeLabel(r.size_id) || "—"}</span>
+                <span className="w-28 shrink-0">{r.price || "—"}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-focus-optional
+                  className="shrink-0 text-muted-foreground hover:text-danger"
+                  onClick={() => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))}
+                  aria-label={`Remove leftover ${r.price_type} rate`}
+                >
+                  <Trash2 className="h-4 w-4 shrink-0" />
+                </Button>
+              </div>
             ))}
-          </Select>
-        );
-      },
-    },
-    {
-      header: "Size",
-      width: "9rem",
-      /** WHICH size — the style line's OWN size set (0407), not every size in
-       *  the master: a rate for a size this style is not made in prices nothing,
-       *  and could never be matched to a quantity. */
-      cell: (r) => {
-        const on = priceAxes(r.price_type).size;
-        return (
-          <Select
-            value={r.size_id ?? ""}
-            disabled={!on}
-            onChange={(e) =>
-              setPriceDetails((xs) =>
-                xs.map((x) => (x.key === r.key ? { ...x, size_id: e.target.value || null } : x)),
-              )
-            }
-          >
-            <option value="">{on ? "—" : ""}</option>
-            {sizeOptionsForStyle(r.style_ref_no).map((z) => (
-              <option key={z.id} value={z.id}>
-                {z.name}
-              </option>
-            ))}
-          </Select>
-        );
-      },
-    },
-    {
-      header: "Price",
-      align: "right",
-      required: true,
-      width: "8rem",
-      // The rate off the buyer's order sheet. Its CURRENCY is the document's,
-      // set on the Logistic tab — there is deliberately no per-row currency.
-      cell: (r) => (
-        <Input
-          type="number"
-          className="text-right"
-          value={r.price}
-          onChange={(e) =>
-            setPriceDetails((xs) =>
-              xs.map((x) => (x.key === r.key ? { ...x, price: e.target.value } : x)),
-            )
-          }
-        />
-      ),
-    },
-  ];
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /**
+   * What the tab knows about one style's prices, computed ONCE and read by both
+   * the folded summary and the row body. Two copies of the fold test is how a
+   * row comes to summarise itself as complete while rendering as open.
+   */
+  const priceGroupView = (g: PriceGroup) => {
+    const mode = groupMode(g.rows);
+    const rates = g.rows.filter((r) => !r.price_type || r.price_type === mode);
+    const priced = rates.filter((r) => r.price.trim());
+    /* ONLY A COMPLETE GROUP FOLDS — the same rule the Style(s) grid follows, and
+       for the same hard reason: a folded group's fields are UNMOUNTED, so a
+       blank required rate inside one would have no `data-required-empty` node
+       for `onBlockedSave` to land on. Save would refuse and the cursor would
+       have nowhere to go. */
+    const complete = !!g.refNo && !!mode && rates.length > 0 && priced.length === rates.length;
+    const openKey = openPriceKey ?? priceGroups[priceGroups.length - 1]?.key ?? null;
+    /* A SINGLE STYLE NEVER FOLDS — there is no next style to move on to, and 98%
+       of orders are one style, so the common case is untouched by this. */
+    const isOpen = priceGroups.length < 2 || g.key === openKey || !complete;
+    const nums = priced.map((r) => Number(r.price)).filter((n) => Number.isFinite(n));
+    const lo = nums.length ? Math.min(...nums) : null;
+    const hi = nums.length ? Math.max(...nums) : null;
+    /* What a folded group says about itself: the mode, how many rates, and the
+       spread. Named, not counted, wherever a name is the more useful answer —
+       but a rate list is numbers, so here the range IS the useful summary. */
+    /* THE LEFTOVER COUNT SURVIVES THE FOLD, and that is not decoration. The
+       amber block naming those rows lives inside the row body, so folding the
+       group would hide the one thing standing between this order and a value —
+       a warning that disappears when the row it belongs to is tidied away is a
+       warning the operator never acts on. */
+    const leftovers = g.rows.length - rates.length;
+    const summary = [
+      mode,
+      rates.length > 1 ? `${rates.length} rates` : null,
+      lo == null ? null : lo === hi ? String(lo) : `${lo} – ${hi}`,
+      leftovers > 0 ? `${leftovers} left over` : null,
+    ]
+      .filter(Boolean)
+      .join("  ·  ");
+    return { mode, isOpen, complete, summary };
+  };
 
   /**
    * Approval Quantity — the production TARGET, not just a sample count.
@@ -3363,11 +3715,36 @@ export function AmendmentScreen({
    * NO `width` ON ANY COLUMN, deliberately. They each carried one, ~100rem in
    * total, to force `table-fixed` so the table would scroll instead of
    * collapsing every picker to "— S…". The grid is carded now, so a per-column
-   * width is both dead and contrary to the standing one-width rule: every field
-   * is `<Field size="sm">` so a Year box and a Consignee picker line up down the
-   * page. Leaving them would have preserved, in code, the argument for the
+   * width is both dead and contrary to the one-width rule: every field on this
+   * screen is `<Field size="xs">` so a Year box and a Consignee picker line up
+   * down the page. (`xs` since 2026-08-14, six a row — the width changed, the
+   * ONE-width part did not.) Leaving them would have preserved, in code, the argument for the
    * layout that was just removed.
    */
+  /**
+   * THE SIX A QUANTITY LINE IS READ BY (client 2026-08-14), in the order they
+   * are read in. The other five — Assortment Type, Earlier Shipment Dt, Style
+   * No, WareHouse, Discharge Port — appear only while the row is open.
+   *
+   * Eleven fields cannot share one line at a readable width: the track is twelve
+   * columns, so eleven would be ~100px each, and a date clips below ~120px while
+   * a Country or Consignee picker needs more. Six at the one width (2 of 12)
+   * fill the line exactly.
+   *
+   * BY HEADER, NOT BY INDEX — the same anchoring the Style column uses, and for
+   * the same reason: these columns have been reordered before, and a header that
+   * stops matching fails loudly where a slice would quietly promote the wrong
+   * field.
+   */
+  const QTY_PRIMARY = [
+    "Country",
+    "Ref No",
+    "Consignee",
+    "PO Qty",
+    "Delivery Dt",
+    "Assort",
+  ] as const;
+
   const quantityColumns: ChildGridColumn<QuantityRow>[] = [
     {
       header: "Country",
@@ -3558,12 +3935,8 @@ export function AmendmentScreen({
           }
           onClick={() => setAssortQtyKey(r.key)}
         >
+          {/* No count — see the Process button. */}
           Assort
-          {r.assort_lines.length > 0 && (
-            <span className="ml-1 text-xs text-muted-foreground">
-              ({r.assort_lines.length})
-            </span>
-          )}
         </Button>
       ),
     },
@@ -3581,9 +3954,9 @@ export function AmendmentScreen({
    * width (operator screenshot 2026-08-12, 12:26). Same cause and same fix as
    * that grid had.
    *
-   * Nothing is lost: a card lays its cells out through `<Field size="sm">`,
-   * which is the standing one-width rule, and a table would want its widths
-   * chosen for a table anyway.
+   * Nothing is lost: a card lays its cells out through `<Field size="xs">`,
+   * which is this screen's one width — six a row since 2026-08-14 — and a table
+   * would want its widths chosen for a table anyway.
    */
   const approvalQtyColumns: ChildGridColumn<ApprovalQtyRow>[] = [
     {
@@ -3886,7 +4259,7 @@ export function AmendmentScreen({
           ["Delivery Dt", fmtDate(q.delivery_date) || ""],
         ] as [string, string][]
       ).map(([label, value]) => (
-        <Field key={label} label={label} size="sm">
+        <Field key={label} label={label} size="xs">
           <Input readOnly className="h-8" value={value} placeholder="—" />
         </Field>
       ))}
@@ -4006,7 +4379,7 @@ export function AmendmentScreen({
                   // The three named columns keep the standing field width; a
                   // size cell is `xs` so six wrap per row instead of one line
                   // of sixteen running off the side.
-                  size={ci >= 2 && ci < 2 + sizes.length ? "xs" : "sm"}
+                  size="xs"
                 >
                   {c.cell(row, i)}
                 </Field>
@@ -4036,7 +4409,7 @@ export function AmendmentScreen({
           ["Combo Description", r.combo_description],
         ] as [string, string][]
       ).map(([label, value]) => (
-        <Field key={label} label={label} size="sm">
+        <Field key={label} label={label} size="xs">
           {/* `readOnly`, never `disabled` — `Input` gives a readOnly field
               `tabIndex={-1}` itself, so it leaves the Tab path with no
               per-screen opt-out while the value stays selectable. */}
@@ -4105,7 +4478,7 @@ export function AmendmentScreen({
               </Button>
             </div>
             <FieldGrid>
-              <Field label="Coordinate" size="sm">
+              <Field label="Coordinate" size="xs">
                 {/* The style's own coordinates (client 2026-08-12). */}
                 <RecordPicker
                   label="Coordinate"
@@ -4127,7 +4500,7 @@ export function AmendmentScreen({
                   }
                 />
               </Field>
-              <Field label="Component" size="sm">
+              <Field label="Component" size="xs">
                 {/* Narrowed by the coordinate beside it: the style declares the
                     PAIR (FRONT BODY *of* PIECES), so an unscoped list would
                     offer a collar under a coordinate that has none. */}
@@ -4139,7 +4512,7 @@ export function AmendmentScreen({
                   onChange={(id) => patchComp(r.key, st.key, c.key, { component_id: id })}
                 />
               </Field>
-              <Field label="Fabric Color" size="sm">
+              <Field label="Fabric Color" size="xs">
                 {/*
                  * THE ORDER'S OWN DYEING PALETTE, and only when the fabric is
                  * SOLID (client 2026-08-12).
@@ -4167,7 +4540,7 @@ export function AmendmentScreen({
                   clearable
                 />
               </Field>
-              <Field label="Fabric Print" size="sm">
+              <Field label="Fabric Print" size="xs">
                 {/* ONE FIELD (0410), and scoped to the prints THIS order
                     declared (2026-08-12) — the all-over / rotary print, not a
                     placement print. No inline create: adding a lookup row here
@@ -4283,6 +4656,51 @@ export function AmendmentScreen({
           <span className="text-muted-foreground">New structure</span>
         )
       }
+      /* ONE STRUCTURE OPEN AT A TIME (client 2026-08-14, module-wide). Seven
+         fields plus a nested components panel is three or four wrapped lines
+         per structure, and a combo with three structures filled the overlay
+         before "+ Add structure" came into view. `ChildGrid` owns the fold; the
+         `#N` band and the family chip `rowSummary` already draws stay above it,
+         so a closed structure still says which one it is. */
+      foldRows
+      /* Nothing to summarise until a Structure is named — and `rowSummary`
+         would be showing "New structure" beside it. */
+      canFold={(st) => !!st.structure_id}
+      renderFoldedRow={(st) => {
+        const parts = st.components?.length ?? 0;
+        const summary = [
+          data.compositions.find((c) => c.id === st.composition_id)?.name,
+          gsmRange(st.gsm, st.gsm_tolerance) || null,
+          ITEM_SUB_TYPE_OPTIONS.find((o) => o.value === st.item_sub_type)?.label,
+          parts > 0 ? `${parts} ${parts === 1 ? "part" : "parts"}` : null,
+        ]
+          .filter(Boolean)
+          .join("  ·  ");
+        return (
+          <FieldGrid>
+            {/* THE STRUCTURE STAYS A REAL FIELD — Tab lands on fields, so a
+                folded row rendering none is mouse-only, and focusing it is what
+                opens the row again. */}
+            <Field label="Structure" required size="xs">
+              <RecordPicker
+                label="Structure"
+                compact
+                required
+                items={scopedStructures(r, st.structure_id)}
+                value={st.structure_id}
+                onChange={(id) => pickComboStructure(r.key, st.key, id)}
+              />
+            </Field>
+            <Field label="" size="lg">
+              <div className="flex min-h-8 items-center">
+                <Truncated className="text-sm text-muted-foreground">
+                  {summary || "Nothing else filled in yet"}
+                </Truncated>
+              </div>
+            </Field>
+          </FieldGrid>
+        );
+      }}
       onAdd={() => addStruct(r.key)}
       onRemove={(st) => mutStructs(r.key, (sts) => sts.filter((x) => x.key !== st.key))}
       addLabel="+ Add structure"
@@ -4292,7 +4710,7 @@ export function AmendmentScreen({
         return (
           <div className="space-y-3">
             <FieldGrid>
-              <Field label="Structure" required size="sm">
+              <Field label="Structure" required size="xs">
                 {/* A fabric CATEGORY (0409). The knit family beside it is
                     DERIVED from this one answer — never asked again, so the
                     two cannot disagree. */}
@@ -4305,7 +4723,7 @@ export function AmendmentScreen({
                   onChange={(id) => pickComboStructure(r.key, st.key, id)}
                 />
               </Field>
-              <Field label="Type" size="sm">
+              <Field label="Type" size="xs">
                 {/* Main Fabric / Trims Fabric — `order_fabrics.fabric_type`.
                     NOT the Style master's "Type", which is a different question
                     wearing the same word (see combo-rules.ts). */}
@@ -4321,7 +4739,7 @@ export function AmendmentScreen({
                   ))}
                 </Select>
               </Field>
-              <Field label="Composition" size="sm">
+              <Field label="Composition" size="xs">
                 <RecordPicker
                   label="Composition"
                   compact
@@ -4330,7 +4748,7 @@ export function AmendmentScreen({
                   onChange={(id) => patchStruct(r.key, st.key, { composition_id: id })}
                 />
               </Field>
-              <Field label="Gsm" size="sm">
+              <Field label="Gsm" size="xs">
                 <Input
                   type="number"
                   className="text-right"
@@ -4338,7 +4756,7 @@ export function AmendmentScreen({
                   onChange={(e) => patchStruct(r.key, st.key, { gsm: e.target.value })}
                 />
               </Field>
-              <Field label="Tolerance" size="sm">
+              <Field label="Tolerance" size="xs">
                 <Input
                   type="number"
                   className="text-right"
@@ -4346,13 +4764,13 @@ export function AmendmentScreen({
                   onChange={(e) => patchStruct(r.key, st.key, { gsm_tolerance: e.target.value })}
                 />
               </Field>
-              <Field label="Gsm Range" size="sm">
+              <Field label="Gsm Range" size="xs">
                 {/* DERIVED, never stored (0408) — 200 ± 5 is 195 - 205. A
                     column for it would be a second source of truth for a
                     subtraction. */}
                 <Input readOnly className="h-8" value={range} placeholder="—" />
               </Field>
-              <Field label="Fabric Type" size="sm">
+              <Field label="Fabric Type" size="xs">
                 <Select
                   value={st.item_sub_type}
                   onChange={(e) => patchStruct(r.key, st.key, { item_sub_type: e.target.value })}
@@ -4393,17 +4811,64 @@ export function AmendmentScreen({
        that was no longer indented with it. One field, one label, drawn by the
        primitive: LAYOUT.md §3's whole point. */
     <div>
+      {/**
+        * ACROSS, NOT DOWN (client 2026-08-14).
+        *
+        * This was the whole density complaint measured. The list rendered one
+        * size per line at 36px + a 32px Add button, so six sizes was ~248px —
+        * inside a cell whose five siblings are 32px tall, on a screen the client
+        * was comparing unfavourably with a legacy one that does the same row in
+        * ~170px. Laid across, six sizes take ONE line of the ~1080px the cell
+        * now spans.
+        *
+        * A FIXED WIDTH PER ITEM, not `flex-1`: they have to line up in columns
+        * as they wrap, and an unsized item absorbs the row's slack — the same
+        * failure `hugsContent` records about a grid column left without a
+        * `width` (a single Colour dropdown rendered ~1080px wide).
+        *
+        * ↑/↓ NOW WALK THE LIST LEFT TO RIGHT, and that is a real change worth
+        * stating. It stays coherent because this is a ONE-DIMENSIONAL list whose
+        * DOM order and visual order agree — unlike the 2026-07-25 defect, where
+        * ↓ crossed out of a row's own cells into a nested panel's and landed on
+        * the wrong line entirely. Nothing here crosses a boundary.
+        *
+        * ALL FOUR MARKERS ARE UNCHANGED — see the block above `stylesGrid` for
+        * what each one buys. In particular `+ Add size` stays INSIDE
+        * `data-grid-body`: `enterNestedGrid` looks for it there, and moving it
+        * out is what would break Tab's only way into an empty size list.
+        */}
+      {/* THE SAME TRACK AS THE FIELDS ABOVE, not a second opinion about layout:
+          `FIELD_TRACK` is the exported constant `FieldGrid` itself lays down, so
+          a size cell at `col-span-2` lands exactly under Style, Order Unit, PO
+          Qty, Description and Process — six to a line, at identical widths and
+          gutters.
+
+          `FieldGrid` cannot be used instead, and the reason is the whole point
+          of this change: it would need a `<Field>` per size, and `Field` always
+          draws a label line — 14px of `&nbsp;` above every one — which is the
+          height the size list was moved here to get rid of.
+
+          `@lg/section:col-span-2` is the contract's own vocabulary rather than a
+          hand-rolled grid, which is why `--check screen-grid` leaves it alone
+          (it flags a bare `grid-cols-*`, and the 12 lives inside the constant). */}
       <div
         data-grid-body
-        className="space-y-1"
+        className={FIELD_TRACK}
         onKeyDown={(e) => gridKeyNav(e, () => addSize(r.key))}
       >
-        {r.sizes.map((z, j) => (
-          <div key={z.key} data-grid-row className="flex items-center gap-2">
-            <span className="w-5 shrink-0 text-right text-[11px] text-muted-foreground">
-              {j + 1}
-            </span>
-            <div className="min-w-0 flex-1 sm:max-w-[14rem]">
+        {r.sizes.map((z) => (
+          /* NO ORDINAL (client 2026-08-14). It numbered the sizes 1..n down the
+             left of each cell, which was worth its 20px while the list ran
+             vertically and the number was the only thing telling two identical
+             dropdowns apart. Laid across, the sizes read in order by position
+             and the number restated it -- and `sno` is stored from the array
+             index at save, so nothing depended on it being drawn. */
+          <div
+            key={z.key}
+            data-grid-row
+            className="flex items-center gap-1.5 @lg/section:col-span-2"
+          >
+            <div className="min-w-0 flex-1">
               <LookupDialogPicker
                 kind="size"
                 label="Size"
@@ -4423,7 +4888,7 @@ export function AmendmentScreen({
               data-row-remove
               className="shrink-0 text-muted-foreground hover:text-danger"
               onClick={() => mutSizes(r.key, (zs) => zs.filter((x) => x.key !== z.key))}
-              aria-label={`Remove size ${sizeLabel(z.size_id) || j + 1}`}
+              aria-label={`Remove size ${sizeLabel(z.size_id) || "(unset)"}`}
             >
               <Trash2 className="h-4 w-4 shrink-0" />
             </Button>
@@ -4433,15 +4898,35 @@ export function AmendmentScreen({
             picked: before that there is nothing to have fetched, and the line
             would be scolding the operator for not having answered yet. */}
         {r.style_id && r.sizes.length === 0 && (
-          <p className="text-xs text-muted-foreground">
+          /* Its own line, not one cell of six — a sentence squeezed into a
+             176px column would wrap to four lines and cost more height than the
+             list it is explaining. */
+          <p className="text-xs text-muted-foreground @lg/section:col-span-12">
             This style has no sizes recorded. Add them here, or fill them on the Style master.
           </p>
         )}
+        {/* THE SAME BUTTON AS "+ Add style" (client 2026-08-14). That one is
+            `ChildGrid`'s own — `variant="outline" size="sm"`, content-width, and
+            it takes no className — so the only way to make the pair match is to
+            match IT.
+
+            It briefly filled its cell, on the reasoning that every control on
+            the track should reach its column's edge. That is right for a FIELD
+            and wrong for an action: the two Add buttons sit near each other and
+            read as a pair, and one of them being twice the width of the other is
+            the mismatch the operator actually sees. It keeps its column slot, so
+            it still lines up with the sizes above it — it simply no longer
+            stretches inside it. */}
         <Button
           type="button"
           variant="outline"
           size="sm"
           data-row-add
+          /* `justify-self-start` is the part that actually does it, and dropping
+             `w-full` alone did NOT: a grid item's default `justify-self` is
+             STRETCH, so this button filled its column because it IS a grid cell,
+             whatever its own display says. Content width has to be asked for. */
+          className="justify-self-start @lg/section:col-span-2"
           onClick={() => addSize(r.key)}
         >
           + Add size
@@ -4478,6 +4963,28 @@ export function AmendmentScreen({
         rows={styles}
         forceCards
         listRows
+        /**
+         * FLUSH WITH THE HEADER ABOVE IT (client 2026-08-14).
+         *
+         * The style row's five fields did not line up with the header's six.
+         * Same span (`xs`, 2 of 12) and the same track, but this grid drew its
+         * own bordered card INSIDE the Order Info section — and that card's
+         * `p-2` pushed the whole 12-column track 8px right and made it 16px
+         * narrower. So Style sat 9px right of SCNo and every column after it
+         * drifted by another ~1.3px: near enough to read as a mistake, far
+         * enough to see.
+         *
+         * `frameless` is exactly this case — its own note says "drop the outer
+         * bordered card so the grid can nest INSIDE a DetailSection without a
+         * double border". The Order Info section already draws one card; this
+         * was a second one inside it. The border and the padding go together,
+         * which is why there is no prop for dropping only the padding: a border
+         * with nothing between it and the fields would be worse than the
+         * misalignment.
+         *
+         * The label band is untouched — "Styles Details" still heads the grid.
+         */
+        frameless
         pageSize={5}
         /**
          * MULT. ORD IS THE CAP, and this is the whole of its meaning.
@@ -4502,8 +5009,79 @@ export function AmendmentScreen({
         onAdd={addStyle}
         onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
         addLabel="+ Add style"
-        renderMobileRow={(r, i) => (
-          <div className="space-y-2">
+        renderMobileRow={(r, i) => {
+          /* OPEN = the row the operator is on. `openStyleKey` unset resolves to
+             the LAST row, so a fresh order and a loaded one both open on the one
+             being worked at without any path having to seed it.
+
+             A SINGLE STYLE NEVER COLLAPSES — there is no "next style" to move on
+             to, and 98% of orders are one style, so the common case is untouched
+             by this entirely. */
+          const openKey = openStyleKey ?? styles[styles.length - 1]?.key ?? null;
+          /* A ROW FOLDS ONCE IT NAMES A STYLE — nothing more.
+             
+             It used to require PO Qty as well, on the reasoning that a folded
+             row's fields are UNMOUNTED, so a blank REQUIRED cell inside one
+             would have no `data-required-empty` node for a blocked Save to land
+             on. That reasoning was wrong, and checking it is what showed why:
+             `canSave` gates on the HEADER and the Logistics fields only — never
+             on a style row — so a blank PO Qty does not block Save, and the
+             condition was protecting nothing while stopping the fold the client
+             actually asked for (they enter styles first and quantities later,
+             screenshot 2296: both rows open, both PO Qty blank).
+             
+             A style is still the one thing a row cannot fold without: with no
+             style there is no identity to fold TO, and the summary would be a
+             blank line the operator cannot tell from an empty row. */
+          const isOpen = styles.length < 2 || r.key === openKey || !r.style_ref_no.trim();
+          /* What a folded row says about itself: the unit, the quantity and the
+             sizes it carries — the three an operator scans a PO for. Sizes are
+             NAMED, not counted: a count is what the client has just had removed
+             everywhere, and "M, L, XL" is the more useful answer anyway. */
+          const summary = [
+            unitTextOf(r),
+            r.po_qty.trim(),
+            r.sizes.map((z) => sizeLabel(z.size_id)).filter(Boolean).join(", "),
+          ]
+            .filter(Boolean)
+            .join("  ·  ");
+          /* WHAT THE FOLD WOULD OTHERWISE HIDE. Folding on style alone means a
+             row can be put away with its PO Qty still blank, and the summary
+             would simply not mention it — an absence the operator cannot see.
+             So the row says so instead: the fold stays out of the way without
+             quietly swallowing the one field it is still missing. */
+          const missing = !r.po_qty.trim() ? "PO Qty missing" : null;
+          return (
+          <div
+            className={cn(
+              "space-y-2",
+              // A folded row reads as one thing you can open, so it says so on
+              // hover. The open row gets nothing — there is nothing to click.
+              !isOpen && "-mx-2 cursor-pointer rounded-md px-2 hover:bg-surface-muted",
+            )}
+            title={isOpen ? undefined : "Open this style"}
+            /* FOCUS OPENS THE ROW, which is what keeps this keyboard-operable:
+               Tab out of one style lands on the next row's Style field and the
+               row unfolds around the cursor. `onFocus` bubbles, so it catches
+               both paths with one handler and no per-control wiring. */
+            onFocus={() => {
+              if (!isOpen) setOpenStyleKey(r.key);
+            }}
+            /* AND THE WHOLE FOLDED ROW OPENS ON CLICK. Focus alone left the
+               mouse one target — the Style picker — which also opens its own
+               list, so the only way back into a folded style was to open a
+               dropdown one did not want. The summary is the larger part of the
+               row and was inert.
+
+               Buttons are excluded: the row's own ✕ sits inside this handler's
+               reach, and expanding a row on the way to deleting it is a flicker
+               with no purpose. */
+            onClick={(e) => {
+              if (isOpen) return;
+              if ((e.target as HTMLElement).closest("button")) return;
+              setOpenStyleKey(r.key);
+            }}
+          >
             <div className="flex items-center gap-2">
               <span className="shrink-0 text-xs font-medium text-muted-foreground">
                 #{i + 1}
@@ -4542,11 +5120,13 @@ export function AmendmentScreen({
               * them on one line, so this is the one span that satisfies the
               * requirement rather than merely tidying the symptom.
               *
-              * SIZES IS THE SIXTH CELL and stays LAST. It is the one cell that
-              * grows with its data, so at the end of the line its height
+              * SIZES STAYS LAST, and since 2026-08-14 has a line of its own.
+              * It is the one cell that grows with its data, so at the end it
               * extends the card downward; earlier in the row it would leave a
               * band of dead space beside five short fields, the trap
-              * LAYOUT.md §3 names for a textarea sharing a row.
+              * LAYOUT.md §3 names for a textarea sharing a row. Last is also
+              * what the row's Tab order needs — `tabFieldsIn` walks a row in DOM
+              * order, so the sizes come after the cells rather than between them.
               *
               * `Field` OWNS ITS LABEL, like every other cell. `sizeGrid` used to
               * draw its own caption and indent, which is what made this the one
@@ -4560,27 +5140,28 @@ export function AmendmentScreen({
               * rejected.
               */}
             {/**
-              * SIX FIELDS, ONE ROW, ALL THE SAME WIDTH — back on `FieldGrid`'s
-              * standard 12-column track (client 2026-08-12).
+              * FIVE FIELDS ON THE LINE, THEN SIZES ACROSS ITS OWN (client
+              * 2026-08-14). All `xs` on `FieldGrid`'s standard 12-column track.
               *
-              * This row briefly ran on a hand-rolled 14-column track so Sizes
-              * could be double width. That was built to order and it worked, but
-              * the surplus width read as a HOLE: with no sizes entered the cell
-              * holds one "+ Add size" button, so the extra two columns rendered
-              * as a gap between Sizes and Order Unit rather than as room. A cell
-              * sized for its fullest state is empty space in its commonest one.
+              * THE SIZE LIST WAS THE COMPLAINT, and the note this replaces
+              * predicted it: "if that becomes the complaint, the answer is to
+              * move the list behind a button like Process — NOT to widen one
+              * cell again." Half right. Widening one cell was indeed the wrong
+              * answer, and had already been tried as a hand-rolled 14-column
+              * track and reverted: with no sizes entered the cell holds one
+              * "+ Add size" button, so the surplus read as a HOLE rather than as
+              * room. A cell sized for its fullest state is empty space in its
+              * commonest one.
               *
-              * `xs` is `col-span-2` and six of them sum to exactly 12, so the row
-              * fills the standard track with nothing left over and every field
-              * is the same width — which is what LAYOUT.md §3's one-width rule
-              * says anyway. Getting rid of the custom track and evening the
-              * spacing turned out to be the same edit.
+              * But the list did not have to hide behind a button either. Given
+              * the WHOLE width it lays ACROSS instead of down, so six sizes take
+              * one line rather than six — and stay visible, which is what the
+              * legacy screen does and what the client meant by user-friendly.
               *
-              * THE SIZE LIST IS NARROWER FOR IT, and that is the accepted trade:
-              * its pickers shrink to the shared width. If that becomes the
-              * complaint, the answer is to move the list behind a button like
-              * Process — NOT to widen one cell again, which is what produced the
-              * gap.
+              * `full` (`col-span-12`) is what does it: the five `xs` cells
+              * occupy 10 of 12, so Sizes cannot share their line and wraps to
+              * its own. No custom track, no surplus — the span map already had
+              * the answer.
               *
               * `xs` here is deliberate and is NOT the masters field width. That
               * rule governs a masters FORM; a child-grid row is a table line
@@ -4589,8 +5170,12 @@ export function AmendmentScreen({
               * the layout the client rejected twice.
               */}
             <FieldGrid>
-              {styleColumns.flatMap((col) => {
-                const field = (
+              {/* A FOLDED ROW SHOWS ONLY ITS STYLE. Anchored on the header, not
+                  on index 0 — these columns have been reordered more than once,
+                  and `filter` fails loudly if Style is renamed where `slice(0,1)`
+                  would quietly fold the wrong field. */}
+              {(isOpen ? styleColumns : styleColumns.filter((c) => c.header === "Style")).map(
+                (col) => (
                   <Field
                     key={col.header}
                     label={col.header}
@@ -4599,45 +5184,65 @@ export function AmendmentScreen({
                   >
                     {col.cell(r, i)}
                   </Field>
-                );
-                /**
-                 * SIZES SITS SECOND, DIRECTLY AFTER STYLE (client 2026-08-12),
-                 * because that is where its data comes from: `pickStyle` fills
-                 * this list from the chosen style's own size set, so the field
-                 * that answers "which sizes" reads immediately after the field
-                 * that decides them.
-                 *
-                 * Anchored on the Style COLUMN, not on index 0. Injecting after
-                 * `ci === 0` would silently follow whatever column happened to
-                 * be first if these are ever reordered again — and they have
-                 * been reordered three times this week. Anchoring on the header
-                 * fails loudly instead: move Style and Sizes moves with it.
-                 *
-                 * It stays EDITABLE. The order keeps its own copy of the sizes
-                 * (0407) precisely so an operator can add or drop one for this
-                 * PO without editing the Style master, so this is a listing the
-                 * style SEEDS, not a mirror of it.
-                 */
-                return col.header === "Style"
-                  ? [
-                      field,
-                      <Field
-                        key="__sizes"
-                        /* The count rides in the label because the grid no longer
-                           draws one. `Field` has no badge slot, and a second
-                           element beside the label would put this cell's header
-                           back out of step with the five plain ones. */
-                        label={r.sizes.length ? `Sizes (${r.sizes.length})` : "Sizes"}
-                        size="xs"
-                      >
-                        {sizeGrid(r)}
-                      </Field>,
-                    ]
-                  : [field];
-              })}
+                ),
+              )}
+              {/**
+                * SIZES TAKES ITS OWN LINE, LAST (client 2026-08-14).
+                *
+                * It sat SECOND, right after Style, because that is where its
+                * data comes from — and it was the tallest thing on the screen:
+                * a 248px cell wedged between five 32px ones, which is what made
+                * one style row ~425px against the legacy screen's ~170px.
+                *
+                * `full` is `col-span-12`. The five `xs` cells above occupy 10 of
+                * the 12, so this cannot share their line and wraps to its own —
+                * the effect comes out of the span map rather than a second
+                * track. A hand-rolled 14-column track was built for exactly this
+                * once and reverted, because a cell sized for its fullest state
+                * is a hole in its commonest one; a full-width line has no such
+                * surplus, since the sizes lay across it.
+                *
+                * LAST, NOT SECOND, and that is also what the row's Tab order
+                * needs: `tabFieldsIn` walks a row in DOM ORDER, so the sizes
+                * are reached after the cells rather than between them. The note
+                * above `sizeGrid` said this was the arrangement all along — it
+                * described the pre-08-12 layout and is true again.
+                *
+                * NO COUNT IN THE LABEL (client 2026-08-14). It read "Sizes (4)",
+                * which earned its place while the list was a 180px cell that
+                * could not show four sizes at once — the number said what the
+                * cell could not. On a full-width line every size is visible, so
+                * the count restates what is already on screen, one word to the
+                * left of the answer.
+                */}
+              {isOpen ? (
+                <Field key="__sizes" label="Sizes" size="full">
+                  {sizeGrid(r)}
+                </Field>
+              ) : (
+                /* `label=""` rather than no label: `Field` renders a `&nbsp;` in
+                   that case precisely to reserve the label line, so the summary
+                   sits level with the Style box beside it instead of 14px above
+                   it. `xl` (8 of 12) beside Style's 2 fills the line.
+
+                   `Truncated` because a long summary must stay READABLE, not
+                   merely clipped — the standing rule that an ellipsis is a
+                   promise the rest is reachable. */
+                <Field key="__summary" label="" size="xl">
+                  <div className="flex min-h-8 items-center">
+                    <Truncated className="text-sm text-muted-foreground">
+                      {summary || "Not filled in yet"}
+                    </Truncated>
+                    {missing && (
+                      <span className="ml-3 shrink-0 text-xs text-warning">{missing}</span>
+                    )}
+                  </div>
+                </Field>
+              )}
             </FieldGrid>
           </div>
-        )}
+          );
+        }}
       />
       <EmptyNote rows={styles.length} label="styles" seeded={seeded} />
     </>
@@ -4659,12 +5264,16 @@ export function AmendmentScreen({
               both grids stay fully usable; hiding one would strand rows already
               saved on a grid that no longer renders (client 2026-08-10). */}
           <FabricTypeHint counts={fabricTypes} />
-          {/* TWO GRIDS A ROW, not four stacked (client 2026-08-12, screenshots
-              2269 · 2270): Yarn Dyeing beside Fabric Dyeing, then Roll Form
-              Prints beside Structures. Stacked, the tab was a metre of scroll
-              holding four short lists, and the pair that reads as a pair — the
-              two dyeing grids, same two columns, same shape — was split across a
-              scroll boundary where they could not be compared.
+          {/* TWO GRIDS A ROW, not stacked (client 2026-08-12, screenshots
+              2269 · 2270): Yarn Dyeing beside Fabric Dyeing. It was four grids
+              in a 2×2 until 2026-08-14 — Roll Form Prints and Structures made
+              the second row, and both came off the tab (see the note where they
+              stood). Stacked, the tab was a metre of scroll holding four short
+              lists, and the pair that reads as a pair — the two dyeing grids,
+              same two columns, same shape — was split across a scroll boundary
+              where they could not be compared. That pair is what is left, so
+              the rule now costs nothing to keep and still decides the layout if
+              a third grid ever returns.
 
               `SectionGrid`, never a hand-written `grid-cols-2` (this skill's
               first rule, and the reason 29 grid literals exist in
@@ -4672,16 +5281,17 @@ export function AmendmentScreen({
               for, 1 2 / 3 4, and the container query means the same four grids
               fall back to one column inside anything narrower — a phone, or the
               nested picker this screen opens — with no prop to set. `items-start`
-              is what stops the short Prints grid stretching to the height of the
-              grid beside it.
+              is what stopped the short Prints grid stretching to the height of
+              the grid beside it, and is why the two that remain sit level.
 
-              ALL FOUR CARRY `fill`, and that is the half that makes it read as a
-              block rather than as four cards that happen to be near each other.
+              BOTH CARRY `fill`, and that is the half that makes them read as a
+              block rather than as two cards that happen to be near each other.
               Every column here declares a width, so each grid hugged its own
-              content and the 2×2 came out with four different right edges — Yarn
-              Dyeing ~520px above Roll Form Prints ~350px (client 2026-08-12,
-              screenshot 2273). `fill` suppresses only the hug: the fields keep
-              their declared widths and the slack falls to the right of them. */}
+              content and the old 2×2 came out with four different right edges —
+              Yarn Dyeing ~520px above Roll Form Prints ~350px (client
+              2026-08-12, screenshot 2273). `fill` suppresses only the hug: the
+              fields keep their declared widths and the slack falls to the right
+              of them. */}
           <SectionGrid>
             {/* Yarn dyeing */}
             <div>
@@ -4719,34 +5329,30 @@ export function AmendmentScreen({
                 seeded={seeded}
               />
             </div>
-            {/* Roll-form prints */}
-            <div>
-              <ChildGrid<PrintRow>
-                label="Roll Form Prints"
-                columns={printColumns}
-                rows={prints}
-                inlineCards
-                fill
-                onAdd={addPrint}
-                onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add print"
-              />
-              <EmptyNote rows={prints.length} label="prints" seeded={seeded} />
-            </div>
-            {/* Structures */}
-            <div>
-              <ChildGrid<StructureRow>
-                label="Structures"
-                columns={structureColumns}
-                rows={structures}
-                inlineCards
-                fill
-                onAdd={addStructure}
-                onRemove={(r) => setStructures((xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add structure"
-              />
-              <EmptyNote rows={structures.length} label="structures" seeded={seeded} />
-            </div>
+            {/* ROLL FORM PRINTS AND STRUCTURES WERE HERE, AND CAME OFF THE TAB
+                ON THE CLIENT'S ASK (2026-08-14). Both were lists the operator
+                had to fill in beside data the order already knew: Structures
+                seeds itself from the style's own fabrics on every `pickStyle`
+                (0415, "flow into this tab automatically to avoid duplicate data
+                entry"), and its one hand-answered column — Fabric Type — is
+                asked again, editably, on every combo structure. Prints were
+                declared here only so the combo cell could offer them.
+
+                THE STATE AND THE WRITE STAY, and that is not tidiness left
+                undone. `applyRows` loads `prints` / `structures` off a saved
+                order and `submit` writes them back; `writeChildren` DELETES and
+                re-inserts, so state that stops round-tripping is state the next
+                save erases. Dropping the grid hides two lists — dropping the
+                state would silently delete them from every order already saved.
+
+                What each removal cost, and where it was paid:
+                  · Fabric Type per structure — a PREFILL only
+                    (`pickComboStructure`, "SEEDS, NEVER OVERWRITES"). The combo
+                    row still asks for it, so nothing became unanswerable.
+                  · Fabric Print — was scoped to THIS grid with no fallback, so
+                    removing the feeder would have left a permanently empty list
+                    on a Printed component. `declaredPrintOptions` now falls back
+                    to the full list when the order declares none. */}
           </SectionGrid>
         </div>
       ),
@@ -4776,19 +5382,94 @@ export function AmendmentScreen({
       label: "Prices",
       content: (
         <>
-          {/* THREE real inputs now that Style/Article/Unit are wired from the
-              Style(s) tab rather than typed — LAYOUT.md §6's "<=3 -> inlineCards"
-              band. It was `forceCards` while it had six, which is the point of
-              choosing by input count rather than by habit: the same grid moves
-              band when its content changes. */}
-          <ChildGrid<PriceDetailRow>
+          {/* ONE ROW PER STYLE, RATES BENEATH IT (client 2026-08-14), which is
+              the legacy shape in screenshot 2295: a style's row carries a small
+              `Combo · Price` table under it and the style is named once.
+
+              The grid was `inlineCards` over the RAW rows, so a Size-wise order
+              drew `STL/2627/0002` and `Size-wise` six times, once per size, each
+              in its own bordered box ~90px tall (screenshot 2293). Nothing was
+              wrong with the band it had chosen — three real inputs really is
+              LAYOUT.md §6's `<=3 -> inlineCards` — because the band is about a
+              ROW's width and the complaint was about the LIST's repetition. The
+              answer is not a denser row, it is fewer rows: the style and the
+              mode are properties of the group, and only the rate varies.
+
+              `forceCards` + `renderMobileRow` for the same reason `stylesGrid`
+              and the Combos ▸ Structure Details grid use them — a row that
+              carries a nested list is past any width a table row has.
+
+              THE STORED SHAPE IS UNCHANGED. `priceGroups` groups for display
+              only; `price_details` still holds one row per (style, colour,
+              size), which is what `styleRate` and the Logistic tab's Avg Rate
+              read. `npm run check:order-value` is the proof of that. */}
+          <ChildGrid<PriceGroup>
             label="Price Details"
-            columns={priceDetailColumns}
-            rows={priceDetails}
-            inlineCards
+            /* EMPTY ON PURPOSE: `renderMobileRow` owns the whole row, and a
+               column declaring `required` that the row never reads would draw a
+               header `*` with nothing behind it (`--check grid-required-mobile`).
+               The `required` that matters is on the controls inside. */
+            columns={[]}
+            rows={priceGroups}
+            forceCards
+            rowSummary={(g) => {
+              const v = priceGroupView(g);
+              if (!g.refNo) return <span className="text-muted-foreground">New style price</span>;
+              return v.isOpen ? g.refNo : `${g.refNo}  ·  ${v.summary}`;
+            }}
+            renderMobileRow={(g) => {
+              const v = priceGroupView(g);
+              return (
+                <div
+                  className="space-y-3"
+                  /* FOCUS OPENS THE GROUP, which is what keeps the fold
+                     keyboard-operable: Tab out of one style's rates lands on the
+                     next group's Style field and the group unfolds around the
+                     cursor. `onFocus` bubbles, so it catches mouse and keyboard
+                     with one handler. */
+                  onFocus={() => {
+                    if (!v.isOpen) setOpenPriceKey(g.key);
+                  }}
+                >
+                  <FieldGrid>
+                    {/* A FOLDED GROUP KEEPS ITS STYLE FIELD. Tab lands on
+                        fields, so a row rendering none would be reachable by
+                        mouse only — the same requirement the Style(s) fold
+                        records. */}
+                    <Field label="Style" required size="xs">
+                      {priceStyleCell(g)}
+                    </Field>
+                    {v.isOpen && (
+                      <Field label="Price Type" required size="xs">
+                        {priceModeCell(g, v.mode)}
+                      </Field>
+                    )}
+                    {v.isOpen && (
+                      <Field label="Unit" size="xs">
+                        {/* READ-ONLY FACT, not a field: it arrives with the
+                            style line (its Order Unit) and there is nothing to
+                            type. Rendered as text rather than a disabled input
+                            so it neither invites a click nor sits in the Tab
+                            path. */}
+                        <div className="flex min-h-8 items-center text-sm text-muted-foreground">
+                          {g.rows[0]?.unit || "—"}
+                        </div>
+                      </Field>
+                    )}
+                  </FieldGrid>
+                  {v.isOpen && rateGrid(g, v.mode)}
+                </div>
+              );
+            }}
             onAdd={addPriceDetail}
-            onRemove={(r) => setPriceDetails((xs) => xs.filter((x) => x.key !== r.key))}
-            addLabel="+ Add price"
+            /* REMOVING A GROUP TAKES ITS RATES WITH IT — the ✕ beside a style is
+               the only control that names the style, so it can only mean "this
+               style is not priced here". */
+            onRemove={(g) => {
+              const mine = new Set(g.rows.map((r) => r.key));
+              setPriceDetails((xs) => xs.filter((x) => !mine.has(x.key)));
+            }}
+            addLabel="+ Add style price"
           />
           <EmptyNote rows={priceDetails.length} label="prices" seeded={seeded} />
         </>
@@ -4912,27 +5593,88 @@ export function AmendmentScreen({
                `renderMobileRow` supplied, ChildGrid stops wrapping cells in its
                own `RequiredScope`, so this `Field` is the only place a column's
                declaration can reach the control. */
-            renderMobileRow={(row, i) => (
-              <FieldGrid>
-                {quantityColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
-                    {c.cell(row, i)}
-                  </Field>
-                ))}
-              </FieldGrid>
-            )}
-            /* Who the row IS, beside its #N — the country and consignee a card
-               is about, so paging through identical boxes does not mean reading
-               the fields to tell them apart. */
-            rowSummary={(row) =>
-              [
+            /* `listRows` drops ChildGrid's own `#N` band, which was a third line
+               above two lines of fields. The row draws its own header below —
+               summary and remove — exactly as the Styles grid does. */
+            listRows
+            renderMobileRow={(row, i) => {
+              const openKey = openQtyKey ?? quantities[quantities.length - 1]?.key ?? null;
+              /* Country is this row's identity, the way Style is a style row's:
+                 with none there is nothing to fold TO and the summary would be a
+                 blank line the operator cannot tell from an empty row. */
+              const isOpen =
+                quantities.length < 2 || row.key === openKey || !row.country_id;
+              const byHeader = (h: string) => quantityColumns.find((c) => c.header === h);
+              const primary = QTY_PRIMARY.map(byHeader).filter(Boolean) as ChildGridColumn<QuantityRow>[];
+              const secondary = quantityColumns.filter(
+                (c) => !QTY_PRIMARY.includes(c.header as (typeof QTY_PRIMARY)[number]),
+              );
+              const summary = [
                 data.countries.find((c) => c.id === row.country_id)?.name,
                 data.consignees.find((c) => c.id === row.consignee_id)?.name,
+                row.po_qty.trim(),
+                fmtDate(row.delivery_date) || null,
               ]
                 .filter(Boolean)
-                .join(" · ") || <span className="text-muted-foreground">New quantity</span>
-            }
-            onAdd={() => setQuantities((xs) => [...xs, blankQuantity()])}
+                .join("  ·  ");
+              return (
+                <div
+                  className={cn(
+                    "space-y-2",
+                    !isOpen && "-mx-2 cursor-pointer rounded-md px-2 hover:bg-surface-muted",
+                  )}
+                  title={isOpen ? undefined : "Open this quantity line"}
+                  onFocus={() => {
+                    if (!isOpen) setOpenQtyKey(row.key);
+                  }}
+                  onClick={(e) => {
+                    if (isOpen) return;
+                    if ((e.target as HTMLElement).closest("button")) return;
+                    setOpenQtyKey(row.key);
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                      #{i + 1}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-row-remove
+                      className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
+                      onClick={() =>
+                        setQuantities((xs) => xs.filter((x) => x.key !== row.key))
+                      }
+                      aria-label="Remove quantity line"
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" />
+                    </Button>
+                  </div>
+                  <FieldGrid>
+                    {(isOpen ? [...primary, ...secondary] : primary.slice(0, 1)).map((c) => (
+                      <Field key={c.header} label={c.header} required={c.required} size="xs">
+                        {c.cell(row, i)}
+                      </Field>
+                    ))}
+                    {!isOpen && (
+                      <Field key="__summary" label="" size="xl">
+                        <div className="flex min-h-8 items-center">
+                          <Truncated className="text-sm text-muted-foreground">
+                            {summary || "Not filled in yet"}
+                          </Truncated>
+                        </div>
+                      </Field>
+                    )}
+                  </FieldGrid>
+                </div>
+              );
+            }}
+            onAdd={() => {
+              const row = blankQuantity();
+              setQuantities((xs) => [...xs, row]);
+              setOpenQtyKey(row.key);
+            }}
             onRemove={(r) => setQuantities((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add quantity"
           />
@@ -4965,12 +5707,13 @@ export function AmendmentScreen({
               dyeing grids hit and recorded above (2246/2247), where "Colour
               carried nothing and rendered ~1080px wide".
 
-              THE WIDTHS BELOW ARE NOW DEAD. `hugsContent` is a table/inline
-              concern; the cards branch ignores every `width`. They are left in
-              place deliberately — `hugsContent` is `columns.every(c => c.width)`,
-              all-or-nothing, so a half-removal would change nothing while
-              pretending to, and they still record the intended proportions if
-              this ever goes back to a table.
+              THERE ARE NO WIDTHS BELOW. `approvalQtyColumns` declares none —
+              `hugsContent` is a table/inline concern and the cards branch
+              ignores `width` entirely, so there was nothing to keep. (A note
+              here used to say they were "left in place deliberately"; they were
+              not left, they were never written, and a comment describing
+              columns that do not exist is the kind that survives long enough to
+              be believed.)
 
               The totals band survives the move: `ChildGridColumn.total` sums
               over EVERY row rather than the visible page, so the production
@@ -4997,15 +5740,93 @@ export function AmendmentScreen({
                a template literal carrying the header's own percentage, so it
                changes as the operator types in Excess % — a header key would
                remount that field on every keystroke and drop the cursor. */
-            renderMobileRow={(row, i) => (
-              <FieldGrid>
-                {approvalQtyColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
-                    {c.cell(row, i)}
-                  </Field>
-                ))}
-              </FieldGrid>
-            )}
+            renderMobileRow={(row, i) => {
+              /**
+               * THE CALCULATION READS ALONG THE FIRST LINE (client 2026-08-14).
+               *
+               * Eight fields at the one width are 16 of 12 columns, so they wrap
+               * 6 + 2 — and the two that fell to the second line were Projection
+               * and Total Production: the allowance and the ANSWER, orphaned
+               * below the figures they come from.
+               *
+               * Reordered so the line carries the chain an operator follows —
+               * Qty, Approval Qty, Projection, Total Production — beside the
+               * identity that names it. What moves down is CONTEXT: Style PO Qty
+               * is the style's overall figure (the Quantities tab's number, not
+               * this combo's), and Excess is derived from the header's own %.
+               *
+               * EIGHT INTO SIX DOES NOT GO, and that is the trade rather than an
+               * oversight: something had to take the second line. Total
+               * Production is what the floor plans raw material against, so it
+               * was never a candidate — if Excess turns out to be read more than
+               * Style PO Qty, swap those two and the line still works.
+               */
+              const order = [
+                "Style",
+                "Combo",
+                "Qty",
+                "Approval Qty",
+                "Projection",
+                "Total Production",
+              ];
+              const rank = (h: string) => {
+                const at = order.indexOf(h);
+                return at === -1 ? order.length : at;
+              };
+              /* KEYED BY THE COLUMN'S ORIGINAL INDEX, never by its header: the
+                 Excess header is a template literal carrying the live percentage,
+                 so a header key remounts that field on every keystroke in Excess
+                 % and drops the cursor. Sorting must not change the keys. */
+              const ordered = approvalQtyColumns
+                .map((c, ci) => ({ c, ci }))
+                .sort((a, b) => rank(a.c.header as string) - rank(b.c.header as string));
+              return (
+                <FieldGrid>
+                  {ordered.map(({ c, ci }) => {
+                    /**
+                     * ALL EIGHT ON ONE LINE (client 2026-08-14), by giving the
+                     * figures a narrower cell than the pickers:
+                     *
+                     *   Style 3 + Combo 3 + six figures × 1 = 12, exactly.
+                     *
+                     * The eight were 16 of 12 at the one width and had to wrap.
+                     * Every field that is not a picker here holds a QUANTITY —
+                     * four digits and right-aligned — so one column (~80px) is
+                     * width it can use, where a Style picker at that size would
+                     * show two characters of a name.
+                     *
+                     * NO PRIMITIVE CHANGE AND NO HAND-ROLLED GRID. `Field` merges
+                     * `className` AFTER its span (field.tsx), so a col-span here
+                     * wins; and `@lg/section:col-span-*` is the layout contract's
+                     * own vocabulary, which `--check screen-grid` never flags —
+                     * unlike a bare `grid-cols-*`, which is what a custom track
+                     * would have needed.
+                     *
+                     * "Total Production" is shortened on the LABEL only. At 80px
+                     * it is the one header that wraps to two lines, and one cell
+                     * standing a line taller than its seven neighbours is the
+                     * ragged edge this row was reordered to remove. The column
+                     * keeps its full name everywhere else — the totals band, the
+                     * table fallback and the export all read `c.header`.
+                     */
+                    const isPicker = c.header === "Style" || c.header === "Combo";
+                    const label =
+                      c.header === "Total Production" ? "Total Prod." : c.header;
+                    return (
+                      <Field
+                        key={ci}
+                        label={label}
+                        required={c.required}
+                        size={isPicker ? "sm" : "xs"}
+                        className={isPicker ? undefined : "@lg/section:col-span-1"}
+                      >
+                        {c.cell(row, i)}
+                      </Field>
+                    );
+                  })}
+                </FieldGrid>
+              );
+            }}
             /* Who the row IS, beside its #N. Eight boxes of mostly-numbers look
                identical when paged; the style and its colour are what tell two
                approval lines apart. */
@@ -5045,9 +5866,12 @@ export function AmendmentScreen({
               {/* Department, Agent and Received (mode) withdrawn 2026-08-10
                   (client). Their columns and stored values remain; they left the
                   Zod input too, which is what stops a save nulling them. */}
-              {/* ONE SIZE, EVERY FIELD — `size="sm"` (3 of 12), four per row, so
-                  these 12 fields fill three flush rows and line up with the
-                  Order Info section rather than agreeing with it by coincidence.
+              {/* ONE SIZE, EVERY FIELD — `size="xs"` (2 of 12), SIX per row, so
+                  these fields line up with the Order Info section rather than
+                  agreeing with it by coincidence. They were `sm` (four per row)
+                  until 2026-08-14; the whole screen moved together, because a
+                  density that changes as you move down the rail is the thing
+                  the client was reading as clutter.
                   The `FieldGrid` above was never the problem: a span comes ONLY
                   from `<Field size>`, so a child that is not a sized `Field`
                   takes ONE of the 12 columns. Nine of these were bare pickers and
@@ -5071,7 +5895,7 @@ export function AmendmentScreen({
                   08-10. Their columns and stored values are untouched; they left
                   `amendmentInput` too, which is the half that stops
                   `headerOnly()` nulling them on the next save. */}
-              <Field label="Ship Type" required size="sm">
+              <Field label="Ship Type" required size="xs">
                 <LookupDialogPicker
                   kind="ship_type"
                   label="Ship Type"
@@ -5087,7 +5911,7 @@ export function AmendmentScreen({
               {/* `<Field required>` rather than a bare Label: a `<Select>` reads
                   requiredness from context (`select.tsx` → `useRequiredHold`), so
                   the star and the cursor hold both come from this one prop. */}
-              <Field label="Ship Mode" required size="sm" htmlFor="lg-shipmode">
+              <Field label="Ship Mode" required size="xs" htmlFor="lg-shipmode">
                 <Select
                   id="lg-shipmode"
                   value={form.ship_mode}
@@ -5104,7 +5928,7 @@ export function AmendmentScreen({
                   `compact` suppresses that label and its star together, which is
                   why the wrapper has to say `required` out loud — leaving it off
                   would quietly unmark a mandatory field (a122adc). */}
-              <Field label="Country" required size="sm">
+              <Field label="Country" required size="xs">
                 <CountryPicker
                   compact
                   countries={data.countries}
@@ -5118,7 +5942,7 @@ export function AmendmentScreen({
                   scope comes from the wrapper — its inner `DataPicker` ORs the
                   context (`data-picker.tsx:292`). `compact` because the Field
                   now draws the label. */}
-              <Field label="Currency" required size="sm">
+              <Field label="Currency" required size="xs">
                 <CurrencyPicker
                   label="Currency"
                   compact
@@ -5129,7 +5953,7 @@ export function AmendmentScreen({
                   canEdit={masterPerms.canEdit}
                 />
               </Field>
-              <Field label="Ex-Rate" size="sm" htmlFor="lg-exrate">
+              <Field label="Ex-Rate" size="xs" htmlFor="lg-exrate">
                 <Input
                   id="lg-exrate"
                   type="number"
@@ -5137,7 +5961,7 @@ export function AmendmentScreen({
                   onChange={(e) => set({ ex_rate: e.target.value })}
                 />
               </Field>
-              <Field label="Pay Mode" required size="sm" htmlFor="lg-paymode">
+              <Field label="Pay Mode" required size="xs" htmlFor="lg-paymode">
                 <Select
                   id="lg-paymode"
                   value={form.pay_mode}
@@ -5149,7 +5973,7 @@ export function AmendmentScreen({
                   ))}
                 </Select>
               </Field>
-              <Field label="Pay Terms" required size="sm">
+              <Field label="Pay Terms" required size="xs">
                 <PaymentTermPicker
                   label="Pay Terms"
                   compact
@@ -5172,7 +5996,7 @@ export function AmendmentScreen({
                   field never HOLDS the cursor, which is right — the operator
                   cannot fill it, so holding them here would be a cage with no
                   key (AGENTS.md, "Mandatory fields"). */}
-              <Field label="Days" size="sm" htmlFor="lg-days">
+              <Field label="Days" size="xs" htmlFor="lg-days">
                 <Input
                   id="lg-days"
                   readOnly
@@ -5197,7 +6021,7 @@ export function AmendmentScreen({
                   the rows carry no colour column to weight them by, so there is
                   no single rate; the total refuses rather than under-reporting,
                   because a partial Gross Value looks exactly like a real one. */}
-              <Field label="Avg Rate" size="sm" htmlFor="lg-avgrate">
+              <Field label="Avg Rate" size="xs" htmlFor="lg-avgrate">
                 <Input
                   id="lg-avgrate"
                   readOnly
@@ -5205,7 +6029,7 @@ export function AmendmentScreen({
                   value={orderVal.avgRate == null ? "" : String(orderVal.avgRate)}
                 />
               </Field>
-              <Field label="Gross Value" size="sm" htmlFor="lg-gross">
+              <Field label="Gross Value" size="xs" htmlFor="lg-gross">
                 <Input
                   id="lg-gross"
                   readOnly
@@ -5302,9 +6126,35 @@ export function AmendmentScreen({
   /**
    * The document header, as the FIRST rail section.
    *
-   * Every field is `size="sm"` — the standing "ONE SIZE, EVERY FIELD" rule
-   * (3 of 12, four per row, ~280px). Nothing here is sized to its own data, so
-   * a Yr box and an SCNo picker line up down the page.
+   * SIX FIELDS A ROW, EVERY FIELD THE SAME WIDTH (client 2026-08-14).
+   *
+   * `xs` is `col-span-2` on `FIELD_TRACK`'s twelve columns, so six sum to
+   * exactly 12. It is the ONLY span that puts six on a line: `sm` (3 of 12)
+   * gives four, `lg` (6 of 12) gives two. Thirteen fields therefore read
+   * 6 · 6 · 1, and the spare columns fall at the END of the last row rather
+   * than between the fields.
+   *
+   * The client reported the screen as hard to read and diagnosed it as fields
+   * being too long — width spent on values that do not need it, so the form
+   * sprawled. Five of these were already `xs` on their instruction (2026-08-12,
+   * the row of order terms); this finishes the thought across all thirteen.
+   *
+   * STILL ONE WIDTH, JUST A NARROWER ONE. Nothing here is sized to its own
+   * data, so a Yr box and an SCNo picker line up down the page — that half of
+   * the rule is unchanged and is what "evenly aligned" meant when the client
+   * was asked which way to resolve it.
+   *
+   * `xs` IS NOT THE MASTERS FIELD WIDTH, and must not be swept into
+   * `components/masters/**`. The one-width-`sm` rule governs a masters FORM,
+   * eight fields describing one reference record. This is a 53-field document
+   * editor across nine rail sections, and the two are deliberately no longer
+   * the same density — the Styles row and the Assortments size cells already
+   * made that distinction in writing.
+   *
+   * DO NOT WIDEN THE LAST FIELD to fill the trailing gap. That was tried, as a
+   * hand-rolled 14-column track so one cell could be double width, and the
+   * surplus read as a HOLE rather than as room: a cell sized for its fullest
+   * state is empty space in its commonest one.
    *
    * `Field required` on Date replaces a literally typed `"Date *"`: one
    * declaration now draws the red star AND holds the cursor while the box is
@@ -5352,7 +6202,7 @@ export function AmendmentScreen({
               hold on it would cage the operator. The requiredness moved to
               Unit and Date, the two fields the number is built from — the same
               shape a composed name uses (AGENTS.md, "Mandatory fields"). */}
-          <Field label="SCNo" size="sm" htmlFor="hd-scno">
+          <Field label="SCNo" size="xs" htmlFor="hd-scno">
             <Input
               id="hd-scno"
               readOnly
@@ -5365,7 +6215,7 @@ export function AmendmentScreen({
               rather than invent a shared bucket. READ-ONLY once saved: the
               number is stamped on insert only, so changing the Unit afterwards
               would leave an HO/… number on a different unit's order. */}
-          <Field label="Unit" required={!editId} size="sm">
+          <Field label="Unit" required={!editId} size="xs">
             <RecordPicker
               label="Unit"
               identity="code"
@@ -5376,7 +6226,7 @@ export function AmendmentScreen({
               onChange={(id) => set({ location_id: id })}
             />
           </Field>
-          <Field label="Date" required size="sm" htmlFor="hd-date">
+          <Field label="Date" required size="xs" htmlFor="hd-date">
             <Input id="hd-date" type="date" value={form.amend_date} onChange={(e) => set({ amend_date: e.target.value })} />
           </Field>
           {/* "Initiated" (By Customer / By Us) WITHDRAWN 2026-08-11 (client).
@@ -5396,7 +6246,7 @@ export function AmendmentScreen({
               flow: `onSelectOrder` fills it from the picked order, so choosing an
               SCNo satisfies this field too. It still has to be declared, because
               the Customer can be cleared by hand after the order is picked. */}
-          <Field label="Customer" required size="sm">
+          <Field label="Customer" required size="xs">
             <RecordPicker
               label="Customer"
               compact
@@ -5405,10 +6255,10 @@ export function AmendmentScreen({
               onChange={(id) => set({ customer_id: id })}
             />
           </Field>
-          <Field label="PO No" size="sm" htmlFor="hd-pono">
+          <Field label="PO No" size="xs" htmlFor="hd-pono">
             <Input id="hd-pono" value={form.po_no} onChange={(e) => set({ po_no: e.target.value })} />
           </Field>
-          <Field label="Merchand." size="sm">
+          <Field label="Merchand." size="xs">
             <RecordPicker
               label="Merchand."
               compact
@@ -5423,10 +6273,10 @@ export function AmendmentScreen({
               it in the middle. They stay in the header — the client was explicit
               that they belong here and not on the style rows, where they have
               never been. */}
-          <Field label="Deli.Dt" size="sm" htmlFor="hd-deli">
+          <Field label="Deli.Dt" size="xs" htmlFor="hd-deli">
             <Input id="hd-deli" type="date" value={form.delivery_date} onChange={(e) => set({ delivery_date: e.target.value })} />
           </Field>
-          <Field label="Season" size="sm" htmlFor="hd-season">
+          <Field label="Season" size="xs" htmlFor="hd-season">
             <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
               <option value="">—</option>
               {SEASON_OPTIONS.map((o) => (
@@ -5446,12 +6296,14 @@ export function AmendmentScreen({
             * the end of the row rather than between the fields.
             *
             * It tightens them too, which was the other half of the request: Pack
-            * and Mult. Ord are `w-fit` checkboxes, so at `sm` most of each cell
-            * was trailing space. A narrower cell puts the ticks next to the
-            * fields they qualify.
+            * and Mult. Ord are `w-fit` switches, so at `sm` most of each cell
+            * was trailing space. A narrower cell puts them next to the fields
+            * they qualify.
             *
-            * The first two rows stay `sm` — four to a row is the default and the
-            * dictated order fills them exactly. Only this row has five members.
+            * SINCE 2026-08-14 THE WHOLE HEADER IS `xs` and Pack + Mult. Ord
+            * share one cell, so this row is Deli.Dt · Season · Yr · Excess % ·
+            * [Pack · Mult. Ord] · Rejection Rule — six cells, twelve columns,
+            * and no field left over.
             */}
           <Field label="Yr" size="xs" htmlFor="hd-year">
             <Input id="hd-year" type="number" value={form.amend_year} onChange={(e) => set({ amend_year: e.target.value })} placeholder="2026" />
@@ -5459,21 +6311,44 @@ export function AmendmentScreen({
           <Field label="Excess %" size="xs" htmlFor="hd-excess">
             <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
           </Field>
-          {/* The tick's word moves up into the field label and the cell gets
-              `min-h-9 items-center`, so it centres on the same 36px control
-              height as the Select beside it instead of floating at the top of
-              its row. Same shape as Customer ▸ Also Notify. */}
-          <Field label="Pack" size="xs" htmlFor="hd-pack">
-            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-              <input id="hd-pack" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.pack} onChange={(e) => set({ pack: e.target.checked })} />
-              <span className="text-sm text-foreground">Yes</span>
-            </label>
-          </Field>
-          <Field label="Mult. Ord" size="xs" htmlFor="hd-multord">
-            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-              <input id="hd-multord" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.mult_ord} onChange={(e) => set({ mult_ord: e.target.checked })} />
-              <span className="text-sm text-foreground">Yes</span>
-            </label>
+          {/**
+            * PACK AND MULT. ORD SHARE ONE CELL, AS TOGGLES (client 2026-08-14).
+            *
+            * TWO CHANGES THAT ARE REALLY ONE. The client asked for switches, and
+            * for Rejection Rule to join this row — and the row was already full
+            * at six. Two booleans in one cell frees the sixth slot, so both asks
+            * are the same edit: Deli.Dt · Season · Yr · Excess % · [Pack ·
+            * Mult. Ord] · Rejection Rule, six cells, twelve columns, exactly.
+            *
+            * It also removes the orphan. The header held thirteen fields, which
+            * does not divide by six, so the last row carried one field against
+            * ten empty columns. Twelve cells fill two rows flush.
+            *
+            * THEY BELONG TOGETHER ANYWAY: both are the order's shape rather than
+            * its content — whether it is packed to a scheme, and whether it
+            * carries more than one style — and each gates something below (Pack
+            * opens the Pack type(s) section; Mult. Ord caps Style(s) to one row).
+            * The pairing is not merely a way to save a column.
+            *
+            * `Toggle` is a real `<input type="checkbox">` underneath. A
+            * `<button role="switch">` is not `isFieldLike()`, so Tab would step
+            * straight over both of these — see the component's own note.
+            */}
+          <Field label="Pack / Mult. Ord" size="xs">
+            <div className="flex flex-wrap items-center gap-x-4">
+              <Toggle
+                id="hd-pack"
+                label="Pack"
+                checked={form.pack}
+                onChange={(pack) => set({ pack })}
+              />
+              <Toggle
+                id="hd-multord"
+                label="Mult. Ord"
+                checked={form.mult_ord}
+                onChange={(mult_ord) => set({ mult_ord })}
+              />
+            </div>
           </Field>
           {/**
             * REJECTION RULE — the source of Approval Qty's Projection (0413).
@@ -5565,11 +6440,14 @@ export function AmendmentScreen({
               ? "Edit Garment Order"
               : "New Garment Order"
         }
-        description={
-          amending
-            ? "Change a saved order across the tabs. The SC No it was numbered under does not move."
-            : "Fill the header, then work down the tabs. The SC No is minted on save."
-        }
+        /* NO DESCRIPTION IN THE EDITOR (client 2026-08-14). It said "Fill the
+           header, then work down the tabs. The SC No is minted on save." — read
+           once, then ~22px on every visit thereafter, on the screen being
+           reported as cramped. The title and Back to list stay: those name the
+           record and get the operator out, which a description does not.
+
+           The LIST-mode header keeps its own, deliberately. A list is where
+           someone arrives without context; an editor is not. */
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
@@ -5694,6 +6572,7 @@ export function AmendmentScreen({
             : "Structure Details"
         }
         zIndexBase={120}
+        footer={<SubSheetFooter onDone={() => setDetailComboKey(null)} />}
       >
         {detailCombo && (
           <div className="space-y-4">
@@ -5728,19 +6607,20 @@ export function AmendmentScreen({
             : "Assortments"
         }
         zIndexBase={120}
+        footer={<SubSheetFooter onDone={() => setAssortQtyKey(null)} />}
       >
         {assortQty && (
           <div className="space-y-4">
             {assortHeader(assortQty)}
             <FieldGrid>
-              <Field label="Pack" size="sm">
+              <Field label="Pack" size="xs">
                 <Input
                   uppercase
                   value={assortQty.pack}
                   onChange={(e) => setQty(assortQty.key, { pack: e.target.value })}
                 />
               </Field>
-              <Field label="Ratio For" size="sm">
+              <Field label="Ratio For" size="xs">
                 {/* 0328's tuple, and the column carries the same CHECK — so a
                     free-text box here would fail on save rather than on entry. */}
                 <Select
@@ -5752,7 +6632,7 @@ export function AmendmentScreen({
                   <option value="inner">Inner</option>
                 </Select>
               </Field>
-              <Field label="Master CTN Name" size="sm">
+              <Field label="Master CTN Name" size="xs">
                 <Input
                   uppercase
                   value={assortQty.master_carton_name}
@@ -5761,7 +6641,7 @@ export function AmendmentScreen({
                   }
                 />
               </Field>
-              <Field label="Inner CTN Name" size="sm">
+              <Field label="Inner CTN Name" size="xs">
                 <Input
                   uppercase
                   value={assortQty.inner_carton_name}
@@ -5770,7 +6650,7 @@ export function AmendmentScreen({
                   }
                 />
               </Field>
-              <Field label="Pack Description" size="lg">
+              <Field label="Pack Description" size="full">
                 <Input
                   uppercase
                   value={assortQty.pack_description}
