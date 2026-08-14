@@ -55,6 +55,7 @@ import {
   type FullScreenSection,
 } from "@/components/masters/master-full-screen";
 import { Field, FieldGrid, FIELD_TRACK } from "@/components/ui/field";
+import { Truncated } from "@/components/ui/truncated";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
@@ -611,6 +612,39 @@ export function AmendmentScreen({
   const [form, setForm] = useState<HeaderForm>(BLANK);
   // Phase 2 data-tab grids
   const [styles, setStyles] = useState<StyleRow[]>([]);
+  /**
+   * WHICH STYLE ROW IS OPEN (client 2026-08-14): finish one style, start the
+   * next, and the finished one folds away.
+   *
+   * A style row is now two lines — five fields and a size list — so three styles
+   * is a screenful before the operator reaches "+ Add style". Collapsing the
+   * ones not being worked on is what keeps a multi-style PO readable.
+   *
+   * NULL MEANS "THE LAST ROW", resolved at render rather than seeded into state.
+   * Seeding would go stale the moment a row is added, removed or loaded from a
+   * saved order, and every one of those paths would have to remember to update
+   * it.
+   *
+   * A COLLAPSED ROW KEEPS ITS STYLE FIELD, and that is a keyboard requirement
+   * rather than a design flourish. Tab lands on FIELDS — `data-focus-optional`
+   * takes controls OFF that path and nothing puts one on — so a row rendering no
+   * field at all would be reachable by mouse only, on a screen whose whole
+   * premise is that it is not. One field keeps the row on the Tab path, and
+   * focusing it opens the row.
+   *
+   * UP HERE WITH THE OTHER STATE, NOT DOWN BESIDE `addStyle` WHERE IT READS
+   * BETTER. This component returns early — `if (mode === "list")` — so a hook
+   * declared after that line runs in edit mode and not in list mode, and this
+   * screen crosses that boundary on EVERY load: `mode` starts "list" and
+   * `useCreateIntent` opens the form on mount. Declared below the branch it
+   * was React's 46th hook in one render and its 45th-and-nothing in the next,
+   * which is "Rendered more hooks than during the previous render" — a blank
+   * screen on /orders/garment-orders, not a subtle bug. The file already says
+   * this three times over derived values that had to stay plain
+   * (`orderStructureIds` and the two beside it); this is the same rule from the
+   * other side, and the reason those are not memos is the reason this is here.
+   */
+  const [openStyleKey, setOpenStyleKey] = useState<string | null>(null);
   /** Which style line's Process sheet is open, by row key (0411). */
   const [processFor, setProcessFor] = useState<string | null>(null);
   const [dyeings, setDyeings] = useState<DyeingRow[]>([]);
@@ -1090,6 +1124,15 @@ export function AmendmentScreen({
       return held ? printOpts.filter((o) => o.id === held) : [];
     }
     const ids = new Set(prints.map((p) => p.print_id).filter(Boolean) as string[]);
+    // AND THE FULL LIST WHEN THE ORDER DECLARES NONE (2026-08-14). The grid that
+    // fed this came off the Color/Print tab, so "declared" is now only ever what
+    // a previously saved order carries — and the paragraph above turned an
+    // inline create down precisely BECAUSE the declaration belonged on that tab.
+    // With no tab to send the operator to, an empty list stops being a prompt
+    // and becomes a dead end on a Printed component. Same three clauses as
+    // `scopedStructures`: a held value always survives, nothing declared falls
+    // back to the whole list, a declared set narrows to it.
+    if (ids.size === 0) return printOpts;
     return printOpts.filter((o) => ids.has(o.id) || o.id === held);
   };
 
@@ -1352,6 +1395,12 @@ export function AmendmentScreen({
       location_id: startingLocationId,
     });
     setStyles([]);
+    // The pointer at the open style row is cleared with the rows it points at.
+    // It holds a ROW KEY, and keys are minted per row, so one carried over from
+    // the last document matches nothing here — and "matches nothing" folds every
+    // style rather than opening one. Same lesson as the missing `setQuantities`
+    // above: clearing the grids and leaving what indexes them is half a reset.
+    setOpenStyleKey(null);
     setDyeings([]);
     setPrints([]);
     setStructures([]);
@@ -1427,6 +1476,11 @@ export function AmendmentScreen({
       amend_in_garment_process_bom: r.amend_in_garment_process_bom,
       reason_text: r.reason_text ?? "",
     });
+    // Same reset as `openAdd`, for the same reason: the incoming document's
+    // style rows carry new keys, so a pointer held from the last one opens no
+    // row at all. Null resolves to the LAST style, which is where a loaded order
+    // is meant to open.
+    setOpenStyleKey(null);
     // The saved rows, through the same mapping the order seed uses. A saved
     // amendment always wins over the order: it records what was decided, and
     // the order has moved on since.
@@ -1828,7 +1882,15 @@ export function AmendmentScreen({
   // ---- Phase 2 grid row updaters / adders / removers ----
   const updateStyle = (key: string, patch: Partial<StyleRow>) =>
     setStyles((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
-  const addStyle = () => setStyles((xs) => [...xs, blankStyle()]);
+  /** Opens the new row and folds the finished one — `openStyleKey` is declared
+      with the other state, above the list-mode return. */
+  const addStyle = () => {
+    const row = blankStyle();
+    setStyles((xs) => [...xs, row]);
+    // The new row is the one being worked on, so it opens and the finished one
+    // folds — which is the whole of what the client asked for.
+    setOpenStyleKey(row.key);
+  };
   /**
    * Picking a Style fills everything the Style Entry already knows, so the
    * operator types only what the buyer's order sheet adds (client 2026-08-10).
@@ -1985,6 +2047,13 @@ export function AmendmentScreen({
 
   const addDyeing = (section: "yarn" | "fabric") =>
     setDyeings((xs) => [...xs, blankDyeing(section)]);
+  /* UNUSED SINCE 2026-08-14, AND KEPT ON PURPOSE — with `printColumns` and
+     `structureColumns` below, these are the whole of what a restore needs, and
+     the state they add to is still loaded, seeded and written. `eslint` says so
+     as a warning; that is the cost of keeping the pair together rather than
+     unpicking `structureColumns` → `scopedOrderStructures` →
+     `styleStructuresDeclared` → `orderStructureIds`, a chain three other
+     comments use as a landmark for where hooks stop being legal in this file. */
   const addPrint = () => setPrints((xs) => [...xs, blankPrint()]);
   const addStructure = () => setStructures((xs) => [...xs, blankStructure()]);
   const addCombo = () => setCombos((xs) => [...xs, blankCombo()]);
@@ -2157,7 +2226,12 @@ export function AmendmentScreen({
     // Info, and that section carries its own `done` (which reads `has(styles)`,
     // the same expression this entry held). A key left here would be read by
     // nothing and would drift.
-    colors: has(dyeings) || has(prints) || has(structures),
+    // READS ONLY WHAT THE TAB SHOWS. Prints and Structures came off this tab on
+    // 2026-08-14 and their state stayed (see the tab body), so keeping them in
+    // this expression would light the dot for rows `pickStyle` seeded — a tab
+    // reporting "has data" over two visibly empty dyeing grids, which is the
+    // confident lie the note above is about.
+    colors: has(dyeings),
     combos: has(combos),
     prices: has(priceDetails),
     approvalqty: has(approvalQtys),
@@ -4581,8 +4655,47 @@ export function AmendmentScreen({
         onAdd={addStyle}
         onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
         addLabel="+ Add style"
-        renderMobileRow={(r, i) => (
-          <div className="space-y-2">
+        renderMobileRow={(r, i) => {
+          /* OPEN = the row the operator is on. `openStyleKey` unset resolves to
+             the LAST row, so a fresh order and a loaded one both open on the one
+             being worked at without any path having to seed it.
+
+             A SINGLE STYLE NEVER COLLAPSES — there is no "next style" to move on
+             to, and 98% of orders are one style, so the common case is untouched
+             by this entirely. */
+          const openKey = openStyleKey ?? styles[styles.length - 1]?.key ?? null;
+          /* ONLY A COMPLETE STYLE FOLDS — the client's own word ("if the first
+             style is completed"), and it is also what keeps Save reachable.
+             A folded row's fields are UNMOUNTED, so a blank required cell inside
+             one has no `data-required-empty` node for `onBlockedSave` to land
+             on: Save would refuse and the cursor would have nowhere to go. The
+             two required cells are Style and PO Qty, read from state rather than
+             from the DOM for exactly that reason. */
+          const rowComplete = !!r.style_ref_no.trim() && !!r.po_qty.trim();
+          const isOpen = styles.length < 2 || r.key === openKey || !rowComplete;
+          /* What a folded row says about itself: the unit, the quantity and the
+             sizes it carries — the three an operator scans a PO for. Sizes are
+             NAMED, not counted: a count is what the client has just had removed
+             everywhere, and "M, L, XL" is the more useful answer anyway. */
+          const summary = [
+            unitTextOf(r),
+            r.po_qty.trim(),
+            r.sizes.map((z) => sizeLabel(z.size_id)).filter(Boolean).join(", "),
+          ]
+            .filter(Boolean)
+            .join("  ·  ");
+          return (
+          <div
+            className="space-y-2"
+            /* FOCUS OPENS THE ROW, which is what keeps this keyboard-operable:
+               Tab out of one style lands on the next row's Style field and the
+               row unfolds around the cursor. `onFocus` bubbles, so it catches
+               the mouse and the keyboard with one handler and no per-control
+               wiring. */
+            onFocus={() => {
+              if (!isOpen) setOpenStyleKey(r.key);
+            }}
+          >
             <div className="flex items-center gap-2">
               <span className="shrink-0 text-xs font-medium text-muted-foreground">
                 #{i + 1}
@@ -4671,16 +4784,22 @@ export function AmendmentScreen({
               * the layout the client rejected twice.
               */}
             <FieldGrid>
-              {styleColumns.map((col) => (
-                <Field
-                  key={col.header}
-                  label={col.header}
-                  required={col.required}
-                  size="xs"
-                >
-                  {col.cell(r, i)}
-                </Field>
-              ))}
+              {/* A FOLDED ROW SHOWS ONLY ITS STYLE. Anchored on the header, not
+                  on index 0 — these columns have been reordered more than once,
+                  and `filter` fails loudly if Style is renamed where `slice(0,1)`
+                  would quietly fold the wrong field. */}
+              {(isOpen ? styleColumns : styleColumns.filter((c) => c.header === "Style")).map(
+                (col) => (
+                  <Field
+                    key={col.header}
+                    label={col.header}
+                    required={col.required}
+                    size="xs"
+                  >
+                    {col.cell(r, i)}
+                  </Field>
+                ),
+              )}
               {/**
                 * SIZES TAKES ITS OWN LINE, LAST (client 2026-08-14).
                 *
@@ -4710,12 +4829,31 @@ export function AmendmentScreen({
                 * the count restates what is already on screen, one word to the
                 * left of the answer.
                 */}
-              <Field key="__sizes" label="Sizes" size="full">
-                {sizeGrid(r)}
-              </Field>
+              {isOpen ? (
+                <Field key="__sizes" label="Sizes" size="full">
+                  {sizeGrid(r)}
+                </Field>
+              ) : (
+                /* `label=""` rather than no label: `Field` renders a `&nbsp;` in
+                   that case precisely to reserve the label line, so the summary
+                   sits level with the Style box beside it instead of 14px above
+                   it. `xl` (8 of 12) beside Style's 2 fills the line.
+
+                   `Truncated` because a long summary must stay READABLE, not
+                   merely clipped — the standing rule that an ellipsis is a
+                   promise the rest is reachable. */
+                <Field key="__summary" label="" size="xl">
+                  <div className="flex min-h-8 items-center">
+                    <Truncated className="text-sm text-muted-foreground">
+                      {summary || "Not filled in yet"}
+                    </Truncated>
+                  </div>
+                </Field>
+              )}
             </FieldGrid>
           </div>
-        )}
+          );
+        }}
       />
       <EmptyNote rows={styles.length} label="styles" seeded={seeded} />
     </>
@@ -4737,12 +4875,16 @@ export function AmendmentScreen({
               both grids stay fully usable; hiding one would strand rows already
               saved on a grid that no longer renders (client 2026-08-10). */}
           <FabricTypeHint counts={fabricTypes} />
-          {/* TWO GRIDS A ROW, not four stacked (client 2026-08-12, screenshots
-              2269 · 2270): Yarn Dyeing beside Fabric Dyeing, then Roll Form
-              Prints beside Structures. Stacked, the tab was a metre of scroll
-              holding four short lists, and the pair that reads as a pair — the
-              two dyeing grids, same two columns, same shape — was split across a
-              scroll boundary where they could not be compared.
+          {/* TWO GRIDS A ROW, not stacked (client 2026-08-12, screenshots
+              2269 · 2270): Yarn Dyeing beside Fabric Dyeing. It was four grids
+              in a 2×2 until 2026-08-14 — Roll Form Prints and Structures made
+              the second row, and both came off the tab (see the note where they
+              stood). Stacked, the tab was a metre of scroll holding four short
+              lists, and the pair that reads as a pair — the two dyeing grids,
+              same two columns, same shape — was split across a scroll boundary
+              where they could not be compared. That pair is what is left, so
+              the rule now costs nothing to keep and still decides the layout if
+              a third grid ever returns.
 
               `SectionGrid`, never a hand-written `grid-cols-2` (this skill's
               first rule, and the reason 29 grid literals exist in
@@ -4797,34 +4939,30 @@ export function AmendmentScreen({
                 seeded={seeded}
               />
             </div>
-            {/* Roll-form prints */}
-            <div>
-              <ChildGrid<PrintRow>
-                label="Roll Form Prints"
-                columns={printColumns}
-                rows={prints}
-                inlineCards
-                fill
-                onAdd={addPrint}
-                onRemove={(r) => setPrints((xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add print"
-              />
-              <EmptyNote rows={prints.length} label="prints" seeded={seeded} />
-            </div>
-            {/* Structures */}
-            <div>
-              <ChildGrid<StructureRow>
-                label="Structures"
-                columns={structureColumns}
-                rows={structures}
-                inlineCards
-                fill
-                onAdd={addStructure}
-                onRemove={(r) => setStructures((xs) => xs.filter((x) => x.key !== r.key))}
-                addLabel="+ Add structure"
-              />
-              <EmptyNote rows={structures.length} label="structures" seeded={seeded} />
-            </div>
+            {/* ROLL FORM PRINTS AND STRUCTURES WERE HERE, AND CAME OFF THE TAB
+                ON THE CLIENT'S ASK (2026-08-14). Both were lists the operator
+                had to fill in beside data the order already knew: Structures
+                seeds itself from the style's own fabrics on every `pickStyle`
+                (0415, "flow into this tab automatically to avoid duplicate data
+                entry"), and its one hand-answered column — Fabric Type — is
+                asked again, editably, on every combo structure. Prints were
+                declared here only so the combo cell could offer them.
+
+                THE STATE AND THE WRITE STAY, and that is not tidiness left
+                undone. `applyRows` loads `prints` / `structures` off a saved
+                order and `submit` writes them back; `writeChildren` DELETES and
+                re-inserts, so state that stops round-tripping is state the next
+                save erases. Dropping the grid hides two lists — dropping the
+                state would silently delete them from every order already saved.
+
+                What each removal cost, and where it was paid:
+                  · Fabric Type per structure — a PREFILL only
+                    (`pickComboStructure`, "SEEDS, NEVER OVERWRITES"). The combo
+                    row still asks for it, so nothing became unanswerable.
+                  · Fabric Print — was scoped to THIS grid with no fallback, so
+                    removing the feeder would have left a permanently empty list
+                    on a Printed component. `declaredPrintOptions` now falls back
+                    to the full list when the order declares none. */}
           </SectionGrid>
         </div>
       ),
