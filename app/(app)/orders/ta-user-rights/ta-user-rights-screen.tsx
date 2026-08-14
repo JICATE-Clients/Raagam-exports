@@ -9,6 +9,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { setTaUserRights } from "@/lib/orders/ta-user-rights/actions";
 import type {
@@ -143,6 +145,61 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
 
   const selectedUser = data.users.find((u) => u.id === userId) ?? null;
 
+  /**
+   * The matrix's columns, declared once — the table branch and the stacked-card
+   * branch both read this, so a sixth action cannot leave the header and the
+   * cells disagreeing.
+   *
+   * No column is `required`: a right left unticked is a right not granted, which
+   * is a complete record. Marking one would hold the cursor on a box whose
+   * empty state is the answer.
+   */
+  const rightsColumns: ChildGridColumn<{ key: string; label: string }>[] = [
+    {
+      header: "Activity",
+      width: "16rem",
+      cell: (mr) =>
+        mr.key === ALL_KEY ? (
+          <span className="text-sm font-medium">{mr.label}</span>
+        ) : (
+          <span className="text-sm">{mr.label}</span>
+        ),
+    },
+    {
+      header: "All",
+      align: "center",
+      width: "5rem",
+      cell: (mr) => {
+        const p = getPerm(mr.key);
+        return (
+          <input
+            type="checkbox"
+            aria-label="All"
+            checked={p.view && p.add && p.modify && p.delete}
+            disabled={!canEdit || isPending}
+            onChange={(e) => setAllForRow(mr.key, e.target.checked)}
+            className="h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+          />
+        );
+      },
+    },
+    ...ACTIONS.map((action) => ({
+      header: action.charAt(0).toUpperCase() + action.slice(1),
+      align: "center" as const,
+      width: "5rem",
+      cell: (mr: { key: string; label: string }) => (
+        <input
+          type="checkbox"
+          aria-label={action}
+          checked={getPerm(mr.key)[action]}
+          disabled={!canEdit || isPending}
+          onChange={(e) => setAction(mr.key, action, e.target.checked)}
+          className="h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+        />
+      ),
+    })),
+  ];
+
   const summaryColumns: Column<TaUserRightsSummaryRow>[] = [
     {
       header: "User",
@@ -176,14 +233,22 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
       />
 
       <Card>
-        <CardBody className="grid grid-cols-1 gap-4 sm:max-w-md">
-          <RecordPicker
-            label="User"
-            items={data.users}
-            value={userId}
-            onChange={selectUser}
-            required
-          />
+        <CardBody>
+          {/* On the field track like every other picker in the module, rather
+              than a lone `sm:max-w-md` box — the same `<Field size>` +
+              `compact` pairing, so this User sits at the same ~280px as the
+              Sales Order on Pack Ratios and Price Confirmation. */}
+          <FieldGrid>
+            <Field label="User" required size="sm">
+              <RecordPicker
+                label="User"
+                compact
+                items={data.users}
+                value={userId}
+                onChange={selectUser}
+              />
+            </Field>
+          </FieldGrid>
         </CardBody>
       </Card>
 
@@ -196,67 +261,31 @@ export function TaUserRightsScreen({ data, allRights, summary, canEdit }: Props)
               </h3>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-surface-muted">
-                    <th className="min-w-[220px] px-3 py-2 text-left text-xs font-semibold text-muted-foreground">
-                      Activity
-                    </th>
-                    {(["All", ...ACTIONS] as const).map((c) => (
-                      <th
-                        key={c}
-                        className="px-3 py-2 text-center text-xs font-semibold capitalize text-muted-foreground"
-                      >
-                        {c}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {matrixRows.map((mr) => {
-                    const p = getPerm(mr.key);
-                    const all = p.view && p.add && p.modify && p.delete;
-                    return (
-                      <tr
-                        key={mr.key}
-                        className="border-b border-border last:border-0 hover:bg-surface-muted/60"
-                      >
-                        <td className="px-3 py-2 text-sm text-foreground">
-                          {mr.key === ALL_KEY ? (
-                            <span className="font-medium">{mr.label}</span>
-                          ) : (
-                            mr.label
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            aria-label="All"
-                            checked={all}
-                            disabled={!canEdit || isPending}
-                            onChange={(e) => setAllForRow(mr.key, e.target.checked)}
-                            className="h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
-                          />
-                        </td>
-                        {ACTIONS.map((action) => (
-                          <td key={action} className="px-3 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              aria-label={action}
-                              checked={p[action]}
-                              disabled={!canEdit || isPending}
-                              onChange={(e) => setAction(mr.key, action, e.target.checked)}
-                              className="h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-40"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            {/* THE MATRIX IS A CHILD GRID, and the argument is the keyboard one
+                rather than the look. `gridKeyNav` finds rows by `data-grid-row`
+                and cells by `ROW_FIELDS` — which counts a CHECKBOX as a column,
+                deliberately, because excluding it once left every arrow key dead
+                on a tick-box cell. A hand-rolled `<table>` carries neither
+                marker, so ↑↓←→ did nothing across a grid whose every cell is a
+                tick box, and the only way through five columns × N activities
+                was Tab or the mouse.
+
+                It also drops the `overflow-x-auto`: the rows fall to stacked
+                cards at narrow widths instead of hiding four of the five columns
+                behind a horizontal scrollbar.
+
+                `hideAdd` + `lockExisting` are what make it a MATRIX rather than
+                a list the operator can grow: the rows are the activity master,
+                so there is nothing to add and nothing to remove, and both
+                callbacks below are unreachable rather than merely unused. */}
+            <ChildGrid
+              columns={rightsColumns}
+              rows={matrixRows}
+              onAdd={() => false}
+              onRemove={() => {}}
+              hideAdd
+              lockExisting
+            />
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => selectUser(userId)} disabled={isPending}>

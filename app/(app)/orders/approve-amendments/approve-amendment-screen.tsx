@@ -6,7 +6,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+// `Label` stays: the two remaining uses are the FILTER BAR (Status, Customer),
+// which the keyboard contract deliberately leaves on native tab order — it is
+// not an editor, so it takes no `Field`.
 import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
+import { Truncated } from "@/components/ui/truncated";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useOverlayFocus } from "@/lib/use-overlay-focus";
@@ -160,9 +165,17 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
     {
       header: "Reason",
       cell: (r) => (
-        <span className="block max-w-[16rem] truncate text-sm text-muted-foreground" title={r.reason_text ?? undefined}>
-          {r.reason_text ?? "—"}
-        </span>
+        // `truncate` + a `title` is an ellipsis with a tooltip the keyboard and
+        // touch can never reach. <Truncated> writes the clamp itself, measures
+        // the box, and reveals on hover OR press-and-hold — and only when
+        // something is actually hidden (AGENTS.md, "Truncated values"). It
+        // matters more here than on most columns: a rejection reason is the
+        // whole content of the decision, and it was the one thing an approver
+        // could not read from the list.
+        <Truncated
+          text={r.reason_text ?? "—"}
+          className="block max-w-[16rem] text-sm text-muted-foreground"
+        />
       ),
     },
     {
@@ -347,14 +360,39 @@ function DecisionModal({
             : "This records an approval decision. A reason is optional."}
         </p>
         <div className="mt-4">
-          <Label htmlFor="decision-reason">Reason {isReject ? "*" : "(optional)"}</Label>
-          <Textarea
-            id="decision-reason"
-            rows={3}
-            value={reason}
-            onChange={(e) => onReason(e.target.value)}
-            placeholder={isReject ? "Why is this amendment rejected?" : "Optional note…"}
-          />
+          {/* `required={isReject}` rather than a `*` switched into the label
+              text. Requiredness here is a property of the DECISION, not of the
+              column — a rejection must say why, an approval need not — and this
+              is the one prop that can say so: it draws the star, stamps
+              `data-required-empty`, and holds the cursor, all on the same
+              condition that `reasonMissing` already gates the button on.
+
+              Typed by hand the star drew and did nothing: Tab left a blank
+              mandatory box on a rejection, and only the dead Save button said
+              otherwise. `hint` carries the "(optional)" half, which is guidance
+              rather than part of the field's name. */}
+          {/* The `FieldGrid` is what gives `size="full"` a track to span — a
+              lone `<Field size>` with no grid around it renders its span classes
+              against nothing, which `--check field-track` exists to catch. One
+              field in it here, and that is fine: the grid is the track, not a
+              claim that more fields are coming. */}
+          <FieldGrid>
+            <Field
+              label="Reason"
+              required={isReject}
+              size="full"
+              htmlFor="decision-reason"
+              hint={isReject ? undefined : "Optional"}
+            >
+              <Textarea
+                id="decision-reason"
+                rows={3}
+                value={reason}
+                onChange={(e) => onReason(e.target.value)}
+                placeholder={isReject ? "Why is this amendment rejected?" : "Optional note…"}
+              />
+            </Field>
+          </FieldGrid>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel} disabled={busy}>

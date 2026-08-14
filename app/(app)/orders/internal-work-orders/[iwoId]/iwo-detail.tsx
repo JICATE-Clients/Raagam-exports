@@ -18,7 +18,7 @@ import type { IwoDetail as IwoDetailType } from "@/lib/orders/internal-work-orde
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -174,18 +174,28 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
           </div>
         </CardHeader>
         <CardBody>
-          <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-4">
-            <div>
-              <dt className="text-xs text-muted-foreground">Code</dt>
-              <dd className="font-mono font-medium">{iwo.code ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Type</dt>
-              <dd className="font-medium">{iwo.iwo_type ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Order</dt>
-              <dd className="font-medium">
+          {/* A READ-ONLY BAND ON THE FIELD TRACK, not its own `grid-cols-2
+              sm:grid-cols-4`. `Field` gives the label and the ~280px slot; the
+              children stay plain text rather than becoming `readOnly` inputs,
+              because these are facts being reported, not values being edited,
+              and boxing them would invite a click that does nothing.
+
+              Same trade as `color-card-detail.tsx`: it costs the `<dl>/<dt>/<dd>`
+              grouping, so the pairs are no longer announced as ONE list, but each
+              stays a labelled value and the whole card shares the left edge and
+              width of the form beneath it.
+
+              Found only because this file gained a layout primitive — the audit
+              skips any file with none, so this grid had been invisible. */}
+          <FieldGrid>
+            <Field label="Code" size="sm">
+              <div className="font-mono text-sm font-medium">{iwo.code ?? "—"}</div>
+            </Field>
+            <Field label="Type" size="sm">
+              <div className="text-sm font-medium">{iwo.iwo_type ?? "—"}</div>
+            </Field>
+            <Field label="Order" size="sm">
+              <div className="text-sm font-medium">
                 {iwo.sales_order_id ? (
                   <Link
                     href={`/orders/${iwo.sales_order_id}`}
@@ -196,37 +206,33 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
                 ) : (
                   "—"
                 )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Customer</dt>
-              <dd className="font-medium">{iwo.customer?.name ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Style</dt>
-              <dd className="font-medium">{iwo.style?.style_name ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Deli Dt</dt>
-              <dd className="tabular-nums font-medium">{fmtDate(iwo.deli_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Unit / Location</dt>
-              <dd className="font-medium">
-                {iwo.locations ? iwo.locations.name : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Issued</dt>
-              <dd className="tabular-nums font-medium">{fmtDate(iwo.issued_at)}</dd>
-            </div>
-            {iwo.instructions && (
-              <div className="col-span-2 sm:col-span-4">
-                <dt className="text-xs text-muted-foreground">Instructions</dt>
-                <dd className="text-sm">{iwo.instructions}</dd>
               </div>
+            </Field>
+            <Field label="Customer" size="sm">
+              <div className="text-sm font-medium">{iwo.customer?.name ?? "—"}</div>
+            </Field>
+            <Field label="Style" size="sm">
+              <div className="text-sm font-medium">{iwo.style?.style_name ?? "—"}</div>
+            </Field>
+            <Field label="Deli Dt" size="sm">
+              <div className="text-sm font-medium tabular-nums">{fmtDate(iwo.deli_date)}</div>
+            </Field>
+            <Field label="Unit / Location" size="sm">
+              <div className="text-sm font-medium">
+                {iwo.locations ? iwo.locations.name : "—"}
+              </div>
+            </Field>
+            <Field label="Issued" size="sm">
+              <div className="text-sm font-medium tabular-nums">{fmtDate(iwo.issued_at)}</div>
+            </Field>
+            {iwo.instructions && (
+              // `full` is the row — instructions run long and read badly in a
+              // quarter of one.
+              <Field label="Instructions" size="full">
+                <div className="text-sm">{iwo.instructions}</div>
+              </Field>
             )}
-          </dl>
+          </FieldGrid>
         </CardBody>
       </Card>
 
@@ -256,58 +262,57 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
               // missing this. See the `raagam-keyboard-contract` skill.
               data-focus-scope
               onSubmit={handleAddLine}
-              className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface-muted p-3"
+              className="space-y-3 rounded-md border border-border bg-surface-muted p-3"
             >
-              <div className="min-w-48 flex-1">
-                <Label htmlFor="l-desc" className="mb-0.5">
-                  Description *
-                </Label>
-                <Input
-                  id="l-desc"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g. Body panels"
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="l-qty" className="mb-0.5">
-                  Qty
-                </Label>
-                <Input
-                  id="l-qty"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  placeholder="0"
-                  className="w-24"
-                />
-              </div>
-              <div>
-                <Label htmlFor="l-unit" className="mb-0.5">
-                  Unit
-                </Label>
-                <Input
-                  id="l-unit"
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  placeholder="pcs"
-                  className="w-24"
-                />
-              </div>
-              <div className="min-w-40 flex-1">
-                <Label htmlFor="l-notes" className="mb-0.5">
-                  Notes
-                </Label>
-                <Input
-                  id="l-notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
+              {/* `FieldGrid` and one field width, in place of a
+                  `flex flex-wrap items-end gap-3` of `w-24` / `min-w-48 flex-1`
+                  boxes. Sizing each control to its own data is what LAYOUT.md §3
+                  fixes a field at ~280px to avoid — nothing lined up with the
+                  lines table above it. */}
+              <FieldGrid>
+                {/* `required` on the Field, not a `*` typed into the label — the
+                    same prop draws the star AND stamps `data-required-empty`, so
+                    the cursor holds on a blank box. Typed by hand it was
+                    decoration and Tab walked straight past. */}
+                <Field label="Description" required size="sm" htmlFor="l-desc">
+                  <Input
+                    id="l-desc"
+                    uppercase
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="e.g. Body panels"
+                    required
+                  />
+                </Field>
+                <Field label="Qty" size="sm" htmlFor="l-qty">
+                  <Input
+                    id="l-qty"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    placeholder="0"
+                  />
+                </Field>
+                <Field label="Unit" size="sm" htmlFor="l-unit">
+                  <Input
+                    id="l-unit"
+                    uppercase
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value)}
+                    placeholder="pcs"
+                  />
+                </Field>
+                <Field label="Notes" size="sm" htmlFor="l-notes">
+                  <Input
+                    id="l-notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </Field>
+              </FieldGrid>
               <div className="flex gap-2">
                 <Button
                   type="submit"

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -55,14 +55,37 @@ function PurchaseAddForm({ pcId, itemClassType, onDone }: { pcId: string; itemCl
   }
 
   return (
-    <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
-      <div><Label>Item</Label><Input className="w-32" value={f.item_name} onChange={(e) => setF({ ...f, item_name: e.target.value })} /></div>
-      <div><Label>Vendor</Label><Input className="w-28" value={f.vendor_name} onChange={(e) => setF({ ...f, vendor_name: e.target.value })} /></div>
-      <div><Label>UOM</Label><Input className="w-16" value={f.uom_id} onChange={(e) => setF({ ...f, uom_id: e.target.value })} /></div>
-      <div><Label>Qty</Label><Input className="w-20" type="number" value={f.reqd_qty} onChange={(e) => setF({ ...f, reqd_qty: e.target.value })} /></div>
-      <div><Label>Rate</Label><Input className="w-20" type="number" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></div>
-      <div><Label>Currency</Label><Input className="w-16" value={f.currency_code} onChange={(e) => setF({ ...f, currency_code: e.target.value })} /></div>
-      <div><Label>Ex Rate</Label><Input className="w-16" type="number" value={f.exchange_rate} onChange={(e) => setF({ ...f, exchange_rate: e.target.value })} /></div>
+    // ONE MARKER, NEVER A HANDLER — an inline panel under a tab, not an overlay,
+    // so `isEditorScope()` is false without it and Tab leaves the form.
+    <div data-focus-scope className="space-y-3 rounded border border-border p-3">
+      {/* `FieldGrid`, in place of a `flex gap-2 items-end flex-wrap` of
+          `w-32` / `w-28` / `w-20` / `w-16` boxes. This form and the process one
+          below it hold the SAME seven fields and sized four of them differently,
+          on tabs the operator moves between — the drift is visible without
+          leaving the screen. */}
+      <FieldGrid>
+        <Field label="Item" size="sm" htmlFor="pcp-item">
+          <Input id="pcp-item" uppercase value={f.item_name} onChange={(e) => setF({ ...f, item_name: e.target.value })} />
+        </Field>
+        <Field label="Vendor" size="sm" htmlFor="pcp-vendor">
+          <Input id="pcp-vendor" uppercase value={f.vendor_name} onChange={(e) => setF({ ...f, vendor_name: e.target.value })} />
+        </Field>
+        <Field label="UOM" size="sm" htmlFor="pcp-uom">
+          <Input id="pcp-uom" uppercase value={f.uom_id} onChange={(e) => setF({ ...f, uom_id: e.target.value })} />
+        </Field>
+        <Field label="Qty" size="sm" htmlFor="pcp-qty">
+          <Input id="pcp-qty" type="number" value={f.reqd_qty} onChange={(e) => setF({ ...f, reqd_qty: e.target.value })} />
+        </Field>
+        <Field label="Rate" size="sm" htmlFor="pcp-rate">
+          <Input id="pcp-rate" type="number" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} />
+        </Field>
+        <Field label="Currency" size="sm" htmlFor="pcp-currency">
+          <Input id="pcp-currency" uppercase maxLength={3} value={f.currency_code} onChange={(e) => setF({ ...f, currency_code: e.target.value })} />
+        </Field>
+        <Field label="Ex Rate" size="sm" htmlFor="pcp-exrate">
+          <Input id="pcp-exrate" type="number" value={f.exchange_rate} onChange={(e) => setF({ ...f, exchange_rate: e.target.value })} />
+        </Field>
+      </FieldGrid>
       <Button size="sm" disabled={isPending} onClick={submit}>{isPending ? "Adding…" : "Add"}</Button>
     </div>
   );
@@ -97,13 +120,30 @@ function ProcessAddForm({ pcId, processType, onDone }: { pcId: string; processTy
   }
 
   return (
-    <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
-      <div><Label>Process</Label><Input className="w-32" value={f.process_name} onChange={(e) => setF({ ...f, process_name: e.target.value })} /></div>
-      <div><Label>Vendor</Label><Input className="w-28" value={f.vendor_name} onChange={(e) => setF({ ...f, vendor_name: e.target.value })} /></div>
-      <div><Label>UOM</Label><Input className="w-16" value={f.uom_id} onChange={(e) => setF({ ...f, uom_id: e.target.value })} /></div>
-      <div><Label>Qty</Label><Input className="w-20" type="number" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} /></div>
-      <div><Label>Rate</Label><Input className="w-20" type="number" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></div>
-      <div><Label>Currency</Label><Input className="w-16" value={f.currency_code} onChange={(e) => setF({ ...f, currency_code: e.target.value })} /></div>
+    <div data-focus-scope className="space-y-3 rounded border border-border p-3">
+      <FieldGrid>
+        <Field label="Process" size="sm" htmlFor="pcx-process">
+          <Input id="pcx-process" uppercase value={f.process_name} onChange={(e) => setF({ ...f, process_name: e.target.value })} />
+        </Field>
+        <Field label="Vendor" size="sm" htmlFor="pcx-vendor">
+          <Input id="pcx-vendor" uppercase value={f.vendor_name} onChange={(e) => setF({ ...f, vendor_name: e.target.value })} />
+        </Field>
+        <Field label="UOM" size="sm" htmlFor="pcx-uom">
+          <Input id="pcx-uom" uppercase value={f.uom_id} onChange={(e) => setF({ ...f, uom_id: e.target.value })} />
+        </Field>
+        <Field label="Qty" size="sm" htmlFor="pcx-qty">
+          <Input id="pcx-qty" type="number" value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
+        </Field>
+        <Field label="Rate" size="sm" htmlFor="pcx-rate">
+          <Input id="pcx-rate" type="number" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} />
+        </Field>
+        <Field label="Currency" size="sm" htmlFor="pcx-currency">
+          <Input id="pcx-currency" uppercase maxLength={3} value={f.currency_code} onChange={(e) => setF({ ...f, currency_code: e.target.value })} />
+        </Field>
+        {/* `exchange_rate` is sent as "1" and has no box here, unlike the
+            purchase form beside it. Left as it stands: adding a field posts a
+            value the operator has not been asked for on any process to date. */}
+      </FieldGrid>
       <Button size="sm" disabled={isPending} onClick={submit}>{isPending ? "Adding…" : "Add"}</Button>
     </div>
   );
@@ -224,21 +264,26 @@ export function PriceConfirmationClient({
 
       <Sheet open={open} onClose={() => setOpen(false)} title="New Price Confirmation" footer={<><Button variant="outline" size="md" onClick={() => setOpen(false)}>Cancel</Button><Button size="md" disabled={isPending || !form.sales_order_id} onClick={submit}>{isPending ? "Saving…" : "Save"}</Button></>}>
         <div className="space-y-4">
-          <DetailSection label="Details">
+          {/* `cols={12}` IS the field track — the same string `FieldGrid`
+              renders. */}
+          <DetailSection label="Details" cols={12}>
             {/* THE ORDER IS PICKED, NOT TYPED. Was `<Input placeholder="UUID">`.
-                This screen's full layout conversion is a later batch; the field
-                is fixed now because the form could not be filled in at all. */}
-            <div>
+                `<Field size>` + `compact` — the Field supplies the track span,
+                `compact` drops the picker's own label so the two do not stack,
+                and `required` is declared once. */}
+            <Field label="Sales Order" required size="sm">
               <RecordPicker
                 id="pc-order"
                 label="Sales Order"
+                compact
                 items={orders}
                 value={form.sales_order_id || null}
                 onChange={(id) => setForm({ ...form, sales_order_id: id ?? "" })}
-                required
               />
-            </div>
-            <div><Label>Notes</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+            </Field>
+            <Field label="Notes" size="sm" htmlFor="pc-notes">
+              <Input id="pc-notes" uppercase value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            </Field>
           </DetailSection>
         </div>
       </Sheet>

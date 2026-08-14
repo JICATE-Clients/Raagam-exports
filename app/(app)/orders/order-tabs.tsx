@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldGrid } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -202,42 +202,50 @@ function LineItemsTab({
       />
 
       {formOpen ? (
-        <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-3 rounded-md border border-border bg-surface-muted p-3">
-          <div>
-            <Label htmlFor="li-colour" className="mb-0.5">Colour</Label>
-            <Input
-              id="li-colour"
-              placeholder="e.g. Navy"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="w-28"
-            />
-          </div>
-          <div>
-            <Label htmlFor="li-size" className="mb-0.5">Size</Label>
-            <Input
-              id="li-size"
-              placeholder="e.g. M"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-              className="w-20"
-            />
-          </div>
-          <div>
-            <Label htmlFor="li-qty" className="mb-0.5">Qty</Label>
-            <Input
-              id="li-qty"
-              type="number"
-              min="0"
-              placeholder="0"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              required
-              className="w-24"
-            />
-          </div>
+        <form onSubmit={handleAdd} className="space-y-3 rounded-md border border-border bg-surface-muted p-3">
+          {/* `FieldGrid` and one field width, in place of a
+              `flex flex-wrap items-end gap-3` of `w-28` / `w-20` / `w-24`
+              boxes. Sizing each control to its own data is what LAYOUT.md §3
+              fixes a field at ~280px to avoid — none of these lined up with the
+              lines table above them, or with each other. */}
+          <FieldGrid>
+            <Field label="Colour" size="sm" htmlFor="li-colour">
+              <Input
+                id="li-colour"
+                uppercase
+                placeholder="e.g. Navy"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+              />
+            </Field>
+            <Field label="Size" size="sm" htmlFor="li-size">
+              <Input
+                id="li-size"
+                uppercase
+                placeholder="e.g. M"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+              />
+            </Field>
+            {/* `required` on the Field, not a `*` typed into the label — one
+                prop for the star, the `data-required-empty` hold and the Add
+                button, so they cannot disagree. The native `required` was here
+                already and said nothing on screen. */}
+            <Field label="Qty" required size="sm" htmlFor="li-qty">
+              <Input
+                id="li-qty"
+                type="number"
+                min="0"
+                placeholder="0"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                required
+              />
+            </Field>
+          </FieldGrid>
           <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={isPending}>
+            {/* The third enforcer of the same `required`. */}
+            <Button type="submit" size="sm" disabled={isPending || !qty.trim()}>
               {isPending ? "Adding…" : "Add"}
             </Button>
             <Button
@@ -392,8 +400,11 @@ function TaTab({
           </div>
 
           {method === "template" && (
-            <div>
-              <Label htmlFor="ta-template">Template</Label>
+            // A lone field still belongs to a track — `--check field-track`
+            // exists because one `Field` outside a `FieldGrid` sizes itself and
+            // stops lining up with the next thing added beside it.
+            <FieldGrid>
+              <Field label="Template" size="sm" htmlFor="ta-template">
               {templates.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No active templates found.</p>
               ) : (
@@ -409,7 +420,8 @@ function TaTab({
                   ))}
                 </Select>
               )}
-            </div>
+              </Field>
+            </FieldGrid>
           )}
 
           <div>
@@ -639,9 +651,11 @@ function AmendmentsTab({
           className="rounded-md border border-border bg-surface-muted p-4 space-y-3"
         >
           <p className="text-sm font-medium">Raise amendment</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="am-type">Type</Label>
+          {/* One track for all three, in place of a `sm:grid-cols-2` pair with a
+              full-width box under it — halves above and a whole below is two
+              layouts, and nothing shared a left edge across them. */}
+          <FieldGrid>
+            <Field label="Type" size="sm" htmlFor="am-type">
               <Select
                 id="am-type"
                 value={amendType}
@@ -653,9 +667,8 @@ function AmendmentsTab({
                   </option>
                 ))}
               </Select>
-            </div>
-            <div>
-              <Label htmlFor="am-impact">Profit impact</Label>
+            </Field>
+            <Field label="Profit impact" size="sm" htmlFor="am-impact">
               <Input
                 id="am-impact"
                 type="number"
@@ -664,18 +677,19 @@ function AmendmentsTab({
                 value={profitImpact}
                 onChange={(e) => setProfitImpact(e.target.value)}
               />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="am-desc">Description</Label>
-            <Textarea
-              id="am-desc"
-              placeholder="Describe the amendment…"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
-          </div>
+            </Field>
+            {/* `full` — free prose, and a `<Textarea>` is one of the places the
+                CAPITALS rule is exempt by construction. */}
+            <Field label="Description" size="full" htmlFor="am-desc">
+              <Textarea
+                id="am-desc"
+                placeholder="Describe the amendment…"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+              />
+            </Field>
+          </FieldGrid>
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={isPending}>
               {isPending ? "Saving…" : "Raise amendment"}
@@ -773,9 +787,22 @@ function CoordColorsTab({ orderId }: { orderId: string }) {
         <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Color"}</Button>
       </div>
       {adding && (
-        <div className="flex gap-2 items-end rounded border border-border p-3">
-          <div><Label>Coordinate *</Label><Input className="w-28" value={f.coordinate} onChange={(e) => setF({ ...f, coordinate: e.target.value })} placeholder="e.g. Sleeve" /></div>
-          <div><Label>Color</Label><Input className="w-28" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} /></div>
+        // ONE MARKER, NEVER A HANDLER. These five panels are `adding`-gated divs
+        // rather than overlays, so `isEditorScope()` is false without it and Tab
+        // walks straight out of the panel it just opened.
+        <div data-focus-scope className="space-y-3 rounded border border-border p-3">
+          <FieldGrid>
+            {/* The `*` was typed into the label text, so it drew a red star and
+                nothing else — the hold comes from the same prop or not at all,
+                and Tab left a blank Coordinate freely while the Add button below
+                it stayed disabled with nothing saying why. */}
+            <Field label="Coordinate" required size="sm" htmlFor="cc-coordinate">
+              <Input id="cc-coordinate" uppercase value={f.coordinate} onChange={(e) => setF({ ...f, coordinate: e.target.value })} placeholder="e.g. Sleeve" />
+            </Field>
+            <Field label="Color" size="sm" htmlFor="cc-color">
+              <Input id="cc-color" uppercase value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} />
+            </Field>
+          </FieldGrid>
           <Button size="sm" disabled={isPending || !f.coordinate} onClick={() => startTransition(async () => { const res = await addCoordinateColor({ sales_order_id: orderId, coordinate: f.coordinate, color: f.color || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ coordinate: "", color: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
@@ -803,9 +830,15 @@ function DescriptionsTab({ orderId }: { orderId: string }) {
         <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add"}</Button>
       </div>
       {adding && (
-        <div className="flex gap-2 items-end rounded border border-border p-3">
-          <div><Label>Type</Label><Select className="w-28" value={f.description_type} onChange={(e) => setF({ ...f, description_type: e.target.value })}><option value="">Select…</option>{DESCRIPTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</Select></div>
-          <div className="flex-1"><Label>Description</Label><Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
+        <div data-focus-scope className="space-y-3 rounded border border-border p-3">
+          <FieldGrid>
+            <Field label="Type" size="sm" htmlFor="pd-type">
+              <Select id="pd-type" value={f.description_type} onChange={(e) => setF({ ...f, description_type: e.target.value })}><option value="">Select…</option>{DESCRIPTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</Select>
+            </Field>
+            <Field label="Description" size="lg" htmlFor="pd-description">
+              <Input id="pd-description" uppercase value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
+            </Field>
+          </FieldGrid>
           <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderDescription({ sales_order_id: orderId, description_type: f.description_type || null, description: f.description || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ description_type: "", description: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
@@ -870,17 +903,30 @@ function TrimsTab({
         <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Trim"}</Button>
       </div>
       {adding && (
-        <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
-          <div><Label>Category</Label><Input className="w-28" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} /></div>
-          <div className="flex-1"><Label>Specifications</Label><Input value={f.trims_specifications} onChange={(e) => setF({ ...f, trims_specifications: e.target.value })} /></div>
-          <div><Label>Supply Type</Label><Select className="w-28" value={f.supply_type} onChange={(e) => {
-            // Clears a vendor the new type no longer allows, asked of the same
-            // function that builds the picker's options.
-            const supply_type = e.target.value;
-            const { items } = nominatedVendorOptions({ ...vendorRule, supplyType: supply_type });
-            setF((p) => ({ ...p, supply_type, vendor_id: !p.vendor_id || items.some((v) => v.id === p.vendor_id) ? p.vendor_id : null }));
-          }}><option value="">Select…</option>{SUPPLY_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}</Select></div>
-          <div className="w-40"><Label>Vendor</Label><NominatedVendorPicker {...vendorRule} supplyType={f.supply_type} value={f.vendor_id} onChange={(id) => setF((p) => ({ ...p, vendor_id: id }))} compact /></div>
+        <div data-focus-scope className="space-y-3 rounded border border-border p-3">
+          <FieldGrid>
+            <Field label="Category" size="sm" htmlFor="tr-category">
+              <Input id="tr-category" uppercase value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} />
+            </Field>
+            <Field label="Specifications" size="lg" htmlFor="tr-specs">
+              <Input id="tr-specs" uppercase value={f.trims_specifications} onChange={(e) => setF({ ...f, trims_specifications: e.target.value })} />
+            </Field>
+            <Field label="Supply Type" size="sm" htmlFor="tr-supply">
+              <Select id="tr-supply" value={f.supply_type} onChange={(e) => {
+                // Clears a vendor the new type no longer allows, asked of the same
+                // function that builds the picker's options.
+                const supply_type = e.target.value;
+                const { items } = nominatedVendorOptions({ ...vendorRule, supplyType: supply_type });
+                setF((p) => ({ ...p, supply_type, vendor_id: !p.vendor_id || items.some((v) => v.id === p.vendor_id) ? p.vendor_id : null }));
+              }}><option value="">Select…</option>{SUPPLY_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}</Select>
+            </Field>
+            {/* Stays `compact` — the picker keeps its own short "pick the supply
+                type first" line inside the box, which is the whole point of
+                `shortHint`: a blank supply type offers NOTHING and says so. */}
+            <Field label="Vendor" size="sm">
+              <NominatedVendorPicker {...vendorRule} supplyType={f.supply_type} value={f.vendor_id} onChange={(id) => setF((p) => ({ ...p, vendor_id: id }))} compact />
+            </Field>
+          </FieldGrid>
           <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderTrim({ sales_order_id: orderId, category: f.category || null, trims_specifications: f.trims_specifications || null, supply_type: f.supply_type || null, vendor_id: f.vendor_id }, orderId); if (res.ok) { success("Added."); setAdding(false); setF(BLANK); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
@@ -907,11 +953,24 @@ function FabricTab({ orderId }: { orderId: string }) {
         <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Fabric"}</Button>
       </div>
       {adding && (
-        <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
-          <div><Label>Structure</Label><Input className="w-28" value={f.structure_name} onChange={(e) => setF({ ...f, structure_name: e.target.value })} /></div>
-          <div><Label>Composition</Label><Input className="w-28" value={f.composition} onChange={(e) => setF({ ...f, composition: e.target.value })} /></div>
-          <div><Label>GSM</Label><Input className="w-16" type="number" value={f.gsm} onChange={(e) => setF({ ...f, gsm: e.target.value })} /></div>
-          <div><Label>Type</Label><Select className="w-28" value={f.fabric_type} onChange={(e) => setF({ ...f, fabric_type: e.target.value })}><option value="">Select…</option><option value="main">Main</option><option value="trims_fabric">Trims Fabric</option></Select></div>
+        <div data-focus-scope className="space-y-3 rounded border border-border p-3">
+          <FieldGrid>
+            <Field label="Structure" size="sm" htmlFor="fb-structure">
+              <Input id="fb-structure" uppercase value={f.structure_name} onChange={(e) => setF({ ...f, structure_name: e.target.value })} />
+            </Field>
+            <Field label="Composition" size="sm" htmlFor="fb-composition">
+              <Input id="fb-composition" uppercase value={f.composition} onChange={(e) => setF({ ...f, composition: e.target.value })} />
+            </Field>
+            {/* A `w-16` box for a number is exactly the sizing LAYOUT.md §3
+                refuses: the field is ~280px like every other, and the digits
+                sitting in it are not the measure of the column. */}
+            <Field label="GSM" size="sm" htmlFor="fb-gsm">
+              <Input id="fb-gsm" type="number" value={f.gsm} onChange={(e) => setF({ ...f, gsm: e.target.value })} />
+            </Field>
+            <Field label="Type" size="sm" htmlFor="fb-type">
+              <Select id="fb-type" value={f.fabric_type} onChange={(e) => setF({ ...f, fabric_type: e.target.value })}><option value="">Select…</option><option value="main">Main</option><option value="trims_fabric">Trims Fabric</option></Select>
+            </Field>
+          </FieldGrid>
           <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderFabric({ sales_order_id: orderId, structure_name: f.structure_name || null, composition: f.composition || null, gsm: f.gsm ? Number(f.gsm) : null, fabric_type: (f.fabric_type as "main" | "trims_fabric") || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ structure_name: "", composition: "", gsm: "", fabric_type: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
@@ -938,10 +997,19 @@ function ApprovalParamsTab({ orderId }: { orderId: string }) {
         <Button variant="outline" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add Parameter"}</Button>
       </div>
       {adding && (
-        <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
-          <div className="flex-1"><Label>Parameter *</Label><Input value={f.parameter_name} onChange={(e) => setF({ ...f, parameter_name: e.target.value })} /></div>
-          <div><Label>Status</Label><Select className="w-24" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">—</option>{APPROVAL_PARAM_STATUSES.map(s => <option key={s} value={s}>{s === "ok" ? "OK" : "NOT OK"}</option>)}</Select></div>
-          <div><Label>Comment</Label><Input className="w-40" value={f.comment} onChange={(e) => setF({ ...f, comment: e.target.value })} /></div>
+        <div data-focus-scope className="space-y-3 rounded border border-border p-3">
+          <FieldGrid>
+            {/* The module's second hand-typed `*`, same as Coordinate above. */}
+            <Field label="Parameter" required size="lg" htmlFor="ap-parameter">
+              <Input id="ap-parameter" uppercase value={f.parameter_name} onChange={(e) => setF({ ...f, parameter_name: e.target.value })} />
+            </Field>
+            <Field label="Status" size="sm" htmlFor="ap-status">
+              <Select id="ap-status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">—</option>{APPROVAL_PARAM_STATUSES.map(s => <option key={s} value={s}>{s === "ok" ? "OK" : "NOT OK"}</option>)}</Select>
+            </Field>
+            <Field label="Comment" size="sm" htmlFor="ap-comment">
+              <Input id="ap-comment" uppercase value={f.comment} onChange={(e) => setF({ ...f, comment: e.target.value })} />
+            </Field>
+          </FieldGrid>
           <Button size="sm" disabled={isPending || !f.parameter_name} onClick={() => startTransition(async () => { const res = await addApprovalParam({ sales_order_id: orderId, parameter_name: f.parameter_name, status: (f.status as "ok" | "not_ok") || null, comment: f.comment || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ parameter_name: "", status: "", comment: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
