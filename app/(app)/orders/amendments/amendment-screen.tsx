@@ -31,6 +31,7 @@ import {
 } from "@/lib/orders/amendments/approval-qty";
 import { orderValue } from "@/lib/orders/amendments/order-value";
 import { Textarea } from "@/components/ui/textarea";
+import { Toggle } from "@/components/ui/toggle";
 import { Card, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
@@ -5477,12 +5478,14 @@ export function AmendmentScreen({
             * the end of the row rather than between the fields.
             *
             * It tightens them too, which was the other half of the request: Pack
-            * and Mult. Ord are `w-fit` checkboxes, so at `sm` most of each cell
-            * was trailing space. A narrower cell puts the ticks next to the
-            * fields they qualify.
+            * and Mult. Ord are `w-fit` switches, so at `sm` most of each cell
+            * was trailing space. A narrower cell puts them next to the fields
+            * they qualify.
             *
-            * The first two rows stay `sm` — four to a row is the default and the
-            * dictated order fills them exactly. Only this row has five members.
+            * SINCE 2026-08-14 THE WHOLE HEADER IS `xs` and Pack + Mult. Ord
+            * share one cell, so this row is Deli.Dt · Season · Yr · Excess % ·
+            * [Pack · Mult. Ord] · Rejection Rule — six cells, twelve columns,
+            * and no field left over.
             */}
           <Field label="Yr" size="xs" htmlFor="hd-year">
             <Input id="hd-year" type="number" value={form.amend_year} onChange={(e) => set({ amend_year: e.target.value })} placeholder="2026" />
@@ -5490,21 +5493,44 @@ export function AmendmentScreen({
           <Field label="Excess %" size="xs" htmlFor="hd-excess">
             <Input id="hd-excess" type="number" value={form.excess_pct} onChange={(e) => set({ excess_pct: e.target.value })} />
           </Field>
-          {/* The tick's word moves up into the field label and the cell gets
-              `min-h-9 items-center`, so it centres on the same 36px control
-              height as the Select beside it instead of floating at the top of
-              its row. Same shape as Customer ▸ Also Notify. */}
-          <Field label="Pack" size="xs" htmlFor="hd-pack">
-            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-              <input id="hd-pack" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.pack} onChange={(e) => set({ pack: e.target.checked })} />
-              <span className="text-sm text-foreground">Yes</span>
-            </label>
-          </Field>
-          <Field label="Mult. Ord" size="xs" htmlFor="hd-multord">
-            <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-              <input id="hd-multord" type="checkbox" className="h-4 w-4 cursor-pointer accent-primary" checked={form.mult_ord} onChange={(e) => set({ mult_ord: e.target.checked })} />
-              <span className="text-sm text-foreground">Yes</span>
-            </label>
+          {/**
+            * PACK AND MULT. ORD SHARE ONE CELL, AS TOGGLES (client 2026-08-14).
+            *
+            * TWO CHANGES THAT ARE REALLY ONE. The client asked for switches, and
+            * for Rejection Rule to join this row — and the row was already full
+            * at six. Two booleans in one cell frees the sixth slot, so both asks
+            * are the same edit: Deli.Dt · Season · Yr · Excess % · [Pack ·
+            * Mult. Ord] · Rejection Rule, six cells, twelve columns, exactly.
+            *
+            * It also removes the orphan. The header held thirteen fields, which
+            * does not divide by six, so the last row carried one field against
+            * ten empty columns. Twelve cells fill two rows flush.
+            *
+            * THEY BELONG TOGETHER ANYWAY: both are the order's shape rather than
+            * its content — whether it is packed to a scheme, and whether it
+            * carries more than one style — and each gates something below (Pack
+            * opens the Pack type(s) section; Mult. Ord caps Style(s) to one row).
+            * The pairing is not merely a way to save a column.
+            *
+            * `Toggle` is a real `<input type="checkbox">` underneath. A
+            * `<button role="switch">` is not `isFieldLike()`, so Tab would step
+            * straight over both of these — see the component's own note.
+            */}
+          <Field label="Pack / Mult. Ord" size="xs">
+            <div className="flex flex-wrap items-center gap-x-4">
+              <Toggle
+                id="hd-pack"
+                label="Pack"
+                checked={form.pack}
+                onChange={(pack) => set({ pack })}
+              />
+              <Toggle
+                id="hd-multord"
+                label="Mult. Ord"
+                checked={form.mult_ord}
+                onChange={(mult_ord) => set({ mult_ord })}
+              />
+            </div>
           </Field>
           {/**
             * REJECTION RULE — the source of Approval Qty's Projection (0413).
