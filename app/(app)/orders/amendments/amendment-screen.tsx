@@ -4396,13 +4396,39 @@ export function AmendmentScreen({
        that was no longer indented with it. One field, one label, drawn by the
        primitive: LAYOUT.md §3's whole point. */
     <div>
+      {/**
+        * ACROSS, NOT DOWN (client 2026-08-14).
+        *
+        * This was the whole density complaint measured. The list rendered one
+        * size per line at 36px + a 32px Add button, so six sizes was ~248px —
+        * inside a cell whose five siblings are 32px tall, on a screen the client
+        * was comparing unfavourably with a legacy one that does the same row in
+        * ~170px. Laid across, six sizes take ONE line of the ~1080px the cell
+        * now spans.
+        *
+        * A FIXED WIDTH PER ITEM, not `flex-1`: they have to line up in columns
+        * as they wrap, and an unsized item absorbs the row's slack — the same
+        * failure `hugsContent` records about a grid column left without a
+        * `width` (a single Colour dropdown rendered ~1080px wide).
+        *
+        * ↑/↓ NOW WALK THE LIST LEFT TO RIGHT, and that is a real change worth
+        * stating. It stays coherent because this is a ONE-DIMENSIONAL list whose
+        * DOM order and visual order agree — unlike the 2026-07-25 defect, where
+        * ↓ crossed out of a row's own cells into a nested panel's and landed on
+        * the wrong line entirely. Nothing here crosses a boundary.
+        *
+        * ALL FOUR MARKERS ARE UNCHANGED — see the block above `stylesGrid` for
+        * what each one buys. In particular `+ Add size` stays INSIDE
+        * `data-grid-body`: `enterNestedGrid` looks for it there, and moving it
+        * out is what would break Tab's only way into an empty size list.
+        */}
       <div
         data-grid-body
-        className="space-y-1"
+        className="flex flex-wrap items-center gap-x-2 gap-y-1"
         onKeyDown={(e) => gridKeyNav(e, () => addSize(r.key))}
       >
         {r.sizes.map((z, j) => (
-          <div key={z.key} data-grid-row className="flex items-center gap-2">
+          <div key={z.key} data-grid-row className="flex w-44 items-center gap-1.5">
             <span className="w-5 shrink-0 text-right text-[11px] text-muted-foreground">
               {j + 1}
             </span>
@@ -4436,7 +4462,9 @@ export function AmendmentScreen({
             picked: before that there is nothing to have fetched, and the line
             would be scolding the operator for not having answered yet. */}
         {r.style_id && r.sizes.length === 0 && (
-          <p className="text-xs text-muted-foreground">
+          /* `basis-full` so the sentence takes its own line rather than being
+             squeezed beside the Add button in the wrap. */
+          <p className="basis-full text-xs text-muted-foreground">
             This style has no sizes recorded. Add them here, or fill them on the Style master.
           </p>
         )}
@@ -4545,11 +4573,13 @@ export function AmendmentScreen({
               * them on one line, so this is the one span that satisfies the
               * requirement rather than merely tidying the symptom.
               *
-              * SIZES IS THE SIXTH CELL and stays LAST. It is the one cell that
-              * grows with its data, so at the end of the line its height
+              * SIZES STAYS LAST, and since 2026-08-14 has a line of its own.
+              * It is the one cell that grows with its data, so at the end it
               * extends the card downward; earlier in the row it would leave a
               * band of dead space beside five short fields, the trap
-              * LAYOUT.md §3 names for a textarea sharing a row.
+              * LAYOUT.md §3 names for a textarea sharing a row. Last is also
+              * what the row's Tab order needs — `tabFieldsIn` walks a row in DOM
+              * order, so the sizes come after the cells rather than between them.
               *
               * `Field` OWNS ITS LABEL, like every other cell. `sizeGrid` used to
               * draw its own caption and indent, which is what made this the one
@@ -4563,27 +4593,28 @@ export function AmendmentScreen({
               * rejected.
               */}
             {/**
-              * SIX FIELDS, ONE ROW, ALL THE SAME WIDTH — back on `FieldGrid`'s
-              * standard 12-column track (client 2026-08-12).
+              * FIVE FIELDS ON THE LINE, THEN SIZES ACROSS ITS OWN (client
+              * 2026-08-14). All `xs` on `FieldGrid`'s standard 12-column track.
               *
-              * This row briefly ran on a hand-rolled 14-column track so Sizes
-              * could be double width. That was built to order and it worked, but
-              * the surplus width read as a HOLE: with no sizes entered the cell
-              * holds one "+ Add size" button, so the extra two columns rendered
-              * as a gap between Sizes and Order Unit rather than as room. A cell
-              * sized for its fullest state is empty space in its commonest one.
+              * THE SIZE LIST WAS THE COMPLAINT, and the note this replaces
+              * predicted it: "if that becomes the complaint, the answer is to
+              * move the list behind a button like Process — NOT to widen one
+              * cell again." Half right. Widening one cell was indeed the wrong
+              * answer, and had already been tried as a hand-rolled 14-column
+              * track and reverted: with no sizes entered the cell holds one
+              * "+ Add size" button, so the surplus read as a HOLE rather than as
+              * room. A cell sized for its fullest state is empty space in its
+              * commonest one.
               *
-              * `xs` is `col-span-2` and six of them sum to exactly 12, so the row
-              * fills the standard track with nothing left over and every field
-              * is the same width — which is what LAYOUT.md §3's one-width rule
-              * says anyway. Getting rid of the custom track and evening the
-              * spacing turned out to be the same edit.
+              * But the list did not have to hide behind a button either. Given
+              * the WHOLE width it lays ACROSS instead of down, so six sizes take
+              * one line rather than six — and stay visible, which is what the
+              * legacy screen does and what the client meant by user-friendly.
               *
-              * THE SIZE LIST IS NARROWER FOR IT, and that is the accepted trade:
-              * its pickers shrink to the shared width. If that becomes the
-              * complaint, the answer is to move the list behind a button like
-              * Process — NOT to widen one cell again, which is what produced the
-              * gap.
+              * `full` (`col-span-12`) is what does it: the five `xs` cells
+              * occupy 10 of 12, so Sizes cannot share their line and wraps to
+              * its own. No custom track, no surplus — the span map already had
+              * the answer.
               *
               * `xs` here is deliberate and is NOT the masters field width. That
               * rule governs a masters FORM; a child-grid row is a table line
@@ -4592,52 +4623,49 @@ export function AmendmentScreen({
               * the layout the client rejected twice.
               */}
             <FieldGrid>
-              {styleColumns.flatMap((col) => {
-                const field = (
-                  <Field
-                    key={col.header}
-                    label={col.header}
-                    required={col.required}
-                    size="xs"
-                  >
-                    {col.cell(r, i)}
-                  </Field>
-                );
-                /**
-                 * SIZES SITS SECOND, DIRECTLY AFTER STYLE (client 2026-08-12),
-                 * because that is where its data comes from: `pickStyle` fills
-                 * this list from the chosen style's own size set, so the field
-                 * that answers "which sizes" reads immediately after the field
-                 * that decides them.
-                 *
-                 * Anchored on the Style COLUMN, not on index 0. Injecting after
-                 * `ci === 0` would silently follow whatever column happened to
-                 * be first if these are ever reordered again — and they have
-                 * been reordered three times this week. Anchoring on the header
-                 * fails loudly instead: move Style and Sizes moves with it.
-                 *
-                 * It stays EDITABLE. The order keeps its own copy of the sizes
-                 * (0407) precisely so an operator can add or drop one for this
-                 * PO without editing the Style master, so this is a listing the
-                 * style SEEDS, not a mirror of it.
-                 */
-                return col.header === "Style"
-                  ? [
-                      field,
-                      <Field
-                        key="__sizes"
-                        /* The count rides in the label because the grid no longer
-                           draws one. `Field` has no badge slot, and a second
-                           element beside the label would put this cell's header
-                           back out of step with the five plain ones. */
-                        label={r.sizes.length ? `Sizes (${r.sizes.length})` : "Sizes"}
-                        size="xs"
-                      >
-                        {sizeGrid(r)}
-                      </Field>,
-                    ]
-                  : [field];
-              })}
+              {styleColumns.map((col) => (
+                <Field
+                  key={col.header}
+                  label={col.header}
+                  required={col.required}
+                  size="xs"
+                >
+                  {col.cell(r, i)}
+                </Field>
+              ))}
+              {/**
+                * SIZES TAKES ITS OWN LINE, LAST (client 2026-08-14).
+                *
+                * It sat SECOND, right after Style, because that is where its
+                * data comes from — and it was the tallest thing on the screen:
+                * a 248px cell wedged between five 32px ones, which is what made
+                * one style row ~425px against the legacy screen's ~170px.
+                *
+                * `full` is `col-span-12`. The five `xs` cells above occupy 10 of
+                * the 12, so this cannot share their line and wraps to its own —
+                * the effect comes out of the span map rather than a second
+                * track. A hand-rolled 14-column track was built for exactly this
+                * once and reverted, because a cell sized for its fullest state
+                * is a hole in its commonest one; a full-width line has no such
+                * surplus, since the sizes lay across it.
+                *
+                * LAST, NOT SECOND, and that is also what the row's Tab order
+                * needs: `tabFieldsIn` walks a row in DOM ORDER, so the sizes
+                * are reached after the cells rather than between them. The note
+                * above `sizeGrid` said this was the arrangement all along — it
+                * described the pre-08-12 layout and is true again.
+                *
+                * The count still rides in the label: `Field` has no badge slot,
+                * and it is what says the row is complete without opening
+                * anything.
+                */}
+              <Field
+                key="__sizes"
+                label={r.sizes.length ? `Sizes (${r.sizes.length})` : "Sizes"}
+                size="full"
+              >
+                {sizeGrid(r)}
+              </Field>
             </FieldGrid>
           </div>
         )}
@@ -5623,11 +5651,14 @@ export function AmendmentScreen({
               ? "Edit Garment Order"
               : "New Garment Order"
         }
-        description={
-          amending
-            ? "Change a saved order across the tabs. The SC No it was numbered under does not move."
-            : "Fill the header, then work down the tabs. The SC No is minted on save."
-        }
+        /* NO DESCRIPTION IN THE EDITOR (client 2026-08-14). It said "Fill the
+           header, then work down the tabs. The SC No is minted on save." — read
+           once, then ~22px on every visit thereafter, on the screen being
+           reported as cramped. The title and Back to list stay: those name the
+           record and get the operator out, which a description does not.
+
+           The LIST-mode header keeps its own, deliberately. A list is where
+           someone arrives without context; an editor is not. */
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list
