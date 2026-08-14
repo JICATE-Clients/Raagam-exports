@@ -54,7 +54,7 @@ import {
   SectionBody,
   type FullScreenSection,
 } from "@/components/masters/master-full-screen";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldGrid, FIELD_TRACK } from "@/components/ui/field";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
@@ -2315,6 +2315,10 @@ export function AmendmentScreen({
           type="button"
           variant="outline"
           size="sm"
+          /* FULL WIDTH, so the fifth cell of the row is the same width as the
+             four filled controls beside it. It was content-width, which made
+             Process the one cell that did not reach its column's edge. */
+          className="w-full"
           onClick={() => setProcessFor(r.key)}
           /* The count is on the button because the list lives behind it: with
              the sheet closed there is otherwise nothing on the line to say a
@@ -4422,16 +4426,37 @@ export function AmendmentScreen({
         * `data-grid-body`: `enterNestedGrid` looks for it there, and moving it
         * out is what would break Tab's only way into an empty size list.
         */}
+      {/* THE SAME TRACK AS THE FIELDS ABOVE, not a second opinion about layout:
+          `FIELD_TRACK` is the exported constant `FieldGrid` itself lays down, so
+          a size cell at `col-span-2` lands exactly under Style, Order Unit, PO
+          Qty, Description and Process — six to a line, at identical widths and
+          gutters.
+
+          `FieldGrid` cannot be used instead, and the reason is the whole point
+          of this change: it would need a `<Field>` per size, and `Field` always
+          draws a label line — 14px of `&nbsp;` above every one — which is the
+          height the size list was moved here to get rid of.
+
+          `@lg/section:col-span-2` is the contract's own vocabulary rather than a
+          hand-rolled grid, which is why `--check screen-grid` leaves it alone
+          (it flags a bare `grid-cols-*`, and the 12 lives inside the constant). */}
       <div
         data-grid-body
-        className="flex flex-wrap items-center gap-x-2 gap-y-1"
+        className={FIELD_TRACK}
         onKeyDown={(e) => gridKeyNav(e, () => addSize(r.key))}
       >
-        {r.sizes.map((z, j) => (
-          <div key={z.key} data-grid-row className="flex w-44 items-center gap-1.5">
-            <span className="w-5 shrink-0 text-right text-[11px] text-muted-foreground">
-              {j + 1}
-            </span>
+        {r.sizes.map((z) => (
+          /* NO ORDINAL (client 2026-08-14). It numbered the sizes 1..n down the
+             left of each cell, which was worth its 20px while the list ran
+             vertically and the number was the only thing telling two identical
+             dropdowns apart. Laid across, the sizes read in order by position
+             and the number restated it -- and `sno` is stored from the array
+             index at save, so nothing depended on it being drawn. */
+          <div
+            key={z.key}
+            data-grid-row
+            className="flex items-center gap-1.5 @lg/section:col-span-2"
+          >
             <div className="min-w-0 flex-1">
               <LookupDialogPicker
                 kind="size"
@@ -4452,7 +4477,7 @@ export function AmendmentScreen({
               data-row-remove
               className="shrink-0 text-muted-foreground hover:text-danger"
               onClick={() => mutSizes(r.key, (zs) => zs.filter((x) => x.key !== z.key))}
-              aria-label={`Remove size ${sizeLabel(z.size_id) || j + 1}`}
+              aria-label={`Remove size ${sizeLabel(z.size_id) || "(unset)"}`}
             >
               <Trash2 className="h-4 w-4 shrink-0" />
             </Button>
@@ -4462,17 +4487,21 @@ export function AmendmentScreen({
             picked: before that there is nothing to have fetched, and the line
             would be scolding the operator for not having answered yet. */}
         {r.style_id && r.sizes.length === 0 && (
-          /* `basis-full` so the sentence takes its own line rather than being
-             squeezed beside the Add button in the wrap. */
-          <p className="basis-full text-xs text-muted-foreground">
+          /* Its own line, not one cell of six — a sentence squeezed into a
+             176px column would wrap to four lines and cost more height than the
+             list it is explaining. */
+          <p className="text-xs text-muted-foreground @lg/section:col-span-12">
             This style has no sizes recorded. Add them here, or fill them on the Style master.
           </p>
         )}
+        {/* FILLS ITS CELL, like every other control on the track. Content-width
+            it left a ragged gap in the one cell of six that is not a picker. */}
         <Button
           type="button"
           variant="outline"
           size="sm"
           data-row-add
+          className="w-full @lg/section:col-span-2"
           onClick={() => addSize(r.key)}
         >
           + Add size
