@@ -5707,11 +5707,48 @@ export function AmendmentScreen({
                 .sort((a, b) => rank(a.c.header as string) - rank(b.c.header as string));
               return (
                 <FieldGrid>
-                  {ordered.map(({ c, ci }) => (
-                    <Field key={ci} label={c.header} required={c.required} size="xs">
-                      {c.cell(row, i)}
-                    </Field>
-                  ))}
+                  {ordered.map(({ c, ci }) => {
+                    /**
+                     * ALL EIGHT ON ONE LINE (client 2026-08-14), by giving the
+                     * figures a narrower cell than the pickers:
+                     *
+                     *   Style 3 + Combo 3 + six figures × 1 = 12, exactly.
+                     *
+                     * The eight were 16 of 12 at the one width and had to wrap.
+                     * Every field that is not a picker here holds a QUANTITY —
+                     * four digits and right-aligned — so one column (~80px) is
+                     * width it can use, where a Style picker at that size would
+                     * show two characters of a name.
+                     *
+                     * NO PRIMITIVE CHANGE AND NO HAND-ROLLED GRID. `Field` merges
+                     * `className` AFTER its span (field.tsx), so a col-span here
+                     * wins; and `@lg/section:col-span-*` is the layout contract's
+                     * own vocabulary, which `--check screen-grid` never flags —
+                     * unlike a bare `grid-cols-*`, which is what a custom track
+                     * would have needed.
+                     *
+                     * "Total Production" is shortened on the LABEL only. At 80px
+                     * it is the one header that wraps to two lines, and one cell
+                     * standing a line taller than its seven neighbours is the
+                     * ragged edge this row was reordered to remove. The column
+                     * keeps its full name everywhere else — the totals band, the
+                     * table fallback and the export all read `c.header`.
+                     */
+                    const isPicker = c.header === "Style" || c.header === "Combo";
+                    const label =
+                      c.header === "Total Production" ? "Total Prod." : c.header;
+                    return (
+                      <Field
+                        key={ci}
+                        label={label}
+                        required={c.required}
+                        size={isPicker ? "sm" : "xs"}
+                        className={isPicker ? undefined : "@lg/section:col-span-1"}
+                      >
+                        {c.cell(row, i)}
+                      </Field>
+                    );
+                  })}
                 </FieldGrid>
               );
             }}
