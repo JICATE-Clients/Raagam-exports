@@ -391,6 +391,10 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
     <div data-focus-scope className="space-y-4">
       <PageHeader
         title={editId ? `Edit Packing Advice ${editCode ?? ""}` : "New Packing Advice"}
+        // back={false}: this screen swaps a list and an editor at ONE url, and
+        // the editor already shows "← Back to list". The derived hub link is
+        // right on the LIST branch above and a second, differently aimed Back here.
+        back={false}
         description="Fill the header, then add carton/assortment lines. Every ⓘ / ⊕ field is a picker over stored data."
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>

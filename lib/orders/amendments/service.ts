@@ -27,6 +27,16 @@ import { withCreators } from "@/lib/created-by";
 export type PickerRow = { id: string; code: string | null; name: string } & Deactivatable;
 
 /**
+ * A consignee, plus the customer it belongs to (0427-era client ask).
+ *
+ * A `PickerRow` with one extra field rather than a reshaped one: it is still
+ * handed straight to `RecordPicker`, and every other consumer keeps working
+ * because the extra key is additive. The scoping rule that reads it lives on
+ * the screen (`consigneeOptions`), which is where the order's customer is.
+ */
+export type ConsigneeRow = PickerRow & { customer_id: string | null };
+
+/**
  * An order row for the SCNo picker. Carries the order's buyer / currency /
  * delivery date so the client can auto-load the amendment header when an SCNo is
  * selected — no extra round trip (confirmed behaviour: SCNo loads the order).
@@ -200,13 +210,32 @@ async function getCustomerRows(): Promise<PickerRow[]> {
  * exists in the CHECK and holds no rows, while `stores` is the live master.
  * Pointing at the empty one would reproduce the defect 0396 just fixed.
  */
-async function getConsigneeRows(): Promise<PickerRow[]> {
+/**
+ * Consignees, WITH THE CUSTOMER THEY BELONG TO.
+ *
+ * `customer_id` is selected so the Quantities grid can narrow the list to the
+ * order's own customer (client 2026-08-17: "the consignee input should be
+ * filtered based on the specific buyer/customer selected for that order").
+ *
+ * THE DATA HALF IS THE HALF THAT GETS MISSED — the same shape as the
+ * `created_by` sweep and the item-report filter bar in AGENTS.md: a screen
+ * cannot scope by a column its service never asked for, and the symptom is a
+ * facet that silently narrows to nothing (or to everything) rather than an
+ * error. Narrowing in SQL would be the OTHER half of the same mistake: a
+ * consignee a saved quantity already names must still resolve, whoever the
+ * order is for, or the cell renders empty and the next save blanks the FK.
+ *
+ * NOT `source_customer_id`, which records where a published copy CAME from
+ * (0371's party-publishing). `customer_id` is the link the Customer master
+ * maintains, and it is the one an operator would recognise.
+ */
+async function getConsigneeRows(): Promise<ConsigneeRow[]> {
   const s = await createClient();
   const { data } = await s
     .from("consignees")
-    .select("id, code, name, inactive")
+    .select("id, code, name, inactive, customer_id")
     .order("name");
-  return (data ?? []) as PickerRow[];
+  return (data ?? []) as ConsigneeRow[];
 }
 
 async function getWarehouseRows(): Promise<PickerRow[]> {
@@ -522,8 +551,9 @@ export type AmendmentFormData = {
   processes: ProcessOption[];
   /** Approval Qty ▸ Projection (0413). Tiers ride along — see the feeder. */
   rejectionRules: RejectionRuleOption[];
-  /** Quantities grid (0398). */
-  consignees: PickerRow[];
+  /** Quantities grid (0398), carrying the customer each one belongs to so the
+   *  grid can scope the list to the order's customer — see the feeder. */
+  consignees: ConsigneeRow[];
   warehouses: PickerRow[];
   ports: PickerRow[];
   /**

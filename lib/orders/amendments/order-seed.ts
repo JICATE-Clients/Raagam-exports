@@ -771,6 +771,11 @@ export async function seedAmendmentFromOrder(
       style_no: p.style_no,
       consignee_id: null,
       assortment_type_id: null,
+      /* NOT seeded from the order's PO number (0427). Per-line PO numbers are
+         what Multi Order collects; copying the header's down into every seeded
+         line would invent three identical answers and then be indistinguishable
+         from three the operator typed. Same reasoning as the assortment below. */
+      po_no: null,
       po_qty: Number(p.order_qty ?? 0),
       delivery_date: null,
       earlier_shipment_date: null,

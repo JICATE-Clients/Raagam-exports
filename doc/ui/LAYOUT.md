@@ -47,6 +47,31 @@ Everything above is **layout**. It is orthogonal to **density** — the compact 
 tightened rhythm that turn a form from "fits a monitor" into "fits a laptop". Density is automatic
 and needs no props; see **§10**.
 
+### The two caps, and why they differ
+
+| Surface | Content cap | Pane padding |
+|---|---|---|
+| `Sheet` (fullScreen) | `max-w-[1180px]` | `px-6` |
+| `MasterFullScreen` (rail editor) | `max-w-[1440px]` | `px-4` |
+
+They are not a drift to be tidied away (client 2026-08-17). `max-w` + `mx-auto` is a **centring**
+rule wearing a width-limit costume, and on a Sheet the two are the same thing. Put a 228px rail
+down one side and they stop being: whatever the cap leaves over is split evenly into a gap *after
+the rail* and a gap before the card's right edge, so the operator sees dead space on **both** sides
+at once and reads it as padding. At 1180 that was 48px a side on a 1536-wide viewport — a 1920
+monitor at Windows' 125% — and it **grew with the monitor**, reaching 120px a side at 1920 CSS.
+
+1440 is picked so the cap stops biting up to ~1690 CSS px (every laptop, and the common
+1920@125% desktop) while still catching a 4K or ultrawide, which is the only thing the cap is for.
+Removing it entirely is not the fix: a field is a *fraction* of this width (§3's 12-col track), so
+an uncapped `xs` field reaches ~388px on a 2560 monitor — wider than a full-size field.
+
+**A capped content pane needs a capped FOOTER.** Both surfaces wrap their footer row in the same
+`max-w`, because an uncapped footer leaves the primary Save button sitting to the right of the last
+field it saves — by exactly the centring gutter, so the misalignment is invisible on a laptop and
+grows with the monitor.
+
+
 ### The fifth anatomy
 
 There is one more, and pretending otherwise did not make it go away: **full-page bulk-assign
@@ -181,6 +206,69 @@ row arithmetic written into its `FIELD_SIZE` comment.
 onto a line of its own with the rest of that line left empty. Write the arithmetic into
 the `FIELD_SIZE` map's header comment (see `material-master-screen.tsx`) — that comment is
 what stops the next edit overflowing a row, because nothing in the build can catch it.
+
+### A row is settled when it sums to 12 — under as well as over (client 2026-08-17)
+
+The paragraph above is only half a rule. **Underfilling is the same defect as overflowing**
+and it is the one that ships, because it looks like nothing: the fields do not stretch, so
+the leftover columns sit at the end of the row as whitespace that reads as page padding.
+That is exactly how it was reported — as "excess gap", pointed at a form, not at a grid.
+
+**The COUNT picks the size, not a preference for small.** Six cells tile a 12-column row at
+`xs`; eight tile it at `sm`. Style's header is eight fields and is right to stay `sm` (4 + 4);
+Material BOM's is six and was wrong at `sm` (4 + 2, half a row short) and is right at `xs`.
+Forcing one size on both would leave one of them ragged. Work out the tiling before picking
+a span:
+
+| Cells in the group | Flush arrangement |
+|---|---|
+| 3 | `md` ×3 |
+| 4 | `sm` ×4, **or** `xs` `xs` `md` `md` when two of them hold text |
+| 5 | `xs` ×4 + `md` |
+| 6 | `xs` ×6 |
+| 8 | `sm` ×4, twice |
+| 10 | `xs` ×6, then `md` `xs` `xs` `md` |
+| 11 | 6 + 5 leaves two columns spare — **split a merged cell or merge a pair** |
+
+**When a group cannot tile, change the CELL COUNT, not the widths.** Order Entry's header is
+the worked example and it went both ways: thirteen fields do not divide by six, so Pack and
+Mult. Ord were merged into one cell to reach twelve (2026-08-14) — then `Yr` was withdrawn
+the same day, nothing recounted, and eleven cells left the row two columns short. Splitting
+the pair back apart restored 6 + 6. **The merge was arithmetic; when the arithmetic changes,
+revisit it** rather than stretching some innocent field to `md` to plug the hole.
+
+**Promote a field because its DATA wants the width.** Where a group genuinely cannot tile at
+one size, the arithmetic says *how many* fields go up a size and never *which*. Logistic is
+ten cells — six then four — so two take `md`: `Pay Terms`, which holds the longest value on
+the row, and `Gross Value`, the total it ends on. Picking whichever field happened to be last
+would be flush and arbitrary.
+
+**Two things are exempt, and both are controls rather than data rows:** a `ChildGrid` sized
+deliberately narrow (Style ▸ Coordinates is `lg` on purpose — see its comment), and a picker
+paired with its action button, where filling the row only stretches whitespace inside a
+`w-fit` button's cell. A grid whose cells come from a `columns.map()` cannot be settled
+statically at all — its count is the column count.
+
+### An unfilled field reads "—", never "Select {noun}" (client 2026-08-17)
+
+`DataPicker`, `Combobox` and `Select` all default their empty-state placeholder to a bare
+em-dash. The noun in "— Select Customer —" is **the label repeated with a verb**: a picker is
+`compact` inside a `<Field label>`, so the word already stands directly above the box, and in
+a `ChildGrid` cell the column header says it a third time. It cost width it had not earned —
+"— Select Merchand... —" ellipsed itself inside a 202px trigger, under a label reading
+"Merchand." — and a bare `—` is what every native `<Select>` on these screens already renders
+for its empty option.
+
+The noun is not lost: it still names the picker's panel, its search box, its add button and
+its toasts, all places where nothing else on screen says it.
+
+**An explicit `placeholder` still wins, and that is where the exception lives.** Use one when
+the empty state means something the label cannot say — Order Entry's Rejection Rule reads
+"— No projection —", because blank there is a *state of the order*, not an unanswered field.
+
+**Remainder, not yet swept:** 128 hand-written `<option value="">— select X —</option>` labels
+across HR, Finance and Purchase. `parseOptions` takes that label verbatim as the placeholder,
+so the default above cannot reach them. None are in the Orders module.
 
 ---
 
@@ -404,10 +492,26 @@ Pick by **fields per row**, not by row count — a row runs out of width past ~5
 
 | Fields/row | Pattern | `ChildGrid` prop |
 |---|---|---|
+| **1** | records flow **across** the row and wrap | `across` |
 | ≤ 3 | dynamic add/remove rows | `inlineCards` |
 | 2 – 5 | inline editable table | default |
 | 6 – 8 | collapsible / stacked card per row | `forceCards` |
 | > 8 | stop inlining — open a row editor | — |
+
+**A ONE-CONTROL RECORD GOES ACROSS, NOT DOWN.** A size, a coordinate — the other three
+layouts are all one-record-per-line by construction, and for a list of two-character values
+that is the whole cost: at 36px a line plus a 32px Add button, six sizes is ~248px of a screen
+whose other cells are 32px tall, against ~170px for the legacy screen doing the same list.
+`across` lays each record in a cell of `FIELD_TRACK` and wraps, so six take one line and ten
+take two (client 2026-08-14 on the Garment Order's Style(s) tab, 2026-08-17 on the Style
+master). The label belongs to the `<Field label>` around the grid — this mode draws no header
+band, because one header cannot head six columns of the same thing — and no ordinal, because
+position already says it.
+
+**↑/↓ then walk the list left to right**, which is the one thing to weigh before reaching for
+it. That stays coherent only for a ONE-DIMENSIONAL list whose DOM order and visual order
+agree; it is not the 2026-07-25 defect, where ↓ crossed out of a row's cells into a nested
+panel's and landed on the wrong line. Nothing in this mode crosses a boundary.
 
 **A grid that SHARES its row with a field adds `flushRows`.** An inline grid puts its first
 control 31px down — an 18px header band, a 6px gap, and the row's own 7px card inset — while
@@ -422,6 +526,24 @@ single band while the grid is empty, handing the slot to the column headers as s
 exists. That also fixes the state the operator sees first: column headers are gated on
 `rows.length > 0`, so an empty inline grid used to start its "+ Add" button flush at 0 while
 the field beside it started at 14.
+
+**"`Label`'s exact metrics" MEANS IMPORTING THEM** — `LABEL_METRICS` from
+`components/ui/label.tsx`, which `Label` itself consumes. The band retyped them for twelve
+days (`leading-[14px] mb-1.5`) and was 8px out at the compact density every desktop editor
+runs at: `Label` is `mb-0` there, not `mb-1.5`, and the `leading` never applied at all
+because it sat on the flex parent while each header cell's own `text-xs` re-set the
+line-height (hence `leading-[inherit]` on those cells). This paragraph, the prop's doc
+comment and the code all read as correct throughout — a copied number is only ever right
+until one of the two moves.
+
+**A ONE-COLUMN grid beside a field also adds `hideIndex`**, which is the horizontal half of
+the same alignment. The `#N` track costs `w-4` + the row's `gap-2`, so every cell and its
+header sit **24px** right of the field in the row above — and right of the "+ Add" button
+below, which hangs off the grid root and is never indented. Style ▸ Sizes read as unaligned
+with the vertical half already fixed for exactly this (client 2026-08-17). The ✕ and Ctrl+Del
+are untouched; what goes is an ordinal nothing stores. A multi-column grid keeps its numbers —
+"row 3" is how a line of eight fields gets talked about — and so does any grid declaring a
+`total`, whose caption renders in that slot.
 
 Source: [Ant Design](https://ant.design/docs/spec/research-form/); SAP agrees at ~8 — inline
 creation only for tables "without a large number of columns"

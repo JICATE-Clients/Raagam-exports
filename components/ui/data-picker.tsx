@@ -1039,7 +1039,32 @@ export function DataPicker({
           disabled={disabled}
           readOnly={!fine}
           value={triggerText}
-          placeholder={selected ? selected.label : (placeholder ?? `— Select ${noun} —`)}
+          /**
+           * "—", NOT "— Select {noun} —" (client 2026-08-17).
+           *
+           * The noun in that placeholder is the LABEL REPEATED WITH A VERB. A
+           * picker is `compact` inside a `<Field label>` — which is every picker
+           * on a form — so the word already stands directly above the box, and
+           * inside a `ChildGrid` cell the column header says it a third time.
+           * "Select Merchandiser" then has to fit a 202px trigger, so it
+           * ellipsed itself: the screen showed "— Select Merchand... —" under a
+           * label reading "Merchand." (screenshot 2320). A value truncating is
+           * a real cost; a truncating restatement of the label is that cost
+           * paid for nothing.
+           *
+           * A BARE EM-DASH IS ALREADY THIS APP'S "NOTHING CHOSEN" — every
+           * native `<Select>` on these screens renders `<option value="">—`,
+           * and `created-columns.tsx` prints "—" for an unknown creator. The
+           * picker was the one control disagreeing.
+           *
+           * NOT BLANK. An empty trigger reads as a text box nobody filled in;
+           * "—" reads as a chooser standing at none, which is what it is.
+           *
+           * The noun is not lost — it still names the panel, the search box
+           * ("Search customers…"), the add button and every toast, all places
+           * where nothing else on screen says it.
+           */
+          placeholder={selected ? selected.label : (placeholder ?? "—")}
           // A picker trigger IS a field to the operator. The marker is what
           // makes `gridKeyNav` gate Enter-adds-row on `data-field-empty` — a
           // grid whose first cell is an empty picker used to grow a blank row

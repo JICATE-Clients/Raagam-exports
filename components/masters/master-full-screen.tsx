@@ -699,15 +699,40 @@ export function MasterFullScreen({
           {/* max-w-3xl (768px) used to cap this pane, which made the whole layout
               contract unreachable here: SectionGrid only goes 2-up at @4xl = 896px,
               so a rail editor was locked into ONE narrow column by construction and
-              a 51-field master had no choice but to scroll. 1180px matches
-              doc/ui/LAYOUT.md §1. The rail beside this costs 228px, so at a
-              1366-wide laptop the cap is not even reached (1366 − 228 − 48 padding
-              = ~1090px of content); it only bites on wide monitors, where it stops
-              fields stretching to absurd widths.
+              a 51-field master had no choice but to scroll.
+
+              1440px, NOT the 1180px a `Sheet` uses, and the difference is the rail
+              (client 2026-08-17). `max-w` + `mx-auto` is a CENTRING rule wearing a
+              width-limit costume: on a Sheet the two are the same thing, but here
+              228px of rail eats one side, so whatever the cap leaves over is split
+              evenly into a gap AFTER THE RAIL and a gap before the card's right
+              edge — dead space on both sides at once, and the operator reads it as
+              padding rather than as centring. At 1180 that was 48px a side on a
+              1536-wide viewport (a 1920 monitor at Windows' 125%), and it GREW with
+              the monitor: 120px a side at 1920 CSS. The old note here reasoned from
+              a 1366 laptop, where the cap is never reached and the flaw is
+              invisible.
+
+              1440 is chosen so the cap stops biting on every viewport up to
+              ~1690 CSS px — every laptop and the common 1920@125% desktop — while
+              still catching a 4K or ultrawide, which is the one thing the cap is
+              actually for. Fields are a FRACTION of this width (`Field`'s 12-col
+              track, field.tsx), so removing the cap entirely would let an `xs`
+              field reach 388px on a 2560 monitor, wider than LAYOUT.md §3's
+              full-size field.
+
+              `px-4` and not `md:px-6` for the same reason: the pane's own padding
+              is the only gutter left once the centring one is gone, and 16px
+              matches the shell's `p-4` so the three gaps either side of the card
+              read as one rhythm.
 
               `@container/editor` is the density container — see the twin comment in
-              components/ui/sheet.tsx. */}
-          <div ref={contentRef} className="@container/editor mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6">
+              components/ui/sheet.tsx. Widening it moves nothing: the density
+              breakpoint is @2xl = 672px and both values clear it.
+
+              THE FOOTER BELOW CARRIES THE SAME CAP, or the primary Save button
+              parks itself to the right of the last field it saves. */}
+          <div ref={contentRef} className="@container/editor mx-auto w-full max-w-[1440px] px-4 py-5">
             {active?.content}
           </div>
         </div>
@@ -719,7 +744,7 @@ export function MasterFullScreen({
           orphaned halfway up (client 2026-08-04). */}
       <div
         className={cn(
-          "flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6",
+          "border-t border-border bg-surface px-4 py-3",
           /**
            * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
            * filling its scrollport rather than a separate decision.
@@ -745,40 +770,51 @@ export function MasterFullScreen({
         // registered "save" shortcut exactly as before.
         data-focus-region="footer"
       >
-        {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
-        <div className="flex-1" />
-        {footer.extra}
-        <Button variant="outline" size="md" onClick={footer.onCancel}>
-          Cancel
-        </Button>
-        {footer.onSaveDraft && (
-          <Button
-            variant="outline"
-            size="md"
-            disabled={footer.isPending || !footer.canSave}
-            onClick={footer.onSaveDraft}
-          >
-            {footer.draftLabel ?? "Save as Draft"}
-          </Button>
-        )}
-        {/* Dimmed but ENABLED while blocked, and deliberately NOT `aria-disabled`
-            — it does something when clicked (reveals the first problem), and
-            telling a screen reader it is unavailable would be a lie about a
-            control that acts. The reason is announced by the screen's toast in
-            `onBlockedSave`.
+        {/* THE SAME CAP AS THE CONTENT PANE ABOVE, for the same reason `Sheet`
+            wraps its footer (sheet.tsx). Uncapped, the footer stayed flush to
+            the card while the content was capped and centred, so Save sat 48px
+            to the RIGHT of the last field on screen — a misalignment that was
+            invisible on a laptop and grew with the monitor, because it WAS the
+            centring gutter. Change one of these two widths and change both.
 
-            Staying undisabled is also load-bearing for the keyboard:
-            `submitTargetOf` takes the footer's last non-disabled button, so a
-            disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
-        <Button
-          size="md"
-          disabled={footer.isPending || (!footer.canSave && !blocked)}
-          data-blocked={blocked || undefined}
-          className={cn(blocked && "opacity-60")}
-          onClick={fireSave}
-        >
-          {footer.isPending ? "Saving…" : footer.saveLabel}
-        </Button>
+            `flex` lives here now rather than on the band, so `flex-1` below
+            still pushes the buttons to the right edge of the capped row. */}
+        <div className="mx-auto flex w-full max-w-[1440px] items-center gap-2">
+          {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
+          <div className="flex-1" />
+          {footer.extra}
+          <Button variant="outline" size="md" onClick={footer.onCancel}>
+            Cancel
+          </Button>
+          {footer.onSaveDraft && (
+            <Button
+              variant="outline"
+              size="md"
+              disabled={footer.isPending || !footer.canSave}
+              onClick={footer.onSaveDraft}
+            >
+              {footer.draftLabel ?? "Save as Draft"}
+            </Button>
+          )}
+          {/* Dimmed but ENABLED while blocked, and deliberately NOT `aria-disabled`
+              — it does something when clicked (reveals the first problem), and
+              telling a screen reader it is unavailable would be a lie about a
+              control that acts. The reason is announced by the screen's toast in
+              `onBlockedSave`.
+
+              Staying undisabled is also load-bearing for the keyboard:
+              `submitTargetOf` takes the footer's last non-disabled button, so a
+              disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
+          <Button
+            size="md"
+            disabled={footer.isPending || (!footer.canSave && !blocked)}
+            data-blocked={blocked || undefined}
+            className={cn(blocked && "opacity-60")}
+            onClick={fireSave}
+          >
+            {footer.isPending ? "Saving…" : footer.saveLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );

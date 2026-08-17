@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RequiredScope } from "@/components/ui/field";
+import { FIELD_SPAN, FIELD_TRACK, RequiredScope } from "@/components/ui/field";
+import { LABEL_METRICS } from "@/components/ui/label";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
@@ -677,8 +678,10 @@ export function ChildGrid<T extends { key: string }>({
   narrow = false,
   lockExisting = false,
   inlineCards = false,
+  across = false,
   fill = false,
   flushRows = false,
+  hideIndex = false,
   listRows = false,
   rowSummary,
   foldRows = false,
@@ -783,6 +786,64 @@ export function ChildGrid<T extends { key: string }>({
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
   inlineCards?: boolean;
   /**
+   * ACROSS, NOT DOWN — the records flow ALONG a row and wrap, instead of one per
+   * line. For a list whose record is a SINGLE short control: a size, a coordinate.
+   *
+   * The other three layouts are all one-record-per-line by construction, and for
+   * a one-control record that is the whole cost: at 36px a line plus a 32px Add
+   * button, six sizes is ~248px of a screen whose other cells are 32px tall — a
+   * legacy screen does the same list in ~170px. Laid across `FIELD_TRACK`, six
+   * take ONE line (client 2026-08-14 on the Garment Order's Style(s) tab;
+   * 2026-08-17 on the Style master, "row design instead of column based").
+   *
+   * IT WAS HAND-ROLLED FIRST, and that is why it is here. `amendment-screen.tsx`'s
+   * `sizeGrid` built this shape by hand — its own `data-grid-body`, its own
+   * `gridKeyNav` call, its own span per item — because no mode expressed it. A
+   * second hand-rolled copy on the next screen asking for it is exactly what the
+   * `foldRows` note above warns about, so the shape moved in here instead. Read
+   * that function for the reasoning behind each detail below; every one of them
+   * was paid for once already.
+   *
+   * WHAT IT DRAWS, and each piece is load-bearing:
+   *   - `FIELD_TRACK` as the body, so a record lands in the SAME 12-column track
+   *     the fields above it use — six to a line, at identical widths and gutters.
+   *     `FieldGrid` cannot be used instead: it would need a `<Field>` per record,
+   *     and `Field` always draws a label line, which is the 14px per row this mode
+   *     exists to remove.
+   *   - `FIELD_SPAN.xs` per record (2 of 12). A FIXED span, never `flex-1`: the
+   *     items have to line up in columns as they wrap, and an unsized item absorbs
+   *     the row's slack — the same failure `hugsContent` records. Both call sites
+   *     want `xs`; a per-caller `itemSize` prop is where that becomes a choice,
+   *     and is deliberately not shipped until one needs a different width.
+   *   - The "+ Add" INSIDE `data-grid-body`, taking a cell of its own. It lines up
+   *     with the records above it and lands on the same line as the last of them
+   *     instead of costing a fresh 40px — and `enterNestedGrid` looks for
+   *     `data-row-add` *inside* the body, which is Tab's only way into an empty
+   *     list. This is the one mode where the shared trailing Add button is
+   *     suppressed for that reason.
+   *   - NO HEADER BAND and NO ORDINAL. One header cannot head six columns of the
+   *     same thing, so the label belongs to the `<Field label>` around the grid,
+   *     where it carries `Label`'s real metrics. The ordinal restated what
+   *     position already says, and `sno` is written from the array index at save,
+   *     so nothing depended on it being drawn.
+   *
+   * ↑/↓ WALK THE LIST LEFT TO RIGHT, and that is a real change worth stating. It
+   * stays coherent because this is a ONE-DIMENSIONAL list whose DOM order and
+   * visual order agree — unlike the 2026-07-25 defect, where ↓ crossed out of a
+   * row's own cells into a nested panel's and landed on the wrong line entirely.
+   * Nothing here crosses a boundary. Every marker is unchanged, so Ctrl+Del,
+   * Tab-lands-on-fields and ↓-opens-a-list all behave as they do everywhere else.
+   *
+   * Honours `seedRow`, `hideAdd`, `lockExisting`, `keyboardNav`, `frameless` and
+   * pagination. Ignores `renderMobileRow`, `rowSummary`, `foldRows`, `flushRows`,
+   * `hideIndex`, `narrow`, `fill` and column `total`s — a wrapping track has no
+   * column for a figure to sit under, so declare no `total` here.
+   *
+   * FOR A ONE-CONTROL RECORD. Two columns per record would render side by side
+   * inside a 2/12 span; use `inlineCards` or `forceCards` for those.
+   */
+  across?: boolean;
+  /**
    * TAKE THE WIDTH GIVEN instead of hugging the columns — for a grid that shares
    * a row with another grid, where the two cards' edges must line up.
    *
@@ -818,6 +879,12 @@ export function ChildGrid<T extends { key: string }>({
    * multi-row grid still reads as rows. First control lands at 14px, level with
    * the field beside it.
    *
+   * "TAKES `Label`'S EXACT METRICS" WAS ASPIRATIONAL UNTIL 2026-08-17. The band
+   * retyped them as `leading-[14px] mb-1.5` and landed at 22px, so this paragraph,
+   * LAYOUT.md §6 and the code disagreed for twelve days while all three read as
+   * correct. It imports `LABEL_METRICS` from `label.tsx` now; the arithmetic and
+   * the two independent reasons it was 8px out are recorded at the band itself.
+   *
    * OPT-IN, because eight call sites across five screens use `inlineCards` and
    * only this one shares its row. It is the same argument `listRows` below makes
    * ("a card inside a card"), for the case where the neighbour is a field.
@@ -825,6 +892,36 @@ export function ChildGrid<T extends { key: string }>({
    * No effect outside inline mode.
    */
   flushRows?: boolean;
+  /**
+   * DROP THE `#N` TRACK — for a one-column grid whose LEFT EDGE has to line up
+   * with the fields above and below it.
+   *
+   * `flushRows` above answers the vertical half of that alignment and this is the
+   * horizontal one, which is why they arrive together on the same grid. The index
+   * costs 16px of `w-4` plus the row's 8px `gap-2`, so EVERY cell — and the header
+   * above them — sits 24px right of the field in the row above. On Style ▸ Sizes
+   * that put the size boxes 24px right of the Size Group select above them AND of
+   * the "+ Add size" button below them, which is a child of the grid root and so
+   * was never indented; the operator reported the section as still unaligned with
+   * the vertical half already fixed (client 2026-08-17, screenshot 2316).
+   *
+   * WHAT IS LOST IS SMALLER THAN IT LOOKS, and it is not the ✕. A numbered row
+   * earns its place in a multi-column grid, where "row 3" is how one line of eight
+   * fields gets talked about. In a one-column list of sizes the VALUE is the
+   * identity, nothing stores or reports the ordinal (`sizes.map` writes `sno: 0`),
+   * and removal is untouched: the row keeps its ✕ and its `data-row-remove`, so
+   * mouse and Ctrl+Del both work exactly as before.
+   *
+   * ALL THREE TRACKS GO TOGETHER — the header band's spacer, the row's number and
+   * the totals band's caption cell — because the two bands exist to mirror the
+   * rows' columns and half a track is a 24px shear between a figure and the column
+   * it heads or totals. A consequence worth stating: `totalsLabel` renders in the
+   * index slot, so it has nowhere to go here. No `flushRows` grid declares a
+   * `total` today; a grid that needs both wants its index back.
+   *
+   * No effect outside inline mode, exactly as `flushRows` has none.
+   */
+  hideIndex?: boolean;
   /**
    * Cards mode, but the rows are flat list items divided by a rule instead of
    * boxes, and `renderMobileRow` owns the whole row INCLUDING its header — no
@@ -973,7 +1070,7 @@ export function ChildGrid<T extends { key: string }>({
   };
   const addFn = hideAdd ? NO_ADD : handleAdd;
   /**
-   * Three layouts, ONE choice.
+   * Four layouts, ONE choice.
    *
    * `forceCards` and `inlineCards` arrived at different times as independent
    * booleans, which made a nonsense combination representable: a caller could
@@ -990,11 +1087,13 @@ export function ChildGrid<T extends { key: string }>({
    * unused. The props stay as they are — they are the public API across ~32
    * screens — but nothing downstream reads them directly any more.
    */
-  const mode: "inline" | "cards" | "responsive" = inlineCards
-    ? "inline"
-    : forceCards
-      ? "cards"
-      : "responsive";
+  const mode: "across" | "inline" | "cards" | "responsive" = across
+    ? "across"
+    : inlineCards
+      ? "inline"
+      : forceCards
+        ? "cards"
+        : "responsive";
 
   /**
    * The band appears when a COLUMN asks for one. `blank` is a column saying
@@ -1241,7 +1340,77 @@ export function ChildGrid<T extends { key: string }>({
             real <table> would overflow. Each column keeps its own width, so a
             Mixing % stays a small box instead of stretching and shoving the next
             field onto a second line (client 2026-07-24 #4). */}
-        {mode === "inline" ? (
+        {mode === "across" ? (
+          /* ACROSS — one record per grid CELL along `FIELD_TRACK`, wrapping. See
+             the `across` prop for why this exists and what each piece is for. */
+          <div
+            data-grid-body
+            className={FIELD_TRACK}
+            onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
+          >
+            {view.map((row, localI) => {
+              const i = offset + localI;
+              return (
+                <div
+                  key={row.key}
+                  data-grid-row
+                  // `items-center`, not `items-start`: a record here is ONE short
+                  // control, so there is no two-line cell to tilt the row — the
+                  // case `items-start` exists for in the inline layout.
+                  className={cn("flex items-center gap-1.5", FIELD_SPAN.xs)}
+                >
+                  {columns.map((c, ci) => (
+                    <div key={ci} className="min-w-0 flex-1">
+                      {/* The cell fills its span, so `flex-1` here rather than a
+                          `width` — the SPAN is what fixes the item's size, and a
+                          second width inside it would fight the track. Required
+                          still arrives per column, exactly as the inline layout
+                          does it: this mode renders the columns itself, so a
+                          `ChildGridColumn.required` reaches the control only
+                          because this wrapper is here (AGENTS.md, "a grid that
+                          renders its own row must declare `required` twice"). */}
+                      <RequiredScope required={c.required} label={c.header}>
+                        {c.cell(row, i)}
+                      </RequiredScope>
+                    </div>
+                  ))}
+                  {!locked(row) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-row-remove // Ctrl+Del / mouse — see the table layout's note
+                      className="shrink-0 px-0 text-muted-foreground hover:text-danger"
+                      onClick={() => onRemove(row)}
+                      aria-label="Remove row"
+                    >
+                      <X className="h-4 w-4 shrink-0" />
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+            {!hideAdd && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-row-add
+                /* `justify-self-start` is the part that actually does it, and
+                   dropping a width alone would NOT: a grid item's default
+                   `justify-self` is STRETCH, so this button fills its column
+                   because it IS a grid cell, whatever its own display says. It
+                   keeps its column slot so it lines up with the records above,
+                   and matches `ChildGrid`'s own Add button everywhere else —
+                   `variant="outline" size="sm"`, content width. */
+                className={cn("justify-self-start", FIELD_SPAN.xs)}
+                onClick={handleAdd}
+              >
+                {addLabel}
+              </Button>
+            )}
+          </div>
+        ) : mode === "inline" ? (
           <div
             data-grid-body
             // `flushRows` removes the gap under the header band as well, so the
@@ -1258,7 +1427,7 @@ export function ChildGrid<T extends { key: string }>({
                 at identical metrics, so the two cells line up before and after the
                 first row exists and nothing has to move when it appears. */}
             {flushRows && label && view.length === 0 && (
-              <div className="flex items-center leading-[14px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className={cn("flex items-center text-xs font-semibold uppercase tracking-wide text-muted-foreground", LABEL_METRICS)}>
                 {label}
               </div>
             )}
@@ -1266,27 +1435,49 @@ export function ChildGrid<T extends { key: string }>({
               <div
                 className={cn(
                   "flex items-center gap-2",
-                  // `leading-[14px]` matches `Label` exactly (label.tsx) — the
-                  // whole point of flush rows. `px-2 pb-0.5` would put the band at
-                  // 18px and shift the headers 2px right of their own cells.
-                  //
-                  // `mb-1.5` is the GAP under the band, and it is not decoration:
-                  // it matches the 6px the grid root's own `space-y-1.5` already
-                  // puts under the empty-state band, and the 6px the field beside
-                  // this grid carries under its label. All three states then put
-                  // their first control at 20px (client 2026-08-05, screenshot
-                  // 2171 — the empty grid had the gap and the field did not).
-                  // Lives here rather than on the body's `space-y`, which would
-                  // also push every row apart from its neighbour.
-                  flushRows ? "leading-[14px] mb-1.5" : "px-2 pb-0.5",
+                  /**
+                   * `LABEL_METRICS` IS THE WHOLE POINT OF FLUSH ROWS — the band is
+                   * a column-header row standing in for a label row, so it has to
+                   * carry `Label`'s line box AND `Label`'s margin, not numbers that
+                   * look like them. doc/ui/LAYOUT.md §6 has always said "the header
+                   * band gets `Label`'s exact metrics"; it said so while this line
+                   * read `leading-[14px] mb-1.5`, which was 8px out at the density
+                   * every desktop editor runs at (client 2026-08-17, screenshot
+                   * 2316 — Style ▸ Sizes drew its first size box 8px below the
+                   * Description textarea beside it).
+                   *
+                   * BOTH HALVES OF THE OLD VALUE WERE WRONG, and neither in a way
+                   * reading this line could show:
+                   *
+                   *   `mb-1.5` (6px) was reasoned against a label carrying
+                   *   `mb-0.5`, but under `@2xl/editor` — this component's own
+                   *   compact density, so ALWAYS on the surfaces that use
+                   *   `flushRows` — `Label` is `mb-0`. 6px too many.
+                   *
+                   *   `leading-[14px]` never applied to anything. It sat on this
+                   *   FLEX PARENT while each header cell below carries `text-xs`,
+                   *   whose own 1rem line-height wins on the child; with
+                   *   `items-center` the band's height is the tallest child, so the
+                   *   band was 16px. Hence `leading-[inherit]` on the cells — the
+                   *   fix is not to retype 14px there, it is to let the metric
+                   *   arrive from one place. 2px more.
+                   *
+                   * `px-2 pb-0.5` is the ordinary inline band and is unchanged; it
+                   * would put a flush band at 18px and shift the headers 2px right
+                   * of their own cells.
+                   */
+                  flushRows ? LABEL_METRICS : "px-2 pb-0.5",
                 )}
               >
-                <span className="w-4 shrink-0" />
+                {!hideIndex && <span className="w-4 shrink-0" />}
                 {columns.map((c, ci) => (
                   <div
                     key={ci}
                     className={cn(
-                      "min-w-0 text-xs font-semibold text-muted-foreground",
+                      // `leading-[inherit]` so the BAND decides the line box: see
+                      // the note above — `text-xs` would otherwise re-set it to
+                      // 16px and silently outvote `LABEL_METRICS`.
+                      "min-w-0 text-xs font-semibold leading-[inherit] text-muted-foreground",
                       c.width ? "shrink-0" : "flex-1",
                       align[c.align ?? "left"],
                     )}
@@ -1336,9 +1527,11 @@ export function ChildGrid<T extends { key: string }>({
                     the boxes it counts. `min-h-*` matches the control heights the
                     field primitives use (`h-9`, `@2xl/editor:h-8`), so a row of
                     plain text keeps the height the ✕ already gave it. */}
+                {!hideIndex && (
                 <span className="flex min-h-9 w-4 shrink-0 items-center justify-center text-xs text-muted-foreground @2xl/editor:min-h-8">
                   {startIndex + i + 1}
                 </span>
+                )}
                 {columns.map((c, ci) => (
                   <div
                     key={ci}
@@ -1386,9 +1579,16 @@ export function ChildGrid<T extends { key: string }>({
                 arrow axis and the Tab path. */}
             {hasTotals && (
               <div className="flex items-center gap-2 border-t-2 border-border pt-1.5 font-semibold">
+                {/* GATED WITH THE OTHER TWO TRACKS, because mirroring the header
+                    band is the whole job of this row: leave the spacer standing
+                    under `hideIndex` and every figure sits 24px right of the
+                    column it totals. `totalsLabel` has nowhere to go here as a
+                    result — see the prop's note. */}
+                {!hideIndex && (
                 <span className="w-4 shrink-0 text-center text-[11px] uppercase tracking-wide text-muted-foreground">
                   {totalsLabel}
                 </span>
+                )}
                 {columns.map((c, ci) => (
                   <div
                     key={ci}
@@ -1539,7 +1739,10 @@ export function ChildGrid<T extends { key: string }>({
           />
         )}
 
-        {!hideAdd && (
+        {/* `mode !== "across"` because that layout renders this button ITSELF,
+            inside `data-grid-body` and in a cell of the track — see the `across`
+            prop. Rendering both would give the grid two Add buttons. */}
+        {!hideAdd && mode !== "across" && (
           // `data-row-add` is what Tab drives when this grid is NESTED in another
           // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
           // LANDS on it; a button is not a field.

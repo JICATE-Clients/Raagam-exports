@@ -257,6 +257,10 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
     <div data-focus-scope className="space-y-4">
       <PageHeader
         title={editId ? "Edit TA Style" : "New TA Style"}
+        // back={false}: this screen swaps a list and an editor at ONE url, and
+        // the editor already shows "← Back to list". The derived hub link is
+        // right on the LIST branch above and a second, differently aimed Back here.
+        back={false}
         description="Pick activities from the TA Activity catalogue and set day offsets."
         actions={
           <div className="flex gap-2">
