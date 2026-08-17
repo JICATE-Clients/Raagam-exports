@@ -18,9 +18,6 @@ import { capsTextNullable } from "@/lib/validation/formats";
 // its data and has left this input; the SC No is read through the order.
 // ============================================================================
 
-/** Provisional fixed dropdown — no legacy option list captured yet (confirm). */
-export const MATERIAL_TYPE_OPTIONS = ["Production", "Sample", "Trial"] as const;
-
 /**
  * Provisional fixed dropdown. LOWERCASE MATTERS HERE: `nominatedVendorOptions()`
  * lower-cases before comparing, because the same word is spelled "Nominated"
@@ -47,11 +44,38 @@ export const REQUIREMENT_BASIS_LABELS: Record<(typeof REQUIREMENT_BASES)[number]
   combination: "Combination (Color + Size)",
 };
 
+/**
+ * ## THREE COLUMNS HERE ARE WITHDRAWN, NOT DROPPED (client 2026-08-17)
+ *
+ * "UI streamlining": `type`, `alternate_uom_id` and `combination` came off the
+ * Items grid to shorten a 22-column row. They keep their DB columns, their
+ * stored values, and their place in `mbaItemInput` — because `writeChildren`
+ * DELETES AND REINSERTS every child row, so a field the form stops carrying is
+ * a field the next save destroys. That is 0418's withdrawal pattern for
+ * `attribute_id`, and the same one AGENTS.md records for `amend_type`.
+ *
+ * None of the three ever reached `lib/orders/material-bom/requirement.ts`, so
+ * nothing computed changes. Restoring any of them is a grid column and nothing
+ * else.
+ */
 export interface MbaItem {
   id: string;
   amendment_id: string;
   sno: number;
+  /**
+   * A `public.categories` id since 0426 — BUTTON, LABEL, POLY BAG. NOT a
+   * `config_lookups` row of kind `material_category`, which holds the two GROUP
+   * names ("Sewing Accessory", "Packing Accessory") and was all this cell could
+   * offer until then (client 2026-08-17, screenshot 2314).
+   *
+   * It is the same master `items.category_id` has pointed at since 0226, and
+   * that is the point: the two are comparable, so this cell narrows the Material
+   * picker beside it (`materialsForCategory`). Both accessory classes are
+   * offered together — a BOM line has no item class of its own.
+   */
   category_id: string | null;
+  /** WITHDRAWN from the grid 2026-08-17 — the legacy descriptor ("To be
+   *  advised", "Available Item"). Still round-tripped. */
   type: string | null;
   item_id: string | null;
   /** Classification only. It does NOT drive the split — see `requirement_basis`
@@ -92,12 +116,17 @@ export interface MbaItem {
   vendor_id: string | null;
   purchase_uom_id: string | null;
   consumption_uom_id: string | null;
+  /** WITHDRAWN from the grid 2026-08-17. Nothing read it: the engine converts
+   *  consumption → purchase and never consults a third unit. */
   alternate_uom_id: string | null;
   /** Which pack size this line buys, e.g. the 2,500 m cone rather than the
    *  5,000 m one (0348). It cannot live on the material: items.purchase_uom_id
    *  holds a single UOM ("Cone") and cannot tell two cone sizes apart, so the
    *  choice belongs to the BOM line. */
   uom_conversion_id: string | null;
+  /** WITHDRAWN from the grid 2026-08-17. Free text that collided by name with
+   *  `requirement_basis = 'combination'` (0420, colour x size) while having
+   *  nothing to do with it. Still round-tripped. */
   combination: string | null;
   moq: number | null;
   /** The NUMERATOR — how many are used. Renamed from `quantity_nos` by 0418. */
