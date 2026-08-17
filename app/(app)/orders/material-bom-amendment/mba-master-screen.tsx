@@ -29,6 +29,7 @@ import { RecordPicker } from "@/components/masters/record-picker";
 import { NominatedVendorPicker } from "@/components/masters/nominated-vendor-picker";
 import { nominatedVendorOptions } from "@/lib/masters/vendor-nominations";
 import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { CategoryPicker } from "@/components/masters/lookup-picker";
 import { BomCopySheet, BomCopyConfirm } from "@/components/orders/bom-copy-sheet";
 import {
   copyMaterialBomFrom,
@@ -38,7 +39,6 @@ import {
   updateMaterialBomAmendment,
 } from "@/lib/orders/material-bom-amendment/actions";
 import {
-  MATERIAL_TYPE_OPTIONS,
   PROCESS_STATUS_OPTIONS,
   REQUIREMENT_BASIS_LABELS,
   SUPPLY_TYPE_OPTIONS,
@@ -53,7 +53,10 @@ import {
   type BomStatus,
 } from "@/lib/orders/material-bom-amendment/status";
 import type { BomTaskRow, MbaFormData } from "@/lib/orders/material-bom-amendment/service";
-import { materialsForCategory } from "@/lib/orders/material-bom-amendment/material-options";
+import {
+  isAccessoryClass,
+  materialsForCategory,
+} from "@/lib/orders/material-bom-amendment/material-options";
 import {
   isRefusal,
   moqRollup,
@@ -85,9 +88,20 @@ interface Props {
   masterPerms: { canCreate: boolean; canEdit: boolean };
 }
 
+/**
+ * THREE FIELDS HERE ARE CARRIED AND NOT SHOWN, and they are all withdrawals
+ * rather than deletions: `attribute_id` (0418), and `type` / `alternate_uom_id`
+ * / `combination` (client 2026-08-17, "UI streamlining"). Each keeps its DB
+ * column, its stored values and its place in this row — see the note on
+ * `attribute_id` below for why the round trip is not optional.
+ */
 type ItemRow = {
   key: string;
   category_id: string | null;
+  /** CARRIED, NOT SHOWN (client 2026-08-17). The legacy "Type" descriptor — "To
+   *  be advised", "Available Item". It never reached the requirement engine and
+   *  the option list here was provisional, so the client withdrew it to shorten
+   *  the row. Round-tripped, same reason as `attribute_id`. */
   type: string;
   item_id: string | null;
   /**
@@ -119,9 +133,18 @@ type ItemRow = {
   vendor_id: string | null;
   purchase_uom_id: string | null;
   consumption_uom_id: string | null;
+  /** CARRIED, NOT SHOWN (client 2026-08-17). A third UOM beside Consumption and
+   *  Purchase that nothing read: `requirement.ts` converts consumption →
+   *  purchase and never consults it. The "Alternative" block the streamlining
+   *  named. */
   alternate_uom_id: string | null;
   /** The pack size this line buys (0348) — see MbaItem.uom_conversion_id. */
   uom_conversion_id: string | null;
+  /** CARRIED, NOT SHOWN (client 2026-08-17). Free text, and a NAME COLLISION
+   *  that is the real reason it went: `requirement_basis` now has a
+   *  `combination` value meaning colour x size (0420), so a second, unrelated
+   *  "Combination" cell on the same row read as its input. It never was —
+   *  nothing has ever consulted this string. */
   combination: string;
   moq: string;
   /** The NUMERATOR. */
@@ -260,8 +283,39 @@ export function MbaMasterScreen({
     ref.trim() ? (selectedOrder?.styles ?? []).find((x) => x.ref === ref) : undefined;
   const componentsOf = (ref: string) => styleOf(ref)?.components ?? [];
 
-  const materialCategories = useMemo(
-    () => data.lookups.filter((l) => l.kind === "material_category"),
+  /**
+   * THE CATEGORY OPTIONS, PREFIXED BY THEIR ITEM CLASS.
+   *
+   * Both accessory classes are offered in one cell, because a BOM line has no
+   * class of its own — one grid holds a button and a poly bag. AGENTS.md's
+   * cascading-filter rule covers exactly that case: "with no class chosen,
+   * prefix each option by its class", since category names repeat across classes
+   * and two identical options the operator has to guess between is the other
+   * half of the bug this fixes.
+   *
+   * The prefix is applied to the NAME rather than shown as a sublabel because
+   * `CategoryPicker` already spends the sublabel on `short_spec`, and the
+   * selected value has to read unambiguously in the closed trigger too.
+   */
+  const accessoryCategories = useMemo(() => {
+    const classCode = new Map(
+      data.lookups.filter((l) => l.kind === "item_class").map((l) => [l.id, l.code]),
+    );
+    return data.categories.map((c) => {
+      const code = c.item_class_id ? classCode.get(c.item_class_id) : null;
+      return code ? { ...c, name: `${code} · ${c.name}` } : c;
+    });
+  }, [data.categories, data.lookups]);
+
+  /** The two accessory item classes, for the quick-create sheet: it asks WHICH
+   *  class, because this cell does not know. `itemClassId` below is only the
+   *  sheet's starting value — the operator's answer wins from then on. */
+  const accessoryClasses = useMemo(
+    () => data.lookups.filter((l) => l.kind === "item_class" && isAccessoryClass(l.code)),
+    [data.lookups],
+  );
+  const fabricStructures = useMemo(
+    () => data.lookups.filter((l) => l.kind === "fabric_structure"),
     [data.lookups],
   );
 
@@ -271,19 +325,37 @@ export function MbaMasterScreen({
    * form: two facets side by side, one of them answering the other's question
    * and neither of them wired.
    *
+   * IT IS AN ID COMPARISON SINCE 0426. Both sides are `public.categories` rows
+   * now, so this passes the id straight down; the old code had to map a
+   * `config_lookups` GROUP onto an item class first, which is all the narrowing
+   * it could express.
+   *
    * `data.items` already arrives narrowed to accessories (the server refuses to
    * ship anything else); this is the second, per-line half, and it has to live
    * here because it depends on a cell the operator is still typing into.
    */
-  const categoryCodeById = useMemo(
-    () => new Map(materialCategories.map((c) => [c.id, c.code])),
-    [materialCategories],
-  );
   const materialsFor = (categoryId: string | null, currentValue: string | null) =>
-    materialsForCategory(data.items, {
-      categoryCode: categoryId ? categoryCodeById.get(categoryId) : null,
-      currentValue,
-    });
+    materialsForCategory(data.items, { categoryId, currentValue });
+
+  /**
+   * Changing the Category drops a Material the new one no longer offers —
+   * AGENTS.md's "clear a held value that falls out of scope, but ONLY when it
+   * really is out of scope", so re-picking a category the material already
+   * belongs to keeps it.
+   *
+   * Asked of the SAME function that builds the picker's options, and with
+   * `currentValue: null` on purpose: that argument exists to re-admit the value
+   * a line already holds, so passing it here would make the test "is it in the
+   * list, including the carve-out for itself?" — which is always yes, and the
+   * clear would never fire. The question is whether the material stands on its
+   * own merits under the new category.
+   */
+  const pickCategory = (r: ItemRow, category_id: string | null) => {
+    const stillOffered =
+      !r.item_id ||
+      materialsFor(category_id, null).some((m) => m.id === r.item_id);
+    updItem(r.key, stillOffered ? { category_id } : { category_id, item_id: null });
+  };
 
   /**
    * The SAME colour list the garment's own colours come from (kind
@@ -873,15 +945,36 @@ export function MbaMasterScreen({
     {
       header: "Category",
       className: "min-w-[150px]",
+      /**
+       * THE REAL CATEGORY MASTER (0426) — BUTTON, LABEL, SEWING THREAD, POLY
+       * BAG. It used to be `config_lookups` kind `material_category`, which
+       * holds two rows: "Sewing Accessory" and "Packing Accessory", the names of
+       * the two GROUPS rather than the categories inside them (client
+       * 2026-08-17, screenshot 2314).
+       *
+       * `CategoryPicker`, NOT `LookupDialogPicker` — and the difference is not
+       * cosmetic. Both draw an inline "+ Add"; `LookupDialogPicker`'s writes to
+       * `config_lookups`, which is now the wrong table, and the FK would reject
+       * it. That is why Customer ▸ Supplied Items had to switch its Add OFF when
+       * 0356 made the same repoint there, and why this one does not have to:
+       * `CategoryPicker` creates through `createCategory()`.
+       */
       cell: (r) => (
-        <LookupDialogPicker
-          kind="material_category"
-          label="Category"
-          options={materialCategories}
-          value={r.category_id}
-          onChange={(id) => updItem(r.key, { category_id: id })}
+        <CategoryPicker
+          label=""
+          title="Category"
+          categories={accessoryCategories}
+          value={r.category_id ?? ""}
+          onChange={(id) => pickCategory(r, id || null)}
           canCreate={masterPerms.canCreate}
           canEdit={masterPerms.canEdit}
+          // The sheet ASKS which class, so this is only where it opens. A BOM
+          // line spans both accessory classes and cannot answer for the row.
+          itemClassId={accessoryClasses[0]?.id}
+          selectedClassCode={accessoryClasses[0]?.code ?? null}
+          itemClasses={accessoryClasses}
+          levies={data.levies}
+          fabricStructures={fabricStructures}
           compact
         />
       ),
@@ -1065,24 +1158,6 @@ export function MbaMasterScreen({
       },
     },
     {
-      header: "Type",
-      className: "min-w-[110px]",
-      cell: (r) => (
-        <Select
-          value={r.type}
-          onChange={(e) => updItem(r.key, { type: e.target.value })}
-          className="h-8"
-        >
-          <option value="">—</option>
-          {MATERIAL_TYPE_OPTIONS.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-    {
       header: "Supply Type",
       className: "min-w-[120px]",
       cell: (r) => (
@@ -1213,19 +1288,6 @@ export function MbaMasterScreen({
       ),
     },
     {
-      header: "Alternate Uom",
-      className: "min-w-[130px]",
-      cell: (r) => (
-        <RecordPicker
-          label="Alternate Uom"
-          items={data.uoms}
-          value={r.alternate_uom_id}
-          onChange={(id) => updItem(r.key, { alternate_uom_id: id })}
-          compact
-        />
-      ),
-    },
-    {
       header: "Purchase Pack",
       className: "min-w-[170px]",
       // Which cone/gross size this line buys. Options come from the material's
@@ -1313,17 +1375,6 @@ export function MbaMasterScreen({
           type="date"
           value={r.required_by}
           onChange={(e) => updItem(r.key, { required_by: e.target.value })}
-          className="h-8"
-        />
-      ),
-    },
-    {
-      header: "Combination",
-      className: "min-w-[120px]",
-      cell: (r) => (
-        <Input
-          value={r.combination}
-          onChange={(e) => updItem(r.key, { combination: e.target.value })}
           className="h-8"
         />
       ),
@@ -1570,7 +1621,7 @@ export function MbaMasterScreen({
         <SectionBody title="Items" hint="The materials this order needs, and how many of each.">
           {copyBar}
           {/* NO SIDEWAYS SCROLLBAR — THE ROW WRAPS INSTEAD (operator,
-              2026-08-10). 17 columns cannot fit 1180px minus the rail, so the
+              2026-08-10). 19 columns cannot fit 1180px minus the rail, so the
               responsive table would put the row behind a horizontal scrollbar.
               `forceCards` drops the table for one card per line and
               `renderMobileRow` fills it with the SAME `FieldGrid` the header
@@ -1583,7 +1634,7 @@ export function MbaMasterScreen({
             columns={itemColumns}
             rows={items}
             forceCards
-            /* ONE LINE OPEN AT A TIME (client 2026-08-14). 22 columns is four
+            /* ONE LINE OPEN AT A TIME (client 2026-08-14). 19 columns is three
                wrapped lines per material, so three materials filled the screen
                before "+ Add" came into view — on the document where ten lines is
                ordinary. The fold itself is `ChildGrid`'s, so this says only what
@@ -1597,7 +1648,6 @@ export function MbaMasterScreen({
               const summary = [
                 row.specification.trim(),
                 row.size.trim(),
-                row.combination.trim(),
                 // The arithmetic is what a BOM line IS — showing it closed is
                 // what makes the fold safe to scan past.
                 row.no_of_items.trim() && row.per_pieces.trim()
