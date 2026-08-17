@@ -45,6 +45,11 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/orders/garment-orders": "garment_order_amendments",
   "/orders/amendments": "garment_order_amendments",
   "/orders/material-bom-amendment": "material_bom_amendments",
+  // The DOCUMENT the screen creates, not the orders it selects from — the rule
+  // above, and it matters here because the card's screen opens on a queue of
+  // garment ORDERS. "Fabric BOM: 412" meaning "there are 412 orders" is worse
+  // than no number at all.
+  "/orders/fabric-bom": "order_fabric_boms",
   "/orders/process-amendments": "garment_process_amendment_docs",
   "/orders/due-date-confirmations": "due_date_confirmations",
   "/orders/contract-review": "contract_reviews",

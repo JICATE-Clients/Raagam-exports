@@ -1,14 +1,25 @@
-# The garment order flow — nine steps to six
+# The garment order flow
 
 Client requirement, 2026-08-10: the legacy system takes nine entries to get an order from
-a style to an approved budget. The new app does it in six, and **the client named the
-six**:
+a style to an approved budget. The new app does it in fewer, and **the client names the
+steps**. They have named them three times, and all three are theirs:
 
-> Style · Order Entry · Material BOM · Fabric BOM · Budget · Budget Approval
+| | |
+|---|---|
+| **2026-08-10** | Style · Order Entry · Material BOM · Fabric BOM · Budget · Budget Approval |
+| **2026-08-14** | …Garment Process Plan · Fabric Plan · Budgeting, with Prepare and Approve collapsed into the last |
+| **2026-08-17** | …Fabric BOM · Fabric Plan · Budgeting · Approval — the BOM is back as a step of its own, and Approve is uncollapsed again |
 
-This file is the design. It exists because the reduction is **not** a UI consolidation —
-five of the nine legacy steps have no tables in this database, so "reduce to six" is
-really "choose the shape of a rebuild that has to happen anyway".
+**So it is eight steps, and the count was never the client's claim — the sequence was.**
+The 08-14 list read as six only because Fabric BOM had gone missing under Fabric Plan's
+name: the Order Setup hub carried a card labelled "Fabric Plan" whose href was
+`/planning/fabric-bom`, so the step the client asks for by name had no card and the card
+standing in its place named a different step. The live list is
+`lib/nav/module-groups.ts`; this file is the design behind it.
+
+It exists because the reduction is **not** a UI consolidation — five of the nine legacy
+steps have no tables in this database, so "reduce the entries" is really "choose the shape
+of a rebuild that has to happen anyway".
 
 ---
 
@@ -71,9 +82,19 @@ They are kept as reference for column names and legacy semantics. Next free numb
 | 1 | **Style** | legacy 1 | live · blocked on `0392` |
 | 2 | **Order Entry** | legacy 2 | **live, unchanged** |
 | 3 | **Material BOM** | legacy 3 + 7 | **built 2026-08-13** (`0418`) |
-| 4 | **Fabric BOM** | split out of legacy 3 | build |
-| 5 | **Budget** | legacy 8 | build |
-| 6 | **Budget Approval** | legacy 9 | build |
+| 4 | **Garment Process Plan** | legacy 4 | **live** — added to the flow on 08-14 |
+| 5 | **Fabric BOM** | split out of legacy 3 | **built 2026-08-17** (`0426`) |
+| 6 | **Fabric Plan** | legacy 5-6, reinterpreted | build |
+| 7 | **Budgeting** | legacy 8 | build |
+| 8 | **Approval** | legacy 9 | build |
+
+**Fabric Plan is the 08-17 addition and is NOT in this file's original design.** The
+client's answer to what it covers, asked directly: the PROCESS ROUTE — yarn purchase,
+knitting, dyeing, stentering, compacting — with each stage's loss and whether it is
+in-house or out-processed. That is what makes the boundary with step 5 real rather than
+verbal: **Fabric BOM is finished fabric, Fabric Plan walks backwards from it to the yarn.**
+Put knitting loss on the BOM as well and the same loss is charged twice, on the largest
+line in the order, looking entirely plausible on both screens.
 
 ### What the client dropped, and what that buys
 
@@ -138,7 +159,13 @@ document.
 **Buildable without `0392`** — trims and packing items come from the order, not from the
 Style's fabric mapping.
 
-### Step 4 — Fabric BOM · fabric by component and colour (replaces ~6 legacy tables)
+### Step 5 — Fabric BOM · fabric by component and colour (replaces ~6 legacy tables)
+
+> **BUILT — and the sketch below is not what shipped.** `0426` is the schema of record;
+> read its header. Two things changed: the seed is the ORDER's combo tree, not the Style's
+> component mapping (so `garment_style_id` is not a column); and there are no `status` /
+> `approved_by` / `approved_at` columns, because `doc/prd.md` is explicit that a BOM needs
+> no approval — the BUDGET is what gets approved. The original sketch:
 
 ```
 order_fabric_boms        sales_order_id, garment_style_id, status, approved_by, approved_at
@@ -186,8 +213,17 @@ Dependencies, not preference:
    `report_item_movements` is SQL that would otherwise have to re-derive the maths in plpgsql.
    `required_by` carries legacy step 7. Engine + vectors: `lib/orders/material-bom/requirement.ts`,
    `npm run check:bom-requirement`.
-3. **Step 4 — Fabric BOM.** Needs `0392`.
-4. **Step 5 — Budget**, then **step 6 — Budget Approval** (a queue over the same table).
+3. ~~**Step 4 — Fabric BOM.** Needs `0392`.~~ **DONE, 2026-08-17 (`0426`).** It is
+   `/orders/fabric-bom`, and — like step 3 — it hangs off `garment_order_amendments`
+   rather than `sales_orders`. **It did NOT need `0392` in the end**, because it does not
+   seed from the Style master at all: `0408` · `0409` · `0410` moved the whole fabric tree
+   onto the ORDER (combo → structure → component, with composition, GSM and
+   solid/melange/yarn-dyed), and that tree is what the operator actually filled in for
+   this order. Seeding from `garment_styles` would re-fetch a template the order has
+   already been amended away from. §3 step 4 below is superseded on that point.
+   Engine + vectors: `lib/orders/fabric-bom/requirement.ts`, `npm run check:fabric-bom`.
+4. **Step 6 — Fabric Plan**, then **step 7 — Budgeting**, then **step 8 — Approval**
+   (a queue over the budget's own status).
 5. **Nav.** Fold the 27 `unavailable` Planning entries down as each step lands, and
    re-shape the Orders sub-modules around the six.
 

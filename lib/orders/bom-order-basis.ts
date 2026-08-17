@@ -1,7 +1,17 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
-import type { OrderProductionInput } from "@/lib/orders/material-bom/requirement";
+import {
+  basisFingerprint,
+  isRefusal,
+  totalProductionOf,
+  type OrderProductionInput,
+} from "@/lib/orders/material-bom/requirement";
+import { BOM_STATUS_RANK, bomStatusOf, type BomStatus } from "@/lib/orders/bom-status";
+
+// Re-exported so a caller of `bomTaskRows` can name the status its rows carry
+// without importing a second module to do it.
+export type { BomStatus };
 
 /**
  * A garment order, read as the thing a BOM multiplies.
@@ -177,4 +187,147 @@ export async function getOrderProduction(
   ]);
   if (!res.data) return null;
   return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeName);
+}
+
+// ---------------------------------------------------------------------------
+// The work queue, shared by both BOM steps
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of a BOM work queue.
+ *
+ * IT IS AN ORDER, NOT A DOCUMENT, and that is the whole point of the shape.
+ * Listing BOM documents makes an order with no BOM invisible — precisely the
+ * order that needs one — so "Pending" could never be shown for the case it
+ * exists to describe.
+ */
+export type BomTaskRow = {
+  /** The garment order id — the row's identity. */
+  id: string;
+  sc_no: string | null;
+  order_code: string | null;
+  po_no: string | null;
+  customer_name: string | null;
+  amend_date: string;
+  delivery_date: string | null;
+  style_count: number;
+  /** Total production the order currently implies. Null when unanswerable. */
+  production_qty: number | null;
+  /** Why it is unanswerable, when it is — printed rather than left as a dash. */
+  production_refusal: string | null;
+  status: BomStatus;
+  /** The BOM to open, or null to start one. */
+  bom_id: string | null;
+  bom_code: string | null;
+  bom_line_count: number;
+  created_at: string;
+  created_by: string | null;
+};
+
+/** As much of a BOM document as a queue row needs, whichever BOM it is. */
+export type BomLite = {
+  id: string;
+  code: string | null;
+  is_draft: boolean;
+  computed_basis_hash: string | null;
+  computed_for_qty: number | null;
+  lineCount: number;
+};
+
+export type OrderWithProvenance = OrderRow & {
+  created_at: string;
+  created_by: string | null;
+};
+
+/**
+ * Turn confirmed orders plus their BOMs into queue rows.
+ *
+ * SHARED BY MATERIAL BOM AND FABRIC BOM, and it is the freshness half that
+ * earns the sharing rather than the field copying. `basisFingerprint` must be
+ * computed from the SAME `OrderProductionInput` that `totalProductionOf`
+ * refused or answered, and the refusal must null BOTH — a queue that
+ * fingerprinted an order it could not total would report "Updated" over a plan
+ * whose basis it never resolved. Two copies of that pairing is two chances to
+ * get it the wrong way round.
+ *
+ * Each caller still runs its own query: the BOM table and its line child differ,
+ * and a PostgREST select string is not something to build by concatenation.
+ */
+export function bomTaskRows(
+  orders: readonly OrderWithProvenance[],
+  tiers: Map<string, RejectionTier[]>,
+  bomByOrder: Map<string, BomLite>,
+): BomTaskRow[] {
+  const rows: BomTaskRow[] = orders.map((o) => {
+    const input = orderProductionInput(o, tiers);
+    const total = totalProductionOf(input);
+    const bom = bomByOrder.get(o.id) ?? null;
+
+    const now = {
+      // A refused total means the order cannot be fingerprinted into anything
+      // comparable, so freshness is `unresolved` rather than a guess.
+      hash: isRefusal(total) ? null : basisFingerprint(input),
+      qty: isRefusal(total) ? null : total,
+    };
+
+    return {
+      id: o.id,
+      sc_no: o.sales_order?.order_number ?? null,
+      order_code: o.code,
+      po_no: o.po_no,
+      customer_name: o.customer?.name ?? null,
+      amend_date: o.amend_date,
+      delivery_date: o.delivery_date,
+      style_count: (o.styles ?? []).length,
+      production_qty: now.qty,
+      production_refusal: isRefusal(total) ? total.refused : null,
+      status: bomStatusOf(
+        bom
+          ? {
+              is_draft: bom.is_draft,
+              lineCount: bom.lineCount,
+              computed_basis_hash: bom.computed_basis_hash,
+              computed_for_qty: bom.computed_for_qty,
+            }
+          : null,
+        now,
+      ),
+      bom_id: bom?.id ?? null,
+      bom_code: bom?.code ?? null,
+      bom_line_count: bom?.lineCount ?? 0,
+      // The ORDER's provenance, not the BOM's: the row is an order, and an order
+      // with no BOM still has a creator worth showing.
+      created_at: o.created_at,
+      created_by: o.created_by,
+    };
+  });
+
+  // Work first: Recalculate, Pending, Draft, Unresolved, then Updated.
+  rows.sort(
+    (a, b) =>
+      BOM_STATUS_RANK[a.status] - BOM_STATUS_RANK[b.status] ||
+      (a.delivery_date ?? "9999").localeCompare(b.delivery_date ?? "9999"),
+  );
+  return rows;
+}
+
+/**
+ * Confirmed garment orders, with the provenance a queue row shows.
+ *
+ * CONFIRMED ONLY (client 2026-08-13: "lists all confirmed RE Numbers"). A draft
+ * order is someone's half-entered thinking — its styles, combos and quantities
+ * are all still moving, so a plan built against it is planned against numbers
+ * that have not settled.
+ *
+ * It is the ORDER's draft flag, not the BOM's. A queue's own `draft` status
+ * means "a BOM exists and is unfinished", which is a different sentence.
+ */
+export async function confirmedOrdersForBom(): Promise<OrderWithProvenance[]> {
+  const s = await createClient();
+  const { data } = await s
+    .from("garment_order_amendments")
+    .select(ORDER_SELECT)
+    .eq("is_draft", false)
+    .order("created_at", { ascending: false });
+  return (data ?? []) as unknown as OrderWithProvenance[];
 }

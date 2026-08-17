@@ -10,21 +10,17 @@ import type { MaterialBomAmendment, BomCopySource } from "./types";
 import { isInactive } from "@/lib/masters/inactive";
 import { isAccessoryClass, type MaterialOption } from "./material-options";
 import { withCreators } from "@/lib/created-by";
-import type { RejectionTier } from "@/lib/masters/rejection-rule";
+// The order-reading half of this service moved to `bom-order-basis.ts` when
+// Fabric BOM (0426) needed the same reader — see that file's header for why it
+// was extracted rather than copied.
 import {
-  basisFingerprint,
-  totalProductionOf,
-  isRefusal,
-  type OrderProductionInput,
-} from "@/lib/orders/material-bom/requirement";
-import { bomStatusOf, BOM_STATUS_RANK, type BomStatus } from "@/lib/orders/bom-status";
-import {
-  ORDER_SELECT,
+  bomTaskRows,
+  confirmedOrdersForBom,
   getOrderProduction,
-  orderProductionInput,
   rejectionTiersById,
-  sizeNameFn,
-  type OrderRow,
+  type BomLite,
+  type BomStatus,
+  type BomTaskRow,
 } from "@/lib/orders/bom-order-basis";
 
 // `getOrderProduction` is re-exported because `./actions.ts` and this file are
@@ -45,63 +41,24 @@ export { getOrderProduction };
  * needs one — so "Pending" could never be shown for the case it exists to
  * describe.
  */
-export type BomTaskRow = {
-  /** The garment order id — the row's identity. */
-  id: string;
-  sc_no: string | null;
-  order_code: string | null;
-  po_no: string | null;
-  customer_name: string | null;
-  amend_date: string;
-  delivery_date: string | null;
-  style_count: number;
-  /** Total production the order currently implies. Null when unanswerable. */
-  production_qty: number | null;
-  /** Why it is unanswerable, when it is — printed rather than left as a dash. */
-  production_refusal: string | null;
-  status: BomStatus;
-  /** The BOM to open, or null to start one. */
-  bom_id: string | null;
-  bom_code: string | null;
-  bom_line_count: number;
-  created_at: string;
-  created_by: string | null;
-};
+export type { BomTaskRow } from "@/lib/orders/bom-order-basis";
 
 export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
   const s = await createClient();
 
-  const [tiers, ordersRes, bomsRes] = await Promise.all([
+  const [tiers, orders, bomsRes] = await Promise.all([
     rejectionTiersById(),
-    s
-      .from("garment_order_amendments")
-      .select(ORDER_SELECT)
-      // CONFIRMED ORDERS ONLY (client 2026-08-13: "lists all confirmed RE
-      // Numbers"). A draft order is someone's half-entered thinking — its
-      // styles, combos and quantities are all still moving, so a material plan
-      // built against it is planned against numbers that have not settled.
-      //
-      // It is the ORDER's draft flag, not the BOM's. The queue's own `draft`
-      // status means "a BOM exists and is unfinished", which is a different
-      // sentence and stays.
-      .eq("is_draft", false)
-      .order("created_at", { ascending: false }),
+    confirmedOrdersForBom(),
     s
       .from("material_bom_amendments")
       .select(
         "id, code, garment_order_id, amendment_no, is_draft, computed_basis_hash, " +
-          "computed_for_qty, created_at, created_by, " +
-          "items:material_bom_amendment_items(id)",
+          "computed_for_qty, items:material_bom_amendment_items(id)",
       )
       .order("amendment_no", { ascending: false }),
   ]);
 
-  const orders = (ordersRes.data ?? []) as unknown as (OrderRow & {
-    created_at: string;
-    created_by: string | null;
-  })[];
-
-  type BomLite = {
+  type BomRow = {
     id: string;
     code: string | null;
     garment_order_id: string | null;
@@ -109,8 +66,6 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
     is_draft: boolean;
     computed_basis_hash: string | null;
     computed_for_qty: number | null;
-    created_at: string;
-    created_by: string | null;
     items: { id: string }[] | null;
   };
 
@@ -118,64 +73,19 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
   // amendment_no descending, so the first one seen wins — a later revision is
   // what the queue should be reporting on.
   const latest = new Map<string, BomLite>();
-  for (const b of (bomsRes.data ?? []) as unknown as BomLite[]) {
-    if (!b.garment_order_id) continue;
-    if (!latest.has(b.garment_order_id)) latest.set(b.garment_order_id, b);
+  for (const b of (bomsRes.data ?? []) as unknown as BomRow[]) {
+    if (!b.garment_order_id || latest.has(b.garment_order_id)) continue;
+    latest.set(b.garment_order_id, {
+      id: b.id,
+      code: b.code,
+      is_draft: b.is_draft,
+      computed_basis_hash: b.computed_basis_hash,
+      computed_for_qty: b.computed_for_qty,
+      lineCount: b.items?.length ?? 0,
+    });
   }
 
-  const rows: BomTaskRow[] = orders.map((o) => {
-    const input = orderProductionInput(o, tiers);
-    const total = totalProductionOf(input);
-    const bom = latest.get(o.id) ?? null;
-    const lineCount = bom?.items?.length ?? 0;
-
-    const now = {
-      // A refused total means the order cannot be fingerprinted into anything
-      // comparable, so freshness is `unresolved` rather than a guess.
-      hash: isRefusal(total) ? null : basisFingerprint(input),
-      qty: isRefusal(total) ? null : total,
-    };
-
-    return {
-      id: o.id,
-      sc_no: o.sales_order?.order_number ?? null,
-      order_code: o.code,
-      po_no: o.po_no,
-      customer_name: o.customer?.name ?? null,
-      amend_date: o.amend_date,
-      delivery_date: o.delivery_date,
-      style_count: (o.styles ?? []).length,
-      production_qty: now.qty,
-      production_refusal: isRefusal(total) ? total.refused : null,
-      status: bomStatusOf(
-        bom
-          ? {
-              is_draft: bom.is_draft,
-              lineCount,
-              computed_basis_hash: bom.computed_basis_hash,
-              computed_for_qty: bom.computed_for_qty,
-            }
-          : null,
-        now,
-      ),
-      bom_id: bom?.id ?? null,
-      bom_code: bom?.code ?? null,
-      bom_line_count: lineCount,
-      // The ORDER's provenance, not the BOM's: the row is an order, and an order
-      // with no BOM still has a creator worth showing.
-      created_at: o.created_at,
-      created_by: o.created_by,
-    };
-  });
-
-  // Work first: Recalculate, Pending, Draft, Unresolved, then Updated.
-  rows.sort(
-    (a, b) =>
-      BOM_STATUS_RANK[a.status] - BOM_STATUS_RANK[b.status] ||
-      (a.delivery_date ?? "9999").localeCompare(b.delivery_date ?? "9999"),
-  );
-
-  return withCreators(rows);
+  return withCreators(bomTaskRows(orders, tiers, latest));
 }
 
 /**

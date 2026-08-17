@@ -106,7 +106,15 @@ export const ITEM_MEASURES: ReportField[] = [
   { key: "qty_transfer_out", label: "Transfer out", kind: "measure", format: "qty", source: "stock_ledger" },
   { key: "qty_adjust_in", label: "Adjust in", kind: "measure", format: "qty", source: "stock_ledger" },
   { key: "qty_adjust_out", label: "Adjust out", kind: "measure", format: "qty", source: "stock_ledger" },
-  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_requirements", caveat: "The Material BOM's stored requirement — a plan, not a posting." },
+  // TWO SOURCES, ONE MEASURE — and the caveat has to say so. `qty_planned` sums
+  // every `fact_kind = 'planned'` row, so Fabric BOM (0426) joined it the moment
+  // its fragment landed in the view; nothing here had to be added for the number
+  // to change. A caveat still reading "the Material BOM's stored requirement"
+  // would then be describing half of what the column totals, on a measure whose
+  // whole history is being believed while it was wrong. `source` names the
+  // material table because a field carries one, and the reason the second is not
+  // invisible is that it is written down here.
+  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_requirements", caveat: "Material BOM and Fabric BOM stored requirements, added together — a plan, not a posting. A refused line is excluded rather than counted as zero." },
   { key: "qty_sent_out", label: "Sent to processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
   { key: "qty_came_back", label: "Back from processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
 
@@ -272,6 +280,28 @@ export const REPORT_SOURCES: ReportSource[] = [
     postsToLedger: false,
     status: "off_book",
     note: "The Material BOM's stored requirement, split by order / colour / size. A refused line stores NULL and is excluded rather than counted as zero.",
+  },
+  {
+    id: "order_fabric_boms",
+    label: "Fabric BOM (planned consumption)",
+    module: "orders",
+    factKinds: ["planned"],
+    // 0426. The same shape as the Material BOM above and deliberately so: the
+    // requirement is STORED, so this reads a number rather than re-deriving the
+    // excess, approval and projection maths in SQL beside the TypeScript copy.
+    //
+    // IT SHARES `qty_planned` WITH THE MATERIAL BOM. Both emit
+    // `fact_kind = 'planned'`, so an item report totals whichever of the two
+    // applies to the item — and no item is in both, since one plans fabric and
+    // the other trims. Splitting them into two measures was the alternative and
+    // would put an always-blank column beside every figure.
+    table: "order_fabric_bom_requirements",
+    itemColumn: "item_id",
+    qtyColumn: "required_qty",
+    dateColumn: "order_fabric_boms.bom_date",
+    postsToLedger: false,
+    status: "off_book",
+    note: "The Fabric BOM's stored requirement, split by colour or by colour and size. A refused line stores NULL and is excluded rather than counted as zero. Carries no rate: the money for a plan is the Budget's (step 7).",
   },
   {
     id: "delivery_challans",

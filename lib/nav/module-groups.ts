@@ -403,7 +403,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // The Planning screens keep their own rows under Planning ▸ Bill of
           // Materials and Planning ▸ Fabric Planning, so nothing is orphaned by
           // their leaving this list — check:nav asserts that too.
-          { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, process loss and the net requirement", status: "todo" },
+          // BUILT 2026-08-17 (`0426`). The flag came off in the same change that
+          // created `app/(app)/orders/fabric-bom/page.tsx`, because assertion 10
+          // holds `status: "todo"` and a missing route as the SAME fact and
+          // fails either way round — a `todo` whose page.tsx exists is an error,
+          // which is what stops the label outliving the work.
+          { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
           // 6 · FABRIC PLAN — the sourcing and processing path for what step 5
           // requires: yarn purchase, knitting, dyeing, stentering, compacting,
           // and which of those are in-house against out-processed.
