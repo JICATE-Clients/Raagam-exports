@@ -35,6 +35,12 @@ export default async function AppLayout({
             <Sidebar stores={stores} />
             <div className="flex min-w-0 flex-1 flex-col">
               <Topbar locations={locations ?? []} />
+              {/* `pb-20` below md is clearance for MobileNav's floating bar;
+                  `md:pb-6` is ordinary page padding. A page-mounted
+                  MasterFullScreen CANCELS the md value with `-mb-6` so its
+                  sticky footer reaches the viewport edge instead of floating
+                  above a strip of page — change `md:pb-6` here and change that
+                  offset with it (components/masters/master-full-screen.tsx). */}
               <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-6">
                 {children}
               </main>

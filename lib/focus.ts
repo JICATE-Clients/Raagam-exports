@@ -978,6 +978,96 @@ export function focusLastField(root: HTMLElement | null): boolean {
 }
 
 /**
+ * A ROW ADDED WITH THE MOUSE LANDS THE CURSOR IN IT, exactly as a row added with
+ * the keyboard already did (client 2026-08-14: "in each tab end field is not
+ * connected with keyboard — if click the last Add style it's moving to the next
+ * field").
+ *
+ * THE TWO ROUTES DISAGREED, and only one of them was written down. Enter on a
+ * grid's last row has always called `addRow()` and then landed on the new row's
+ * first field (`gridKeyNav`, `focusColIn`). The BUTTON did not: `handleAdd` adds
+ * the row, jumps the pager if there is one, and leaves the caret on itself. So
+ * the operator clicked "+ Add style", got a row nobody was standing in, and the
+ * next Tab did the one thing that looks like a bug from every angle — a "+ Add"
+ * is the LAST node of its section, so Tab from it wrapped, hit the content edge,
+ * and handed over to the NEXT TAB. The row they had just asked for was skipped.
+ *
+ * FOUND BY DIFFING FIELDS, NOT BY LOCATING THE GRID, and that is what makes one
+ * function cover every grid in the app. The two kinds of add button do not agree
+ * on where they live: a hand-rolled grid keeps its "+ Add" INSIDE
+ * `data-grid-body` (`enterNestedGrid` requires that), while `ChildGrid` renders
+ * its own as a SIBLING of the body, under the card. Pairing button to grid would
+ * need a rule per shape; asking "which fields exist now that did not exist
+ * before?" needs none, and answers correctly for a nested grid, a paginated one,
+ * and the ~22 screens that hand-roll their rows.
+ *
+ * A DECLINED ADD MOVES NOTHING, for free: `addSize` and the Material Attribute
+ * values list refuse to add while the last row is blank, so no field appears and
+ * there is nothing to land on. The cursor stays where the operator put it rather
+ * than being yanked into the row they were already told they cannot leave.
+ *
+ * IT DOES NOT BREAK A REQUIRED HOLD, and the reason is that there is no hold to
+ * break: a hold refuses KEYS — Tab, the arrows, Enter — while "Escape, the mouse
+ * and every other Ctrl/⌘ shortcut stay live" (AGENTS.md). This only ever runs
+ * from a trusted click, which was already an exit from a held cell; the blank
+ * field keeps its `data-required-empty` and Save keeps refusing.
+ *
+ * The 30ms is `gridKeyNav`'s, deliberately — the same wait for the same React
+ * render, and two timing stories for one landing is one too many.
+ */
+export function landOnAddedRow(trigger: HTMLElement): void {
+  const scope = trigger.closest<HTMLElement>("[data-grid-body]") ?? trigger.parentElement;
+  if (!scope) return;
+  const fieldsNow = () => focusablesIn(scope).filter(isFieldLike);
+  const before = new Set(fieldsNow());
+  window.setTimeout(() => {
+    const fresh = fieldsNow().filter((el) => !before.has(el));
+    if (!fresh.length) return;
+    /**
+     * THE FIRST NEW FIELD IN DOM ORDER, which is the top-left of whatever just
+     * appeared.
+     *
+     * "The last new row, then its first field" was tried first and is wrong on
+     * exactly the screens this was reported from: a row that carries a NESTED
+     * grid brings that grid's rows with it, so the last new row is the nested
+     * one. On Prices, "+ Add style price" would have landed in the rate box of a
+     * style nobody had chosen yet, one field past the Style picker the operator
+     * clicked the button to fill.
+     *
+     * The cost is one narrow case: a PAGINATED grid that jumps to its last page
+     * mounts that whole page at once, so if the page already held rows the caret
+     * lands on the first of them rather than on the row just added. It is a real
+     * row of the same grid one keystroke away, and it only happens when adding
+     * from a page that is not the last — against a nested grid landing on the
+     * wrong field every single time.
+     */
+    focusField(fresh[0]);
+  }, 30);
+}
+
+/**
+ * Is this click one that adds a grid row? Two ways to say so, because the app
+ * has two kinds of grid:
+ *
+ * - `data-row-add`, which `ChildGrid` stamps and new hand-rolled grids carry —
+ *   18 sites today, correct by construction;
+ * - a "+ …" button INSIDE a `data-grid-body`, which is what the older
+ *   hand-rolled grids look like. The same compatibility trick `ROW_REMOVE` uses
+ *   for its `aria-label^="Remove"` half, and for the same reason: the marker is
+ *   the rule, matching the convention is what spares 22 edits.
+ *
+ * Deliberately NOT every button in a grid body. A row's own "Process" or
+ * "[Detail]" button opens a sheet, and a pager's Next mounts a page — both would
+ * be adds by any looser test. The "+" prefix is the app-wide convention for the
+ * one control that grows a list ("+ Add line", "+ Add size", "+ Add style").
+ */
+export function isRowAddControl(el: HTMLElement): boolean {
+  if (el.matches('[data-row-remove], [aria-label^="Remove" i]')) return false;
+  if (el.matches("[data-row-add]")) return true;
+  return !!el.closest("[data-grid-body]") && (el.textContent ?? "").trim().startsWith("+");
+}
+
+/**
  * IS THIS SURFACE AN EDITOR? — the gate that decides whether Tab belongs to this
  * contract at all.
  *

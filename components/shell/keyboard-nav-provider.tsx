@@ -9,8 +9,10 @@ import {
   cycleTab,
   enterAdvances,
   isEditorScope,
+  isRowAddControl,
   keyFillsField,
   keyMovesBackward,
+  landOnAddedRow,
   rememberFocus,
   restoreFocusIfLost,
 } from "@/lib/focus";
@@ -378,6 +380,32 @@ export function KeyboardNavProvider({ children }: { children: ReactNode }) {
     const onFocusIn = (e: FocusEvent) => rememberFocus(e.target);
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
+
+  /**
+   * "+ ADD" PUTS THE CURSOR IN THE ROW IT MADE — one listener, every grid.
+   *
+   * The rule and the reasoning are `landOnAddedRow` in lib/focus.ts; this is the
+   * delivery, and it is here rather than in `ChildGrid` for the standing reason
+   * AGENTS.md gives: ~22 screens hand-roll a grid row, so a fix inside the
+   * component would leave the remainder that always comes back. Everything the
+   * app calls a grid answers a `click` on the document.
+   *
+   * TRUSTED CLICKS ONLY. `enterNestedGrid` reaches an empty nested grid by
+   * calling `.click()` on its `data-row-add` and then landing in the box that
+   * opens — it already owns that landing, and two handlers racing for one caret
+   * is how a cursor ends up somewhere neither of them meant.
+   */
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (!e.isTrusted) return;
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      const btn = el?.closest<HTMLElement>("[data-row-add], button");
+      if (!btn || !isRowAddControl(btn)) return;
+      landOnAddedRow(btn);
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
   }, []);
 
   useEffect(() => {

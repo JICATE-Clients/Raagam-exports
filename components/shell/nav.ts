@@ -56,8 +56,21 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", module: "dashboard", icon: LayoutDashboard },
   {
+    // RENAMED "Sales" → "Sample" (client 2026-08-14). The module is the
+    // pre-bulk stage — fit samples, size sets, revisions — and the old name
+    // read as the bulk selling it hands over TO.
+    //
+    // THE LABEL MOVED AND THE ROUTES DID NOT, deliberately: `/sales/*` stays,
+    // along with the `sales` permission key, the `sales_*` tables and the
+    // `Sales*` component names. Renaming the segment would break every deep
+    // link and bookmark for a word, and the registry's own standing rule is
+    // that naming never moves routes. What changes is what the operator reads —
+    // this row, the page titles and the back links.
+    //
+    // "SQ" IS STILL SALES QUOTE. Document names are not the module name, so
+    // `/sales/sq-details` and its wording are untouched.
     href: "/sales",
-    label: "Sales",
+    label: "Sample",
     module: "sales",
     icon: ShoppingBag,
     children: [

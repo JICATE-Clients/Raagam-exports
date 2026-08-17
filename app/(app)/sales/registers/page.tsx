@@ -24,7 +24,7 @@ export default async function SalesRegistersPage({
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Sales Registers"
+        title="Sample Registers"
         description="Cross-opportunity views of cost sheets, quotes and samples."
       />
       <SalesRegistersClient

@@ -185,12 +185,25 @@ function cardIssues(
   }
 
   // 11 — the ↗ means "another module owns this", both ways round.
+  //
+  // AN IDLE CARD IS EXEMPT FROM THE SECOND HALF, because it has no href to
+  // follow: `group-hub.tsx` renders `href: null` for both `todo` and
+  // `unavailable`, so the tile does not navigate at all. The rule it would
+  // otherwise fail is a promise about where a CLICK lands, and there is no
+  // click. Demanding the glyph anyway is unsatisfiable, since the next branch
+  // down rejects `external` on an idle card for exactly that reason — the two
+  // rules would together forbid ever naming a cross-module screen that cannot
+  // open, which is Order Setup ▸ Fabric Plan / Budgeting (both built, both over
+  // tables 0332 dropped, both listed so the client's six-step flow is visible).
+  //
+  // The FIRST half stays live for idle cards and is not weakened: `external`
+  // set on one is still an error, from the branch below.
   if (card.external === true && inModule(moduleHref, card.href)) {
     out.push(
       `external: true but the route is inside ${moduleHref} — the ↗ promises a ` +
         `link out of the module`,
     );
-  } else if (card.external !== true && !inModule(moduleHref, card.href)) {
+  } else if (card.external !== true && !inModule(moduleHref, card.href) && !todo && !unavailable) {
     out.push(
       `leaves ${moduleHref} without external: true — the operator lands in ` +
         `another module with the sidebar moving under them and no glyph saying so`,
@@ -341,6 +354,15 @@ for (const [moduleHref, grouping] of Object.entries(MODULE_GROUPS)) {
       // exception: it must keep resolving to the MODULE, or visiting /orders
       // would highlight Order Entry and `sidebar.tsx` would un-highlight the
       // Orders row (see the guard in `owningNavHref`).
+      // A CROSS-MODULE CARD NEEDS NO EXEMPTION HERE, and one was written and
+      // then deleted on 2026-08-14 — worth recording, because it looks like it
+      // should. `owningNavHref` considers each child by its OWN href, so
+      // Order Setup listing `/planning/fabric-bom` makes that path resolve to
+      // `/orders/setup` and assertion 5 is satisfied without help. The skip that
+      // was added "so the other module's rows can own it" changed no outcome:
+      // removing it again left the check passing, which is how it was caught.
+      // An exemption that guards nothing still weakens the rule for every future
+      // card that hits it.
       const owner = owningNavHref(moduleHref, c.href);
       // The module root is tested FIRST and is the one child legitimately owned
       // by no row in this table — the MODULE row owns it, which `owningNavHref`
@@ -756,6 +778,35 @@ const SELF_TEST: {
     built: ["/finance/ledger"],
     keys: [],
     expect: /leaves \/orders without external: true/,
+  },
+  {
+    // THE EXEMPTION ADDED WITH ORDER SETUP'S SIX STEPS, proved from both ends —
+    // which for a RELAXED rule is the half that matters. `right` asserts the
+    // exemption exists at all (a cross-module card that cannot open needs no
+    // ↗), and `wrong` asserts it did not swallow the neighbouring rule with it
+    // (setting the glyph on an inert card is still an error). The fixture above
+    // is the third side: a cross-module card that CAN open still fails without
+    // the glyph, so the relaxation reaches only the idle states.
+    name: "11 · an inert cross-module card needs no ↗, and must not carry one",
+    module: "/orders",
+    wrong: {
+      href: "/planning/budgets",
+      label: "Budgeting",
+      description: "d",
+      status: "unavailable",
+      unavailableNote: "n",
+      external: true,
+    },
+    right: {
+      href: "/planning/budgets",
+      label: "Budgeting",
+      description: "d",
+      status: "unavailable",
+      unavailableNote: "n",
+    },
+    built: ["/planning/budgets"],
+    keys: [],
+    expect: /status:"unavailable" with external: true/,
   },
   {
     name: "12 · a countKey nothing counts",

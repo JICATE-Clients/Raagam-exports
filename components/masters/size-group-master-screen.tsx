@@ -1,7 +1,9 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { normName } from "@/lib/masters/name-dictionary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGrid } from "@/components/ui/field";
@@ -112,22 +114,71 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
     // through `withCreators()`.
   ];
 
+  /**
+   * THE SAME SIZE TWICE IN ONE GROUP, caught as it is typed.
+   *
+   * The parent NAME has had a duplicate check since this screen was written; the
+   * sizes under it had none at any layer, so `MENS TOP -> S, M, S` saved
+   * cleanly. It then failed silently rather than loudly: the Style master's
+   * "Fill sizes" builds a name->id `Map`, so the third row just disappears when
+   * the group is used, with nothing said to anyone.
+   *
+   * `normName` is the shared normaliser — trim, collapse inner whitespace,
+   * uppercase — so this agrees exactly with the server guard and with 0425's
+   * unique index. Comparing raw text here would let "S " and "S" both stand.
+   */
+  const duplicateSizeKeys = useMemo(() => {
+    const seen = new Set<string>();
+    const dup = new Set<string>();
+    for (const r of childRows) {
+      const key = normName(r.size_name);
+      if (!key) continue; // a blank row is not a duplicate; the action drops it
+      if (seen.has(key)) dup.add(key);
+      else seen.add(key);
+    }
+    return dup;
+  }, [childRows]);
+
+  const hasDuplicateSize = duplicateSizeKeys.size > 0;
+
   const childColumns: ChildGridColumn<ChildRow>[] = [
     {
       header: "Size",
       required: true,
-      cell: (r) => (
-        <Input
-          uppercase
-          value={r.size_name}
-          onChange={(e) =>
-            setChildRows((xs) =>
-              xs.map((x) => (x.key === r.key ? { ...x, size_name: e.target.value } : x)),
-            )
-          }
-          placeholder="S"
-        />
-      ),
+      cell: (r) => {
+        const dup = duplicateSizeKeys.has(normName(r.size_name));
+        return (
+          <div>
+            <Input
+              uppercase
+              value={r.size_name}
+              onChange={(e) =>
+                setChildRows((xs) =>
+                  xs.map((x) => (x.key === r.key ? { ...x, size_name: e.target.value } : x)),
+                )
+              }
+              placeholder="S"
+              /**
+               * `aria-invalid` + a red border, and deliberately NOT
+               * `dupFieldProps`. That helper stamps `data-dup-error`, which is
+               * the CURSOR HOLD — and holding here would trap the operator in
+               * the second cell, because neither value is wrong on its own. It
+               * is the pair that is wrong, and the pair is fixed by editing
+               * EITHER box. Save is blocked instead, which refuses the record
+               * without refusing movement. Same choice, same reason, as the
+               * Material Attribute values grid.
+               */
+              aria-invalid={dup ? true : undefined}
+              className={cn(dup && "border-danger")}
+            />
+            {/* Both copies are flagged, not only the later one — the operator is
+                as likely to want to retype the first. */}
+            {dup && (
+              <p className="mt-1 text-xs text-danger">Already listed in this group</p>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -186,7 +237,7 @@ export function SizeGroupMasterScreen({ rows, perms }: { rows: SizeGroup[]; perm
     });
   }
 
-  const canSave = !!form.size_group_name.trim() && !dupError;
+  const canSave = !!form.size_group_name.trim() && !dupError && !hasDuplicateSize;
 
   return (
     <>

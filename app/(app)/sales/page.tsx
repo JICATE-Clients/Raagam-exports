@@ -102,7 +102,7 @@ export default async function SalesPipelinePage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Sales Pipeline"
+        title="Sample Pipeline"
         description="Track opportunities from enquiry to win"
         actions={
           <Link href="/sales/create">

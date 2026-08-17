@@ -525,8 +525,24 @@ export function MasterFullScreen({
              * `min-h-0` is not optional: a flex item's default `min-height:auto`
              * refuses to shrink below its content, so without it a long record
              * pushes the footer back off the bottom and the gap returns.
+             *
+             * AND IT BLEEDS THROUGH THE SHELL'S BOTTOM PADDING (client
+             * 2026-08-14). Filling the scrollport is not the same as reaching
+             * the screen: `<main>` is `p-4 pb-20 md:pb-6`, so a card that ends
+             * exactly at its scrollport still floats 24px above the desktop
+             * viewport edge — the footer read as a detached bar with a strip of
+             * page under it, which is the 08-10 complaint again, one padding
+             * short. `-mb-6` gives the flex item that 24px back (a negative
+             * margin shrinks its outer contribution, so `flex-1` resolves 24px
+             * taller) and the bottom border and radius come off, because a
+             * rounded corner sitting ON the screen edge is what makes a docked
+             * panel look dropped rather than docked.
+             *
+             * md ONLY, and that is the whole reason the shell's padding is
+             * asymmetric: below md the 80px is clearance for `MobileNav`'s
+             * floating bar, so bleeding there would slide Save underneath it.
              */
-            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border",
+            "min-h-0 flex-1 overflow-hidden rounded-lg border border-border md:-mb-6 md:rounded-b-none md:border-b-0",
       )}
     >
       {/* topbar — OVERLAY ONLY. A route already has browser Back, a breadcrumb

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capsName, capsTextNullable } from "@/lib/validation/formats";
 import { styleProblems } from "./rules";
 
 // ============================================================================
@@ -204,10 +205,36 @@ export const garmentStyleInput = z
      * or be repeated there, because data-io writes straight to Postgres.
      */
     approved_sample_id: uuidN,
-    style_name: z.string().min(1, "Style name is required"),
+    /**
+     * CAPS, AND THE TRANSFORM BELONGS HERE (client 2026-08-14 — "only capital
+     * letters, even if the operator types small").
+     *
+     * The screen half alone would not have been enough and the reason is the
+     * standing one: `<Input uppercase>` uppercases the KEYSTROKE, so it cannot
+     * reach a name that was stored before this rule or written by any path that
+     * is not a person typing. `capsName()` is what makes the stored value
+     * capital, which is what "stored, not merely displayed" means in AGENTS.md
+     * §CAPITALS.
+     *
+     * THIS IS THE ONLY EDITABLE STYLE-NAME FIELD IN THE ORDERS MODULE. Every
+     * other screen that shows a style — Order Entry, Material BOM, Process
+     * Amendment, TA Style — PICKS one from this master rather than typing it, so
+     * capitalising the source is what capitalises the module. There is no second
+     * place to keep in sync, and a per-screen display transform would have been
+     * the per-component patch AGENTS.md warns against.
+     *
+     * `capsName` also trims and refuses whitespace-only, which is why it
+     * replaces the `.min(1)` rather than sitting in front of it — a name of
+     * three spaces used to pass that check and would now save as "".
+     */
+    style_name: capsName("Style name is required"),
     season: nullableText,
     style_year: z.coerce.number().int().nullable().default(null),
-    article_no: nullableText,
+    /** A stored value, so CAPS by the same rule as `style_name`. `nullableText`
+     *  is the plain optional string it used to be; `capsTextNullable` is that
+     *  with the transform, and it still passes null and undefined through. Not
+     *  applied to the two DESCRIPTION fields beside it: free prose is exempt. */
+    article_no: capsTextNullable(),
     style_category_id: uuidN,
     item_class_id: uuidN,
     style_description: nullableText,

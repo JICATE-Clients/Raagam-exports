@@ -21,7 +21,7 @@ export default async function SalesQuoteConfirmationsPage() {
         actions={
           <Link href="/sales">
             <Button variant="outline" size="md">
-              ← Sales
+              ← Sample
             </Button>
           </Link>
         }

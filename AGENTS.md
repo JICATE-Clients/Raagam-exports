@@ -48,6 +48,17 @@ The actions that left the Tab path each keep a key, and the shortcuts sheet says
 - **Delete a grid row** — **Ctrl+Del** on any cell (`gridKeyNav`). It drives the row's own
   ✕ with `.click()`, found by `[data-row-remove]` or an `aria-label` starting "Remove", so
   the 22 hand-rolled grids get it without being edited.
+- **Add a grid row** — Enter on the last row, or the "+ Add" button. **Either way the
+  cursor lands in the new row** (`landOnAddedRow`, one document listener). Only the
+  keyboard half was ever built: the button added the row and kept the caret on itself, and
+  because a "+ Add" is the LAST node of its section, the next Tab wrapped, hit the content
+  edge and handed over to the NEXT SECTION — the row the operator had just asked for was
+  skipped (client 2026-08-14). The landing finds the row by DIFFING the fields in the
+  grid before and after, which is what makes it one rule for every shape: `ChildGrid`
+  renders its "+ Add" as a sibling of `data-grid-body` and a hand-rolled grid keeps it
+  inside, so pairing button to grid would need a rule each. A declining grid (`addSize`
+  while the last size is blank) adds no field, so nothing moves — the refusal stays
+  visible instead of being papered over by a cursor jump.
 - Everything is still on the mouse, and still in screen-reader focus order — the ✕ is
   *reordered out of the typing path*, never removed from the document.
 
