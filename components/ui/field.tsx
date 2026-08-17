@@ -127,7 +127,38 @@ export type { FieldSize };
 export const FIELD_TRACK =
   "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5 @lg/section:grid-cols-12";
 
-const SPAN: Record<FieldSize, string> = {
+/**
+ * A FOURTEEN-column variant of the track above, for a section the client wants
+ * on ONE row that twelve cannot hold.
+ *
+ * 12 is the house track and stays the default. 14 exists because the smallest
+ * span is `xs` (2), so a 12-col row tops out at SIX fields — and Orders ▸ Style
+ * ▸ Style Details was asked for SEVEN on one line (client 2026-08-17). 7 x 2 =
+ * 14 exactly, which is the whole reason the number is 14 and not 13 or 16: the
+ * fields keep the existing `xs` span rather than needing a new size.
+ *
+ * A SEPARATE LITERAL, never `grid-cols-${n}`. Tailwind v4 scans source text, so
+ * an interpolated class produces no CSS at all — the same warning `FIELD_TRACK`
+ * carries, and the reason these are two constants instead of one function.
+ *
+ * REACH FOR IT ONLY WHEN A ROW IS SPECIFIED. A field on this track is ~155px
+ * against LAYOUT.md §3's ~280px, so it is narrower than the one-width rule
+ * anywhere else in the app — legible for a date, a code or a Select, tight for
+ * free text. It is the client's call per section, not a new default.
+ */
+export const FIELD_TRACK_14 =
+  "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5 @lg/section:grid-cols-14";
+
+/**
+ * A `FieldSize`'s span on the track above. Exported for the same reason
+ * `FIELD_TRACK` is — so nothing has to retype `col-span-2` and mean "xs".
+ *
+ * `ChildGrid`'s `across` mode is the consumer: it lays one record per grid cell
+ * along `FIELD_TRACK`, so it needs a span per item, and a hand-written 2 there
+ * would be a second opinion about what "xs" is. Aliased below as `SPAN` because
+ * that is what every reference in this file already calls it.
+ */
+export const FIELD_SPAN: Record<FieldSize, string> = {
   xs: "@lg/section:col-span-2", // 2-4 chars — %, qty, a small count
   sm: "@lg/section:col-span-3", // short codes — HSN, count, shade
   md: "@lg/section:col-span-4", // the default — most pickers and lookups
@@ -151,6 +182,9 @@ const SPAN: Record<FieldSize, string> = {
   xl: "@lg/section:col-span-8",
   full: "@lg/section:col-span-12", // stands alone on its row — grids, textareas
 };
+
+/** See `FIELD_SPAN` above — this is the name the rest of this file uses. */
+const SPAN = FIELD_SPAN;
 
 export function Field({
   label,

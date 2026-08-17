@@ -27,6 +27,33 @@ import { capsTextNullable } from "@/lib/validation/formats";
  */
 export const SUPPLY_TYPE_OPTIONS = ["Local", "Import", "Nominated", "Free Issue"] as const;
 
+/**
+ * The Items grid's "Type" — how settled this line's material is.
+ *
+ * RESTORED 2026-08-17 ON THE CLIENT'S WRITTEN INSTRUCTION, and the history
+ * matters because a column coming back with no note beside it reads as drift:
+ * this list held `["Production", "Sample", "Trial"]`, c756d82 withdrew the cell
+ * that morning as part of a 22 → 19 column streamlining and called the option
+ * list provisional, and the SAME client drop asked for these three words in the
+ * item section. So the withdrawal was of a wrong vocabulary, and this is the
+ * right one — they REPLACE the old three rather than joining them.
+ *
+ * That restoration cost one grid column and nothing else because the withdrawal
+ * kept the DB column, the stored values and `mbaItemInput.type`. There is no
+ * migration: `material_bom_amendment_items.type` is plain `text` with no CHECK
+ * (0265) and nothing has altered it since.
+ *
+ * NOT CAPITALISED. "To be advised" is mixed case by design; AGENTS.md's CAPITALS
+ * rule governs typed free text (`<Input uppercase>` + `capsName()` in the
+ * schema), not a fixed option list — the same exemption workflow status keys
+ * take. `type` stays `nullableText` in the input for that reason.
+ */
+export const MATERIAL_TYPE_OPTIONS = [
+  "To be advised",
+  "To be developed",
+  "Available Item",
+] as const;
+
 /** Where a material sent out for processing has got to. */
 export const PROCESS_STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
@@ -74,8 +101,10 @@ export interface MbaItem {
    * offered together — a BOM line has no item class of its own.
    */
   category_id: string | null;
-  /** WITHDRAWN from the grid 2026-08-17 — the legacy descriptor ("To be
-   *  advised", "Available Item"). Still round-tripped. */
+  /** How settled this line's material is — `MATERIAL_TYPE_OPTIONS`. Withdrawn
+   *  from the grid on the morning of 2026-08-17 and restored the same day with
+   *  the corrected option list, on the client's instruction; see that constant
+   *  for why the two are one decision rather than a flip-flop. */
   type: string | null;
   item_id: string | null;
   /** Classification only. It does NOT drive the split — see `requirement_basis`

@@ -44,6 +44,37 @@ export const Input = forwardRef<
    * field: that is a cage with no keyboard way out, and a derived value
    * (the composed Material Name) fills itself once its sources are filled.
    */
+  /**
+   * NO SPINNERS ON A NUMBER FIELD (client 2026-08-17).
+   *
+   * Chrome and Safari draw a two-arrow stepper inside `<input type="number">`
+   * and Firefox draws its own; on a dense ERP grid that stepper sits on top of
+   * the value, and a mis-click nudges a quantity by one with nothing on screen
+   * to say it happened. Removing it costs nothing — ↑/↓ inside a grid MOVE the
+   * cursor (the keyboard contract), so the arrows were never the way a number
+   * got typed here anyway.
+   *
+   * One place, because 325 `<Input type="number">` across 125 files is exactly
+   * the fan-out AGENTS.md says never to answer per screen — and every number
+   * field in the app goes through this primitive (zero raw
+   * `<input type="number">` in the tree; `ValidatedInput` wraps this one), so
+   * the ~22 hand-rolled grids inherit it without being edited.
+   *
+   * GATED ON `type === "number"`, never applied unconditionally: `appearance`
+   * is what DRAWS a checkbox, a radio, a range and a colour swatch, so
+   * `[appearance:textfield]` on those would erase the control itself. `Input`
+   * carries no such type today, but `NEVER_HOLDS` above exists because one may
+   * arrive.
+   *
+   * Both halves are needed: the webkit pseudo-elements are the Chrome/Safari
+   * stepper, `appearance: textfield` on the input is Firefox's. `m-0` is for
+   * the older Chrome that left the stepper's margin behind after hiding it.
+   * Written before `className` in the merge, so a call site can still opt back
+   * in.
+   */
+  const noSpinners =
+    props.type === "number" &&
+    "[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [appearance:textfield]";
   const hold = useRequiredHold(
     !readOnly &&
       !props.disabled &&
@@ -135,6 +166,7 @@ export const Input = forwardRef<
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",
       uppercase && "uppercase placeholder:normal-case",
+      noSpinners,
       className,
     )}
     onChange={

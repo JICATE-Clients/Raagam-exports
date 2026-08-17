@@ -2,11 +2,12 @@
 
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, Calculator, ClipboardList, Copy, Workflow } from "lucide-react";
+import { Calculator, ClipboardList, Copy, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
+import { DetailSection } from "@/components/masters/detail-section";
 import { Truncated } from "@/components/ui/truncated";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
@@ -18,8 +19,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { MobileCardList } from "@/components/masters/mobile-card-list";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -39,6 +39,7 @@ import {
   updateMaterialBomAmendment,
 } from "@/lib/orders/material-bom-amendment/actions";
 import {
+  MATERIAL_TYPE_OPTIONS,
   PROCESS_STATUS_OPTIONS,
   REQUIREMENT_BASIS_LABELS,
   SUPPLY_TYPE_OPTIONS,
@@ -72,7 +73,7 @@ import {
   toPurchaseQty,
   uomPrecision,
 } from "@/lib/uom/convert";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { createdMeta, hasCreatedInfo } from "@/components/ui/created-columns";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -90,18 +91,21 @@ interface Props {
 
 /**
  * THREE FIELDS HERE ARE CARRIED AND NOT SHOWN, and they are all withdrawals
- * rather than deletions: `attribute_id` (0418), and `type` / `alternate_uom_id`
- * / `combination` (client 2026-08-17, "UI streamlining"). Each keeps its DB
+ * rather than deletions: `attribute_id` (0418), and `alternate_uom_id` /
+ * `combination` (client 2026-08-17, "UI streamlining"). Each keeps its DB
  * column, its stored values and its place in this row — see the note on
  * `attribute_id` below for why the round trip is not optional.
+ *
+ * `type` was a fourth for half a day and is SHOWN again — the withdrawal and
+ * the restoration are one client instruction, not a flip-flop. Read
+ * `MATERIAL_TYPE_OPTIONS` in types.ts before touching it.
  */
 type ItemRow = {
   key: string;
   category_id: string | null;
-  /** CARRIED, NOT SHOWN (client 2026-08-17). The legacy "Type" descriptor — "To
-   *  be advised", "Available Item". It never reached the requirement engine and
-   *  the option list here was provisional, so the client withdrew it to shorten
-   *  the row. Round-tripped, same reason as `attribute_id`. */
+  /** How settled this line's material is — To be advised / To be developed /
+   *  Available Item (`MATERIAL_TYPE_OPTIONS`). Descriptive: it has never
+   *  reached the requirement engine and still does not. */
   type: string;
   item_id: string | null;
   /**
@@ -152,6 +156,10 @@ type ItemRow = {
   /** The DIVISOR. Never defaulted to 1 — see 0418. */
   per_pieces: string;
   excess_pct: string;
+  /** WITHDRAWN from the grid 2026-08-17 (client), CARRIED not dropped — same
+   *  treatment as Type / Alternate Uom / Combination above. `writeChildren`
+   *  deletes and reinserts every child row, so a field the form stops holding is
+   *  one the next save NULLS. The legacy screen has no such column either. */
   required_by: string;
 };
 
@@ -211,6 +219,24 @@ const blankProc = (key: string): ProcRow => ({
 
 const today = () => new Date().toISOString().slice(0, 10);
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
+
+/**
+ * THE SIX HEADERS THAT LEAD AN ITEM CARD (client 2026-08-17), in the order they
+ * are entered — which is also the TAB ORDER, since Tab walks a row's fields in
+ * DOM order (`tabFieldsIn`, see the keyboard contract). Identity first, detail
+ * after, rather than jumping mid-row.
+ *
+ * The reasoning for the split, and what was deliberately NOT copied from the
+ * legacy screen, is on `renderMobileRow` where the two bands are rendered.
+ */
+const ITEM_LINE_HEADERS: readonly string[] = [
+  "Category",
+  "Material",
+  "Attribute",
+  "Supply Type",
+  "Vendor",
+  "MOQ",
+];
 
 export function MbaMasterScreen({
   tasks,
@@ -284,14 +310,26 @@ export function MbaMasterScreen({
   const componentsOf = (ref: string) => styleOf(ref)?.components ?? [];
 
   /**
-   * THE CATEGORY OPTIONS, PREFIXED BY THEIR ITEM CLASS.
+   * THE CATEGORY OPTIONS, PREFIXED BY THEIR ITEM CLASS ONLY WHERE THE NAME IS
+   * AMBIGUOUS (client 2026-08-17: "no longer show the Item Class Name in front
+   * of the category in the item section").
    *
-   * Both accessory classes are offered in one cell, because a BOM line has no
-   * class of its own — one grid holds a button and a poly bag. AGENTS.md's
-   * cascading-filter rule covers exactly that case: "with no class chosen,
-   * prefix each option by its class", since category names repeat across classes
-   * and two identical options the operator has to guess between is the other
-   * half of the bug this fixes.
+   * TWO RULES MEET HERE AND ONLY ONE OF THEM IS NEGOTIABLE. Both accessory
+   * classes are offered in one cell, because a BOM line has no class of its own
+   * — one grid holds a button and a poly bag — and AGENTS.md's cascading-filter
+   * rule covers exactly that: "with no class chosen, prefix each option by its
+   * class", because category names repeat across classes and two identical
+   * options the operator has to guess between is the other half of the bug the
+   * prefix was added for. Live data has STRING as a category under BOTH SEW and
+   * PACK, so a blanket removal would put two identical rows in this list.
+   *
+   * So the prefix is kept exactly where it is load-bearing and dropped
+   * everywhere else: a name declared by ONE class carries none, a name declared
+   * by TWO carries both. That is the client's ask everywhere they will actually
+   * see it — the duplicates are the minority — without reintroducing a choice
+   * that cannot be made. Deriving it from the data rather than from a list means
+   * a new collision in the Category master starts disambiguating itself, and the
+   * last collision to be renamed stops.
    *
    * The prefix is applied to the NAME rather than shown as a sublabel because
    * `CategoryPicker` already spends the sublabel on `short_spec`, and the
@@ -301,7 +339,20 @@ export function MbaMasterScreen({
     const classCode = new Map(
       data.lookups.filter((l) => l.kind === "item_class").map((l) => [l.id, l.code]),
     );
+    // Matched case- and space-insensitively: "Poly Bag" and "POLY BAG" are the
+    // collision this is for, not two names that merely sort together. CAPS is
+    // the app-wide rule but the master predates it on some rows.
+    const classesByName = new Map<string, Set<string>>();
+    for (const c of data.categories) {
+      const key = (c.name ?? "").trim().toUpperCase();
+      if (!key) continue;
+      const seen = classesByName.get(key) ?? new Set<string>();
+      seen.add(c.item_class_id ?? "");
+      classesByName.set(key, seen);
+    }
     return data.categories.map((c) => {
+      const key = (c.name ?? "").trim().toUpperCase();
+      if (!key || (classesByName.get(key)?.size ?? 0) < 2) return c;
       const code = c.item_class_id ? classCode.get(c.item_class_id) : null;
       return code ? { ...c, name: `${code} · ${c.name}` } : c;
     });
@@ -673,70 +724,59 @@ export function MbaMasterScreen({
     });
   }, [tasks, query, statusFilter]);
 
-  const columns: Column<BomTaskRow>[] = [
-    {
-      header: "SC No",
-      cell: (t) => (
-        <button
-          type="button"
-          onClick={() => openTask(t)}
-          className="font-mono text-xs font-medium text-primary hover:underline"
+  /**
+   * ONE CARD PER GARMENT ORDER (operator request, 2026-08-17). This list is a
+   * work QUEUE — "which confirmed orders still need their accessories planned?"
+   * — and it was a `DataTable` of one row per order. The cards carry the same
+   * seven facts and the same click: `openTask` opens that order's Material BOM.
+   *
+   * `MobileCardList` with `columns={3}` rather than a card hand-rolled here. It
+   * already owns the tap-to-edit body, the pill slot and the footer that keeps
+   * delete a SIBLING of the tap target rather than a button inside a button —
+   * and AGENTS.md's repeated lesson is that the fan-out is always on the
+   * hand-rolled half. Its `md:hidden` has always been the caller's, so using it
+   * at every width needed one optional prop and changed no other screen.
+   *
+   * THE SC NO IS NO LONGER A BUTTON. It was one as a table cell, because that is
+   * where the click lived. The card body IS the button, so keeping it would nest
+   * one inside the other — the exact invalid markup that shaped this component.
+   */
+  /** False when the service does not select `created_at` — then the card shows
+   *  no Created line at all, rather than a dangling date. `hasCreatedInfo` is the
+   *  same guard `withCreatedColumns` applies to a table. */
+  const showCreated = hasCreatedInfo(tasks);
+
+  const cardStats = (t: BomTaskRow) => (
+    <dl className="mt-2 space-y-0.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <dt>Styles</dt>
+        <dd className="tabular-nums text-foreground">{t.style_count}</dd>
+      </div>
+      <div className="flex items-baseline justify-between gap-2">
+        <dt>Production</dt>
+        {/* A REFUSAL PRINTS ITS SENTENCE, never a dash and never 0 — "no
+            production quantity yet" and "nothing entered" look identical as a
+            dash and only one of them is actionable. Same rule the table had. */}
+        <dd
+          className={
+            t.production_qty != null
+              ? "font-semibold tabular-nums text-foreground"
+              : "text-right text-[11px] leading-tight"
+          }
         >
-          {t.sc_no ?? t.order_code ?? "—"}
-        </button>
-      ),
-    },
-    { header: "Customer", cell: (t) => <span className="text-sm">{t.customer_name ?? "—"}</span> },
-    {
-      header: "PO No",
-      cell: (t) => <span className="font-mono text-xs">{t.po_no ?? "—"}</span>,
-    },
-    {
-      header: "Styles",
-      align: "right",
-      cell: (t) => <span className="tabular-nums text-sm">{t.style_count}</span>,
-    },
-    {
-      header: "Production",
-      align: "right",
-      // The multiplier every requirement on this order is built from. A refusal
-      // prints its sentence rather than a dash: "no production quantity yet" and
-      // "nothing entered" look identical as a dash, and only one is actionable.
-      cell: (t) =>
-        t.production_qty != null ? (
-          <span className="tabular-nums text-sm">{fmtNumber(t.production_qty)}</span>
-        ) : (
-          <span className="text-xs text-muted-foreground">{t.production_refusal ?? "—"}</span>
-        ),
-    },
-    {
-      header: "Delivery",
-      align: "right",
-      cell: (t) => (
-        <span className="tabular-nums text-xs text-muted-foreground">
+          {t.production_qty != null
+            ? fmtNumber(t.production_qty)
+            : (t.production_refusal ?? "—")}
+        </dd>
+      </div>
+      <div className="flex items-baseline justify-between gap-2">
+        <dt>Delivery</dt>
+        <dd className="tabular-nums">
           {t.delivery_date ? fmtDate(t.delivery_date) : "—"}
-        </span>
-      ),
-    },
-    {
-      header: "Material BOM",
-      cell: (t) => (
-        <span title={bomStatusHint(t.status, t.production_qty)}>
-          <StatusPill tone={bomStatusTone(t.status)}>{bomStatusText(t.status)}</StatusPill>
-        </span>
-      ),
-    },
-    rowActionsColumn((t) => (
-      <RowActions
-        label={t.sc_no ?? t.order_code}
-        onEdit={() => openTask(t)}
-        canEdit={perms.canEdit}
-        onDelete={t.bom_id ? () => del(t) : undefined}
-        canDelete={perms.canDelete && !!t.bom_id}
-        isPending={isPending}
-      />
-    )),
-  ];
+        </dd>
+      </div>
+    </dl>
+  );
 
   // ---------------- THE EDITOR ----------------
 
@@ -919,7 +959,9 @@ export function MbaMasterScreen({
    * clickable and explains itself instead of going silently dead.
    */
   const validity = sectionValidity({
-    sections: [{ key: "bom" }, { key: "items" }, { key: "processes" }, { key: "requirement" }],
+    // Three sections since the header and the Items grid merged (2026-08-17).
+    // The `bom` key still owns both required fields, so nothing here moved.
+    sections: [{ key: "bom" }, { key: "processes" }, { key: "requirement" }],
     values: form,
     fields: [
       { section: "bom", id: "mba-date", label: "Date", required: true, empty: (f) => !f.amend_date },
@@ -1158,6 +1200,46 @@ export function MbaMasterScreen({
       },
     },
     {
+      header: "Type",
+      className: "min-w-[110px]",
+      /**
+       * HOW SETTLED THIS MATERIAL IS — "To be advised", "To be developed",
+       * "Available Item" (client 2026-08-17: "in the item section, add Type
+       * options for …").
+       *
+       * RESTORED THE SAME DAY IT WAS WITHDRAWN, and that is deliberate rather
+       * than churn. c756d82 took the cell out that morning to get the row from
+       * 22 columns to 19, judging the list it then held — Production / Sample /
+       * Trial — provisional; it was right about the list and the client's own
+       * drop names its replacement. The withdrawal is what made this cheap: the
+       * DB column, the stored values and `mbaItemInput.type` were all kept, so
+       * this is a grid column and nothing else, and no migration
+       * (`material_bom_amendment_items.type` is plain `text`, no CHECK, 0265,
+       * unaltered since).
+       *
+       * NOT `required` — a BOM line saves without it, which is the point of "to
+       * be advised". And not uppercased: a fixed option list is outside the
+       * CAPITALS rule, which governs typed free text.
+       *
+       * SITS BACK IN ITS OWN SLOT, between Component and Supply Type, so an
+       * operator who used the row this morning finds it where it was.
+       */
+      cell: (r) => (
+        <Select
+          value={r.type}
+          onChange={(e) => updItem(r.key, { type: e.target.value })}
+          className="h-8"
+        >
+          <option value="">—</option>
+          {MATERIAL_TYPE_OPTIONS.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
       header: "Supply Type",
       className: "min-w-[120px]",
       cell: (r) => (
@@ -1367,18 +1449,6 @@ export function MbaMasterScreen({
         />
       ),
     },
-    {
-      header: "Required By",
-      className: "min-w-[8rem]",
-      cell: (r) => (
-        <Input
-          type="date"
-          value={r.required_by}
-          onChange={(e) => updItem(r.key, { required_by: e.target.value })}
-          className="h-8"
-        />
-      ),
-    },
   ];
 
   const procColumns: ChildGridColumn<ProcRow>[] = [
@@ -1546,17 +1616,55 @@ export function MbaMasterScreen({
       key: "bom",
       label: "Material BOM",
       icon: ClipboardList,
-      done: !!form.amend_date && !!form.garment_order_id,
+      /*
+       * THE HEADER AND THE ITEMS ARE ONE SECTION (client 2026-08-17, "merge the
+       * Material and Item sections into a single area" / "the item listing
+       * should be a single, clear screen rather than fragmented").
+       *
+       * The dot means "this section is answered", and the section now holds the
+       * materials too — so `items.some(...)` JOINED IT WITH THE MERGE. It is
+       * the same expression the Items section used to carry, not a second
+       * reading of the same state. A BOM with a date, an order and no material
+       * is not a BOM, and a dot there would be a confident lie.
+       *
+       * Same move, same reasoning, one door along: Order Info + Style(s) became
+       * one section on the sibling screen on 2026-08-11.
+       */
+      done: !!form.amend_date && !!form.garment_order_id && items.some((r) => r.item_id),
       content: (
         <SectionBody
           title="Material BOM"
-          hint="Which confirmed garment order this plans material for."
+          hint="Which confirmed garment order this plans material for, and every material it needs."
         >
+          {/* ONE FLUSH ROW — four `xs` (2 of 12) and Remarks at `md` (4) = 12.
+
+              THE COUNT IS WHAT PICKS THE SIZE, not a preference for small. It
+              was six cells at `xs` this morning, which tiled exactly; Entry No
+              then left (below) and five `xs` end a third of a row short. The
+              spare four columns go to Remarks because it is the one free-text
+              cell here — the alternative, five cells at mixed widths, ends the
+              row flush too but at a ragged left edge for the next reader.
+
+              They were `sm` (3 of 12) before 2026-08-17, which tiled four at a
+              time and read four-then-two. It also puts this screen at the
+              density Order Entry already uses — a step-2 header four-across
+              beside a step-3 header six-across is the same complaint the
+              sibling screen records for its own rail. */}
           <FieldGrid>
-            <Field label="Entry No" size="sm" htmlFor="mba-entry">
-              <Input id="mba-entry" readOnly value={editId ? "—" : "Auto"} className="font-mono" />
-            </Field>
-            <Field label="Date" required size="sm" htmlFor="mba-date">
+            {/* ENTRY NO HIDDEN (client 2026-08-17): "hide the Entry No from the
+                front end, keep it only in the back end for serial numbering".
+
+                Nothing back-end changes, and that is the point — the serial is
+                `material_bom_amendments.code`, minted by `assign_code` on
+                insert (0265, legacy "Entry No"). The field here never showed it:
+                it read "Auto" on a new record and "—" on a saved one, so it was
+                a label for a number the screen could not name.
+
+                It was `readOnly` and never `required`, so hiding it cannot
+                strand a save — the failure AGENTS.md names under "Mandatory
+                fields" is a hidden field that is still required, and this one
+                had no `required` to drop. */}
+            <Field label="Date" required size="xs" htmlFor="mba-date">
               <Input
                 id="mba-date"
                 type="date"
@@ -1564,7 +1672,7 @@ export function MbaMasterScreen({
                 onChange={(e) => set({ amend_date: e.target.value })}
               />
             </Field>
-            <Field size="sm">
+            <Field size="xs">
               <RecordPicker
                 id="mba-order"
                 label="Garment Order (SC No)"
@@ -1579,17 +1687,17 @@ export function MbaMasterScreen({
                 belongs to, and it is what narrows the nominated-vendor pickers —
                 a second, typeable copy could disagree with the order and quietly
                 widen who may supply it. */}
-            <Field label="Customer" size="sm" htmlFor="mba-customer">
+            <Field label="Customer" size="xs" htmlFor="mba-customer">
               <Input id="mba-customer" readOnly value={customerName ?? "—"} />
             </Field>
-            <Field label="A. No" size="sm" htmlFor="mba-ano">
+            <Field label="A. No" size="xs" htmlFor="mba-ano">
               <Input
                 id="mba-ano"
                 readOnly
                 value={amendmentNo != null ? String(amendmentNo) : "Auto"}
               />
             </Field>
-            <Field label="Remarks" size="sm" htmlFor="mba-remarks">
+            <Field label="Remarks" size="md" htmlFor="mba-remarks">
               <Input
                 id="mba-remarks"
                 value={form.remarks}
@@ -1609,19 +1717,30 @@ export function MbaMasterScreen({
             order={orderProd}
             picked={!!form.garment_order_id}
           />
-        </SectionBody>
-      ),
-    },
-    {
-      key: "items",
-      label: "Items",
-      icon: Boxes,
-      done: items.some((r) => r.item_id),
-      content: (
-        <SectionBody title="Items" hint="The materials this order needs, and how many of each.">
+
           {copyBar}
+
+          {/* THE ITEMS GRID, AND IT MUST RENDER LAST.
+              `cycleTab` (lib/focus.ts) walks the pane's field-like nodes in DOM
+              order and treats the last one as the SECTION EDGE — the point
+              where Tab hands over to Processes through `registerContentEdge`.
+              Put the grid above the header fields and Tab re-enters the header
+              after the materials instead of leaving the section. That is the
+              one thing this merge could have broken, and it is the same note
+              the Style(s) grid carries one door along.
+
+              Nothing wraps it: `SectionBody` already spaces its children, and
+              the grid draws its own band, which is what keeps the word Items on
+              screen now that the rail no longer says it.
+
+              THE ROW SHAPE IS UNCHANGED BY THE MERGE. `forceCards` (operator
+              2026-08-10) and `foldRows` (client 2026-08-14) are both live
+              decisions with dates on them; "one clear screen rather than
+              fragmented" is answered by the section count going from two to
+              one, not by undoing either of those. */}
+
           {/* NO SIDEWAYS SCROLLBAR — THE ROW WRAPS INSTEAD (operator,
-              2026-08-10). 19 columns cannot fit 1180px minus the rail, so the
+              2026-08-10). 20 columns cannot fit 1180px minus the rail, so the
               responsive table would put the row behind a horizontal scrollbar.
               `forceCards` drops the table for one card per line and
               `renderMobileRow` fills it with the SAME `FieldGrid` the header
@@ -1631,11 +1750,17 @@ export function MbaMasterScreen({
               off it, so a new column cannot leave the card and header
               disagreeing. */}
           <ChildGrid<ItemRow>
+            /* THE WORD "ITEMS" HAD TO GO SOMEWHERE. It was the rail row and the
+               `SectionBody` title until the merge above; without this band the
+               materials would sit straight under Remarks with nothing naming
+               them, which is the opposite of what "one clear screen" asked for. */
+            label="Items"
             columns={itemColumns}
             rows={items}
             forceCards
-            /* ONE LINE OPEN AT A TIME (client 2026-08-14). 19 columns is three
-               wrapped lines per material, so three materials filled the screen
+            /* ONE LINE OPEN AT A TIME (client 2026-08-14). 20 columns is four
+               wrapped lines per material at `xs` (six across, 2026-08-17) and was
+               five at `sm`, so three materials filled the screen
                before "+ Add" came into view — on the document where ten lines is
                ordinary. The fold itself is `ChildGrid`'s, so this says only what
                a closed line looks like; the grid draws the #N and the ✕ above it. */
@@ -1662,10 +1787,10 @@ export function MbaMasterScreen({
                   {/* THE MATERIAL STAYS A REAL FIELD. Tab lands on fields, so a
                       folded line rendering none would be reachable by mouse
                       alone — and focusing it is what opens it again. */}
-                  <Field label={material.header} required={material.required} size="sm">
+                  <Field label={material.header} required={material.required} size="md">
                     {material.cell(row, i)}
                   </Field>
-                  <Field label="" size="lg">
+                  <Field label="" size="xl">
                     <div className="flex min-h-8 items-center">
                       <Truncated className="text-sm text-muted-foreground">
                         {summary || "Nothing else filled in yet"}
@@ -1675,20 +1800,87 @@ export function MbaMasterScreen({
                 </FieldGrid>
               );
             }}
-            renderMobileRow={(row, i) => (
-              <FieldGrid>
-                {itemColumns.map((c, ci) => (
-                  // `required` MUST be forwarded here as well as declared on the
-                  // column: cards mode calls this instead of the `columns.map()`
-                  // that wraps each cell in `RequiredScope`, so without it the
-                  // header draws a `*` with no cursor hold behind it. Checked by
-                  // `audit_layout.py --check grid-required-mobile`.
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
-                    {c.cell(row, i)}
-                  </Field>
-                ))}
-              </FieldGrid>
-            )}
+            renderMobileRow={(row, i) => {
+              /* THE IDENTITY LINE, THEN THE DETAIL — the legacy RP grammar
+                 (client 2026-08-17, screenshot 154738). Legacy leads each item
+                 with what the material IS and where it comes from, and puts the
+                 rest in a nested box beneath. Ten materials are then ten
+                 scannable lines instead of ten equal blocks.
+
+                 TWO THINGS FROM LEGACY ARE DELIBERATELY NOT COPIED:
+
+                 - Its line is 12 columns and carries a HORIZONTAL SCROLLBAR.
+                   The operator had that removed on 2026-08-10 ("the row wraps
+                   instead") and the layout skill makes it standing. Six fields
+                   is exactly one line at `xs` (2/12), so this line fits.
+                 - Its nested grid is TYPED, one row per colour and per size. We
+                   derive that: `Attribute` on the line picks the basis and
+                   `requirement.ts` explodes it onto the Requirement tab.
+                   Rebuilding the nested grid would trade a derivation for data
+                   entry and take the basis hash and the PO ceiling with it.
+
+                 Looked up BY HEADER, never by index: `itemColumns` is re-ordered
+                 and added to often, and an index list would quietly point at the
+                 wrong cells the next time it moved. A header that stops matching
+                 DEMOTES to the detail band rather than vanishing, because
+                 `restCols` is built by excluding the same list. */
+              const lineCols = ITEM_LINE_HEADERS.map((h) =>
+                itemColumns.find((c) => c.header === h),
+              ).filter(Boolean) as ChildGridColumn<ItemRow>[];
+              const restCols = itemColumns.filter(
+                (c) => !ITEM_LINE_HEADERS.includes(c.header),
+              );
+              /* `required` MUST be forwarded as well as declared on the column:
+                 cards mode calls this instead of the `columns.map()` that wraps
+                 each cell in `RequiredScope`, so without it the header draws a
+                 `*` with no cursor hold behind it. Checked by
+                 `audit_layout.py --check grid-required-mobile`. */
+              const band = (cols: ChildGridColumn<ItemRow>[]) => (
+                <FieldGrid>
+                  {cols.map((c, ci) => (
+                    <Field key={ci} label={c.header} required={c.required} size="xs">
+                      {c.cell(row, i)}
+                    </Field>
+                  ))}
+                </FieldGrid>
+              );
+              return (
+                <div className="space-y-2">
+                  {band(lineCols)}
+                  {/* A BOXED, LABELLED BAND — not a hairline (client 2026-08-17,
+                      screenshot 2325: "why is there no update").
+
+                      The split was already live at that point and the field ORDER
+                      proved it, but the only thing marking it was a 1px
+                      `border-t`, which at this density reads exactly like the gap
+                      between two ordinary rows. So the change was real and
+                      invisible, which is the same as not having made it.
+
+                      Legacy marks the boundary with a BOX — its nested grid has
+                      its own frame and header band. `DetailSection` is that
+                      primitive here ("groups related fields under a small
+                      uppercase label"), so the structure is drawn by a component
+                      rather than by a border class this screen invents. `cols=12`
+                      makes it lay out on the same `FIELD_TRACK` the band above
+                      uses, so the two read as one grid split in two, not as two
+                      grids. */}
+                  {restCols.length > 0 && (
+                    <DetailSection label="Details" cols={12}>
+                      {restCols.map((c, ci) => (
+                        <Field
+                          key={ci}
+                          label={c.header}
+                          required={c.required}
+                          size="xs"
+                        >
+                          {c.cell(row, i)}
+                        </Field>
+                      ))}
+                    </DetailSection>
+                  )}
+                </div>
+              );
+            }}
             seedRow
             onAdd={() => mutItems((xs) => [...xs, blankItem(newKey())])}
             onRemove={(r) => mutItems((xs) => xs.filter((x) => x.key !== r.key))}
@@ -1725,10 +1917,10 @@ export function MbaMasterScreen({
                 .join("  ·  ");
               return (
                 <FieldGrid>
-                  <Field label={material.header} required={material.required} size="sm">
+                  <Field label={material.header} required={material.required} size="md">
                     {material.cell(row, i)}
                   </Field>
-                  <Field label="" size="lg">
+                  <Field label="" size="xl">
                     <div className="flex min-h-8 items-center">
                       <Truncated className="text-sm text-muted-foreground">
                         {summary || "No process named yet"}
@@ -1831,10 +2023,50 @@ export function MbaMasterScreen({
           </div>
         </div>
 
-        <DataTable
-          columns={withCreatedColumns(columns, filtered)}
+        <MobileCardList<BomTaskRow>
+          columns={3}
           rows={filtered}
           getKey={(t) => t.id}
+          // Plain text, not a button — see the note on `cardStats`.
+          title={(t) => (
+            <span className="font-mono">{t.sc_no ?? t.order_code ?? "—"}</span>
+          )}
+          subtitle={(t) => (t.po_no ? <Truncated>PO {t.po_no}</Truncated> : "—")}
+          pill={(t) => (
+            <span title={bomStatusHint(t.status, t.production_qty)}>
+              <StatusPill tone={bomStatusTone(t.status)}>
+                {bomStatusText(t.status)}
+              </StatusPill>
+            </span>
+          )}
+          meta={(t) => (
+            <>
+              {/* TRUNCATED, and the table did not need it: a `DataTable` cell is
+                  exempt from the truncate-reveal rule because the table scrolls
+                  sideways, and a fixed-width card does not. */}
+              <Truncated className="text-[13px] font-medium text-foreground">
+                {t.customer_name ?? "—"}
+              </Truncated>
+              {cardStats(t)}
+              {/* APPENDED, never substituted for the screen's own meta
+                  (AGENTS.md, Created Date / Created User). Gated so a service
+                  that stops selecting `created_at` shows nothing rather than a
+                  dangling date. */}
+              {showCreated && (
+                <div className="mt-2 border-t border-border pt-1.5 text-[11px]">
+                  {createdMeta(t)}
+                </div>
+              )}
+            </>
+          )}
+          onEdit={openTask}
+          canDelete={perms.canDelete}
+          // Only an order that HAS a BOM has anything to delete. The table gated
+          // this per row too; without it the button renders on every card and
+          // does nothing when pressed.
+          canDeleteRow={(t) => !!t.bom_id}
+          onDelete={del}
+          isPending={isPending}
           empty="No confirmed garment orders yet. A material BOM is planned against an order."
         />
       </div>

@@ -47,7 +47,11 @@ export function Combobox({
   options,
   value,
   onChange,
-  placeholder = "Select…",
+  // "—" is the app's "nothing chosen", not "Select…" — see the long note at the
+  // placeholder in components/ui/data-picker.tsx. A Combobox sits under a
+  // `<Field label>` or a grid column header like every other control, so the
+  // verb+noun was the label said twice.
+  placeholder = "—",
   clearable = false,
   disabled = false,
   id,

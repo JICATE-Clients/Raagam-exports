@@ -17,6 +17,9 @@
 /.next/
 # isolated output for `npm run build:check` — see scripts/build-check.mjs
 /.next-verify/
+# a scratch build output that was NOT ignored and so showed up as 31 untracked
+# files in `git status`, one `git add -A` away from being committed (2026-08-14)
+/.next-fold/
 /out/
 
 # serwist / PWA service worker (generated at build)
