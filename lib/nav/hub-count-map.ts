@@ -45,6 +45,18 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/orders/garment-orders": "garment_order_amendments",
   "/orders/amendments": "garment_order_amendments",
   "/orders/material-bom-amendment": "material_bom_amendments",
+  // The DOCUMENT the screen creates, not the orders it selects from — the rule
+  // above, and it matters here because the card's screen opens on a queue of
+  // garment ORDERS. "Fabric BOM: 412" meaning "there are 412 orders" is worse
+  // than no number at all.
+  "/orders/fabric-bom": "order_fabric_boms",
+  "/orders/fabric-plan": "order_fabric_plans",
+  "/orders/budgets": "order_budgets",
+  // A QUEUE OVER ANOTHER CARD'S TABLE, exactly like Approve Amendment above.
+  // Counting `order_budgets` here would print the Budgeting card's number a
+  // second time under a different label; the number worth showing is "how many
+  // are awaiting you", which is a filtered count this batched RPC cannot express.
+  "/orders/budget-approval": null,
   "/orders/process-amendments": "garment_process_amendment_docs",
   "/orders/due-date-confirmations": "due_date_confirmations",
   "/orders/contract-review": "contract_reviews",

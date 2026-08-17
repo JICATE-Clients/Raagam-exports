@@ -273,12 +273,22 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // Planning — so the flow the operator is taught existed nowhere in the
       // menu, and the row named after it held one screen.
       //
-      // THE STEPS MOVED SINCE THEY WERE LAST WRITTEN DOWN, and the change is in
-      // the tail: this file used to record them as Style · Order Entry ·
-      // Material BOM · Fabric BOM · Budget · Budget Approval. Steps 4-6 are now
-      // Garment Process Plan · Fabric Plan · Budgeting, with Prepare and Approve
-      // collapsed into that last one. Both lists are the client's; the second
-      // supersedes.
+      // THE STEPS MOVED TWICE SINCE THEY WERE LAST WRITTEN DOWN, and both times
+      // the change was in the tail. All three lists are the client's; the last
+      // supersedes, and keeping the earlier two here is what makes a fourth
+      // revision readable as a revision rather than as a correction:
+      //
+      //   08-10  Style · Order Entry · Material BOM · Fabric BOM · Budget ·
+      //          Budget Approval
+      //   08-14  … Garment Process Plan · Fabric Plan · Budgeting, with Prepare
+      //          and Approve collapsed into the last one
+      //   08-17  … Fabric BOM · Fabric Plan · Budgeting · Approval — the BOM is
+      //          back and is a step of its own, and Approve is uncollapsed
+      //
+      // SO IT IS EIGHT STEPS, NOT SIX, and the group's description says eight.
+      // The 08-14 list read as six only because Fabric BOM had gone missing
+      // under Fabric Plan's name (see the note on step 5) — the count was never
+      // the client's claim, the sequence was.
       //
       // "ORDER ENTRY" IS A CARD HERE, NOT A ROW. That group is dissolved — its
       // register became a standalone row (below), its two flow screens are steps
@@ -292,7 +302,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "setup",
         label: "Order Setup",
         description:
-          "The six-step setup for a bulk order — style, entry, material, process, fabric and budget",
+          "Style to approved budget — the eight steps a bulk order passes through",
         // Colour Cards was the other half of this group and was removed with its
         // routes and service (client, 2026-08-11): the screen had no rows, its
         // only consumer was the Garment Order colour picker, and that picker is
@@ -361,28 +371,68 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // both places. Cross-list, never re-parent — the same call the file
           // header records for Order Amendment.
           { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
-          // 5 AND 6 ARE GREYED, AND THAT IS THE HONEST STATE.
+          // 5 · FABRIC BOM — AND IT WAS MISSING UNDER ANOTHER NAME (client
+          // 2026-08-17).
           //
-          // Both screens are BUILT — in Planning, complete with their [id]
-          // details and actions — and neither can be opened, because migration
-          // 0332 dropped the Planning tables and the replacement schema has
-          // never been applied. That is exactly what `status: "unavailable"`
-          // means, and it is why they are not `todo`: a "Not set up yet" tile
-          // over finished work hides it.
+          // The tail of this list used to be two cross-module cards pointing
+          // into Planning, and the first of them was labelled **Fabric Plan**
+          // while its href was `/planning/fabric-bom` — the Fabric BOM screen.
+          // So the step the client asks for by name had no card, and the card
+          // that stood in its place named a different step. The mislabel is why
+          // it read as complete: six cards, six steps, one of them wrong.
           //
-          // LISTING THEM AT ALL is the point. Leaving steps 5 and 6 out would
-          // make the menu accurate and the FLOW invisible — the operator is
-          // taught six steps and would find four, with nothing saying where the
-          // other two went. A greyed card with its reason on it says both.
+          // FABRIC BOM AND FABRIC PLAN ARE TWO STEPS, not one screen seen twice.
+          // The BOM says what fabric each component of each colour needs and how
+          // much; the plan says how that fabric is sourced and processed. The
+          // client's 08-10 list (doc/orders-six-step.md) had only the BOM, so
+          // this is the newer statement and supersedes — the same way that list
+          // superseded the one before it.
           //
-          // THEY ARE CROSS-MODULE AND CARRY NO ↗, deliberately. An `unavailable`
-          // card renders `href: null` (`group-hub.tsx`), so it does not navigate
-          // anywhere — the glyph that promises "this leaves the module" would be
-          // promising a click that cannot happen. `cardIssues` and assertion 5
-          // in `scripts/check-module-groups.mts` were both taught this, each
-          // with a self-test fixture; see the notes there.
-          { href: "/planning/fabric-bom", label: "Fabric Plan", description: "Plan yarn and fabric requirements and the processing path — solid, Y/D, melange or printed", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
-          { href: "/planning/budgets", label: "Budgeting", description: "Prepare and approve the order budget — the final quantity and financial control", status: "unavailable", unavailableNote: "Screens are built — the Planning tables are not in this database (0332 dropped them)" },
+          // THESE FOUR ARE `todo`, NOT `unavailable`, and the difference is the
+          // whole point of having two flags. `unavailable` claims a screen is
+          // BUILT and only its table is missing, which was true of the Planning
+          // pair — but Planning is not where these are being built. `0332`
+          // dropped that module as "built from generic ERP patterns instead of
+          // the VB.NET source of truth", so pointing a step of the client's flow
+          // at one of its screens offers the operator the exact code that
+          // migration rejected. Each of these is an ORDERS route that does not
+          // exist yet, and assertion 10 in `scripts/check-module-groups.mts`
+          // holds that both ways: a `todo` card whose `page.tsx` appears becomes
+          // an error, so the flag cannot outlive the build.
+          //
+          // The Planning screens keep their own rows under Planning ▸ Bill of
+          // Materials and Planning ▸ Fabric Planning, so nothing is orphaned by
+          // their leaving this list — check:nav asserts that too.
+          // BUILT 2026-08-17 (`0426`). The flag came off in the same change that
+          // created `app/(app)/orders/fabric-bom/page.tsx`, because assertion 10
+          // holds `status: "todo"` and a missing route as the SAME fact and
+          // fails either way round — a `todo` whose page.tsx exists is an error,
+          // which is what stops the label outliving the work.
+          { href: "/orders/fabric-bom", label: "Fabric BOM", description: "Fabric per component and colour — consumption, cutting wastage and the net requirement" },
+          // 6 · FABRIC PLAN — the sourcing and processing path for what step 5
+          // requires: yarn purchase, knitting, dyeing, stentering, compacting,
+          // and which of those are in-house against out-processed.
+          // BUILT 2026-08-17 (`0427`). The description is narrower than the
+          // `todo` placeholder's was, and deliberately: the client's answer to
+          // what this step covers is the PROCESS ROUTE, not sourcing in general.
+          // Fabric BOM is finished fabric; this walks backwards from it to the
+          // yarn, applying each stage's loss.
+          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
+          // 7 · BUDGETING — and 8 · APPROVAL — are two STEPS over ONE document.
+          //
+          // Approval is a transition on the budget's own `status`, never a
+          // second record: two records would let the approved figures drift from
+          // the budget they approved. The app already does approvals this shape
+          // (`/orders/approve-amendments` over the amendment's status), and the
+          // legacy schema did too. So step 8 is a QUEUE of submitted budgets,
+          // and it is a step because the client counts it as one.
+          // BUILT 2026-08-17 (`0428`). "the order" became "a GROUP of orders" in
+          // the description, and that is the client's own shape from doc/prd.md:
+          // "budgeting is done using Fabric BOM and Material BOM of various
+          // orders which are grouped together". doc/orders-six-step.md sketched
+          // one order per budget and is superseded.
+          { href: "/orders/budgets", label: "Budgeting", description: "Cost a group of orders from their BOMs — rates, expenses and the profit position" },
+          { href: "/orders/budget-approval", label: "Approval", description: "Approve or reject a submitted order budget — the last gate before purchase may act on it" },
         ],
       },
       // THE REGISTER, a standalone row since the Order Entry group dissolved.

@@ -14,149 +14,24 @@ import type { MaterialBomAmendment, BomCopySource } from "./types";
 import { isInactive } from "@/lib/masters/inactive";
 import { isAccessoryClass, type MaterialOption } from "./material-options";
 import { withCreators } from "@/lib/created-by";
-import type { RejectionTier } from "@/lib/masters/rejection-rule";
+// The order-reading half of this service moved to `bom-order-basis.ts` when
+// Fabric BOM (0426) needed the same reader — see that file's header for why it
+// was extracted rather than copied.
 import {
-  basisFingerprint,
-  totalProductionOf,
-  isRefusal,
-  type OrderProductionInput,
-} from "@/lib/orders/material-bom/requirement";
-import { bomStatusOf, BOM_STATUS_RANK, type BomStatus } from "./status";
+  bomTaskRows,
+  confirmedOrdersForBom,
+  getOrderProduction,
+  rejectionTiersById,
+  type BomLite,
+  type BomStatus,
+  type BomTaskRow,
+} from "@/lib/orders/bom-order-basis";
 
-// ---------------------------------------------------------------------------
-// The order, and what the requirement needs from it
-// ---------------------------------------------------------------------------
+// `getOrderProduction` is re-exported because `./actions.ts` and this file are
+// one module in every practical sense — moving the reader out should not make
+// the actions reach past their own service for it.
+export { getOrderProduction };
 
-/**
- * The garment order's own tabs, as PostgREST returns them.
- *
- * ONE UNRESOLVABLE RELATIONSHIP FAILS THE WHOLE QUERY, not just its branch —
- * the standing warning on `lib/orders/amendments/service.ts`'s much larger
- * select. So this asks for the four children the requirement actually needs and
- * nothing else: the more names in the string, the more ways an unrelated schema
- * change blanks this screen.
- */
-const ORDER_SELECT =
-  "id, code, po_no, amend_date, delivery_date, excess_pct, rejection_rule_id, " +
-  "customer:customers(id,code,name), " +
-  "sales_order:sales_orders(id,order_number), " +
-  "styles:garment_order_amendment_styles(style_ref_no), " +
-  "approval_qtys:garment_order_amendment_approval_qtys(style_ref_no,combo,qty,approval_qty), " +
-  "combos:garment_order_amendment_combos(style_ref_no,combo), " +
-  "quantities:garment_order_amendment_quantities(style_ref_no, " +
-  "assort_lines:garment_order_amendment_assort_lines(combo,no_of_cartons, " +
-  "sizes:garment_order_amendment_assort_line_sizes(size_id,qty)))";
-
-type OrderRow = {
-  id: string;
-  code: string | null;
-  po_no: string | null;
-  amend_date: string;
-  delivery_date: string | null;
-  excess_pct: number | null;
-  rejection_rule_id: string | null;
-  customer: { id: string; code: string | null; name: string } | null;
-  sales_order: { id: string; order_number: string | null } | null;
-  styles: { style_ref_no: string | null }[] | null;
-  approval_qtys:
-    | { style_ref_no: string | null; combo: string | null; qty: number; approval_qty: number }[]
-    | null;
-  combos: { style_ref_no: string | null; combo: string | null }[] | null;
-  quantities:
-    | {
-        style_ref_no: string | null;
-        assort_lines:
-          | {
-              combo: string | null;
-              no_of_cartons: number | null;
-              sizes: { size_id: string | null; qty: number | null }[] | null;
-            }[]
-          | null;
-      }[]
-    | null;
-};
-
-/**
- * The order shaped for `lib/orders/material-bom/requirement.ts`.
- *
- * The assort tree is flattened to (style, combo, size, pieces) with
- * `no_of_cartons x that size's per-carton qty` — the SAME multiplication
- * `pricingWeights` does in `amendment-screen.tsx` for Average Rate. Two callers
- * reading one tree two ways is how two screens start disagreeing about an
- * order's size curve, so the expression is copied deliberately and named here.
- *
- * `sizeName` is supplied by the caller that has the lookups; without it a slice
- * is labelled with its uuid, which is legible to nobody.
- */
-export function orderProductionInput(
-  row: OrderRow,
-  tiersById: Map<string, RejectionTier[]>,
-  sizeName?: (id: string) => string,
-): OrderProductionInput {
-  const assortSizes = (row.quantities ?? []).flatMap((q) =>
-    (q.assort_lines ?? []).flatMap((l) =>
-      (l.sizes ?? []).map((z) => ({
-        style_ref_no: q.style_ref_no,
-        combo: l.combo,
-        size_id: z.size_id,
-        qty: (Number(l.no_of_cartons) || 0) * (Number(z.qty) || 0),
-      })),
-    ),
-  );
-
-  return {
-    excessPct: Number(row.excess_pct) || 0,
-    // A rule NAMED is what makes a tier gap a refusal rather than a zero buffer
-    // (see `productionTarget`). Read off the order, never inferred from whether
-    // tiers happened to resolve.
-    rejectionRuleChosen: !!row.rejection_rule_id,
-    tiers: row.rejection_rule_id ? (tiersById.get(row.rejection_rule_id) ?? null) : null,
-    approvals: (row.approval_qtys ?? []).map((a) => ({
-      style_ref_no: a.style_ref_no,
-      combo: a.combo,
-      qty: Number(a.qty) || 0,
-      approval_qty: Number(a.approval_qty) || 0,
-    })),
-    combos: (row.combos ?? []).map((c) => ({
-      style_ref_no: c.style_ref_no,
-      combo: c.combo,
-    })),
-    assortSizes,
-    sizeName,
-  };
-}
-
-/**
- * Every rejection rule's tiers, keyed by id.
- *
- * `blocked` rows are SELECTED, not filtered: a rule switched off after an order
- * named it must still resolve, or that order's Projection — and so its whole
- * material plan — would silently change. Same call `getRejectionRuleRows` makes
- * in the amendment service.
- */
-async function rejectionTiersById(): Promise<Map<string, RejectionTier[]>> {
-  const s = await createClient();
-  const { data } = await s
-    .from("garment_rejection_rules")
-    .select(
-      "id, lines:garment_rejection_rule_lines(from_value,to_value,rejection_allowance,allowance_type)",
-    );
-  const out = new Map<string, RejectionTier[]>();
-  for (const r of (data ?? []) as unknown as { id: string; lines: RejectionTier[] | null }[]) {
-    out.set(r.id, r.lines ?? []);
-  }
-  return out;
-}
-
-async function sizeNameFn(): Promise<(id: string) => string> {
-  const s = await createClient();
-  const { data } = await s
-    .from("config_lookups")
-    .select("id, name")
-    .eq("kind", "size");
-  const byId = new Map((data ?? []).map((r) => [r.id as string, r.name as string]));
-  return (id: string) => byId.get(id) ?? id;
-}
 
 // ---------------------------------------------------------------------------
 // The dashboard: one row per ORDER, not one per BOM
@@ -170,63 +45,24 @@ async function sizeNameFn(): Promise<(id: string) => string> {
  * needs one — so "Pending" could never be shown for the case it exists to
  * describe.
  */
-export type BomTaskRow = {
-  /** The garment order id — the row's identity. */
-  id: string;
-  sc_no: string | null;
-  order_code: string | null;
-  po_no: string | null;
-  customer_name: string | null;
-  amend_date: string;
-  delivery_date: string | null;
-  style_count: number;
-  /** Total production the order currently implies. Null when unanswerable. */
-  production_qty: number | null;
-  /** Why it is unanswerable, when it is — printed rather than left as a dash. */
-  production_refusal: string | null;
-  status: BomStatus;
-  /** The BOM to open, or null to start one. */
-  bom_id: string | null;
-  bom_code: string | null;
-  bom_line_count: number;
-  created_at: string;
-  created_by: string | null;
-};
+export type { BomTaskRow } from "@/lib/orders/bom-order-basis";
 
 export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
   const s = await createClient();
 
-  const [tiers, ordersRes, bomsRes] = await Promise.all([
+  const [tiers, orders, bomsRes] = await Promise.all([
     rejectionTiersById(),
-    s
-      .from("garment_order_amendments")
-      .select(ORDER_SELECT)
-      // CONFIRMED ORDERS ONLY (client 2026-08-13: "lists all confirmed RE
-      // Numbers"). A draft order is someone's half-entered thinking — its
-      // styles, combos and quantities are all still moving, so a material plan
-      // built against it is planned against numbers that have not settled.
-      //
-      // It is the ORDER's draft flag, not the BOM's. The queue's own `draft`
-      // status means "a BOM exists and is unfinished", which is a different
-      // sentence and stays.
-      .eq("is_draft", false)
-      .order("created_at", { ascending: false }),
+    confirmedOrdersForBom(),
     s
       .from("material_bom_amendments")
       .select(
         "id, code, garment_order_id, amendment_no, is_draft, computed_basis_hash, " +
-          "computed_for_qty, created_at, created_by, " +
-          "items:material_bom_amendment_items(id)",
+          "computed_for_qty, items:material_bom_amendment_items(id)",
       )
       .order("amendment_no", { ascending: false }),
   ]);
 
-  const orders = (ordersRes.data ?? []) as unknown as (OrderRow & {
-    created_at: string;
-    created_by: string | null;
-  })[];
-
-  type BomLite = {
+  type BomRow = {
     id: string;
     code: string | null;
     garment_order_id: string | null;
@@ -234,8 +70,6 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
     is_draft: boolean;
     computed_basis_hash: string | null;
     computed_for_qty: number | null;
-    created_at: string;
-    created_by: string | null;
     items: { id: string }[] | null;
   };
 
@@ -243,64 +77,19 @@ export async function listMaterialBomTasks(): Promise<BomTaskRow[]> {
   // amendment_no descending, so the first one seen wins — a later revision is
   // what the queue should be reporting on.
   const latest = new Map<string, BomLite>();
-  for (const b of (bomsRes.data ?? []) as unknown as BomLite[]) {
-    if (!b.garment_order_id) continue;
-    if (!latest.has(b.garment_order_id)) latest.set(b.garment_order_id, b);
+  for (const b of (bomsRes.data ?? []) as unknown as BomRow[]) {
+    if (!b.garment_order_id || latest.has(b.garment_order_id)) continue;
+    latest.set(b.garment_order_id, {
+      id: b.id,
+      code: b.code,
+      is_draft: b.is_draft,
+      computed_basis_hash: b.computed_basis_hash,
+      computed_for_qty: b.computed_for_qty,
+      lineCount: b.items?.length ?? 0,
+    });
   }
 
-  const rows: BomTaskRow[] = orders.map((o) => {
-    const input = orderProductionInput(o, tiers);
-    const total = totalProductionOf(input);
-    const bom = latest.get(o.id) ?? null;
-    const lineCount = bom?.items?.length ?? 0;
-
-    const now = {
-      // A refused total means the order cannot be fingerprinted into anything
-      // comparable, so freshness is `unresolved` rather than a guess.
-      hash: isRefusal(total) ? null : basisFingerprint(input),
-      qty: isRefusal(total) ? null : total,
-    };
-
-    return {
-      id: o.id,
-      sc_no: o.sales_order?.order_number ?? null,
-      order_code: o.code,
-      po_no: o.po_no,
-      customer_name: o.customer?.name ?? null,
-      amend_date: o.amend_date,
-      delivery_date: o.delivery_date,
-      style_count: (o.styles ?? []).length,
-      production_qty: now.qty,
-      production_refusal: isRefusal(total) ? total.refused : null,
-      status: bomStatusOf(
-        bom
-          ? {
-              is_draft: bom.is_draft,
-              lineCount,
-              computed_basis_hash: bom.computed_basis_hash,
-              computed_for_qty: bom.computed_for_qty,
-            }
-          : null,
-        now,
-      ),
-      bom_id: bom?.id ?? null,
-      bom_code: bom?.code ?? null,
-      bom_line_count: lineCount,
-      // The ORDER's provenance, not the BOM's: the row is an order, and an order
-      // with no BOM still has a creator worth showing.
-      created_at: o.created_at,
-      created_by: o.created_by,
-    };
-  });
-
-  // Work first: Recalculate, Pending, Draft, Unresolved, then Updated.
-  rows.sort(
-    (a, b) =>
-      BOM_STATUS_RANK[a.status] - BOM_STATUS_RANK[b.status] ||
-      (a.delivery_date ?? "9999").localeCompare(b.delivery_date ?? "9999"),
-  );
-
-  return withCreators(rows);
+  return withCreators(bomTaskRows(orders, tiers, latest));
 }
 
 /**
@@ -349,27 +138,6 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
       requirements: [...(r.requirements ?? [])].sort((a, b) => a.sno - b.sno),
     })),
   );
-}
-
-/**
- * One order's production input, for the editor.
- *
- * Fetched when an order is PICKED rather than shipped with the form data for
- * every order: the requirement recalculates as the operator types, but only the
- * line changes — the order's approval quantities do not — so this is one round
- * trip per order, not per keystroke.
- */
-export async function getOrderProduction(
-  garmentOrderId: string,
-): Promise<OrderProductionInput | null> {
-  const s = await createClient();
-  const [tiers, sizeName, res] = await Promise.all([
-    rejectionTiersById(),
-    sizeNameFn(),
-    s.from("garment_order_amendments").select(ORDER_SELECT).eq("id", garmentOrderId).maybeSingle(),
-  ]);
-  if (!res.data) return null;
-  return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeName);
 }
 
 /**
@@ -669,14 +437,26 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
           .in("id", styleIds)
       : Promise.resolve({ data: [] as unknown[] }),
     styleIds.length
-      ? s.from("components").select("id, short_name, blocked")
+      // `inactive`, NOT `blocked` (fixed 2026-08-17 while building Fabric BOM).
+      // 0299 renamed this column and the select was never updated. PostgREST
+      // answers a select over a MISSING column with an ERROR rather than nulls,
+      // so `compRes.data` was empty on every call and the Material BOM's
+      // Component cell (0423) offered nothing — it read as "this style declares
+      // no components", which is a real and unremarkable state, so it got
+      // believed rather than reported.
+      //
+      // This is the SECOND time this exact column on this exact table has done
+      // this: `lib/masters/inactive.ts` records the Style screen's Component
+      // dropdown going silently blank the same way, and says to read the column
+      // from the catalog rather than from memory. Doing that is what found it.
+      ? s.from("components").select("id, short_name, inactive")
       : Promise.resolve({ data: [] as unknown[] }),
   ]);
 
   const componentById = new Map(
-    ((compRes.data ?? []) as { id: string; short_name: string; blocked: boolean }[]).map((c) => [
+    ((compRes.data ?? []) as { id: string; short_name: string; inactive: boolean }[]).map((c) => [
       c.id,
-      { id: c.id, code: null, name: c.short_name, inactive: c.blocked },
+      { id: c.id, code: null, name: c.short_name, inactive: c.inactive },
     ]),
   );
 

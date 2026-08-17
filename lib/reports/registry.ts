@@ -106,7 +106,15 @@ export const ITEM_MEASURES: ReportField[] = [
   { key: "qty_transfer_out", label: "Transfer out", kind: "measure", format: "qty", source: "stock_ledger" },
   { key: "qty_adjust_in", label: "Adjust in", kind: "measure", format: "qty", source: "stock_ledger" },
   { key: "qty_adjust_out", label: "Adjust out", kind: "measure", format: "qty", source: "stock_ledger" },
-  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_requirements", caveat: "The Material BOM's stored requirement — a plan, not a posting." },
+  // TWO SOURCES, ONE MEASURE — and the caveat has to say so. `qty_planned` sums
+  // every `fact_kind = 'planned'` row, so Fabric BOM (0426) joined it the moment
+  // its fragment landed in the view; nothing here had to be added for the number
+  // to change. A caveat still reading "the Material BOM's stored requirement"
+  // would then be describing half of what the column totals, on a measure whose
+  // whole history is being believed while it was wrong. `source` names the
+  // material table because a field carries one, and the reason the second is not
+  // invisible is that it is written down here.
+  { key: "qty_planned", label: "Planned", kind: "measure", format: "qty", source: "material_bom_amendment_requirements", caveat: "Material BOM and Fabric BOM stored requirements, added together — a plan, not a posting. A refused line is excluded rather than counted as zero." },
   { key: "qty_sent_out", label: "Sent to processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
   { key: "qty_came_back", label: "Back from processor", kind: "measure", format: "qty", source: "dc_line_items", caveat: "Off-book: delivery challans never post a stock movement." },
 
@@ -274,6 +282,28 @@ export const REPORT_SOURCES: ReportSource[] = [
     note: "The Material BOM's stored requirement, split by order / colour / size. A refused line stores NULL and is excluded rather than counted as zero.",
   },
   {
+    id: "order_fabric_boms",
+    label: "Fabric BOM (planned consumption)",
+    module: "orders",
+    factKinds: ["planned"],
+    // 0426. The same shape as the Material BOM above and deliberately so: the
+    // requirement is STORED, so this reads a number rather than re-deriving the
+    // excess, approval and projection maths in SQL beside the TypeScript copy.
+    //
+    // IT SHARES `qty_planned` WITH THE MATERIAL BOM. Both emit
+    // `fact_kind = 'planned'`, so an item report totals whichever of the two
+    // applies to the item — and no item is in both, since one plans fabric and
+    // the other trims. Splitting them into two measures was the alternative and
+    // would put an always-blank column beside every figure.
+    table: "order_fabric_bom_requirements",
+    itemColumn: "item_id",
+    qtyColumn: "required_qty",
+    dateColumn: "order_fabric_boms.bom_date",
+    postsToLedger: false,
+    status: "off_book",
+    note: "The Fabric BOM's stored requirement, split by colour or by colour and size. A refused line stores NULL and is excluded rather than counted as zero. Carries no rate: the money for a plan is the Budget's (step 7).",
+  },
+  {
     id: "delivery_challans",
     label: "Delivery challans (to processor)",
     module: "materials_purchase",
@@ -288,6 +318,85 @@ export const REPORT_SOURCES: ReportSource[] = [
   },
 
   // ---- Declared gaps: real material movement that cannot be reported yet ----
+  {
+    id: "order_fabric_plans",
+    label: "Fabric Plan (process route)",
+    module: "orders",
+    factKinds: [],
+    // 0427. THE FABRIC IS DELIBERATELY NOT REPORTED FROM HERE — it is the same
+    // item the Fabric BOM already emits as `planned`, walked backwards through
+    // the route. A fragment for it would double every fabric figure in every
+    // item report.
+    //
+    // The YARN is genuinely new information and is the gap. A route names
+    // PROCESSES, and "knitting consumes yarn X" is a conversion the yarn master
+    // and the fabric's composition express — this table does not know it, so
+    // `itemColumn` is null rather than pointed at the fabric it is NOT
+    // consuming. Declaring the gap is the correct move; omitting the table is
+    // what leaves it invisible.
+    table: "order_fabric_plan_stages",
+    itemColumn: null,
+    qtyColumn: "input_qty",
+    dateColumn: "order_fabric_plans.plan_date",
+    postsToLedger: false,
+    status: "gap",
+    note:
+      "The route's stage quantities — what must be available at each step. The " +
+      "yarn at the head of the route is real demand and cannot be reported: a " +
+      "stage names a process, not the item that process consumes.",
+  },
+  {
+    id: "order_fabric_plan_lines",
+    label: "Fabric Plan (planned fabric)",
+    module: "orders",
+    factKinds: [],
+    // 0427, and declared SEPARATELY from `order_fabric_plans` above because a
+    // ReportSource names one table and this one carries the item while the
+    // stages carry the quantities.
+    //
+    // Its `required_qty` is a SNAPSHOT OF THE FABRIC BOM's stored requirement —
+    // the same number, for the same item, already emitted as `planned` by
+    // fragment 6 of report_item_movements. Reporting it again would show one
+    // order's fabric demand twice, and the second copy would be
+    // indistinguishable from a real increase.
+    table: "order_fabric_plan_lines",
+    itemColumn: "item_id",
+    qtyColumn: "required_qty",
+    dateColumn: "order_fabric_plans.plan_date",
+    postsToLedger: false,
+    status: "gap",
+    note:
+      "A snapshot of the Fabric BOM requirement this route was planned against. " +
+      "The BOM already reports that quantity as `planned`; reporting it here too " +
+      "would double every fabric figure.",
+  },
+  {
+    id: "order_budgets",
+    label: "Order Budget (costing)",
+    module: "orders",
+    factKinds: [],
+    // 0428. A budget line carries an item and a quantity, so it has to be
+    // declared — but it must NOT feed `report_item_movements`, and the reason is
+    // the same one that keeps the Fabric Plan out: its fabric and material lines
+    // are PULLED from the two BOMs, whose stored requirements already emit
+    // `planned`. A fragment here would report the identical demand twice, and
+    // the second copy would look like additional consumption rather than the
+    // same consumption priced.
+    //
+    // The COST is the new information and is not an item movement at all — it is
+    // a rate against a quantity somebody else computed. `lib/reports` slices
+    // material; a budget belongs to a P&L report that does not exist yet.
+    table: "order_budget_lines",
+    itemColumn: "item_id",
+    qtyColumn: "qty",
+    dateColumn: "order_budgets.budget_date",
+    postsToLedger: false,
+    status: "gap",
+    note:
+      "Costing, not movement. Its fabric and material quantities are the BOM " +
+      "requirements already reported as `planned`, so reporting them here would " +
+      "double the demand. The rates are real information with no report to go to.",
+  },
   {
     id: "production_entries",
     label: "Production entries",

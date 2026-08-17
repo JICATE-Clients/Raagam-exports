@@ -52,7 +52,7 @@ import {
   bomStatusText,
   bomStatusTone,
   type BomStatus,
-} from "@/lib/orders/material-bom-amendment/status";
+} from "@/lib/orders/bom-status";
 import type { BomTaskRow, MbaFormData } from "@/lib/orders/material-bom-amendment/service";
 import {
   isAccessoryClass,

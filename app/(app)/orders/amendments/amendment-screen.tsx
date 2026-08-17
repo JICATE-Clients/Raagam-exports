@@ -42,7 +42,7 @@ import {
   bomStatusText,
   bomStatusTone,
   type BomStatus,
-} from "@/lib/orders/material-bom-amendment/status";
+} from "@/lib/orders/bom-status";
 // `Tabs` itself is gone — the ten sub-tabs are a section RAIL now (see the
 // MasterFullScreen call below). The TYPE stays: `placeholderTab` still builds
 // {key,label,content} items and `sections` maps them, so the shape a tab
