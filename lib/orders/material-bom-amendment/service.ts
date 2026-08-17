@@ -426,14 +426,26 @@ async function getOrderOptions(): Promise<BomOrderOption[]> {
           .in("id", styleIds)
       : Promise.resolve({ data: [] as unknown[] }),
     styleIds.length
-      ? s.from("components").select("id, short_name, blocked")
+      // `inactive`, NOT `blocked` (fixed 2026-08-17 while building Fabric BOM).
+      // 0299 renamed this column and the select was never updated. PostgREST
+      // answers a select over a MISSING column with an ERROR rather than nulls,
+      // so `compRes.data` was empty on every call and the Material BOM's
+      // Component cell (0423) offered nothing — it read as "this style declares
+      // no components", which is a real and unremarkable state, so it got
+      // believed rather than reported.
+      //
+      // This is the SECOND time this exact column on this exact table has done
+      // this: `lib/masters/inactive.ts` records the Style screen's Component
+      // dropdown going silently blank the same way, and says to read the column
+      // from the catalog rather than from memory. Doing that is what found it.
+      ? s.from("components").select("id, short_name, inactive")
       : Promise.resolve({ data: [] as unknown[] }),
   ]);
 
   const componentById = new Map(
-    ((compRes.data ?? []) as { id: string; short_name: string; blocked: boolean }[]).map((c) => [
+    ((compRes.data ?? []) as { id: string; short_name: string; inactive: boolean }[]).map((c) => [
       c.id,
-      { id: c.id, code: null, name: c.short_name, inactive: c.blocked },
+      { id: c.id, code: null, name: c.short_name, inactive: c.inactive },
     ]),
   );
 

@@ -412,7 +412,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // 6 · FABRIC PLAN — the sourcing and processing path for what step 5
           // requires: yarn purchase, knitting, dyeing, stentering, compacting,
           // and which of those are in-house against out-processed.
-          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "Source and process the fabric the BOM requires — solid, yarn-dyed, melange or printed", status: "todo" },
+          // BUILT 2026-08-17 (`0427`). The description is narrower than the
+          // `todo` placeholder's was, and deliberately: the client's answer to
+          // what this step covers is the PROCESS ROUTE, not sourcing in general.
+          // Fabric BOM is finished fabric; this walks backwards from it to the
+          // yarn, applying each stage's loss.
+          { href: "/orders/fabric-plan", label: "Fabric Plan", description: "The route that makes the fabric — knitting, dyeing and finishing, with each stage's loss" },
           // 7 · BUDGETING — and 8 · APPROVAL — are two STEPS over ONE document.
           //
           // Approval is a transition on the budget's own `status`, never a

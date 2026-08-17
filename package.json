@@ -15,6 +15,7 @@
     "check:order-value": "npx --yes tsx scripts/check-order-value.mts",
     "check:bom-requirement": "npx --yes tsx scripts/check-bom-requirement.mts",
     "check:fabric-bom": "npx --yes tsx scripts/check-fabric-bom.mts",
+    "check:fabric-plan": "npx --yes tsx scripts/check-fabric-plan.mts",
     "check:style-rules": "node --experimental-strip-types scripts/check-style-rules.mts",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",

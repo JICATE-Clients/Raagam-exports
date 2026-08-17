@@ -165,7 +165,7 @@ export async function getOrderFabricSeed(
 
   const [structureNames, componentNames] = await Promise.all([
     nameMap("categories", [...structureIds]),
-    nameMap("components", [...componentIds]),
+    nameMap("components", [...componentIds], "short_name"),
   ]);
 
   const out: OrderFabricSeedRow[] = [];
@@ -202,11 +202,32 @@ export async function getOrderFabricSeed(
 /** id -> name for a master, in one round trip. Deactivated rows INCLUDED: this
  *  labels what the order already holds, and a blank label on a real row is the
  *  "Disabled rows" failure read from the display side. */
-async function nameMap(table: string, ids: string[]): Promise<Map<string, string>> {
+/**
+ * id → display name for a master, in one round trip.
+ *
+ * THE NAME COLUMN IS A PARAMETER BECAUSE IT IS NOT ALWAYS `name`. `components`
+ * has `short_name` and no `name` at all (0228), and PostgREST answers a select
+ * over a missing column with an ERROR rather than nulls — so a hard-coded
+ * `"name"` here returns nothing and every seeded row loses its label, which
+ * reads as "the order named no panels" rather than as a fault.
+ *
+ * Deactivated rows are INCLUDED: this labels what a document already holds, and
+ * a blank label on a real row is the "Disabled rows" failure read from the
+ * display side.
+ */
+async function nameMap(
+  table: string,
+  ids: string[],
+  nameColumn: "name" | "short_name" = "name",
+): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
   const s = await createClient();
-  const { data } = await s.from(table).select("id, name").in("id", ids);
-  return new Map(((data ?? []) as { id: string; name: string }[]).map((r) => [r.id, r.name]));
+  const { data } = await s.from(table).select(`id, ${nameColumn}`).in("id", ids);
+  return new Map(
+    ((data ?? []) as Record<string, string>[])
+      .filter((r) => r[nameColumn])
+      .map((r) => [r.id, r[nameColumn]]),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -305,28 +326,51 @@ async function getFabricRows(): Promise<FabricOption[]> {
 async function getStructureRows(): Promise<PickerRow[]> {
   const s = await createClient();
   const [catRes, classes] = await Promise.all([
-    s.from("categories").select("id, code, name, inactive, item_class_id").order("name"),
+    // `short_name`, not `code` — `categories` carries short_name + name (0228).
+    s.from("categories").select("id, short_name, name, inactive, item_class_id").order("name"),
     itemClassCodes(),
   ]);
 
   return ((catRes.data ?? []) as {
     id: string;
-    code: string | null;
-    name: string;
+    short_name: string | null;
+    name: string | null;
     inactive: boolean;
     item_class_id: string | null;
   }[])
     .filter((r) => isFabricClassId(classes, r.item_class_id))
-    .map((r) => ({ id: r.id, code: r.code, name: r.name, inactive: isInactive(r) }));
+    // `name` is NULLABLE on this table, so a category saved with only a short
+    // name would otherwise render as a blank option the operator cannot tell
+    // apart from the next blank one.
+    .map((r) => ({
+      id: r.id,
+      code: r.short_name,
+      name: r.name ?? r.short_name ?? "(unnamed)",
+      inactive: isInactive(r),
+    }));
 }
 
+/**
+ * The garment panels a fabric may be cut for.
+ *
+ * `inactive`, NOT `is_active`. The schema spells the disable flag three ways and
+ * `components` was renamed to `inactive` by 0299 — the exact column
+ * `lib/masters/inactive.ts` records getting wrong once already: PostgREST answers
+ * a select over a MISSING column with an ERROR rather than nulls, so the query
+ * returns no data and the dropdown is silently EMPTY on every row. Last time it
+ * was this table, and the Style screen's Component picker was blank for weeks.
+ * Read the column from the catalog, never from memory.
+ */
 async function getComponentRows(): Promise<PickerRow[]> {
   const s = await createClient();
-  const { data } = await s.from("components").select("id, code, name, is_active").order("name");
-  return ((data ?? []) as (Omit<PickerRow, "inactive"> & { is_active: boolean })[]).map((r) => ({
+  // `short_name` IS the component's name — the table has no `name` column and
+  // no `code` (0228, and the client had the description field dropped: "maintain
+  // only name"). Selecting either is the same silent-empty failure as the flag.
+  const { data } = await s.from("components").select("id, short_name, inactive").order("short_name");
+  return ((data ?? []) as { id: string; short_name: string; inactive: boolean }[]).map((r) => ({
     id: r.id,
-    code: r.code,
-    name: r.name,
+    code: null,
+    name: r.short_name,
     inactive: isInactive(r),
   }));
 }

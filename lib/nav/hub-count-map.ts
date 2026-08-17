@@ -50,6 +50,7 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // garment ORDERS. "Fabric BOM: 412" meaning "there are 412 orders" is worse
   // than no number at all.
   "/orders/fabric-bom": "order_fabric_boms",
+  "/orders/fabric-plan": "order_fabric_plans",
   "/orders/process-amendments": "garment_process_amendment_docs",
   "/orders/due-date-confirmations": "due_date_confirmations",
   "/orders/contract-review": "contract_reviews",

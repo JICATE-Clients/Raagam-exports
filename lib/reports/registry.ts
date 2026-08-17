@@ -319,6 +319,33 @@ export const REPORT_SOURCES: ReportSource[] = [
 
   // ---- Declared gaps: real material movement that cannot be reported yet ----
   {
+    id: "order_fabric_plans",
+    label: "Fabric Plan (process route)",
+    module: "orders",
+    factKinds: [],
+    // 0427. THE FABRIC IS DELIBERATELY NOT REPORTED FROM HERE — it is the same
+    // item the Fabric BOM already emits as `planned`, walked backwards through
+    // the route. A fragment for it would double every fabric figure in every
+    // item report.
+    //
+    // The YARN is genuinely new information and is the gap. A route names
+    // PROCESSES, and "knitting consumes yarn X" is a conversion the yarn master
+    // and the fabric's composition express — this table does not know it, so
+    // `itemColumn` is null rather than pointed at the fabric it is NOT
+    // consuming. Declaring the gap is the correct move; omitting the table is
+    // what leaves it invisible.
+    table: "order_fabric_plan_stages",
+    itemColumn: null,
+    qtyColumn: "input_qty",
+    dateColumn: "order_fabric_plans.plan_date",
+    postsToLedger: false,
+    status: "gap",
+    note:
+      "The route's stage quantities — what must be available at each step. The " +
+      "yarn at the head of the route is real demand and cannot be reported: a " +
+      "stage names a process, not the item that process consumes.",
+  },
+  {
     id: "production_entries",
     label: "Production entries",
     module: "production",
