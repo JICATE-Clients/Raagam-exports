@@ -285,7 +285,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 value={form.pay_mode}
                 onChange={(e) => set({ pay_mode: e.target.value as "" | PayMode })}
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {PAY_MODES.map((m) => (
                   <option key={m} value={m}>
                     {m}
@@ -366,7 +366,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 onChange={(e) => set({ at_basis: e.target.value as "" | AtBasis })}
                 aria-label="AT basis"
               >
-                <option value="">—</option>
+                <option value=""></option>
                 {AT_BASIS.map((v) => (
                   <option key={v} value={v}>
                     {v}
@@ -380,7 +380,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 onChange={(e) => set({ at_when: e.target.value as "" | AtWhen })}
                 aria-label="AT when"
               >
-                <option value="">—</option>
+                <option value=""></option>
                 {AT_WHEN.map((v) => (
                   <option key={v} value={v}>
                     {v}
@@ -394,7 +394,7 @@ export function ReceivableTermMasterScreen({ rows, perms }: { rows: ReceivableTe
                 onChange={(e) => set({ at_event: e.target.value as "" | AtEvent })}
                 aria-label="AT event"
               >
-                <option value="">—</option>
+                <option value=""></option>
                 {AT_EVENT.map((v) => (
                   <option key={v} value={v}>
                     {v}

@@ -99,7 +99,7 @@ export function NewProformaForm({ buyers, currencies }: Props) {
                   onChange={(e) => setBuyerId(e.target.value)}
                   required
                 >
-                  <option value="">— select buyer —</option>
+                  <option value=""></option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}

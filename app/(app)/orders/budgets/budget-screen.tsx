@@ -576,7 +576,7 @@ export function BudgetScreen({
       icon: Coins,
       done: !!form.budget_date,
       content: (
-        <SectionBody title="Budget" hint="What this budget is, and the currency it is stated in.">
+        <SectionBody title="Budget">
           <FieldGrid>
             <Field label="Date" required size="sm" htmlFor="bg-date">
               <Input
@@ -603,7 +603,7 @@ export function BudgetScreen({
                 value={form.currency_code}
                 onChange={(e) => set({ currency_code: e.target.value })}
               >
-                <option value="">—</option>
+                <option value=""></option>
                 {data.currencies.map((c) => (
                   <option key={c.code} value={c.code}>
                     {c.code} · {c.name}
@@ -647,10 +647,7 @@ export function BudgetScreen({
       icon: ListChecks,
       done: pickedOrders.length > 0,
       content: (
-        <SectionBody
-          title="Orders"
-          hint="The garment orders this budget covers. Their costs come from their own BOMs."
-        >
+        <SectionBody title="Orders">
           <ChildGrid<OrderRow>
             columns={orderColumns}
             rows={orders}
@@ -670,10 +667,7 @@ export function BudgetScreen({
       icon: Receipt,
       done: costs.length > 0,
       content: (
-        <SectionBody
-          title="Costs"
-          hint="Fabric and material are pulled from the BOMs. Processing, CMT and other lines are typed."
-        >
+        <SectionBody title="Costs">
           {editable && (
             <div className="mb-3 flex items-center justify-end">
               <Button
@@ -716,7 +710,7 @@ export function BudgetScreen({
       icon: Coins,
       done: !isRefusal(totals.profit),
       content: (
-        <SectionBody title="Summary" hint="Sales against cost. Recomputed as you type.">
+        <SectionBody title="Summary">
           <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
             <Figure label="Sales value" value={totals.sales} />
             <Figure label="Total cost" value={totals.cost} />

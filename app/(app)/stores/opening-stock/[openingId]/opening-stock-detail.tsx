@@ -101,7 +101,7 @@ export function OpeningStockDetail({ docId, status, lines, items, canEdit, canDe
               <div className="w-56">
                 <Label htmlFor="ol-item">Item</Label>
                 <Select id="ol-item" value={itemId} onChange={(e) => setItemId(e.target.value)}>
-                  <option value="">— select item —</option>
+                  <option value=""></option>
                   {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </Select>
               </div>

@@ -1040,31 +1040,39 @@ export function DataPicker({
           readOnly={!fine}
           value={triggerText}
           /**
-           * "—", NOT "— Select {noun} —" (client 2026-08-17).
+           * AN UNFILLED PICKER SHOWS NOTHING (client 2026-08-17).
            *
-           * The noun in that placeholder is the LABEL REPEATED WITH A VERB. A
-           * picker is `compact` inside a `<Field label>` — which is every picker
-           * on a form — so the word already stands directly above the box, and
-           * inside a `ChildGrid` cell the column header says it a third time.
-           * "Select Merchandiser" then has to fit a 202px trigger, so it
-           * ellipsed itself: the screen showed "— Select Merchand... —" under a
-           * label reading "Merchand." (screenshot 2320). A value truncating is
-           * a real cost; a truncating restatement of the label is that cost
-           * paid for nothing.
+           * It used to read "— Select {noun} —", which is the LABEL REPEATED
+           * WITH A VERB: a picker is `compact` inside a `<Field label>` — which
+           * is every picker on a form — so the word already stands directly
+           * above the box, and inside a `ChildGrid` cell the column header says
+           * it a third time. "Select Merchandiser" then had to fit a 202px
+           * trigger, so it ellipsed itself: the screen showed
+           * "— Select Merchand... —" under a label reading "Merchand."
+           * (screenshot 2320).
            *
-           * A BARE EM-DASH IS ALREADY THIS APP'S "NOTHING CHOSEN" — every
-           * native `<Select>` on these screens renders `<option value="">—`,
-           * and `created-columns.tsx` prints "—" for an unknown creator. The
-           * picker was the one control disagreeing.
+           * IT WENT TO "—" FIRST, AND THAT WAS WRONG THE SAME WAY. The em-dash
+           * was defended here as the app's existing "nothing chosen" — and it
+           * is, in a TABLE CELL, where a column of blanks would be ambiguous
+           * with a column that failed to load (`created-columns.tsx` still
+           * prints one, correctly). A FORM FIELD is not a table cell: it has a
+           * box, a border and a chevron already saying "a value goes here", so
+           * the dash adds a mark that means what the box already means. Sixty
+           * fields each drawing a dash is a screen of dashes, which is what the
+           * client saw and rejected within the hour.
            *
-           * NOT BLANK. An empty trigger reads as a text box nobody filled in;
-           * "—" reads as a chooser standing at none, which is what it is.
+           * The general rule underneath both reversals: **an empty control says
+           * nothing.** Emptiness is legible on its own; every attempt to
+           * announce it costs width and adds a mark to scan past.
            *
            * The noun is not lost — it still names the panel, the search box
            * ("Search customers…"), the add button and every toast, all places
-           * where nothing else on screen says it.
+           * where nothing else on screen says it. And an explicit `placeholder`
+           * still wins, which is where a MEANINGFUL empty state lives: Order
+           * Entry's Rejection Rule reads "No projection", because blank there
+           * is a state of the order rather than an unanswered field.
            */
-          placeholder={selected ? selected.label : (placeholder ?? "—")}
+          placeholder={selected ? selected.label : (placeholder ?? "")}
           // A picker trigger IS a field to the operator. The marker is what
           // makes `gridKeyNav` gate Enter-adds-row on `data-field-empty` — a
           // grid whose first cell is an empty picker used to grow a blank row

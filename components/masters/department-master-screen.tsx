@@ -438,11 +438,13 @@ export function DepartmentMasterScreen({
               {locs.map((l, i) => (
                 <div key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
+                    {/* THE LOCATION NAMES THE ROW, not its position (client
+                        2026-08-17, screenshot 2332 — the same `#N` sweep as
+                        `ChildGrid`'s cards band). A row whose location is not
+                        picked yet says so, because an empty span beside a ✕
+                        reads as a broken header rather than an unanswered one. */}
                     <span className="text-xs font-medium text-muted-foreground">
-                      #{i + 1}
-                      {l.location_id && locationLabel.get(l.location_id)
-                        ? ` · ${locationLabel.get(l.location_id)}`
-                        : ""}
+                      {(l.location_id && locationLabel.get(l.location_id)) || "New location"}
                     </span>
                     <Button
                       type="button"

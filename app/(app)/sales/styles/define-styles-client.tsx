@@ -306,7 +306,7 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
               value={form.opportunity_id}
               onChange={(e) => set("opportunity_id", e.target.value)}
             >
-              <option value="">Select enquiry…</option>
+              <option value=""></option>
               {opportunities.map((o) => (
                 <option key={o.id} value={o.id}>
                   {(o.code ?? "—") +
@@ -334,7 +334,7 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
                 value={form.sample_type}
                 onChange={(e) => set("sample_type", e.target.value as SampleType | "")}
               >
-                <option value="">Select…</option>
+                <option value=""></option>
                 {SAMPLE_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t.toUpperCase()}
@@ -362,7 +362,7 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
                 value={form.fabric_type}
                 onChange={(e) => set("fabric_type", e.target.value as FabricType | "")}
               >
-                <option value="">Select…</option>
+                <option value=""></option>
                 {FABRIC_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t.replace("_", " ")}
@@ -377,7 +377,7 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
                 value={form.fabric_subtype}
                 onChange={(e) => set("fabric_subtype", e.target.value as FabricSubtype | "")}
               >
-                <option value="">Select…</option>
+                <option value=""></option>
                 {FABRIC_SUBTYPES.map((t) => (
                   <option key={t} value={t}>
                     {t.replace("_", " ")}
@@ -416,7 +416,7 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
                 value={form.unit_id}
                 onChange={(e) => set("unit_id", e.target.value)}
               >
-                <option value="">Select…</option>
+                <option value=""></option>
                 {uoms.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.code}

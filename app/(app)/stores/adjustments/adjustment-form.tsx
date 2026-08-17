@@ -68,7 +68,7 @@ export function AdjustmentForm({
           <div>
             <Label>Store *</Label>
             <Select value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-              <option value="">-- Select --</option>
+              <option value=""></option>
               {stores.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -77,7 +77,7 @@ export function AdjustmentForm({
           <div>
             <Label>Item *</Label>
             <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-              <option value="">-- Select --</option>
+              <option value=""></option>
               {items.map((i) => (
                 <option key={i.id} value={i.id}>{i.name} ({i.code})</option>
               ))}

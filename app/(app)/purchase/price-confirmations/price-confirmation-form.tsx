@@ -67,7 +67,7 @@ export function PriceConfirmationForm({ vendors }: { vendors: VendorPicker[] }) 
           <div>
             <Label>Vendor *</Label>
             <Select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-              <option value="">-- Select --</option>
+              <option value=""></option>
               {vendors.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>
               ))}

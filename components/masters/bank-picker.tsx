@@ -223,7 +223,7 @@ export function BankPicker({
                 value={bankType}
                 onChange={(e) => setBankType(e.target.value as "" | BankType)}
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {BANK_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}

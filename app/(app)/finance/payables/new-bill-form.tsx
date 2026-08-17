@@ -122,7 +122,7 @@ export function NewBillForm({
                 value={vendorId}
                 onChange={(e) => setVendorId(e.target.value)}
               >
-                <option value="">— Select vendor —</option>
+                <option value=""></option>
                 {vendors.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
@@ -139,7 +139,7 @@ export function NewBillForm({
                   value={poId}
                   onChange={(e) => setPoId(e.target.value)}
                 >
-                  <option value="">— None —</option>
+                  <option value=""></option>
                   {pos.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.code ?? p.id}
@@ -157,7 +157,7 @@ export function NewBillForm({
                   value={grnId}
                   onChange={(e) => setGrnId(e.target.value)}
                 >
-                  <option value="">— None —</option>
+                  <option value=""></option>
                   {grns.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.code ?? g.id}
@@ -246,7 +246,7 @@ export function NewBillForm({
                   value={locationId}
                   onChange={(e) => setLocationId(e.target.value)}
                 >
-                  <option value="">— All locations —</option>
+                  <option value="">All locations</option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}

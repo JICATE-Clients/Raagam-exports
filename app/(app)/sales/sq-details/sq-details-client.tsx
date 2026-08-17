@@ -175,7 +175,7 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
             <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
               <div><Label>Country</Label><Input className="w-20" value={packForm.country_code} onChange={(e) => setPackForm({ ...packForm, country_code: e.target.value })} /></div>
               <div><Label>Consignee</Label><Input className="w-32" value={packForm.consignee_name} onChange={(e) => setPackForm({ ...packForm, consignee_name: e.target.value })} /></div>
-              <div><Label>Assortment</Label><Select className="w-24" value={packForm.assortment_type} onChange={(e) => setPackForm({ ...packForm, assortment_type: e.target.value })}><option value="">—</option><option value="solid">Solid</option><option value="assorted">Assorted</option></Select></div>
+              <div><Label>Assortment</Label><Select className="w-24" value={packForm.assortment_type} onChange={(e) => setPackForm({ ...packForm, assortment_type: e.target.value })}><option value=""></option><option value="solid">Solid</option><option value="assorted">Assorted</option></Select></div>
               <div><Label>Cartons</Label><Input className="w-20" type="number" value={packForm.no_of_cartons} onChange={(e) => setPackForm({ ...packForm, no_of_cartons: e.target.value })} /></div>
               <div><Label>SQ Qty</Label><Input className="w-24" type="number" value={packForm.sq_qty} onChange={(e) => setPackForm({ ...packForm, sq_qty: e.target.value })} /></div>
               <div><Label>Delivery</Label><Input className="w-32" type="date" value={packForm.delivery_date} onChange={(e) => setPackForm({ ...packForm, delivery_date: e.target.value })} /></div>
@@ -212,14 +212,14 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
             <div>
               <Label htmlFor="sq-subtype">Sub Type</Label>
               <Select id="sq-subtype" value={form.sq_sub_type} onChange={(e) => setForm({ ...form, sq_sub_type: e.target.value })}>
-                <option value="">Select…</option>
+                <option value=""></option>
                 {SQ_SUB_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
               </Select>
             </div>
             <div>
               <Label htmlFor="sq-source">Sourcing</Label>
               <Select id="sq-source" value={form.sourcing_type} onChange={(e) => setForm({ ...form, sourcing_type: e.target.value })}>
-                <option value="">Select…</option>
+                <option value=""></option>
                 {SOURCING_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
               </Select>
             </div>

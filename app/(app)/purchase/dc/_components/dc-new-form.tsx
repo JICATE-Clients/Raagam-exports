@@ -136,7 +136,7 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
                 value={vendorId}
                 onChange={(e) => setVendorId(e.target.value)}
               >
-                <option value="">Select vendor</option>
+                <option value=""></option>
                 {vendors.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
@@ -151,7 +151,7 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
               >
-                <option value="">Select location</option>
+                <option value=""></option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}
@@ -236,7 +236,7 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
                         }
                         className="w-40"
                       >
-                        <option value="">Select item</option>
+                        <option value=""></option>
                         {items.map((item) => (
                           <option key={item.id} value={item.id}>
                             {item.name}

@@ -820,32 +820,47 @@ export function MasterFullScreen({
   );
 }
 
-/** A titled content block inside the editor's content pane. */
+/**
+ * A titled content block inside the editor's content pane.
+ *
+ * THERE IS NO `hint` (client 2026-08-17). Every section carried a sentence
+ * beside its title — "Order Info · Who this order is for, and the styles it
+ * covers" — and 51 of them were the same shape: the section's own name
+ * expanded into prose, naming the fields that were already on screen
+ * underneath. The operator reads the fields, not the sentence about the fields.
+ *
+ * The prop was defended once, and the defence is worth keeping because it
+ * shows what actually changed. This heading is "the most redundant thing on
+ * screen — the rail already names the active section two inches to the left";
+ * the title survived only because dropping it would have taken the hint with
+ * it, "the only place a section explains itself". That last clause was the
+ * weak one. A section that needs explaining has a labelling problem, and the
+ * one hint that carried real information carried it CONDITIONALLY (Style ▸
+ * Components said "Add coordinates first" while the Coordinate picker had
+ * nothing to offer) — which is a state message, and state messages belong
+ * beside the control whose state they describe, not in a slot that must be
+ * filled on every screen whether or not there is anything to say.
+ *
+ * So a section that genuinely needs a line writes one, in its own body, where
+ * it can be conditional. `title` is the whole contract here.
+ *
+ * REMOVED, NOT DEPRECATED. Leaving `hint` accepted-and-ignored would have been
+ * one edit instead of fifteen, and it is exactly the "dead config that reads as
+ * live" this repo warns about elsewhere: 51 strings that look maintained, that
+ * a future reader would keep writing, and that render nothing.
+ */
 export function SectionBody({
   title,
-  hint,
   children,
 }: {
   title: string;
-  hint: string;
   children: ReactNode;
 }) {
   return (
     <div>
-      {/* Title and hint stack on mobile but sit on ONE line in a desktop editor:
-          54px of heading chrome (20 title + 2 + 16 hint + 16 margin) became ~32px.
-          Worth it because under the section rail this heading is the most
-          redundant thing on screen — the rail already names the active section
-          two inches to the left — yet dropping it outright would cost the hint,
-          which is the only place a section explains itself. */}
-      <div className="mb-4 @2xl/editor:mb-3 @2xl/editor:flex @2xl/editor:items-baseline @2xl/editor:gap-2">
-        <h2 className="text-[15px] font-bold tracking-tight text-foreground @2xl/editor:shrink-0">{title}</h2>
-        {/* truncate-reveal: exempt -- truncates ONLY at @2xl, where the hint
-            shares a line with the title; below that it wraps and reads in full.
-            Routing it through <Truncated> would truncate it at every size and
-            hide text that is visible today. */}
-        <p className="mt-0.5 text-[12.5px] text-muted-foreground @2xl/editor:mt-0 @2xl/editor:truncate">{hint}</p>
-      </div>
+      <h2 className="mb-4 text-[15px] font-bold tracking-tight text-foreground @2xl/editor:mb-3">
+        {title}
+      </h2>
       {/* Space the section's cards apart. A section often holds more than one
           `DetailSection` — Address + Communication, Currencies + Shipping —
           and two bordered cards as direct siblings meet flush, reading as one

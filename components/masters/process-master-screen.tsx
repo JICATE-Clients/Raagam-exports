@@ -484,7 +484,7 @@ export function ProcessMasterScreen({
                 value={form.billing_on}
                 onChange={(e) => set({ billing_on: e.target.value as "" | BillingOn })}
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {BILLING_ON.map((b) => (
                   <option key={b} value={b}>
                     {b}

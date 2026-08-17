@@ -443,7 +443,7 @@ check(
 const comboRow = (
   ref: string,
   combo: string,
-  structures: { structure_id: string; gsm?: number | null }[] = [],
+  structures: { structure_id: string; gsm?: number | null; fabric_item_id?: string | null }[] = [],
 ) => ({
   sno: 1,
   style_ref_no: ref,
@@ -455,7 +455,7 @@ const comboRow = (
     sno: i + 1,
     structure_id: st.structure_id,
     fabric_type: null,
-    composition_id: null,
+    fabric_item_id: st.fabric_item_id ?? null,
     gsm: st.gsm ?? null,
     gsm_tolerance: null,
     item_sub_type: null,
@@ -529,6 +529,27 @@ check(
     ),
   ),
   ["Combos — Structures · TSH-001 · WHITE: GSM 200 → 180"],
+);
+
+// COMPOSITION IS STILL CALLED COMPOSITION (0430). The column stopped being an
+// FK to the `compositions` master and became the FABRIC that declares the blend,
+// which is a change of source, not of subject — the amendment document is read
+// by the person who signed the order, and to them the composition changed.
+//
+// ASSERTS THE LABEL, not the count: a rename that forgot `diff.ts` would still
+// produce exactly one row here, and a bucket keyed on the wrong field still
+// produces one. Verified by breaking it first — relabelled "Fabric" the vector
+// fails on the text, and with `fabric_item_id` dropped from `fields` it fails
+// with nothing reported at all.
+check(
+  "changing which fabric states the composition reads as Composition",
+  summarise(
+    diffAmendment(
+      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, fabric_item_id: "fab-a" }])] }),
+      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, fabric_item_id: "fab-b" }])] }),
+    ),
+  ),
+  ["Combos — Structures · TSH-001 · WHITE: Composition fab-a → fab-b"],
 );
 
 // THE ONE THAT NEEDS THE COMBO IN THE STRUCTURE KEY. The same fabric on two

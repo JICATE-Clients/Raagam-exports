@@ -149,7 +149,7 @@ function LineForm({
               value={form.item_id}
               onChange={(e) => setForm((f) => ({ ...f, item_id: e.target.value }))}
             >
-              <option value="">-- None --</option>
+              <option value=""></option>
               {items.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.name}
@@ -178,7 +178,7 @@ function LineForm({
               value={form.uom_id}
               onChange={(e) => setForm((f) => ({ ...f, uom_id: e.target.value }))}
             >
-              <option value="">-- None --</option>
+              <option value=""></option>
               {uoms.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name} ({u.code})
@@ -420,7 +420,7 @@ function CommercialTab({
         <div>
           <Label>Freight Type</Label>
           <Select value={fields.freight_type} onChange={(e) => set("freight_type", e.target.value)} disabled={!canEdit}>
-            <option value="">-- None --</option>
+            <option value=""></option>
             <option value="itemwise">Itemwise</option>
             <option value="consolidated">Consolidated</option>
           </Select>

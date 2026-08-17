@@ -37,6 +37,16 @@ export type PickerRow = { id: string; code: string | null; name: string } & Deac
 export type ConsigneeRow = PickerRow & { customer_id: string | null };
 
 /**
+ * A FABRIC material, plus the category it sits in (0430).
+ *
+ * The same shape of extension as `ConsigneeRow` above, and for the same reason:
+ * it is still handed straight to `RecordPicker`, and the scoping rule that reads
+ * the extra key lives on the SCREEN, which is where the picked Structure is.
+ * `name` is already the composition — see `getFabricRows`.
+ */
+export type FabricRow = PickerRow & { category_id: string | null };
+
+/**
  * An order row for the SCNo picker. Carries the order's buyer / currency /
  * delivery date so the client can auto-load the amendment header when an SCNo is
  * selected — no extra round trip (confirmed behaviour: SCNo loads the order).
@@ -576,7 +586,12 @@ export type AmendmentFormData = {
    * `created_by` and cascade-filter sweeps both record.
    */
   categories: Category[];
-  compositions: PickerRow[];
+  /**
+   * THE FABRICS a combo structure may name, and their `name` IS THE COMPOSITION
+   * (0430). Replaced `compositions`, which pointed this field at a master the
+   * order could not fetch from — see `getFabricRows`.
+   */
+  fabrics: FabricRow[];
   /** A COORDINATE IS A GARMENT (0396) — `items` of class GAR. */
   coordinates: PickerRow[];
   /** The `components` master (0228/0396), not the empty lookup kind. */
@@ -629,52 +644,117 @@ async function getComponentPickerRows(): Promise<PickerRow[]> {
 }
 
 /**
- * Compositions (0225) for the Structure Details picker.
+ * THE FABRICS a combo structure can name — `items` of class FABRIC, LABELLED BY
+ * THEIR COMPOSITION (client 2026-08-17, screenshot 2324).
  *
- * THE LABEL IS THE MIXTURE, NOT THE HEADER'S NAME (operator, 2026-08-12). The
- * legacy cell reads "100% BCI CO…", which is the composition SPELLED OUT — and
- * that is the only form anyone in the trade recognises. `compositions.name` is
- * an internal handle ("Test Composition"), so a picker showing it offers rows
- * nobody can identify: the field looked unwired precisely because it was
- * showing the wrong half of the master.
+ * This replaced `getCompositionRows()`, and both halves of that replacement are
+ * the point:
  *
- * So the option name is composed from `composition_lines` — `<pct>% <fibre>`,
- * joined by " / " for a blend, in `sno` order because that order IS the recipe
- * (the major fibre is stated first). Percentages are trimmed of trailing zeros:
- * the column is `numeric(6,2)` and "100.00% COTTON" is not how it is written.
+ * WHY NOT THE `compositions` MASTER. 0408 pointed this field at it, so the value
+ * could only ever be typed in by hand from a master with one test row in it —
+ * there is nothing upstream to fetch it FROM, because what the order knows is
+ * the Structure (a fabric category) and a category declares no composition. A
+ * Fabric material does, and must: `material_mixings` is mandatory on the Material
+ * master ("A Fabric is DEFINED by what it is made of"). So the row names the
+ * fabric and the composition is derived from it (0430).
  *
- * A COMPOSITION WITH NO LINES FALLS BACK TO ITS NAME rather than rendering
- * blank. A row that exists must stay pickable — a half-entered master is the
- * operator's to finish, not this function's to hide.
+ * AND WHY THAT MASTER'S PICKER WAS EMPTY ANYWAY — `select(... "blocked" ...)` on
+ * a table whose flag column is spelled `inactive` (0299 renamed it). PostgREST
+ * fails the WHOLE query on an unknown column, the `const { data } =` swallowed
+ * the error, and `data ?? []` turned it into "No composition found." — a picker
+ * that looked merely unpopulated, which is the exact shape `getStyleRows` below
+ * carries an `if (error) throw` to prevent. THAT is why this one throws too: the
+ * same defect here would now say so instead of emptying the field.
+ *
+ * THE LABEL IS THE MIXTURE, NOT THE MATERIAL'S NAME (operator, 2026-08-12, and
+ * unchanged by the source moving). The legacy cell reads "100% BCI CO…" — the
+ * composition SPELLED OUT, the only form the trade recognises. So the option name
+ * is composed from the blend: `<pct>% <yarn>`, joined " / ", in `sno` order
+ * because that order IS the recipe (the major yarn is stated first). Percentages
+ * are trimmed of trailing zeros — the column is `numeric` and "100.00% COTTON" is
+ * not how it is written — and a blend that names no percentage at all (13 of the
+ * 17 mixing rows today) renders as the yarns alone rather than as "0% …", which
+ * would be a figure the master never stated.
+ *
+ * A FABRIC WITH NO MIXING FALLS BACK TO ITS OWN NAME rather than rendering blank:
+ * a row that exists must stay pickable, and a half-entered master is the
+ * operator's to finish, not this function's to hide. The name is no loss here —
+ * `SOLID 1X1 LYCRA RIB (30'S COTTON COMBED 95%, 20'S ELASTANE 5%) 100%` is the
+ * composition, spelled by the Material master's own auto-namer.
+ *
+ * `category_id` RIDES ALONG so the screen can scope the list to the picked
+ * Structure — the cascading-picker rule, whose narrowing belongs at the caller
+ * that knows the parent. `is_active` rides along unfiltered for the "Disabled
+ * rows" rule: a switched-off fabric vanishes from the list while still resolving
+ * on an order that already named it.
  */
-async function getCompositionRows(): Promise<PickerRow[]> {
+async function getFabricRows(): Promise<FabricRow[]> {
   const s = await createClient();
-  const { data } = await s
-    .from("compositions")
-    .select("id, short_name, name, blocked, lines:composition_lines(sno, description, mixing_pct)")
-    .order("name", { nullsFirst: false });
+  const { data: classes } = await s
+    .from("config_lookups")
+    .select("id, code")
+    .eq("kind", "item_class");
+  const fabricIds = new Set(
+    ((classes ?? []) as { id: string; code: string | null }[])
+      .filter((c) => (c.code ?? "").toUpperCase() === "FABRIC")
+      .map((c) => c.id),
+  );
+  if (fabricIds.size === 0) return [];
+  const { data, error } = await s
+    .from("items")
+    .select(
+      "id, code, name, item_class_id, category_id, is_active, " +
+        // BOTH EMBEDS NAME THEIR CONSTRAINT, and neither is optional:
+        // `material_mixings` holds TWO FKs to `items` — `item_id`, the fabric
+        // that owns the row, and `component_item_id`, the yarn in it — so an
+        // unqualified embed either way is AMBIGUOUS, and an ambiguous embed fails
+        // the WHOLE query. That is the same failure mode that left this field
+        // empty in the first place (see above), so it is spelled out rather than
+        // trusted: both names verified against pg_constraint, not guessed.
+        "mixings:material_mixings!material_mixings_item_id_fkey(" +
+        "sno, blend_pct, description, " +
+        "yarn:items!material_mixings_component_item_id_fkey(name))",
+    )
+    .order("name");
+  if (error) throw new Error(`Could not load fabrics for the Structure picker: ${error.message}`);
   const pct = (n: number) => (Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2))));
   return (
     (data ?? []) as unknown as {
       id: string;
-      short_name: string | null;
+      code: string | null;
       name: string | null;
-      blocked: boolean;
-      lines: { sno: number; description: string | null; mixing_pct: number | null }[] | null;
+      item_class_id: string | null;
+      category_id: string | null;
+      is_active: boolean | null;
+      mixings:
+        | {
+            sno: number;
+            blend_pct: number | null;
+            description: string | null;
+            yarn: { name: string | null } | null;
+          }[]
+        | null;
     }[]
-  ).map((c) => {
-    const mixture = [...(c.lines ?? [])]
-      .sort((a, b) => a.sno - b.sno)
-      .filter((l) => (l.description ?? "").trim())
-      .map((l) => `${pct(Number(l.mixing_pct ?? 0))}% ${(l.description ?? "").trim()}`)
-      .join(" / ");
-    return {
-      id: c.id,
-      code: c.short_name,
-      name: mixture || c.name || c.short_name || "(unnamed composition)",
-      blocked: c.blocked,
-    };
-  });
+  )
+    .filter((i) => i.item_class_id && fabricIds.has(i.item_class_id))
+    .map((i) => {
+      const mixture = [...(i.mixings ?? [])]
+        .sort((a, b) => a.sno - b.sno)
+        .map((m) => ({
+          fibre: (m.yarn?.name ?? m.description ?? "").trim(),
+          pct: m.blend_pct,
+        }))
+        .filter((m) => m.fibre)
+        .map((m) => (m.pct == null ? m.fibre : `${pct(Number(m.pct))}% ${m.fibre}`))
+        .join(" / ");
+      return {
+        id: i.id,
+        code: i.code,
+        name: mixture || i.name || "(unnamed fabric)",
+        category_id: i.category_id,
+        is_active: i.is_active,
+      };
+    });
 }
 
 /** Every picker option list the amendment editor needs, fetched in parallel. */
@@ -768,7 +848,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     warehouses,
     ports,
     categories,
-    compositions,
+    fabrics,
     coordinates,
     componentRows,
     processes,
@@ -789,7 +869,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getWarehouseRows(),
     getPortRows(),
     listCategories(),
-    getCompositionRows(),
+    getFabricRows(),
     getCoordinateRows(),
     getComponentPickerRows(),
     getProcessRows(),
@@ -814,7 +894,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     warehouses,
     ports,
     categories,
-    compositions,
+    fabrics,
     coordinates,
     componentRows,
     processes,

@@ -226,7 +226,7 @@ export function FileAttachments({
                   )
                 }
               >
-                <option value="">—</option>
+                <option value=""></option>
                 {ATTACHMENT_KINDS.map((k) => (
                   <option key={k.value} value={k.value}>
                     {k.label}

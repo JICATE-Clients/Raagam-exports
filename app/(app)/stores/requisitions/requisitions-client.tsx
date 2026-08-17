@@ -103,7 +103,7 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
                   <div>
                     <Label htmlFor="mr-store">Store</Label>
                     <Select id="mr-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-                      <option value="">— select store —</option>
+                      <option value=""></option>
                       {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                   </div>

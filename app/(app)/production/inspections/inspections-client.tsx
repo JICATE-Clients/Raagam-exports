@@ -140,7 +140,7 @@ export function InspectionsClient({ rows, orders, canCreate, canEdit, canDelete 
                   <div>
                     <Label htmlFor="in-order">Sales order</Label>
                     <Select id="in-order" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number ?? o.id.slice(0, 8)}</option>)}
                     </Select>
                   </div>

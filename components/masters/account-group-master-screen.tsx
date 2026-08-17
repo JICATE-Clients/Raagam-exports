@@ -291,7 +291,7 @@ export function AccountGroupMasterScreen({
               value={form.nature_of_group}
               onChange={(e) => set({ nature_of_group: e.target.value as "" | NatureOfGroup })}
             >
-              <option value="">— Select —</option>
+              <option value=""></option>
               {NATURE_OF_GROUP.map((n) => (
                 <option key={n} value={n}>
                   {n}

@@ -101,7 +101,7 @@ export function NewLcForm({ buyers, currencies }: Props) {
               <div>
                 <Label htmlFor="lc-buyer">Buyer</Label>
                 <Select id="lc-buyer" value={buyerId} onChange={(e) => setBuyerId(e.target.value)}>
-                  <option value="">— select buyer —</option>
+                  <option value=""></option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}

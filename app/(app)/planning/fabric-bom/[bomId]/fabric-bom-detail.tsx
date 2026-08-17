@@ -526,7 +526,7 @@ function FabricsTab({
             value={clothForm.warp_weft}
             onChange={(e) => setClothForm((f) => ({ ...f, warp_weft: e.target.value }))}
           >
-            <option value="">-- None --</option>
+            <option value=""></option>
             {WARP_WEFT.map((v) => (
               <option key={v} value={v}>
                 {WARP_WEFT_LABELS[v]}
@@ -540,7 +540,7 @@ function FabricsTab({
             value={clothForm.yarn_reqd_form}
             onChange={(e) => setClothForm((f) => ({ ...f, yarn_reqd_form: e.target.value }))}
           >
-            <option value="">-- None --</option>
+            <option value=""></option>
             {YARN_REQD_FORMS.map((v) => (
               <option key={v} value={v}>
                 {YARN_REQD_FORM_LABELS[v]}

@@ -101,7 +101,7 @@ export function CspReceiptDetail({ docId, status, lines, items, canEdit, canDele
               <div className="w-56">
                 <Label htmlFor="cl-item">Item</Label>
                 <Select id="cl-item" value={itemId} onChange={(e) => setItemId(e.target.value)}>
-                  <option value="">— select item —</option>
+                  <option value=""></option>
                   {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </Select>
               </div>

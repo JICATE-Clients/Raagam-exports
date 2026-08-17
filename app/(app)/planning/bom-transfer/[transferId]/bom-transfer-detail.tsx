@@ -121,7 +121,7 @@ function TransferItemForm({
             value={form.stage}
             onChange={(e) => setForm((f) => ({ ...f, stage: e.target.value }))}
           >
-            <option value="">-- Select --</option>
+            <option value=""></option>
             {TRANSFER_STAGES.map((s) => (
               <option key={s} value={s}>
                 {STAGE_LABELS[s]}

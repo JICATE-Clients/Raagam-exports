@@ -100,7 +100,7 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
               <div className="w-40">
                 <Label htmlFor="il-item">Item</Label>
                 <Select id="il-item" value={itemId} onChange={(e) => setItemId(e.target.value)}>
-                  <option value="">— none —</option>
+                  <option value=""></option>
                   {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </Select>
               </div>
@@ -115,7 +115,7 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
               <div className="w-28">
                 <Label htmlFor="il-uom">UOM</Label>
                 <Select id="il-uom" value={uomId} onChange={(e) => setUomId(e.target.value)}>
-                  <option value="">—</option>
+                  <option value=""></option>
                   {uoms.map((u) => <option key={u.id} value={u.id}>{u.code}</option>)}
                 </Select>
               </div>

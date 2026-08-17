@@ -685,7 +685,7 @@ export function CategoryMasterScreen({
                 onChange={(e) => setForm({ ...form, item_class_id: e.target.value })}
                 className="text-base md:text-sm"
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {itemClasses
                   .filter((c) => c.is_active || c.id === form.item_class_id)
                   .map((c) => (
@@ -723,7 +723,7 @@ export function CategoryMasterScreen({
                   onChange={(e) => setForm({ ...form, made: e.target.value as "" | MadeType })}
                   className="text-base md:text-sm"
                 >
-                  <option value="">— Select —</option>
+                  <option value=""></option>
                   {MADE_TYPES.map((m) => (
                     <option key={m} value={m}>
                       {m}

@@ -250,7 +250,7 @@ export function GstAssignScreen({
       className="h-8 w-36 text-base md:text-sm"
       aria-label={`GST Type for ${r.name}`}
     >
-      <option value="">— Not set —</option>
+      <option value="">Not set</option>
       {GST_REG_STATUSES.map((g) => (
         <option key={g} value={g}>
           {g}
@@ -340,7 +340,7 @@ export function GstAssignScreen({
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Set GST Type</span>
             <Select value={bulkType} onChange={(e) => setBulkType(e.target.value)} aria-label="Bulk GST type" className="h-8 text-sm">
-              <option value="">Choose…</option>
+              <option value=""></option>
               {GST_REG_STATUSES.map((g) => (
                 <option key={g} value={g}>
                   {g}

@@ -306,7 +306,7 @@ function StylesTab({
                     setFabricType(e.target.value as (typeof FABRIC_TYPES)[number] | "")
                   }
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {FABRIC_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {t.replace("_", " ")}
@@ -325,7 +325,7 @@ function StylesTab({
                     )
                   }
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {FABRIC_SUBTYPES.map((s) => (
                     <option key={s} value={s}>
                       {s.replace("_", " ")}
@@ -358,7 +358,7 @@ function StylesTab({
                   value={sampleType}
                   onChange={(e) => setSampleType(e.target.value)}
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {SAMPLE_TYPES.map((t) => (
                     <option key={t} value={t}>{t.toUpperCase()}</option>
                   ))}
@@ -406,7 +406,7 @@ function StylesTab({
                   value={shipMode}
                   onChange={(e) => setShipMode(e.target.value)}
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {/* Printed as stored. This used to be
                       `m.charAt(0).toUpperCase() + m.slice(1)`, papering over
                       lowercase values; they are CAPS at rest now (migration
@@ -753,7 +753,7 @@ function CostSheetsTab({
                     value={styleId}
                     onChange={(e) => setStyleId(e.target.value)}
                   >
-                    <option value="">None</option>
+                    <option value=""></option>
                     {styles.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
@@ -1163,7 +1163,7 @@ function QuotesTab({
                   value={costSheetId}
                   onChange={(e) => handleSheetChange(e.target.value)}
                 >
-                  <option value="">None</option>
+                  <option value=""></option>
                   {approvedSheets.map((s) => (
                     <option key={s.id} value={s.id}>
                       v{s.version} — {fmtMoney(s.computed_fob, s.currency_code)}
@@ -1434,7 +1434,7 @@ function SamplesTab({
                   value={styleId}
                   onChange={(e) => setStyleId(e.target.value)}
                 >
-                  <option value="">None</option>
+                  <option value=""></option>
                   {styles.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}

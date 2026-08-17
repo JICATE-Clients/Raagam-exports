@@ -232,7 +232,7 @@ export default function PieceRecordsClient({
                   onChange={(e) => setForm({ ...form, worker_id: e.target.value })}
                   required
                 >
-                  <option value="">— Select Worker —</option>
+                  <option value=""></option>
                   {workers.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
@@ -273,7 +273,7 @@ export default function PieceRecordsClient({
                     setForm({ ...form, sales_order_id: e.target.value || null })
                   }
                 >
-                  <option value="">— None —</option>
+                  <option value=""></option>
                   {orders.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.order_number}

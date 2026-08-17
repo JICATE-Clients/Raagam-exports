@@ -403,8 +403,8 @@ export async function seedAmendmentFromOrder(
    * order with hundreds of fabric components.
    *
    * `categories` is the Structure list (0409 — SINGLE JERSEY is a category, not
-   * a knit family), `compositions` is 0225's master, coordinates are `items` of
-   * class GAR (0396) and components are the `components` master (0396). Every
+   * a knit family), coordinates are `items` of class GAR (0396) and components
+   * are the `components` master (0396). Every
    * one of these was TEXT on the order side because that side was never
    * constrained to the masters, which is exactly why this resolution exists and
    * why a miss is kept-with-a-blank rather than dropped — see the note on
@@ -412,14 +412,14 @@ export async function seedAmendmentFromOrder(
    */
   const [
     { data: categoryRows },
-    { data: compositionRows },
     { data: garmentRows },
     { data: componentMasterRows },
     { data: itemClassRows },
   ] = await Promise.all([
     s.from("categories").select("id, name"),
-    s.from("compositions").select("id, name, short_name").eq("blocked", false),
-    s.from("items").select("id, name, item_class_id"),
+    // `category_id` RIDES ALONG for the fabric resolution below — and this is
+    // the same select the coordinates come out of, so it costs nothing.
+    s.from("items").select("id, name, item_class_id, category_id"),
     s.from("components").select("id, short_name"),
     s.from("config_lookups").select("id, code").eq("kind", "item_class"),
   ]);
@@ -430,9 +430,50 @@ export async function seedAmendmentFromOrder(
       .map((c) => c.id),
   );
   const categoryByName = indexByName((categoryRows ?? []) as { id: string; name: string | null }[]);
-  const compositionByName = indexByName(
-    (compositionRows ?? []) as { id: string; name: string | null }[],
+  /**
+   * THE FABRICS, BY THE CATEGORY THEY SIT IN (0430) — the seeder's half of
+   * "Composition is fetched, not typed".
+   *
+   * This replaced a `compositionByName` index over the `compositions` master,
+   * which resolved `order_fabrics.composition` — a free-text phrase like
+   * "100% BCI COTTON" — against that master's names. It had never resolved
+   * anything: the query filtered `.eq("blocked", false)` on a table whose flag
+   * column is spelled `inactive` (0299), so PostgREST failed it outright and the
+   * swallowed error left an empty map. Same defect, same day, as the picker in
+   * `service.ts`.
+   *
+   * MATCHED BY CATEGORY, NOT BY NAME, and only when the answer is unambiguous —
+   * the identical rule the screen applies when the operator picks a Structure
+   * (`fabricsFor` / `pickComboStructure`). A category with two fabrics in it has
+   * no single right answer, so the seed leaves the field blank and the operator
+   * picks: "a blank picker is a visible prompt, a dropped row is silent data
+   * loss", and inventing one of two fabrics is neither.
+   */
+  // `fabricClassIds`, NOT `fabricIds` — that name is taken, two hundred lines up,
+  // by the ids of the legacy `order_fabrics` ROWS this seed reads. Two different
+  // fabrics in one function is exactly the collision that makes a shadowed
+  // variable compile and mean the wrong thing.
+  const fabricClassIds = new Set(
+    ((itemClassRows ?? []) as { id: string; code: string | null }[])
+      .filter((c) => (c.code ?? "").toUpperCase() === "FABRIC")
+      .map((c) => c.id),
   );
+  const fabricsByCategory = new Map<string, string[]>();
+  for (const i of (garmentRows ?? []) as {
+    id: string;
+    item_class_id: string | null;
+    category_id: string | null;
+  }[]) {
+    if (!i.item_class_id || !fabricClassIds.has(i.item_class_id) || !i.category_id) continue;
+    const list = fabricsByCategory.get(i.category_id) ?? [];
+    list.push(i.id);
+    fabricsByCategory.set(i.category_id, list);
+  }
+  const soleFabricIn = (categoryId: string | null) => {
+    if (!categoryId) return null;
+    const list = fabricsByCategory.get(categoryId) ?? [];
+    return list.length === 1 ? list[0] : null;
+  };
   // A COORDINATE IS A GARMENT (0396), so the list is scoped to item class GAR
   // here rather than matched against every item in the database — an item named
   // "PIECES" in some other class would otherwise resolve and be wrong.
@@ -668,12 +709,18 @@ export async function seedAmendmentFromOrder(
     if (!parent) continue;
 
     /**
-     * Structure and Composition are resolved by NAME and kept when they miss —
-     * the same decision recorded at the top of this file for colours, prints
-     * and structures: "a blank picker is a visible prompt, a dropped row is
-     * silent data loss". A fabric the order really carries must not vanish
-     * from the amendment because its name is spelled differently in the
-     * masters.
+     * Structure is resolved by NAME and kept when it misses — the same decision
+     * recorded at the top of this file for colours, prints and structures: "a
+     * blank picker is a visible prompt, a dropped row is silent data loss". A
+     * fabric the order really carries must not vanish from the amendment because
+     * its name is spelled differently in the masters.
+     *
+     * COMPOSITION IS NO LONGER RESOLVED AT ALL, because it is no longer a value:
+     * the row names the FABRIC and the composition is read off it (0430). The
+     * legacy column holds a phrase, not a reference, so what carries over is the
+     * structure — and the fabric follows from it when that category holds exactly
+     * one. `f.composition` is deliberately left unread: matching a phrase against
+     * a fabric's name would resolve by coincidence or not at all.
      *
      * `fabric_type` and `item_sub_type` are NOT resolved at all: both columns
      * carry the same CHECK on both sides (0329 and 0408 share the vocabulary
@@ -683,7 +730,9 @@ export async function seedAmendmentFromOrder(
       sno: parent.structures.length + 1,
       structure_id: categoryByName.get((f.structure_name ?? "").trim().toUpperCase()) ?? null,
       fabric_type: f.fabric_type ?? null,
-      composition_id: compositionByName.get((f.composition ?? "").trim().toUpperCase()) ?? null,
+      fabric_item_id: soleFabricIn(
+        categoryByName.get((f.structure_name ?? "").trim().toUpperCase()) ?? null,
+      ),
       gsm: f.gsm ?? null,
       gsm_tolerance: f.gsm_tolerance ?? null,
       item_sub_type: f.item_sub_type ?? null,

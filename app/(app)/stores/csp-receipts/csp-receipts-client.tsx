@@ -94,14 +94,14 @@ export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
                   <div>
                     <Label htmlFor="cs-store">Store</Label>
                     <Select id="cs-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-                      <option value="">— select store —</option>
+                      <option value=""></option>
                       {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                   </div>
                   <div>
                     <Label htmlFor="cs-buyer">Customer</Label>
                     <Select id="cs-buyer" value={buyerId} onChange={(e) => setBuyerId(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {buyers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </Select>
                   </div>

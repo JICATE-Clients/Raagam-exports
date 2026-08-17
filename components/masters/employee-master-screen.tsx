@@ -1078,10 +1078,7 @@ export function EmployeeMasterScreen({
             icon: User,
             done: done.identity,
             content: (
-              <SectionBody
-                title="Identity"
-                hint="Who this employee is, and where they sit in the organisation."
-              >
+              <SectionBody title="Identity">
                 {/* The untitled header block of the old single-scroll form. It
                     was a bare `FieldGrid` — the 12-col track minus the chrome —
                     because it carried the record's identity and a titled card
@@ -1251,10 +1248,7 @@ export function EmployeeMasterScreen({
             icon: Users,
             done: done.personal,
             content: (
-              <SectionBody
-                title="Personal"
-                hint="Family, contact and the demographic details HR keeps on file."
-              >
+              <SectionBody title="Personal">
                 {/* Two cards, so the `space-y-4` the old single-scroll form put
                     between every section is kept here rather than letting two
                     bordered cards meet flush. "Other Details" joins Personal
@@ -1283,7 +1277,7 @@ export function EmployeeMasterScreen({
                 value={form.spouse_type}
                 onChange={(e) => set({ spouse_type: e.target.value })}
               >
-                <option value="">— None —</option>
+                <option value=""></option>
                 {SPOUSE_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -1417,10 +1411,7 @@ export function EmployeeMasterScreen({
             icon: Calendar,
             done: done.dates,
             content: (
-              <SectionBody
-                title="Dates"
-                hint="Birth, joining, confirmation and filing — the record's whole timeline."
-              >
+              <SectionBody title="Dates">
           {/* ---- Dates ----
               DOB and its derived Age moved here out of the header block: this
               section is where someone looking for a date looks, and the header
@@ -1483,10 +1474,7 @@ export function EmployeeMasterScreen({
             icon: IdCard,
             done: done.statutory,
             content: (
-              <SectionBody
-                title="Statutory IDs"
-                hint="ESI, UAN, PAN, Aadhaar and PF — the numbers returns and filings are made against."
-              >
+              <SectionBody title="Statutory IDs">
           {/* ---- Statutory IDs ----
               ESI(10) + UAN(12) + PAN(10) + Aadhaar(12) are four fixed-length
               document numbers, so they are four `sm` = one flush row. PF is
@@ -1571,10 +1559,7 @@ export function EmployeeMasterScreen({
             icon: Landmark,
             done: done.bank,
             content: (
-              <SectionBody
-                title="Bank Details"
-                hint="Where this employee's salary is paid."
-              >
+              <SectionBody title="Bank Details">
           {/* ---- Bank Details ---- */}
           <DetailSection label="Bank Details" cols={12}>
             <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="emp-paymode">
@@ -1617,10 +1602,7 @@ export function EmployeeMasterScreen({
             icon: MapPin,
             done: done.addresses,
             content: (
-              <SectionBody
-                title="Addresses"
-                hint="Permanent address, and the correspondence address when it differs."
-              >
+              <SectionBody title="Addresses">
                 <div className="space-y-4">
           {/* ---- What used to be "General" ----
               One `cols={1}` section wrapping a hand-rolled `space-y-4` that

@@ -119,7 +119,7 @@ function CreateUserForm({
               value={form.locationId}
               onChange={(e) => setForm({ ...form, locationId: e.target.value })}
             >
-              <option value="">— None —</option>
+              <option value=""></option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -254,7 +254,7 @@ function RolePanel({
                 onChange={(e) => setRoleId(e.target.value)}
                 required
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {roles.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
@@ -269,7 +269,7 @@ function RolePanel({
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
               >
-                <option value="">— Any —</option>
+                <option value="">Any</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}
