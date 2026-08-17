@@ -62,6 +62,12 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
       size: clean(c.size),
       requirement_basis: c.requirement_basis ?? null,
       style_ref_no: clean(c.style_ref_no),
+      // 0423's column. It was declared on the table, offered by the grid and
+      // accepted by `mbaItemInput`, and then dropped HERE — this literal names
+      // every column it writes, so an omission is silent: the operator picked a
+      // panel, saved, and reopened the line to find it blank. Not a null being
+      // written over a value; the value never left the browser.
+      component_id: c.component_id ?? null,
       supply_type: clean(c.supply_type),
       vendor_id: c.vendor_id ?? null,
       purchase_uom_id: c.purchase_uom_id ?? null,
