@@ -84,9 +84,9 @@ They are kept as reference for column names and legacy semantics. Next free numb
 | 3 | **Material BOM** | legacy 3 + 7 | **built 2026-08-13** (`0418`) |
 | 4 | **Garment Process Plan** | legacy 4 | **live** — added to the flow on 08-14 |
 | 5 | **Fabric BOM** | split out of legacy 3 | **built 2026-08-17** (`0426`) |
-| 6 | **Fabric Plan** | legacy 5-6, reinterpreted | build |
-| 7 | **Budgeting** | legacy 8 | build |
-| 8 | **Approval** | legacy 9 | build |
+| 6 | **Fabric Plan** | legacy 5-6, reinterpreted | **built 2026-08-17** (`0427`) |
+| 7 | **Budgeting** | legacy 8 | **built 2026-08-17** (`0428`) |
+| 8 | **Approval** | legacy 9 | **built 2026-08-17** (same table) |
 
 **Fabric Plan is the 08-17 addition and is NOT in this file's original design.** The
 client's answer to what it covers, asked directly: the PROCESS ROUTE — yarn purchase,
@@ -181,7 +181,12 @@ legacy schema agrees — `fabric_boms` and `material_boms` are distinct document
 Seeds from the Style's components → fabric mapping, so this step **needs `0392`**.
 `garment_style_id` references **`garment_styles`**, not `public.styles`.
 
-### Steps 5 & 6 — Budget and Budget Approval (replaces ~12 legacy tables)
+### Steps 7 & 8 — Budgeting and Approval (replaces ~12 legacy tables)
+
+> **BUILT — and the sketch below is not what shipped.** `0428` is the schema of
+> record. Two changes: a budget covers MANY orders (`order_budget_orders`), not
+> one; and `amount` has no column, because `qty`, `rate` and `amount` are three
+> numbers stating two facts. The original sketch:
 
 ```
 order_budgets        sales_order_id, status ('draft'|'submitted'|'approved'|'rejected'),
@@ -222,8 +227,27 @@ Dependencies, not preference:
    this order. Seeding from `garment_styles` would re-fetch a template the order has
    already been amended away from. §3 step 4 below is superseded on that point.
    Engine + vectors: `lib/orders/fabric-bom/requirement.ts`, `npm run check:fabric-bom`.
-4. **Step 6 — Fabric Plan**, then **step 7 — Budgeting**, then **step 8 — Approval**
-   (a queue over the budget's own status).
+4. ~~**Step 6 — Fabric Plan**, then **step 7 — Budgeting**, then **step 8 — Approval**.~~
+   **ALL THREE DONE, 2026-08-17.**
+
+   - **Fabric Plan** (`0427`) is `/orders/fabric-plan`. It solves each stage
+     BACKWARDS from the BOM requirement — `input = output / (1 - loss/100)`, not
+     `output x (1 + loss)` — because loss is stated forward and the requirement is
+     known at the end of the chain. Engine + vectors:
+     `lib/orders/fabric-plan/route.ts`, `npm run check:fabric-plan`.
+   - **Budgeting** (`0428`) is `/orders/budgets`, and it GROUPS ORDERS. §3 below
+     is superseded on that point: it sketched one order per budget, and doc/prd.md
+     is explicit that budgeting covers "various orders which are grouped
+     together". Its fabric and material lines are PULLED from the two BOMs'
+     stored requirements rather than re-derived. Engine + vectors:
+     `lib/orders/budget/totals.ts`, `npm run check:budget-totals`.
+   - **Approval** is `/orders/budget-approval`, a queue over the SAME table —
+     which is what §"A separate STEP is not a second DOCUMENT" always said, and
+     is unchanged by the 08-17 revision that un-collapsed the two steps.
+     It is gated on `orders:approve`, the permission `lib/auth/types.ts` has
+     declared since 0001 and which nothing had ever used. `0428` seeds the
+     permission row and grants it to no role: who may approve is the client's
+     decision, taken on the Roles screen.
 5. **Nav.** Fold the 27 `unavailable` Planning entries down as each step lands, and
    re-shape the Orders sub-modules around the six.
 

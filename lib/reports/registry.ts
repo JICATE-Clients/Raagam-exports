@@ -346,6 +346,58 @@ export const REPORT_SOURCES: ReportSource[] = [
       "stage names a process, not the item that process consumes.",
   },
   {
+    id: "order_fabric_plan_lines",
+    label: "Fabric Plan (planned fabric)",
+    module: "orders",
+    factKinds: [],
+    // 0427, and declared SEPARATELY from `order_fabric_plans` above because a
+    // ReportSource names one table and this one carries the item while the
+    // stages carry the quantities.
+    //
+    // Its `required_qty` is a SNAPSHOT OF THE FABRIC BOM's stored requirement —
+    // the same number, for the same item, already emitted as `planned` by
+    // fragment 6 of report_item_movements. Reporting it again would show one
+    // order's fabric demand twice, and the second copy would be
+    // indistinguishable from a real increase.
+    table: "order_fabric_plan_lines",
+    itemColumn: "item_id",
+    qtyColumn: "required_qty",
+    dateColumn: "order_fabric_plans.plan_date",
+    postsToLedger: false,
+    status: "gap",
+    note:
+      "A snapshot of the Fabric BOM requirement this route was planned against. " +
+      "The BOM already reports that quantity as `planned`; reporting it here too " +
+      "would double every fabric figure.",
+  },
+  {
+    id: "order_budgets",
+    label: "Order Budget (costing)",
+    module: "orders",
+    factKinds: [],
+    // 0428. A budget line carries an item and a quantity, so it has to be
+    // declared — but it must NOT feed `report_item_movements`, and the reason is
+    // the same one that keeps the Fabric Plan out: its fabric and material lines
+    // are PULLED from the two BOMs, whose stored requirements already emit
+    // `planned`. A fragment here would report the identical demand twice, and
+    // the second copy would look like additional consumption rather than the
+    // same consumption priced.
+    //
+    // The COST is the new information and is not an item movement at all — it is
+    // a rate against a quantity somebody else computed. `lib/reports` slices
+    // material; a budget belongs to a P&L report that does not exist yet.
+    table: "order_budget_lines",
+    itemColumn: "item_id",
+    qtyColumn: "qty",
+    dateColumn: "order_budgets.budget_date",
+    postsToLedger: false,
+    status: "gap",
+    note:
+      "Costing, not movement. Its fabric and material quantities are the BOM " +
+      "requirements already reported as `planned`, so reporting them here would " +
+      "double the demand. The rates are real information with no report to go to.",
+  },
+  {
     id: "production_entries",
     label: "Production entries",
     module: "production",

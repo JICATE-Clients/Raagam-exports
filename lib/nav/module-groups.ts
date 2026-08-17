@@ -426,8 +426,13 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // (`/orders/approve-amendments` over the amendment's status), and the
           // legacy schema did too. So step 8 is a QUEUE of submitted budgets,
           // and it is a step because the client counts it as one.
-          { href: "/orders/budgets", label: "Budgeting", description: "Cost the order from its BOMs and process plan — rates, expenses and the profit position", status: "todo" },
-          { href: "/orders/budget-approval", label: "Approval", description: "Approve or reject a submitted order budget — the last gate before purchase may act on it", status: "todo" },
+          // BUILT 2026-08-17 (`0428`). "the order" became "a GROUP of orders" in
+          // the description, and that is the client's own shape from doc/prd.md:
+          // "budgeting is done using Fabric BOM and Material BOM of various
+          // orders which are grouped together". doc/orders-six-step.md sketched
+          // one order per budget and is superseded.
+          { href: "/orders/budgets", label: "Budgeting", description: "Cost a group of orders from their BOMs — rates, expenses and the profit position" },
+          { href: "/orders/budget-approval", label: "Approval", description: "Approve or reject a submitted order budget — the last gate before purchase may act on it" },
         ],
       },
       // THE REGISTER, a standalone row since the Order Entry group dissolved.

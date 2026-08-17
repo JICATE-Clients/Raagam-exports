@@ -48,6 +48,7 @@
     "scripts/check-bom-requirement.mts",
     "scripts/check-fabric-bom.mts",
     "scripts/check-fabric-plan.mts",
+    "scripts/check-budget-totals.mts",
     "scripts/check-gstin.mts",
     "scripts/check-name-suggest.mts",
     "scripts/check-keyboard-holds.mts",
