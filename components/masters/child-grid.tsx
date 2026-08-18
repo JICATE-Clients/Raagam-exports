@@ -669,6 +669,7 @@ export function ChildGrid<T extends { key: string }>({
   onAdd,
   onRemove,
   addLabel = "+ Add row",
+  addClassName,
   renderMobileRow,
   pageSize,
   forceCards = false,
@@ -716,6 +717,25 @@ export function ChildGrid<T extends { key: string }>({
   onAdd: () => boolean | void;
   onRemove: (row: T) => void;
   addLabel?: string;
+  /**
+   * Extra classes for the "+ Add" button, for the ONE case a caller needs: two
+   * Add buttons sitting near each other that must render the same box.
+   *
+   * A grid's Add is `variant="outline" size="sm"` and content-width, so two of
+   * them differ by exactly the width of their labels — "+ Add size" is ~6px
+   * narrower than "+ Add style" beside it, which the client has now reported
+   * twice (2026-08-17, 2026-08-18). The first fix put a width floor on the
+   * hand-rolled one alone; a floor tuned to the OTHER button's font metrics can
+   * only be right by luck, and that one overshot by 20px — leaving the pair
+   * mismatched again, the other way round.
+   *
+   * So the floor is declared ONCE and both buttons read it: the caller passes
+   * the same constant here and to its own button, and neither can be measured
+   * against the other again. It is deliberately NOT a default on this
+   * component — widening every "+ Add row" in ~32 screens to suit one pair is a
+   * change nobody asked for.
+   */
+  addClassName?: string;
   /** Custom mobile-card body per row; falls back to stacking every column's cell if omitted. */
   renderMobileRow?: (row: T, index: number) => ReactNode;
   /** Paginate the rows at N per page with a Prev/Next bar, instead of an inner
@@ -1117,7 +1137,14 @@ export function ChildGrid<T extends { key: string }>({
       // `data-row-add` is what Tab drives when this grid is NESTED in another
       // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
       // LANDS on it; a button is not a field.
-      <Button type="button" variant="outline" size="sm" data-row-add onClick={handleAdd}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        data-row-add
+        className={addClassName}
+        onClick={handleAdd}
+      >
         {addLabel}
       </Button>
     ) : null;

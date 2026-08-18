@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, RequiredScope, useRequiredHold } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { cn } from "@/lib/utils";
+import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
 
 /** One selectable record. `sublabel` renders muted beside the label. */
 export type PickerRow = {
@@ -1110,7 +1111,9 @@ export function DataPicker({
             // a row with them. `@2xl/editor:h-8` is the compact density; it is a
             // CONTAINER query, so a picker inside a ~440px nested panel or on a
             // phone keeps the full 36px touch target.
-            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-3 pr-8 text-base md:text-sm",
+            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-3 text-base md:text-sm",
+            // Reserves the trailing slot; stated beside its width, not here.
+            AFFORDANCE_PAD,
             // An unfocused input honours `text-overflow`, so a clipped value
             // now ends in an ellipsis instead of stopping mid-word as if that
             // were all of it.
@@ -1124,21 +1127,15 @@ export function DataPicker({
             !selected && !open && "text-muted-foreground",
           )}
         />
-        {clearable && selected && !open ? (
-          <button
-            type="button"
-            aria-label={`Clear ${noun}`}
-            tabIndex={-1}
-            onClick={() => onChange(null)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-danger"
-          >
-            <X className="h-4 w-4 shrink-0" />
-          </button>
-        ) : (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-            <ChevronDown className="h-4 w-4 shrink-0" />
-          </span>
-        )}
+        {/* ▼, or ✕ once there is something to clear — one slot on the field's
+            right edge, drawn by `field-affordance.tsx` for this and Combobox
+            both. It used to be two hand-drawn branches here and two more there,
+            which is how the pair drifted apart. */}
+        <FieldAffordance
+          onClear={clearable && selected && !open ? () => onChange(null) : undefined}
+          clearLabel={`Clear ${noun}`}
+          disabled={disabled}
+        />
       </Tooltip>
       )}
 

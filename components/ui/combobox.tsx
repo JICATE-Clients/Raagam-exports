@@ -1,12 +1,12 @@
 "use client";
 
-import { ChevronDown, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRequiredHold } from "@/components/ui/field";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
+import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
 
 export interface ComboboxOption {
   value: string;
@@ -322,7 +322,9 @@ export function Combobox({
           // <Select> actually renders (select.tsx upgrades to Combobox on a fine
           // pointer), so missing it here would leave every dropdown 4px taller
           // than the inputs beside it. See components/ui/input.tsx.
-          "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 pr-8 text-base md:text-sm",
+          "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+          // Reserves the trailing slot; stated beside its width, not here.
+          AFFORDANCE_PAD,
           "placeholder:text-muted-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -339,27 +341,14 @@ export function Combobox({
         )}
       />
       </Tooltip>
-      {clearable && selected && !open ? (
-        <button
-          type="button"
-          aria-label="Clear"
-          // Out of the Tab order, same as DataPicker's clear (data-picker.tsx:755).
-          // It renders ONLY once a value is chosen and sits inside the input's pr-8,
-          // so leaving it focusable made "Tab after picking" look like it did nothing
-          // — focus had moved onto a ✕ drawn on top of the field. `lib/focus.ts`
-          // enumerates `button`, so this also keeps it out of the ↑↓←→ spatial walk
-          // and the Sheet focus trap, not just native Tab. Clicking still clears.
-          tabIndex={-1}
-          onClick={() => commit("")}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-4 w-4 shrink-0" />
-        </button>
-      ) : (
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-          <ChevronDown className="h-4 w-4 shrink-0" />
-        </span>
-      )}
+      {/* The same slot DataPicker draws, from the same file — including the
+          `tabIndex={-1}` this branch used to argue for on its own, and the
+          hover colour the two had drifted apart on (danger here, foreground
+          there, for the identical act). */}
+      <FieldAffordance
+        onClear={clearable && selected && !open ? () => commit("") : undefined}
+        disabled={disabled}
+      />
 
       {open &&
         rect &&

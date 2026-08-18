@@ -5550,6 +5550,32 @@ export function AmendmentScreen({
   );
 
   /**
+   * ONE WIDTH FOR THE TWO "+ Add" BUTTONS (client 2026-08-17, again 2026-08-18:
+   * "change the add size button size like add style button size").
+   *
+   * "+ Add size" and "+ Add style" sit a few pixels apart and read as a pair.
+   * They were ALREADY the same control — both `variant="outline" size="sm"`, so
+   * both `h-8 px-3 text-xs` — and the only thing that ever differed was the
+   * LABEL: content-width buttons whose text differs by one character differ by
+   * ~6px.
+   *
+   * THE FIRST FIX PUT THE FLOOR ON ONE OF THEM, and that is why this is now a
+   * constant. `min-w-[6.75rem]` was set on "+ Add size" alone, described as
+   * sitting "just above the longer label's natural width" — it was 108px
+   * against "+ Add style"'s natural 88px, so the button that had been 6px small
+   * became 20px big and the client reported the same mismatch the other way
+   * round. A width floor tuned by eye to a control it is not applied to can
+   * only ever be right by luck.
+   *
+   * Both read this now — the hand-rolled button below and `ChildGrid`'s own via
+   * `addClassName` — so the value no longer has to be CORRECT, only generous:
+   * whatever it is, the two render the identical box, and a font change moves
+   * them together. That is the same reason `createdColumns` and `keyFills` are
+   * single declarations rather than matching pairs.
+   */
+  const ADD_BUTTON_W = "min-w-[6.75rem]";
+
+  /**
    * THIS LAYOUT IS `ChildGrid`'s `across` MODE NOW (2026-08-17).
    *
    * Everything below — the `FIELD_TRACK` body, a fixed span per size, the ✕ in the
@@ -5694,17 +5720,11 @@ export function AmendmentScreen({
              STRETCH, so this button filled its column because it IS a grid cell,
              whatever its own display says. Content width has to be asked for.
 
-             `min-w-[6.75rem]` MATCHES "+ Add style" BELOW IT (client 2026-08-17:
-             "add style and add size button needs to be same size, add size is a
-             little bit small"). The two were ALREADY the same control — both
-             `variant="outline" size="sm"`, so both `h-8 px-3 text-xs` — and the
-             only thing that differed was the LABEL: "style" is one character
-             longer than "size", which is ~6px at this size. So this is a width
-             floor, not a size change; shrinking or growing the button itself
-             would have made two controls that are meant to match differ for
-             real. The floor sits just above the longer label's natural width, so
-             both render the same box and neither is stretched. */
-          className="justify-self-start @lg/section:col-span-2 min-w-[6.75rem]"
+             `ADD_BUTTON_W` is the width floor "+ Add style" BELOW IT reads too
+             (see the constant above `sizeGrid`) — a size change here would make
+             two controls that are meant to match differ for real, so this is a
+             floor, applied to BOTH, never to one of them. */
+          className={cn("justify-self-start @lg/section:col-span-2", ADD_BUTTON_W)}
           onClick={() => addSize(r.key)}
         >
           + Add size
@@ -5803,6 +5823,8 @@ export function AmendmentScreen({
         onAdd={addStyle}
         onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
         addLabel="+ Add style"
+        /* Same floor as "+ Add size" above it — see `ADD_BUTTON_W`. */
+        addClassName={ADD_BUTTON_W}
         renderMobileRow={(r, i) => {
           /* OPEN = the row the operator is on. `openStyleKey` unset resolves to
              the LAST row, so a fresh order and a loaded one both open on the one
