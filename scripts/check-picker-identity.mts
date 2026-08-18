@@ -58,7 +58,7 @@ check("SCNo shows the number, buyer beside it",
 
 // The same field once 0395's format is in play.
 check("SCNo carries the new SC No format",
-  "HO/RE/2627/0001", "ABASIC", "code", "HO/RE/2627/0001", "ABASIC");
+  "HO/RE/26-27/0001", "ABASIC", "code", "HO/RE/26-27/0001", "ABASIC");
 
 // sales/quotes/prepare-quote-client.tsx:315 — name is a composed sentence.
 check("Enquiry No keeps its composed subtitle",
