@@ -284,11 +284,17 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       //          and Approve collapsed into the last one
       //   08-17  … Fabric BOM · Fabric Plan · Budgeting · Approval — the BOM is
       //          back and is a step of its own, and Approve is uncollapsed
+      //   08-17b Garment Process Plan comes OUT: "only 7 are needed"
       //
-      // SO IT IS EIGHT STEPS, NOT SIX, and the group's description says eight.
-      // The 08-14 list read as six only because Fabric BOM had gone missing
-      // under Fabric Plan's name (see the note on step 5) — the count was never
-      // the client's claim, the sequence was.
+      // SO IT IS SEVEN STEPS: Style · Order Entry · Material BOM · Fabric BOM ·
+      // Fabric Plan · Budgeting · Approval.
+      //
+      // THE COUNT HAS NEVER BEEN THE CLIENT'S CLAIM — the sequence is. The 08-14
+      // list read as six only because Fabric BOM had gone missing under Fabric
+      // Plan's name; adding the BOM back made it eight; and the client's answer
+      // to eight was to drop the one entry that is not a step every order must
+      // pass through. Do not "restore" a step to make a number match a heading
+      // somewhere: read the sequence, and change the heading.
       //
       // "ORDER ENTRY" IS A CARD HERE, NOT A ROW. That group is dissolved — its
       // register became a standalone row (below), its two flow screens are steps
@@ -302,7 +308,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "setup",
         label: "Order Setup",
         description:
-          "Style to approved budget — the eight steps a bulk order passes through",
+          "Style to approved budget — the seven steps a bulk order passes through",
         // Colour Cards was the other half of this group and was removed with its
         // routes and service (client, 2026-08-11): the screen had no rows, its
         // only consumer was the Garment Order colour picker, and that picker is
@@ -364,14 +370,26 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // one doc heading), not the fifteen 188ff5b moved — held only because
           // renaming the folder would `git mv` files another session has open.
           { href: "/orders/material-bom-amendment", label: "Material BOM", description: "Plan every sewing and packing accessory a confirmed order needs, and how much of each" },
-          // 4 · GARMENT PROCESS PLAN — the production stages and any out-process
-          // (printing, embroidery). Its ROW moved here from Order Execution,
-          // where it stays as a `cardOnly` card: defining the plan is setup work
-          // and running it is execution work, and the operator looks for it in
-          // both places. Cross-list, never re-parent — the same call the file
-          // header records for Order Amendment.
-          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
-          // 5 · FABRIC BOM — AND IT WAS MISSING UNDER ANOTHER NAME (client
+          // GARMENT PROCESS PLAN WAS STEP 4 AND IS NOT A STEP (client
+          // 2026-08-17, second pass: "only 7 are needed").
+          //
+          // IT IS NOT DELETED AND ITS URL IS UNCHANGED. `/orders/garment-processes`
+          // still works, still opens from search, and now takes its sidebar ROW
+          // under Order Execution — where it had been listed as a `cardOnly` card
+          // all along, because running a process plan is execution work. Leaving
+          // the flag on would have orphaned the screen: `cardOnly` means "the row
+          // lives elsewhere", and after this edit there was no elsewhere.
+          // check:nav asserts exactly that, which is what makes the pair of edits
+          // one change rather than two.
+          //
+          // The 08-14 list added it to the flow and this one removes it, and
+          // both are the client's. What that leaves is doc/orders-six-step.md's
+          // original position, arrived at from the other direction: "leaving the
+          // numbered flow is not deletion… it stops being a step every order must
+          // pass through and becomes optional, which is what 'reduce the number
+          // of entries' means".
+          //
+          // 4 · FABRIC BOM — AND IT WAS MISSING UNDER ANOTHER NAME (client
           // 2026-08-17).
           //
           // The tail of this list used to be two cross-module cards pointing
@@ -500,15 +518,22 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Order Execution",
         description: "Process plans, work orders, advised items and packing advice",
         children: [
-          // ITS ROW IS NOW ORDER SETUP ▸ STEP 4, and the card stays here because
-          // the screen answers two questions: "what are this order's production
-          // stages?" is setup, and "run them" is execution. That is the same
-          // call the file header records for Order Amendment — cross-list, never
-          // re-parent — and `cardOnly` is what keeps a second LISTING from
-          // becoming a second ROW: `owningNavHref` skips it, so the sidebar
-          // lights Order Setup when the operator is on the screen, and
-          // `moduleLeafItems` skips it, so the command palette offers it once.
-          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan", cardOnly: true },
+          // ITS ROW IS HERE AGAIN — the `cardOnly` flag came off on 2026-08-17
+          // when the client cut Order Setup to seven steps and this screen was
+          // the one removed.
+          //
+          // THE FLAG HAD TO GO IN THE SAME EDIT. `cardOnly` means "the row lives
+          // elsewhere", and the elsewhere was Order Setup ▸ step 4: leaving it on
+          // would have made `owningNavHref` and `moduleLeafItems` both skip the
+          // only listing left, so the screen would have had no sidebar row and no
+          // command-palette entry while its route carried on working — reachable
+          // by URL and by nothing else. That is the shape the 14-step Garment
+          // Orders hub died of, and check:nav asserts against it.
+          //
+          // Which is also why this is where the row belongs rather than a new
+          // group: the screen was ALREADY listed here, because running a process
+          // plan is execution work. Only the flag moved.
+          { href: "/orders/garment-processes", label: "Garment Process Plan", description: "Select an accepted order and define its process plan, including out-processing" },
           { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise internal work orders" },
           { href: "/orders/advised-items", label: "Advised Items", description: "Select an accepted order and prepare its advised items" },
           { href: "/orders/packing-advice", label: "Packing List Advice", description: "Prepare packing list advice for an order" },
