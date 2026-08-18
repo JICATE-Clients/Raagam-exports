@@ -268,19 +268,58 @@ Checked by `python scripts/audit_layout.py . --check created-columns`.
 ## CAPITALS (STANDING)
 
 Field **values** are stored in capitals — stored, not merely displayed. Two halves, both
-required: `<Input uppercase>` uppercases the keystroke *and* adds a CSS transform that
-fixes rows saved before the rule (a value loaded from the DB and never re-typed cannot be
-reached by a keystroke handler).
+required: the keystroke is uppercased *and* a CSS transform fixes rows saved before the
+rule (a value loaded from the DB and never re-typed cannot be reached by a keystroke
+handler).
+
+**CAPITALS ARE THE DEFAULT, AND THAT REVERSED ON 2026-08-18.** `Input` and `Textarea`
+capitalise unless a call site passes `uppercase={false}`; before that date `uppercase` was
+opt-IN, and a screen got capitals only if its author remembered.
+
+The reversal is the client's, and the measurement is why it went in the primitive rather
+than across the screens: **873 of 968 `<Input>` under `app/(app)` carried no `uppercase`**
+(client 2026-08-18, screenshot 2348: "make it like how masterdata module"). The proof that
+a per-call-site rule cannot hold sat inside ONE file — `amendment-screen.tsx` had it on
+Pack Description and not on Styles Details ▸ Description. Never answer this with a sweep of
+call sites: a screen written next month has to be correct without knowing the rule exists.
+
+**THE `<Textarea>` EXEMPTION IS WITHDRAWN**, deliberately. This section used to list
+"`<Textarea>` free text" as exempt by construction, and the reasoning was sound — a
+paragraph in block capitals is harder to read, and prose is not a value anything matches
+on. The client was shown that argument and chose capitals anyway. The later instruction
+wins, so a reader who finds the old rule quoted elsewhere is holding something this
+supersedes; restoring it needs a new client decision, not a tidy-up.
 
 The write-side transform belongs in the **Zod schema** — `capsName()` / `capsTextNullable()`
 in `lib/validation/formats.ts` — never only in the server action. `lib/data-io` parses
 imports with the same `*Input` schemas and writes straight to Postgres, so an action-level
-`.toUpperCase()` silently misses every spreadsheet import.
+`.toUpperCase()` silently misses every spreadsheet import. **That half is still MASTERS-ONLY
+by design**: `lib/data-io/entities.ts` describes master entities and nothing else, so orders
+and planning have no import path for a schema transform to defend. Adding one to ~800
+schemas would guard a door that does not exist — but the moment an entity is added to
+data-io, its text fields need the transform in the same change.
 
-Exempt by construction, not by oversight: email and website, digit formats, `<Textarea>`
-free text, passwords, uuids, read-only `(auto)` fields, search boxes, and workflow status
-keys. Full rules and reasoning in `doc/ui/LAYOUT.md` §11; checked by
-`python scripts/audit_layout.py . --check caps-input`.
+**Exempt, and now each exemption has a mechanism rather than a memory.** The primitive
+exempts by `type` (`email`, `url`, `password`, `search`, `tel`, the date/number family, the
+non-text controls) and whenever the field is `readOnly` — a derived `(auto)` value was not
+typed, and re-casing it misreports what is stored. `ValidatedInput` is immune by
+construction because it always passes an explicit flag, which is what keeps every
+`format="email"` / `format="website"` master field safe; to capitalise one of those you edit
+its FORMAT SPEC, not its call site.
+
+What still needs a hand-written opt-out, each carrying a `caps-input: exempt -- <reason>`
+comment: a **website box not typed `url`** (a URL path is case-sensitive, so capitals break
+the link), an **email box not typed `email`**, a **hand-typed uuid**, a **search box** (a
+query is not a stored value — including the one in `data-picker.tsx`, which sits behind ~160
+pickers), and **LC / PO terms**, the client's own carve-out: those clauses are read by a
+bank and by suppliers, where capitals change how the text reads rather than how a value is
+stored. Addresses and the company document footer were offered the same carve-out and the
+client declined it.
+
+Full rules and reasoning in `doc/ui/LAYOUT.md` §11; checked by
+`python scripts/audit_layout.py . --check caps-input`, which since the flip asks the
+INVERSE question — not "which field forgot to opt in" but "which field opted OUT without
+saying why".
 
 ## Disabled rows (STANDING)
 

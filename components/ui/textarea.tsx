@@ -5,8 +5,36 @@ import { cn } from "@/lib/utils";
 
 export const Textarea = forwardRef<
   HTMLTextAreaElement,
-  TextareaHTMLAttributes<HTMLTextAreaElement>
->(({ className, ...props }, ref) => {
+  TextareaHTMLAttributes<HTMLTextAreaElement> & {
+    /**
+     * CAPITALS, ON BY DEFAULT — pass `uppercase={false}` to opt out.
+     *
+     * THIS REVERSES A STANDING EXEMPTION, DELIBERATELY. AGENTS.md's CAPITALS
+     * section listed "`<Textarea>` free text" as exempt BY CONSTRUCTION, and the
+     * reasoning was sound: a paragraph in block capitals is harder to read, and
+     * prose is not a value anything matches on. The client was shown that
+     * argument on 2026-08-18 and chose capitals anyway, for the whole app. The
+     * later instruction wins — so the exemption is WITHDRAWN, not overlooked,
+     * and putting it back needs a new client decision rather than a tidy-up.
+     *
+     * ONE CARVE-OUT SURVIVED, and it is the client's own: LC and PO
+     * TERMS stay as typed (`uppercase={false}` at those four call sites). Those
+     * clauses are read by a bank and by suppliers, where block capitals change
+     * how the text reads rather than how a value is stored. Addresses and the
+     * company document footer were offered the same carve-out and the client
+     * declined it — including with the URL-case caveat stated — so they
+     * capitalise.
+     *
+     * Both halves, same as `Input`: the keystroke transform makes what is SAVED
+     * genuinely uppercase, and the CSS class makes rows saved BEFORE this change
+     * display in caps too. `readOnly` exempts itself for the same reason it does
+     * on `Input` — a value the operator did not type must not be re-cased on the
+     * way to their eyes.
+     */
+    uppercase?: boolean;
+  }
+>(({ className, uppercase, onChange, ...props }, ref) => {
+  const caps = uppercase ?? !props.readOnly;
   // Mandatory and blank holds the cursor — see input.tsx. A textarea owns Enter
   // ("new line"), so only Tab and the arrows are ever refused here anyway.
   const hold = useRequiredHold(!props.readOnly && !props.disabled && holdEmpty(props.value), {
@@ -42,8 +70,26 @@ export const Textarea = forwardRef<
       "placeholder:text-muted-foreground",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",
+      caps && "uppercase placeholder:normal-case",
       className,
     )}
+    onChange={
+      caps
+        ? (e) => {
+            // Preserve the caret — assigning .value moves it to the end, and in
+            // a multi-line box that is worse than in an input: the cursor jumps
+            // past every line already typed. Same handler shape as input.tsx.
+            const { selectionStart, selectionEnd } = e.target;
+            e.target.value = e.target.value.toUpperCase();
+            try {
+              e.target.setSelectionRange(selectionStart, selectionEnd);
+            } catch {
+              /* defensive: a textarea always supports selection ranges */
+            }
+            onChange?.(e);
+          }
+        : onChange
+    }
     {...props}
   />
   );

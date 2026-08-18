@@ -390,7 +390,11 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
           disabled={dis}
         />
         <Field label="Email" size={FIELD_SIZE.email} htmlFor="cp-email">
+          {/* caps-input: exempt -- an address is a credential of the person, not
+              a business value, and this box is not typed `email` so the
+              primitive cannot exempt it for us. */}
           <Input
+            uppercase={false}
             id="cp-email"
             value={(form.email as string) ?? ""}
             onChange={(e) => set("email", e.target.value)}
@@ -398,7 +402,12 @@ export function CompanyProfileScreen({ profile, canEdit }: Props) {
           />
         </Field>
         <Field label="Website" size={FIELD_SIZE.website} htmlFor="cp-website">
+          {/* caps-input: exempt -- a URL PATH is case-sensitive, so capitalising
+              this breaks the link it points at. The one hand-rolled website box
+              in the app; every other one is <ValidatedInput format="website">,
+              which passes an explicit flag and is immune by construction. */}
           <Input
+            uppercase={false}
             id="cp-website"
             value={(form.website as string) ?? ""}
             onChange={(e) => set("website", e.target.value)}

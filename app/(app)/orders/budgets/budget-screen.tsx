@@ -899,7 +899,8 @@ export function BudgetScreen({
         />
 
         <div className="flex flex-wrap items-center gap-2">
-          <Input
+          {/* caps-input: exempt -- a search QUERY is not a stored value. */}
+          <Input uppercase={false}
             className="w-64"
             placeholder="Search budget or group…"
             value={search}

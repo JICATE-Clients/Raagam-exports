@@ -1018,7 +1018,9 @@ export function FabricBomScreen({
         {/* EVERY CONTROL IN THIS BAND IS `md` (h-9). The row's fixed element is
             the search <Input>, and an <Input> is h-9 (AGENTS.md, The header row). */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* caps-input: exempt -- a search QUERY is not a stored value. */}
           <Input
+            uppercase={false}
             className="w-64"
             placeholder="Search SC No, PO or customer…"
             value={search}

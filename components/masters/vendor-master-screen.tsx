@@ -2099,7 +2099,8 @@ export function VendorMasterScreen({
     <div className="space-y-4">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
+        {/* caps-input: exempt -- a search QUERY is not a stored value. */}
+        <Input uppercase={false}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search vendor…"

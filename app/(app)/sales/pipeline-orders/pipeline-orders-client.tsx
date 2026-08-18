@@ -198,7 +198,9 @@ function PipelineTab({ rows }: { rows: PipelineOrderRow[] }) {
         <div className="space-y-4">
           <DetailSection label="Header">
             <div><Label htmlFor="plo-date">OC Date</Label><Input id="plo-date" type="date" value={form.oc_date} onChange={(e) => setForm({ ...form, oc_date: e.target.value })} /></div>
-            <div><Label htmlFor="plo-cust">Customer ID</Label><Input id="plo-cust" value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} placeholder="UUID" /></div>
+            <div><Label htmlFor="plo-cust">Customer ID</Label>
+            {/* caps-input: exempt -- a hand-typed uuid; AGENTS.md names uuids. */}
+            <Input uppercase={false} id="plo-cust" value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} placeholder="UUID" /></div>
             <div><Label htmlFor="plo-order">Order No</Label><Input id="plo-order" value={form.order_no} onChange={(e) => setForm({ ...form, order_no: e.target.value })} /></div>
             <div><Label htmlFor="plo-season">Season</Label><Input id="plo-season" value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} /></div>
             <div><Label htmlFor="plo-yr">Season Year</Label><Input id="plo-yr" value={form.season_yr} onChange={(e) => setForm({ ...form, season_yr: e.target.value })} /></div>

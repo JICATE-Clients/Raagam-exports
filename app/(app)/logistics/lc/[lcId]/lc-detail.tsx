@@ -184,7 +184,8 @@ export function LcDetailClient({ lc, buyers, currencies, canEdit, canDelete }: P
               </div>
               <div className="sm:col-span-2 lg:col-span-3">
                 <Label htmlFor="e-terms">Terms</Label>
-                <Textarea id="e-terms" value={terms} onChange={(e) => setTerms(e.target.value)} rows={2} />
+                {/* caps-input: exempt -- LC/PO terms are read by a bank and by suppliers; block capitals change how a clause reads, not how a value is stored (client 2026-08-18). */}
+                <Textarea uppercase={false} id="e-terms" value={terms} onChange={(e) => setTerms(e.target.value)} rows={2} />
               </div>
             </div>
             <div className="flex gap-2">

@@ -331,55 +331,61 @@ def _jsx_open_tag(code: str, start: int) -> str:
     return code[start : start + 400]
 
 
+CAPS_EXEMPT = re.compile(r"caps-input:\s*exempt\b[^\n]*\S", re.I)
+
+
 def check_caps_input(path: Path, code: str, slug: str):
-    """Master field values are stored in CAPITALS (client 2026-07-23).
+    """Field values are stored in CAPITALS (client 2026-07-23).
 
-    `<Input uppercase>` is the mechanism: it uppercases the keystroke AND adds a
-    CSS text-transform, so rows saved before the rule still display in caps.
+    THIS CHECK ASKS THE INVERSE QUESTION SINCE 2026-08-18, because the primitive
+    changed under it. `uppercase` used to be opt-IN, so the question worth asking
+    was "which field forgot it" -- and the answer had to be scoped to
+    `components/masters/`, because repo-wide it fired on hundreds of legitimate
+    numeric, date and id fields and would have been ignored.
 
-    Scoped to `components/masters/` on purpose. A repo-wide version fires on
-    hundreds of legitimate numeric, date and id fields and gets ignored, which is
-    how the layout contract was ignored by 58 of 60 editors before this script
-    existed. Narrow and believed beats broad and muted.
+    That scope was doing real harm by the end: it reported a clean pass over the
+    ONE directory that was already correct, while 873 of 968 `<Input>` under
+    `app/(app)` typed in lower case. A check that inspects only the compliant
+    corner is not passing, it is blind -- and the two read identically.
 
-    An `<Input` is exempt when it declares a `type=` (number / date / password /
-    email are not caps candidates), because free text is the only case the rule
-    is about. `ValidatedInput` is a different tag and never matches -- it owns
-    its own casing via the format's transform.
+    Now that `Input` / `Textarea` capitalise BY DEFAULT (`capsByDefault` in
+    components/ui/input.tsx), forgetting is impossible and the remaining risk is
+    the opposite one: a call site that opts OUT silently. So this flags a bare
+    `uppercase={false}` carrying no reason, and it runs REPO-WIDE, because an
+    unexplained opt-out is equally wrong wherever it sits.
+
+    The exemption is a `caps-input: exempt -- <reason>` comment in the few lines
+    above the tag -- the convention `cascade-filter`, `truncate-reveal` and
+    `toolbar-size` already use. The reason is the whole point: opting out is
+    legitimate for a URL (case-sensitive path), an email, a uuid, a search query
+    and LC/PO terms, and each of those is a sentence someone should have to write
+    rather than a pattern this script can infer.
     """
     if slug in PRIMITIVES or "components/ui/" in slug:
         return
-    if "components/masters/" not in slug:
-        return
-    for m in re.finditer(r"<Input\b", code):
+    # THE REASON LIVES IN A COMMENT, AND `code` HAS NO COMMENTS -- every check is
+    # handed comment-stripped source, so an exemption has to be read off the RAW
+    # file and matched by LINE. This is `truncate-reveal`'s exact shape (and
+    # `autofill`'s, and `created-by`'s). Written any other way, the check flags
+    # precisely the opt-outs that do carry their reason -- which is how the first
+    # cut of it behaved, reporting 23 findings that were all correctly annotated.
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in CAPS_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+    for m in re.finditer(r"<(?:Input|Textarea)\b", code):
         tag = _jsx_open_tag(code, m.start())
-        if "uppercase" in tag or "type=" in tag:
+        if not re.search(r"uppercase=\{\s*false\s*\}", tag):
             continue
-        # A search box is not a field value -- forcing the operator's query to
-        # caps changes nothing about what is stored and everything about how the
-        # toolbar reads. Every master list has one, which is why this exemption
-        # is worth more than the findings it removes.
-        if re.search(r'placeholder="Search', tag, re.I):
-            continue
-        # A derived / auto-generated field the user cannot type into. These
-        # render placeholders like "(auto)" and "#3"; uppercasing turns them
-        # into "(AUTO)", which reads as data rather than as a hint.
-        if re.search(r"\b(readOnly|disabled)\b", tag):
-            continue
-        # Digit / contact formats. LAYOUT.md §11 exempts these because
-        # `uppercase` is a no-op on digits -- adding it would be noise that
-        # reads as a mistake. Matched on the bound field name, which is the
-        # only signal available statically.
-        #
-        # These SHOULD be `ValidatedInput format="…"`, and several still are
-        # not; that is a real gap this check cannot express, because the tag it
-        # would flag is the tag it is told to ignore. Fix them by conversion,
-        # not by adding `uppercase`.
-        if re.search(CONTACT_FIELD, tag):
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
             continue
         yield Finding(
-            "caps-input", path, line_of(code, m.start()),
-            "field value not in CAPS; add `uppercase` to <Input> or give it a type=",
+            "caps-input", path, line,
+            "opts out of CAPITALS with no reason; add a "
+            "`caps-input: exempt -- <reason>` comment above it",
         )
 
 

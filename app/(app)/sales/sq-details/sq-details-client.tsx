@@ -203,7 +203,8 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
           <DetailSection label="Header">
             <div>
               <Label htmlFor="sq-opp">Opportunity ID *</Label>
-              <Input id="sq-opp" value={form.opportunity_id} onChange={(e) => setForm({ ...form, opportunity_id: e.target.value })} placeholder="UUID" />
+              {/* caps-input: exempt -- a hand-typed uuid; AGENTS.md names uuids. */}
+              <Input uppercase={false} id="sq-opp" value={form.opportunity_id} onChange={(e) => setForm({ ...form, opportunity_id: e.target.value })} placeholder="UUID" />
             </div>
             <div>
               <Label htmlFor="sq-date">SQ Date</Label>
