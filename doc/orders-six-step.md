@@ -9,8 +9,12 @@ steps**. They have named them three times, and all three are theirs:
 | **2026-08-10** | Style · Order Entry · Material BOM · Fabric BOM · Budget · Budget Approval |
 | **2026-08-14** | …Garment Process Plan · Fabric Plan · Budgeting, with Prepare and Approve collapsed into the last |
 | **2026-08-17** | …Fabric BOM · Fabric Plan · Budgeting · Approval — the BOM is back as a step of its own, and Approve is uncollapsed again |
+| **2026-08-17b** | Garment Process Plan comes OUT — "only 7 are needed" |
 
-**So it is eight steps, and the count was never the client's claim — the sequence was.**
+**So it is seven: Style · Order Entry · Material BOM · Fabric BOM · Fabric Plan ·
+Budgeting · Approval.**
+
+The count was never the client's claim — the sequence was.
 The 08-14 list read as six only because Fabric BOM had gone missing under Fabric Plan's
 name: the Order Setup hub carried a card labelled "Fabric Plan" whose href was
 `/planning/fabric-bom`, so the step the client asks for by name had no card and the card
@@ -82,11 +86,17 @@ They are kept as reference for column names and legacy semantics. Next free numb
 | 1 | **Style** | legacy 1 | live · blocked on `0392` |
 | 2 | **Order Entry** | legacy 2 | **live, unchanged** |
 | 3 | **Material BOM** | legacy 3 + 7 | **built 2026-08-13** (`0418`) |
-| 4 | **Garment Process Plan** | legacy 4 | **live** — added to the flow on 08-14 |
-| 5 | **Fabric BOM** | split out of legacy 3 | **built 2026-08-17** (`0426`) |
-| 6 | **Fabric Plan** | legacy 5-6, reinterpreted | **built 2026-08-17** (`0427`) |
-| 7 | **Budgeting** | legacy 8 | **built 2026-08-17** (`0428`) |
-| 8 | **Approval** | legacy 9 | **built 2026-08-17** (same table) |
+| 4 | **Fabric BOM** | split out of legacy 3 | **built 2026-08-17** (`0426`) |
+| 5 | **Fabric Plan** | legacy 5-6, reinterpreted | **built 2026-08-17** (`0427`) |
+| 6 | **Budgeting** | legacy 8 | **built 2026-08-17** (`0428`) |
+| 7 | **Approval** | legacy 9 | **built 2026-08-17** (same table) |
+
+**Garment Process Plan was step 4 on the 08-14 list and is not a step now**
+(client, 08-17). Its row moved back to Order Execution, where it had been
+cross-listed all along. Which is exactly the position §"Garment Process Plan is
+live and is NOT one of the six" below argued for on 08-10 — the section was
+briefly wrong and is right again, and it is left standing rather than rewritten
+because the reasoning in it is what the client's second answer confirms.
 
 **Fabric Plan is the 08-17 addition and is NOT in this file's original design.** The
 client's answer to what it covers, asked directly: the PROCESS ROUTE — yarn purchase,

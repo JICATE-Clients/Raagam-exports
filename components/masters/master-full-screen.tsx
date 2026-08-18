@@ -76,6 +76,37 @@ export type FullScreenSection = {
    * distrust both.
    */
   problems?: number;
+  /**
+   * THIS SECTION LIFTS THE 1180px CONTENT CAP.
+   *
+   * For a section whose whole content is one wide `ChildGrid` — a line grid with
+   * ten or more columns — and nothing else. Client, 2026-08-17: a Fabric BOM line
+   * carries 14 fields, and under the cap they could only be stacked four-per-row,
+   * so ONE line filled four bands of the screen while the pane sat inside two
+   * inches of empty margin on either side.
+   *
+   * ## WHY THE CAP EXISTS, AND WHY THIS DOES NOT REPEAL IT
+   *
+   * 1180px is `doc/ui/LAYOUT.md` §1 and it stops FIELDS stretching to absurd
+   * widths on a wide monitor — a Year box 900px across. That reasoning is about a
+   * `FieldGrid`, whose columns divide the pane between them. A `<table>` divides
+   * nothing: every column carries its own declared width, so extra pane width
+   * buys columns rather than stretching them, and the argument the cap rests on
+   * does not apply to the case this flag is for.
+   *
+   * So it is per SECTION and opt-in, not a new default. A section carrying
+   * ordinary fields must never set it: those really would stretch.
+   *
+   * ## IT DOES NOT MAKE A GRID SCROLL SIDEWAYS — IT IS WHAT AVOIDS THAT
+   *
+   * `ChildGrid`'s table sits in an `overflow-x-auto` wrapper, so declared widths
+   * summing past the pane produce the horizontal scrollbar the operator's rule 4
+   * bans. More pane is what lets the sum fit. Below the breakpoint the grid still
+   * falls back to stacked cards on its own, so a narrow screen stacks rather than
+   * scrolling — which is the same answer rule 4 gives, reached from the other
+   * side.
+   */
+  wide?: boolean;
   /** Rendered only while this section is active. */
   content: ReactNode;
 };
@@ -731,8 +762,22 @@ export function MasterFullScreen({
               breakpoint is @2xl = 672px and both values clear it.
 
               THE FOOTER BELOW CARRIES THE SAME CAP, or the primary Save button
-              parks itself to the right of the last field it saves. */}
-          <div ref={contentRef} className="@container/editor mx-auto w-full max-w-[1440px] px-4 py-5">
+              parks itself to the right of the last field it saves — which is
+              why `wide` below has to move both. */}
+          <div
+            ref={contentRef}
+            className={cn(
+              "@container/editor mx-auto w-full px-4 py-5",
+              // Read off the ACTIVE section, so the pane widens for the one
+              // section that needs it and narrows again on the way out. A cap
+              // set once for the whole editor would stretch every other
+              // section's fields to reach a grid the operator may never open.
+              //
+              // 1720 rather than none: on an ultrawide, an uncapped table with a
+              // flexible column would put one picker a foot from its own label.
+              active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
+            )}
+          >
             {active?.content}
           </div>
         </div>
@@ -779,7 +824,15 @@ export function MasterFullScreen({
 
             `flex` lives here now rather than on the band, so `flex-1` below
             still pushes the buttons to the right edge of the capped row. */}
-        <div className="mx-auto flex w-full max-w-[1440px] items-center gap-2">
+        {/* SAME CAP AS THE CONTENT, including the `wide` one: a section that
+            widens its pane and leaves the footer at 1440 puts Save a couple of
+            inches left of the last column it is saving. */}
+        <div
+          className={cn(
+            "mx-auto flex w-full items-center gap-2",
+            active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
+          )}
+        >
           {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
           <div className="flex-1" />
           {footer.extra}

@@ -32,7 +32,11 @@ import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { cn } from "@/lib/utils";
-import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
+import {
+  AFFORDANCE_PAD,
+  AFFORDANCE_PAD_COMPACT,
+  FieldAffordance,
+} from "@/components/ui/field-affordance";
 
 /** One selectable record. `sublabel` renders muted beside the label. */
 export type PickerRow = {
@@ -1117,7 +1121,8 @@ export function DataPicker({
             // phone keeps the full 36px touch target.
             "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-3 text-base md:text-sm",
             // Reserves the trailing slot; stated beside its width, not here.
-            AFFORDANCE_PAD,
+            // A dense grid cell reserves less: see AFFORDANCE_PAD_COMPACT.
+            compact ? AFFORDANCE_PAD_COMPACT : AFFORDANCE_PAD,
             // An unfocused input honours `text-overflow`, so a clipped value
             // now ends in an ellipsis instead of stopping mid-word as if that
             // were all of it.
@@ -1136,6 +1141,7 @@ export function DataPicker({
             both. It used to be two hand-drawn branches here and two more there,
             which is how the pair drifted apart. */}
         <FieldAffordance
+          compact={compact}
           onClear={clearable && selected && !open ? () => onChange(null) : undefined}
           clearLabel={`Clear ${noun}`}
           disabled={disabled}
