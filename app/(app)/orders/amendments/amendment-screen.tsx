@@ -708,6 +708,26 @@ export function AmendmentScreen({
    * `if (mode === "list")` return crashes this screen on every load.
    */
   const [openPriceKey, setOpenPriceKey] = useState<string | null>(null);
+  /**
+   * WHICH STRUCTURES THE OPERATOR HAS FINISHED WITH — the gate on the "GSM is
+   * required for a circular-knit structure" advisory (client 2026-08-18:
+   * "remove this message; if they moved on without filling it then show at that
+   * time only, no need to show it statically").
+   *
+   * The line used to render the moment a Circular Knit structure was picked, so
+   * it accused the operator of missing a field they had not reached yet — the
+   * cursor was still two boxes to the left. Marked on focus LEAVING the row, it
+   * says the same thing at the only moment it is true.
+   *
+   * A row key set, not a boolean per row: `ComboStructRow`s are re-created by
+   * `mutStructs` on every edit, so a flag on the row would be rewritten by the
+   * next keystroke. Keys survive that; a removed row's key simply stops being
+   * asked about. Up here with the other fold state for the same hard reason —
+   * a hook below the `if (mode === "list")` return crashes the screen on load.
+   */
+  const [structTouched, setStructTouched] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [dyeings, setDyeings] = useState<DyeingRow[]>([]);
   const [prints, setPrints] = useState<PrintRow[]>([]);
   const [structures, setStructures] = useState<StructureRow[]>([]);
@@ -1118,11 +1138,17 @@ export function AmendmentScreen({
    * Three states and they are not the same problem: no Structure yet (answer the
    * cell to the left), a Structure whose category holds no fabric (the Material
    * master has nothing to offer — a real gap, and naming it is how anyone finds
-   * out), or a normal list, where the default "— Select composition —" is right.
+   * out), or a normal list, where an EMPTY placeholder is right.
+   *
+   * The two strings carry no "— … —" wrapper: that idiom was withdrawn on
+   * 2026-08-17 with the 209 blanked option labels, and these three survived it
+   * because they are hand-written here rather than defaulted by the primitive.
+   * A meaningful placeholder still wins — it is the wording that stays, not the
+   * dashes around it (client 2026-08-18, screenshot 2337).
    */
   const fabricPlaceholder = (structureId: string | null, count: number) => {
-    if (!structureId) return "— Pick a Structure first —";
-    if (count === 0) return "— No fabric under this structure —";
+    if (!structureId) return "Pick a Structure first";
+    if (count === 0) return "No fabric under this structure";
     return undefined;
   };
 
@@ -1144,14 +1170,6 @@ export function AmendmentScreen({
       ? lookups.find((l) => l.id === cat.fabric_structure_id)
       : null;
     return fam?.code ?? null;
-  };
-  /** The family's NAME, for the hint beside the Structure cell. */
-  const familyNameOf = (structureId: string | null): string => {
-    const cat = structureId ? categoryById.get(structureId) : null;
-    const fam = cat?.fabric_structure_id
-      ? lookups.find((l) => l.id === cat.fabric_structure_id)
-      : null;
-    return fam?.name ?? "";
   };
   /**
    * The colours THIS amendment declared, offered to a component's Fabric Color.
@@ -1237,12 +1255,6 @@ export function AmendmentScreen({
     if (ids.size === 0) return structureItems;
     return structureItems.filter((o) => ids.has(o.id) || o.id === held);
   };
-
-  /** Does the style declare its parts at all? Drives the hint, not the list. */
-  const styleDeclaresParts = (r: ComboRow) =>
-    (styleOfCombo(r)?.components ?? []).some(
-      (c) => c.coordinate_id || c.component_id || c.fabric_category_id,
-    );
 
   /**
    * THE PRINTS THIS ORDER DECLARED — not the whole `roll_form_print` master
@@ -2482,7 +2494,8 @@ export function AmendmentScreen({
    * declares no parts, or a part with no fabric category seeds nothing and leaves
    * the blank row and the "+ Add structure" button standing. Empty-and-explain is
    * for a field that REFUSES to offer something; this one simply has nothing to
-   * offer, and `styleDeclaresParts` already drives the hint that says so.
+   * offer. It used to say so in a hint under the parts list; the client removed
+   * that line on 2026-08-18, so the seeder is silent about it too.
    *
    * GSM, TOLERANCE AND COLOUR ARE NEVER SEEDED, and that is the data's answer
    * rather than a preference: `garment_style_components` has no such columns.
@@ -2763,7 +2776,7 @@ export function AmendmentScreen({
        * makes the field `required`, so a legacy style answers the next time
        * anyone edits it.
        */
-      cell: (r) => <Input readOnly className="h-8" value={unitTextOf(r)} placeholder="—" />,
+      cell: (r) => <Input readOnly className="h-8" value={unitTextOf(r)} />,
     },
     /* PLAN UNIT WITHDRAWN 2026-08-11 (client): Order Unit (PCS/SET) suffices.
        The COLUMN and its stored rows are untouched, and `plan_unit_id` stays in
@@ -4179,16 +4192,65 @@ export function AmendmentScreen({
    * nominated-vendor rule records, where the operator never learns what is
    * missing.
    */
-  const assortGate: { ok: boolean; why?: string } = !form.pack
-    ? { ok: false, why: "Turn Pack on in Order Info to declare a pack type" }
-    : packTypes.filter((p) => p.pack_type.trim()).length === 0
-      ? { ok: false, why: "Declare a Pack type first — see the Pack type(s) section" }
-      : packTypes.some((p) => /assort/i.test(p.pack_type))
+  /**
+   * IS ANYTHING ASSORTED HERE — asked of the ROW FIRST (client 2026-08-18: "I
+   * chose assortment type but that details button is not enabling, still in
+   * disable mode").
+   *
+   * The gate used to read the ORDER's Pack type(s) and nothing else, while
+   * `Assortment Type` is a column of the Quantities grid — two cells to the LEFT
+   * of the very button it was being refused by. So the operator set the field
+   * that names an assortment, on the row whose Details they wanted, and the
+   * button ignored it and quoted a different section back at them.
+   *
+   * TWO STORES, ONE VOCABULARY, and that is the trap this rule now has to hold.
+   * `pack_type` (order level, text from `PACK_TYPE_OPTIONS`) and
+   * `assortment_type_id` (row level, an FK into the `assortment_type` lookup)
+   * are separate columns that 0400 deliberately seeded with the SAME four names
+   * — "Solid Colour / Solid Size" through "Assort Colour / Assort Size" — so the
+   * two tabs read alike to an operator. They are not one field, and merging them
+   * is not this fix: what they share is the vocabulary, which is why ONE
+   * predicate can answer for both.
+   *
+   * THE ROW WINS WHEN IT HAS SPOKEN. A row-level type is the more specific
+   * declaration and it is the one the operator can see next to the button, so
+   * when it is set it decides — including when it decides NO, which is how
+   * "Solid Colour / Solid Size" on a row still refuses. Only when the row is
+   * silent does the order-level rule answer, with its original wording, so an
+   * order that never reached the Quantities grid behaves exactly as before.
+   *
+   * `form.pack` is deliberately NOT consulted on the row branch. It gates the
+   * Pack type(s) SECTION, and the Assortment Type column is on screen whether it
+   * is on or off — refusing a value the screen just accepted is the shape of the
+   * bug being fixed, not a rule worth preserving.
+   */
+  const assortsRatio = (name: string) => /assort/i.test(name);
+
+  const assortGateFor = (r: QuantityRow): { ok: boolean; why?: string } => {
+    const rowType =
+      assortmentTypes.find((a) => a.id === r.assortment_type_id)?.name.trim() ?? "";
+    if (rowType) {
+      return assortsRatio(rowType)
         ? { ok: true }
         : {
             ok: false,
-            why: "Pack type is Solid Colour / Solid Size — one colour and one size per carton, so there is no ratio to set",
+            why: `Assortment Type is ${rowType} — one colour and one size per carton, so there is no ratio to set`,
           };
+    }
+    return !form.pack
+      ? { ok: false, why: "Turn Pack on in Order Info, or pick an Assortment Type on this row" }
+      : packTypes.filter((p) => p.pack_type.trim()).length === 0
+        ? {
+            ok: false,
+            why: "Declare a Pack type first — see the Pack type(s) section — or pick an Assortment Type on this row",
+          }
+        : packTypes.some((p) => assortsRatio(p.pack_type))
+          ? { ok: true }
+          : {
+              ok: false,
+              why: "Pack type is Solid Colour / Solid Size — one colour and one size per carton, so there is no ratio to set",
+            };
+  };
 
   const ratioTotalOf = (l: AssortLineRow) =>
     l.sizes.reduce((a, z) => a + (Number(z.qty) || 0), 0);
@@ -4544,10 +4606,17 @@ export function AmendmentScreen({
        * and the sizes are the style's; with no style there are no columns.
        * Same shape as the Combos [Detail] gate.
        *
-       * AND ON THE ORDER BEING PACKED TO AN ASSORTMENT (`assortGate`, client
-       * 2026-08-13) — a Solid Colour / Solid Size order has one colour and one
+       * AND ON SOMETHING HERE BEING ASSORTED (`assortGateFor`, client
+       * 2026-08-13) — a Solid Colour / Solid Size line has one colour and one
        * size in a carton, so there is no ratio to set. Each refusal names the
        * switch that turns it on rather than greying out in silence.
+       *
+       * THAT GATE IS PER ROW, and it was not until 2026-08-18: it read the
+       * order's Pack type(s) while `Assortment Type` — the field that names an
+       * assortment, two cells to the LEFT of this button — sat on the row being
+       * refused. The row's own type now decides whenever it is set, and the
+       * order-level rule answers only for a row that has not declared one. See
+       * `assortGateFor` for why two columns carry the same four words.
        *
        * The count is what makes the tree visible from outside — a destination
        * carrying three assortment lines otherwise looks exactly like one
@@ -4557,8 +4626,8 @@ export function AmendmentScreen({
        * BLOCKED WITH `aria-disabled`, NEVER `disabled` (client 2026-08-17: "check
        * why the assort button is not working").
        *
-       * It WAS working — it refuses when the order has no assorting pack type,
-       * which is the `assortGate` rule above. What was broken is that it could
+       * It WAS working — it refuses when nothing here is assorted, which is the
+       * `assortGateFor` rule above. What was broken is that it could
        * not SAY SO: a truly `disabled` button stops firing pointer events, so its
        * `title` never surfaces, and both reasons this button withholds itself
        * ("Pick a Ref No first", "Turn Pack on in Order Info") were written and
@@ -4574,10 +4643,13 @@ export function AmendmentScreen({
        * The reason also rides in `aria-label`, since the bubble is decorative.
        */
       cell: (r) => {
+        // Per ROW, not per order — the row carries its own Assortment Type, and
+        // that is the field sitting two cells to the left of this button.
+        const gate = assortGateFor(r);
         const why = !r.style_ref_no.trim()
           ? "Pick a Ref No first"
-          : !assortGate.ok
-            ? (assortGate.why ?? "")
+          : !gate.ok
+            ? (gate.why ?? "")
             : "";
         const blocked = !!why;
         return (
@@ -4922,7 +4994,7 @@ export function AmendmentScreen({
         ] as [string, string][]
       ).map(([label, value]) => (
         <Field key={label} label={label} size="xs">
-          <Input readOnly className="h-8" value={value} placeholder="—" />
+          <Input readOnly className="h-8" value={value} />
         </Field>
       ))}
     </FieldGrid>
@@ -5103,7 +5175,7 @@ export function AmendmentScreen({
           {/* `readOnly`, never `disabled` — `Input` gives a readOnly field
               `tabIndex={-1}` itself, so it leaves the Tab path with no
               per-screen opt-out while the value stays selectable. */}
-          <Input readOnly className="h-8" value={value} placeholder="—" />
+          <Input readOnly className="h-8" value={value} />
         </Field>
       ))}
     </FieldGrid>
@@ -5119,50 +5191,77 @@ export function AmendmentScreen({
    * `data-row-add` is what `enterNestedGrid` clicks so Tab can enter a parts
    * list that has no rows yet.
    */
-  const componentGrid = (r: ComboRow, st: ComboStructRow) => {
-    /*
-     * SAID ONCE, NOT ONCE PER PART (client 2026-08-17, screenshot 2334: these
-     * "fields title for everytime ... making screen two huge").
-     *
-     * Both sentences are properties of the STRUCTURE — its `item_sub_type`, and
-     * the prints THIS order declared — never of an individual part. Carried in
-     * the per-row placeholder they printed identically down every line of the
-     * panel, which is three copies of one fact and three rows of height for it.
-     *
-     * Hoisted rather than DELETED, because the field is empty for a reason and
-     * an unexplained empty box is the "empty-and-explain" rule broken (AGENTS.md
-     * states it for the nominated-vendor list; it is the same shape here).
-     */
-    const printNote = !takesAllOverPrint(st.item_sub_type)
-      ? "Set this structure's Fabric Type to Printed to choose a fabric print."
-      : declaredPrintOptions(st, null).length === 0
-        ? "Declare a print on Color/Print Details to choose one here."
-        : null;
+  /**
+   * ONE WIDTH FOR "+ Add component" AND "+ Add structure" (client 2026-08-18:
+   * "update the add component button size same as add structure size").
+   *
+   * They were already the same CONTROL — both `variant="outline" size="sm"`, so
+   * both `h-8 px-3 text-xs`. Two things made them read as different sizes and
+   * only one of them was width: the component button sat inside the structure's
+   * card, so its 10px of padding indented it from the structure button below,
+   * and content-width buttons whose labels differ (component vs structure, same
+   * 15 characters, different letters) differ by a few px on top. Removing the
+   * card fixed the indent; this fixes the rest.
+   *
+   * A FIXED WIDTH, NOT A FLOOR — the lesson `PRICE_W` records against
+   * `ADD_BUTTON_W` on this same file. A `min-w` lets whichever label is longest
+   * push its own button past the floor and the pair goes ragged again silently,
+   * which is exactly how the first attempt at the Style(s) pair failed. At
+   * `text-xs` the longer of these two is ~105px, so 128px clears both with room
+   * and neither can reach it.
+   *
+   * ITS OWN CONSTANT, not `ADD_BUTTON_W`. That one is the Style(s) pair's, at a
+   * value the client has already signed off; widening it to serve this pair too
+   * would move two buttons nobody asked about. One constant per SET that has to
+   * line up is the pattern this file already follows for `PRICE_W` and
+   * `PRICE_COLOUR_W`.
+   */
+  const STRUCTURE_ADD_W = "w-32";
 
+  const componentGrid = (r: ComboRow, st: ComboStructRow) => {
     // `r`, not just its key: the Coordinate / Component / Fabric Color options
     // are all properties of the combo's STYLE and its Fabric Type.
     return (
 
     /*
-     * ONE PANEL, ALWAYS DRAWN — with rows or without (operator, 2026-08-12:
-     * "add component and add structure is in some aligned and look
-     * imbalanced").
+     * NO BOX, NO HEADING, NO NOTES — the parts of a structure are its rows and
+     * the button that adds one (client 2026-08-18, screenshots 2341 and 2342:
+     * "that coordinate in another one inside frame ... too much frames", then
+     * "remove this sentence ... I think 'Coordinates & components' this title
+     * also can remove").
      *
-     * It used to be a bare `pl-4` with no border, so a structure that had a
-     * component looked boxed and one that did not looked like loose text, and
-     * "+ Add component" ended up sitting an inch above "+ Add structure" at a
-     * different indent — two buttons of different scope reading as a pair. The
-     * panel is what says "everything in here belongs to the structure above";
-     * without it the nesting was carried by indentation alone, which is exactly
-     * the 22px-of-chrome / no-shared-left-edge problem `listRows` documents.
+     * It was three borders deep — the STRUCTURE DETAILS section, the structure's
+     * own row card, and a panel inside that — with a section title and up to
+     * three grey sentences before the first field. All of it described content
+     * that was already unambiguously inside the structure card, so what it
+     * mostly announced was itself.
+     *
+     * ## What used to justify each piece, and why none of it survives
+     *
+     * THE BOX was added on 2026-08-12, when "+ Add component" and "+ Add
+     * structure" read as a pair — two buttons of different scope at what looked
+     * like one indent. That was right FOR THE GRID AS IT STOOD: `listRows` meant
+     * the row drew no card of its own, so this panel was the only thing saying
+     * "these belong to the structure above". `forceCards` replaced `listRows`
+     * the same day and boxes every row identically, so the row card makes that
+     * statement now — "+ Add component" is inside it, "+ Add structure" outside
+     * and below. The border that mattered is still there; this was the spare.
+     *
+     * THE TWO NOTES explained why the Coordinate and Component lists are not
+     * narrowed, and why Fabric Print is empty. Real facts, and the client has
+     * now decided they are not worth a line each on every structure — the
+     * pickers still open, still show what they have, and an operator who wants
+     * a narrower list is told so by the Style master, not by this panel. If
+     * they are ever wanted back, they belong ON the control (a placeholder), not
+     * as prose above it: that is the shape the de-clutter rule leaves open.
+     *
+     * THE TITLE named a group that is the only group here. The one thing left
+     * inside this structure card besides its six fields is the parts list, and
+     * "+ Add component" says what the list holds.
      */
-    <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Coordinates &amp; components
-      </div>
-      <div
+    <div
         data-grid-body
-        /* NOT `divide-y`: the empty-state note, the narrowing note and the
+        /* NOT `divide-y`: the narrowing note, the print note and the
            "+ Add component" button are siblings of the rows in here, so a
            divider on the PARENT would draw a line above each of those too. The
            hairline is on the row (`border-t`, cancelled on the first). */
@@ -5183,7 +5282,7 @@ export function AmendmentScreen({
                structure"; a second one per row says nothing further and costs
                ~40px each. A hairline separates them instead, cancelled on the
                first row so the panel does not gain a rule under its title. */
-            className="relative border-t border-border/60 pr-10 pt-2 first:border-t-0 first:pt-0"
+            className="relative border-t border-border/60 pt-2 first:border-t-0 first:pt-0"
           >
             {/* NO `#N`, AND THEREFORE NO BAND (client 2026-08-17, screenshot
                 2332: "remove that #1, #2, all this kind of numbering, making huge
@@ -5203,7 +5302,11 @@ export function AmendmentScreen({
                  would sit level with the controls on every row except that one,
                  where the label row pushes them ~20px down. The control line is
                  the bottom of the row in both cases. */
-              className="absolute bottom-1 right-0 text-muted-foreground hover:text-danger"
+              /* INTO THE ROW'S GUTTER, not this row's own padding: `-right-9`
+                 puts it in the 40px the structure row reserves with `pr-10`, so
+                 every ✕ on this grid stands in one column and the part's fields
+                 keep the full width the structure's fields have. */
+              className="absolute bottom-1 -right-9 text-muted-foreground hover:text-danger"
               onClick={() =>
                 mutComps(r.key, st.key, (cs) => cs.filter((x) => x.key !== c.key))
               }
@@ -5340,34 +5443,17 @@ export function AmendmentScreen({
                 this row. */}
           </div>
         ))}
-        {st.components.length === 0 && (
-          <p className="text-xs text-muted-foreground">
-            No parts listed for this structure yet.
-          </p>
-        )}
-        {/* SAY WHEN THE NARROWING IS NOT HAPPENING. The Coordinate and
-            Component lists fall back to the full masters for a style that
-            declares no parts — a fallback the operator cannot see is a fallback
-            they will read as "the style has all of these". */}
-        {!styleDeclaresParts(r) && (
-          <p className="text-xs text-muted-foreground">
-            This style lists no components, so every coordinate and component is
-            offered. Add them on the Style master to narrow these.
-          </p>
-        )}
-        {/* WHY FABRIC PRINT IS EMPTY — once for the structure, not once per
-            part. See `printNote` at the top of this function. */}
-        {printNote && <p className="text-xs text-muted-foreground">{printNote}</p>}
         <Button
           type="button"
           variant="outline"
           size="sm"
           data-row-add
+          /* Same box as "+ Add structure" below it — see `STRUCTURE_ADD_W`. */
+          className={STRUCTURE_ADD_W}
           onClick={() => addComp(r.key, st.key)}
         >
           + Add component
         </Button>
-      </div>
     </div>
     );
   };
@@ -5413,15 +5499,34 @@ export function AmendmentScreen({
        * what the family chip was.
        */
       forceCards
-      /* A blank row has no identity yet and says so in muted text rather than
-         rendering an empty line — `rowSummary`'s own documented guidance. The
-         family is the honest summary once a Structure is picked: it is the fact
-         that decides whether GSM is compulsory. */
-      rowSummary={(st) =>
-        familyNameOf(st.structure_id) || (
-          <span className="text-muted-foreground">New structure</span>
-        )
-      }
+      /* NO CARD PER STRUCTURE (client 2026-08-18, screenshot 2344: "remove that
+         structure details frame also, one frame is enough"). STRUCTURE DETAILS
+         is the one frame; a card around every structure inside it was the third
+         border on a screen whose overlay is already titled "Structure Details".
+         Same call, same day, same prop as the Prices grid — see `flatRows`.
+
+         The band survives it, and here that matters more than on Prices: this
+         grid FOLDS (`foldRows` below), so the summary line is the whole of a
+         closed structure, and its ✕ is the only way to remove one. */
+      flatRows
+      /* NO SUMMARY LINE (client 2026-08-18, screenshot 2347: "in top the fabric
+         it's showing Circular Knit type, no need to show there").
+
+         The band drew the KNIT FAMILY, and the family is derived from the
+         Structure picked in the field directly beneath it — so an open row said
+         "Circular Knit" above a box already reading "1X1 LYCRA RIB". With that
+         removed the band has nothing left of its own to say: naming the row by
+         its Structure would only move the duplicate up a line.
+
+         DROPPED WHOLESALE RATHER THAN PER ROW. Returning null for a filled row
+         and "New structure" for a blank one flips `cornerRemove` between rows,
+         and with it the row's `pr-10` — so a blank structure and a filled one
+         would lay their twelve columns over different widths and stop lining up
+         with each other. One rule for every row is the only one that holds the
+         grid straight.
+
+         The ✕ is unaffected: with no band, `ChildGrid` floats it into the row's
+         top-right corner, still carrying `data-row-remove` for Ctrl+Del. */
       /* ONE STRUCTURE OPEN AT A TIME (client 2026-08-14, module-wide). Seven
          fields plus a nested components panel is three or four wrapped lines
          per structure, and a combo with three structures filled the overlay
@@ -5442,7 +5547,9 @@ export function AmendmentScreen({
         ]
           .filter(Boolean)
           .join("  ·  ");
+        const foldedProblems = structureProblems(st, familyCodeOf(st.structure_id));
         return (
+          <div className="space-y-2">
           <FieldGrid>
             {/* THE STRUCTURE STAYS A REAL FIELD — Tab lands on fields, so a
                 folded row rendering none is mouse-only, and focusing it is what
@@ -5465,16 +5572,63 @@ export function AmendmentScreen({
               </div>
             </Field>
           </FieldGrid>
+          {/* THE ADVISORY LIVES HERE TOO, and this is the half that makes
+              deferring it honest. A folded structure is one the operator has
+              moved on from — the definition of the moment they asked to be told
+              — and it is also the only state a finished-but-incomplete
+              structure is ever seen in, since focusing it opens it again. Gated
+              on nothing further: `folded` IS the gate. */}
+          {foldedProblems.length > 0 && (
+            <p className="text-xs text-warning">{foldedProblems.join(" · ")}</p>
+          )}
+          </div>
         );
       }}
       onAdd={() => addStruct(r.key)}
       onRemove={(st) => mutStructs(r.key, (sts) => sts.filter((x) => x.key !== st.key))}
       addLabel="+ Add structure"
+      /* Same box as "+ Add component" inside it — see `STRUCTURE_ADD_W`. */
+      addClassName={STRUCTURE_ADD_W}
       renderMobileRow={(st) => {
         const problems = structureProblems(st, familyCodeOf(st.structure_id));
         const range = gsmRange(st.gsm, st.gsm_tolerance);
         return (
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            /* FOCUS LEAVING THE ROW IS "they moved on" — `onBlur` bubbles in
+               React, so one handler covers every field in the row and the
+               nested part rows with it. `relatedTarget` inside this row is a
+               move BETWEEN its fields and is not leaving; null (a click on
+               dead space, a window blur) is treated as leaving, which is the
+               conservative half — the worst it does is show a true warning a
+               moment early. */
+            onBlur={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              setStructTouched((prev) =>
+                prev.has(st.key) ? prev : new Set(prev).add(st.key),
+              );
+            }}
+          >
+            {/*
+              * THE TWO ROWS SHARE THEIR COLUMNS (client 2026-08-18, screenshot
+              * 2344: "in this one frame we align the fields properly").
+              *
+              * Both rows already tiled to 12 — six `xs` here, 2+2+4+4 in a part
+              * row below — so the spans were never the problem. The WIDTHS were:
+              * a part row carried `pr-10` of its own to keep its ✕ off the last
+              * control, so its twelve columns were laid over 40px less width
+              * than these. Every boundary drifted a little further left than the
+              * last, and Fabric Color / Fabric Print straddled the gaps between
+              * Gsm, Tolerance and Gsm Range instead of sitting under them.
+              *
+              * NEITHER GRID DECLARES THE INSET NOW — the ROW does, once, for
+              * both. Dropping `rowSummary` above put `cornerRemove` in charge of
+              * the ✕, and that comes with `relative pr-10` on the row itself, so
+              * a part row asking for its own would be the same 40px twice and
+              * the drift back. One gutter, declared in one place, holding every
+              * ✕ on this grid: the structure's in the corner, each part's beside
+              * its fields.
+              */}
             <FieldGrid>
               <Field label="Structure" required size="xs">
                 {/* A fabric CATEGORY (0409). The knit family beside it is
@@ -5553,7 +5707,7 @@ export function AmendmentScreen({
                 {/* DERIVED, never stored (0408) — 200 ± 5 is 195 - 205. A
                     column for it would be a second source of truth for a
                     subtraction. */}
-                <Input readOnly className="h-8" value={range} placeholder="—" />
+                <Input readOnly className="h-8" value={range} />
               </Field>
               <Field label="Fabric Type" size="xs">
                 <Select
@@ -5572,8 +5726,13 @@ export function AmendmentScreen({
             {/* ADVISORY, NOT A HOLD. "Circular Knit -> GSM compulsory" is a
                 property of the CASE, so it cannot be a `required` prop — and it
                 must not stamp `data-required-empty`, which would cage the
-                operator on a row whose structure they are still choosing. */}
-            {problems.length > 0 && (
+                operator on a row whose structure they are still choosing.
+
+                AND NOT UNTIL THEY HAVE LEFT — see `structTouched`. An open row
+                is one being filled in, so the complaint is premature by
+                construction; the folded render below carries the same line for
+                a row they have moved on from. */}
+            {problems.length > 0 && structTouched.has(st.key) && (
               <p className="text-xs text-warning">{problems.join(" · ")}</p>
             )}
             {componentGrid(r, st)}
@@ -6268,6 +6427,17 @@ export function AmendmentScreen({
             columns={[]}
             rows={priceGroups}
             forceCards
+            /* NO CARD PER STYLE PRICE (client 2026-08-18, screenshot 2342:
+               "remove that New style price frame, just that top frame is
+               enough"). PRICE DETAILS already draws a box; a second one around
+               every group inside it was a frame whose only content was another
+               frame's worth of fields.
+
+               `flatRows`, not `listRows`: the band above each group is doing
+               real work here — it names the style ("STL/2627/0002 · Size-wise")
+               once for a fold that hides everything else, and it carries the ✕
+               that unprices that style. `listRows` would have taken both. */
+            flatRows
             rowSummary={(g) => {
               const v = priceGroupView(g);
               if (!g.refNo) return <span className="text-muted-foreground">New style price</span>;
@@ -7351,7 +7521,7 @@ export function AmendmentScreen({
               items={data.rejectionRules}
               value={form.rejection_rule_id}
               onChange={(id) => set({ rejection_rule_id: id })}
-              placeholder="— No projection —"
+              placeholder="No projection"
             />
           </Field>
         </FieldGrid>
