@@ -2095,9 +2095,19 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 not the same height as `Field`'s label, so let the primitive draw
                 it. That also keeps `Sizes` and `Description` reading as two
                 labelled rows of one section. */}
+            {/* `across="compact"` — 9rem cells, NOT 2/12 of the section (client
+                2026-08-18, screenshot 2335: "reduce this size dialing fields
+                length, now it looks too large, make compact").
+
+                The move to `size="full"` two comments up is what exposed it. A
+                span is a FRACTION, so the same `xs` that draws a sensible ~176px
+                inside the Garment Order's narrower section draws ~248px here —
+                and what it holds is "M", "XS", "XL". Nine to a line instead of
+                six, at a width that does not change with the viewport. The
+                mode's own note carries the reasoning. */}
             <Field label="Sizes" size="full">
               <ChildGrid<SizeRow>
-                across
+                across="compact"
                 frameless
                 columns={sizeColumns}
                 rows={sizes}

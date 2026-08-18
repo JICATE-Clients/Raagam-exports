@@ -330,7 +330,7 @@ export function ExchangeRateMasterScreen({
                   no longer exists; the pager replaced it.) */}
               <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
               {lines.map((l, i) => (
-                <div data-grid-row key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
+                <div data-grid-row data-row-box key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">
                       S No {i + 1}
