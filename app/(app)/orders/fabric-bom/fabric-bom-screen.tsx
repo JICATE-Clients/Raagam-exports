@@ -10,15 +10,29 @@
  * mount left the module sidebar beside the section rail, putting two navigation
  * lists on screen and leaving ~1090px for a wide grid.
  *
- * THE LINE GRID IS `forceCards`. Fourteen columns cannot fit the width a rail
- * leaves, and the responsive table answers that with a horizontal scrollbar —
- * the operator fills the first cell, then drags a bar to reach the last one with
- * the first scrolled out of sight (raagam-screen-layout, the operator's five,
- * rule 4). Every cell's `required` is forwarded onto the control inside
- * `renderMobileRow`, because that callback replaces the `columns.map()` that
- * would otherwise wrap each cell in a `RequiredScope` — forgetting it leaves the
- * header `*` drawn with no cursor hold behind it, which is the one divergence
- * `required` exists to rule out.
+ * ## THE LINE GRID IS ONE ROW PER FABRIC (client, 2026-08-17)
+ *
+ * It shipped as `forceCards`, on the reading that 14 columns cannot fit and that
+ * the responsive table would answer with a horizontal scrollbar — the operator
+ * fills the first cell, then drags a bar to reach the last one with the first
+ * scrolled out of sight (the operator's five, rule 4).
+ *
+ * BOTH HALVES OF THAT WERE TRUE AND THE CONCLUSION WAS STILL WRONG. Cards cost
+ * FOUR bands of screen per line, so three fabrics filled the viewport and the
+ * operator could not see one line against the next — while the pane itself sat
+ * inside two inches of empty margin on either side, because `max-w-[1180px]`
+ * caps every rail editor.
+ *
+ * The scrollbar was never caused by the number of columns; it is caused by their
+ * declared widths summing past the pane. So the fix is the two things that
+ * changes: the section sets `wide` (lifting the cap to 1720px) and every column
+ * is declared narrow enough that the sum fits inside it. Rule 4 is honoured
+ * rather than worked around — there is still no sideways scroll, and below the
+ * breakpoint `ChildGrid` falls back to stacked cards by itself.
+ *
+ * WHAT MUST NOT BE ADDED BACK IS A WIDE COLUMN. `Fabric` is the single flexible
+ * one on purpose; give a second column its slack and the sum grows past 1720 and
+ * the scrollbar returns, on a screen nobody re-measures.
  */
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -124,12 +138,42 @@ const blankLine = (key: string): LineRow => ({
   notes: "",
 });
 
+/**
+ * EVERY CELL ON A FABRIC LINE IS THE SAME WIDTH (client, 2026-08-18).
+ *
+ * One constant, not fourteen numbers: a per-column width invites the next
+ * person to nudge one cell and quietly push the row past the pane, at which
+ * point the grid stops being a table and becomes stacked cards with nothing on
+ * screen to say why.
+ *
+ * 5rem = 80px, and the arithmetic is what fixes it there rather than taste:
+ * 14 columns x 80 = 1120, plus ~80 for the `#` and remove cells = 1200, inside
+ * a ~1260px pane. Widen this and the row stops fitting; the `tableFrom`
+ * threshold below has to move with it.
+ */
+const CELL = "5rem";
+
 const numOrNull = (v: string): number | null => {
   const t = v.trim();
   if (!t) return null;
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 };
+
+/**
+ * The separator that joins a fabric's address keys.
+ *
+ * A CONTROL CHARACTER, so a combo or component name containing the separator
+ * cannot forge another row's key — the same reasoning, and the same character,
+ * as `SEP` in lib/orders/material-bom/requirement.ts.
+ *
+ * WRITTEN AS AN ESCAPE, NEVER AS A RAW BYTE. A literal NUL in a source file
+ * makes git treat that file as BINARY: no diff, no three-way merge, and a
+ * conflict it simply refuses to resolve. That is exactly what happened to both
+ * of these screens on 2026-08-18 and it is invisible until the day two branches
+ * touch the same file.
+ */
+const SEP = "\u0000";
 
 export function FabricBomScreen({
   tasks,
@@ -332,7 +376,7 @@ export function FabricBomScreen({
       }) =>
         [l.style_ref_no ?? "", l.combo ?? "", l.structure_id ?? "", l.component_id ?? ""]
           .map((v) => v.trim().toUpperCase())
-          .join(" ");
+          .join(SEP);
 
       const held = new Set(lines.map(addressOf));
       const fresh = res.rows.filter((r) => !held.has(addressOf(r)));
@@ -370,16 +414,25 @@ export function FabricBomScreen({
   const lineColumns: ChildGridColumn<LineRow>[] = [
     {
       header: "Style",
-      width: "10rem",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <Select
+          compact
           className="h-8"
           value={r.style_ref_no}
           onChange={(e) => setCell(r.key, { style_ref_no: e.target.value })}
         >
-          {/* BLANK MEANS EVERY STYLE, and the label says so rather than showing
-              a dash the operator has to interpret. */}
-          <option value="">All styles</option>
+          {/* BLANK, at the client's instruction (2026-08-18): every box on this
+              row shows nothing until it holds a value.
+
+              WHAT THIS COSTS, recorded rather than argued: blank here means
+              EVERY style, not "not chosen yet", and an empty box cannot say
+              which. The distinction is still live in the data and in
+              `fabricSlices` — a line with no style covers them all. If an
+              operator ever reads a blank Style as unfinished, the answer is a
+              word in the column HEADER ("Style (all)"), not a value back inside
+              the box. */}
+          <option value="" />
           {styleOptions.map((s) => (
             <option key={s} value={s}>
               {s}
@@ -390,14 +443,15 @@ export function FabricBomScreen({
     },
     {
       header: "Combo",
-      width: "10rem",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <Select
+          compact
           className="h-8"
           value={r.combo}
           onChange={(e) => setCell(r.key, { combo: e.target.value })}
         >
-          <option value="">All colourways</option>
+          <option value="" />
           {comboOptions.map((c) => (
             <option key={c} value={c}>
               {c}
@@ -408,7 +462,8 @@ export function FabricBomScreen({
     },
     {
       header: "Structure",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <RecordPicker
           label="Structure"
           compact
@@ -420,7 +475,8 @@ export function FabricBomScreen({
     },
     {
       header: "Component",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <RecordPicker
           label="Component"
           compact
@@ -433,6 +489,9 @@ export function FabricBomScreen({
     {
       header: "Fabric",
       required: true,
+      // DECLARED LIKE THE REST. It used to be the one flexible column, taking
+      // whatever slack was left; equal widths means there is no slack to take.
+      width: CELL,
       cell: (r) => (
         <RecordPicker
           label="Fabric"
@@ -446,14 +505,19 @@ export function FabricBomScreen({
     },
     {
       header: "Type",
-      width: "9rem",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <Select
+          compact
           className="h-8"
           value={r.fabric_type}
           onChange={(e) => setCell(r.key, { fabric_type: e.target.value })}
         >
-          <option value=""></option>
+          {/* EMPTY, not "—". Unlike Style above, a blank Type means "not chosen"
+              and nothing else, so there is no fact for a label to carry.
+              (Arrived at independently on master as `<option value=""></option>`
+              — same element, same intent.) */}
+          <option value="" />
           {FABRIC_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -463,9 +527,9 @@ export function FabricBomScreen({
       ),
     },
     {
-      header: "Fabric colour",
-      width: "9rem",
-      cell: (r) => (
+      header: "Colour",
+      width: CELL,
+            cell: (r) => (
         <Input
           className="h-8"
           uppercase
@@ -475,10 +539,10 @@ export function FabricBomScreen({
       ),
     },
     {
-      header: "Consumption",
+      header: "Cons.",
       align: "right",
-      width: "8rem",
-      required: true,
+      width: CELL,
+            required: true,
       cell: (r) => (
         <Input
           className="h-8 text-right"
@@ -491,8 +555,8 @@ export function FabricBomScreen({
     },
     {
       header: "Unit",
-      width: "8rem",
-      required: true,
+      width: CELL,
+            required: true,
       cell: (r) => (
         <RecordPicker
           label="Unit"
@@ -505,10 +569,10 @@ export function FabricBomScreen({
       ),
     },
     {
-      header: "Wastage %",
+      header: "Wast.%",
       align: "right",
-      width: "7rem",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <Input
           className="h-8 text-right"
           inputMode="decimal"
@@ -519,16 +583,17 @@ export function FabricBomScreen({
     },
     {
       header: "Split",
-      width: "11rem",
-      required: true,
+      width: CELL,
+            required: true,
       cell: (r) => (
         <Select
+          compact
           className="h-8"
           required
           value={r.requirement_basis}
           onChange={(e) => setCell(r.key, { requirement_basis: e.target.value })}
         >
-          <option value=""></option>
+          <option value="" />
           {FABRIC_BASES.map((b) => (
             <option key={b} value={b}>
               {FABRIC_BASIS_LABELS[b]}
@@ -540,8 +605,8 @@ export function FabricBomScreen({
     {
       header: "Dia",
       align: "right",
-      width: "6rem",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <Input
           className="h-8 text-right"
           inputMode="decimal"
@@ -551,9 +616,9 @@ export function FabricBomScreen({
       ),
     },
     {
-      header: "Required by",
-      width: "9rem",
-      cell: (r) => (
+      header: "Req. by",
+      width: CELL,
+            cell: (r) => (
         <Input
           className="h-8"
           type="date"
@@ -565,8 +630,8 @@ export function FabricBomScreen({
     {
       header: "Rate",
       align: "right",
-      width: "7rem",
-      cell: (r) => (
+      width: CELL,
+            cell: (r) => (
         <Input
           className="h-8 text-right"
           inputMode="decimal"
@@ -819,6 +884,9 @@ export function FabricBomScreen({
       label: "Fabric Lines",
       icon: ListChecks,
       done: filledLines.length > 0,
+      // THE ONE WIDE SECTION. 14 columns need more than the 1180px cap, and
+      // this section holds the grid and nothing else — see `FullScreenSection.wide`.
+      wide: true,
       content: (
         <SectionBody title="Fabric Lines">
           <div className="mb-3 flex items-center justify-end">
@@ -837,10 +905,32 @@ export function FabricBomScreen({
             columns={lineColumns}
             rows={lines}
             seedRow
-            forceCards
-            /* Fourteen columns. See the file header: a table here scrolls
-               sideways, and a sideways-scrolling grid loses the first cell while
-               the operator reaches the last. */
+            /* The declared widths sum to ~1100px including the row chrome, so
+               the table may appear from 1152 (@6xl) — see `tableFrom`. Without
+               it the switch is @lg, which is 512px in a container query, and a
+               laptop would get a table it has to scroll.
+
+               THESE ARE CSS PIXELS, NOT THE ONES IN A SCREENSHOT. This was first
+               written for @7xl (1280) against a pane measured off an image, and
+               it stayed stacked on the operator's own monitor: Windows display
+               scaling makes a 1920 screen about 1536 CSS px wide, so the pane
+               was ~1260 and the threshold missed by 20. The CSS rule was
+               present and correct throughout — the only symptom was cards.
+               Measure the CONTAINER, never the picture of it. */
+            tableFrom="6xl"
+            centerHeaders
+            /* NO `forceCards`. Responsive mode: ONE TABLE ROW PER FABRIC at the
+               widths declared above, falling back to stacked cards below the
+               breakpoint — so a narrow screen stacks rather than growing the
+               sideways scrollbar the operator's rule 4 bans.
+
+               `renderMobileRow` STAYS, and dropping it as redundant is a mistake
+               this file made once: the default stacked cell is a bare <div>
+               around a RequiredScope with NO VISIBLE LABEL, so the fallback
+               became fourteen unlabelled full-width boxes — worse than the
+               four-per-row block the whole change set out to fix. The callback
+               is what supplies the label and the `required` star below the
+               breakpoint. */
             renderMobileRow={(row) => (
               <FieldGrid>
                 {lineColumns.map((c, ci) => (

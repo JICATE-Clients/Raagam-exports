@@ -77,9 +77,14 @@ export { isRefusal };
 export const FABRIC_BASES = ["colour", "colour_size"] as const;
 export type FabricBasis = (typeof FABRIC_BASES)[number];
 
+/**
+ * SHORT ON PURPOSE — these are read inside a grid cell about 110px wide, under a
+ * column headed "Split". "Colour-wise" truncated to "C…" there, which is not a
+ * shorter label but an unreadable one; the header supplies the "-wise".
+ */
 export const FABRIC_BASIS_LABELS: Record<FabricBasis, string> = {
-  colour: "Colour-wise",
-  colour_size: "Colour and size-wise",
+  colour: "Colour",
+  colour_size: "Col + Size",
 };
 
 /**

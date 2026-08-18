@@ -45,6 +45,17 @@ import { cn } from "@/lib/utils";
 export const AFFORDANCE_PAD = "pr-8";
 
 /**
+ * The same measurement for a `compact` control — a dense grid cell.
+ *
+ * 28px of slot is a third of an 80px cell, and it is what pushes the VALUE into
+ * truncating: "Colour" rendering as "C..". A 20px slot still reads as a
+ * segmented edge and hands ~8px back to the text. Stated here beside
+ * `SLOT_COMPACT` for the reason the full-size pair is: the pad and the slot are
+ * one measurement and must never be edited apart.
+ */
+export const AFFORDANCE_PAD_COMPACT = "pr-6";
+
+/**
  * `rounded-r-[5px]` is `rounded-md` (6px) MINUS the field's 1px border — the
  * radius of the hole the border encloses, not of the border itself. At 6px it
  * would bulge a hair past the corner; at 0 it would square off inside a rounded
@@ -56,14 +67,21 @@ export const AFFORDANCE_PAD = "pr-8";
  * parent's insets is correct at both without knowing either.
  */
 const SLOT = cn(
-  "absolute inset-y-px right-px flex w-7 items-center justify-center",
+  "absolute inset-y-px right-px flex items-center justify-center",
   "rounded-r-[5px] border-l border-border bg-surface-muted text-muted-foreground",
 );
+
+/** Width and glyph size, the only two things `compact` changes. Everything else
+ *  about the slot — the insets, the radius, the border, the fill — is shared, so
+ *  a dense cell and a full field are visibly the same control at two sizes. */
+const SLOT_W = { full: "w-7", compact: "w-5" };
+const GLYPH = { full: "h-4 w-4", compact: "h-3 w-3" };
 
 export function FieldAffordance({
   onClear,
   clearLabel = "Clear",
   disabled = false,
+  compact = false,
 }: {
   /**
    * Given → the slot shows ✕ and clears on click. Omitted → it shows ▼.
@@ -76,6 +94,18 @@ export function FieldAffordance({
   /** Names the ✕ for a screen reader: "Clear Customer", not "Clear". */
   clearLabel?: string;
   disabled?: boolean;
+  /**
+   * A DENSE GRID CELL — a 20px slot and a 12px glyph instead of 28 and 16.
+   *
+   * The flag `DataPicker` and `Select` already carry, threaded through rather
+   * than re-derived, because a picker and a select sit side by side in one grid
+   * row: two rules for one slot would draw two different right edges in
+   * adjacent cells, which is precisely the drift this file was created to end.
+   *
+   * Pair it with `AFFORDANCE_PAD_COMPACT` on the input, or the value runs under
+   * the slot.
+   */
+  compact?: boolean;
 }) {
   return onClear ? (
     <button
@@ -95,6 +125,7 @@ export function FieldAffordance({
       onClick={onClear}
       className={cn(
         SLOT,
+        SLOT_W[compact ? "compact" : "full"],
         "hover:bg-border hover:text-danger",
         // The input dims itself with `disabled:opacity-50`; an absolutely
         // positioned SIBLING inherits none of that, so a disabled field would
@@ -102,13 +133,14 @@ export function FieldAffordance({
         disabled && "pointer-events-none opacity-50",
       )}
     >
-      <X className="h-4 w-4 shrink-0" />
+      <X className={cn(GLYPH[compact ? "compact" : "full"], "shrink-0")} />
     </button>
   ) : (
     <span
       aria-hidden
       className={cn(
         SLOT,
+        SLOT_W[compact ? "compact" : "full"],
         /**
          * `pointer-events-none` IS THE BEHAVIOUR, not a detail. The field opens
          * its own list on click, so the chevron must let the click through to
@@ -119,7 +151,7 @@ export function FieldAffordance({
         disabled && "opacity-50",
       )}
     >
-      <ChevronDown className="h-4 w-4 shrink-0" />
+      <ChevronDown className={cn(GLYPH[compact ? "compact" : "full"], "shrink-0")} />
     </span>
   );
 }

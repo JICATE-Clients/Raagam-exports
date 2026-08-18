@@ -72,7 +72,13 @@ function parseOptions(children: ReactNode): ParsedOptions {
 
     if (value === "") {
       hasEmpty = true;
-      if (placeholder === undefined) placeholder = label || undefined;
+      // `label` IS KEPT WHEN IT IS EMPTY — `<option value="" />` is a
+      // deliberately blank placeholder, and `|| undefined` used to erase that
+      // distinction so the field fell through to "Select…" below. In a grid cell
+      // the column header already names the field, so "Select…" is the same
+      // sentence twice and truncates to "S…" (client, 2026-08-18). A caller that
+      // wants the generic prompt simply omits the blank option.
+      if (placeholder === undefined) placeholder = label;
       continue;
     }
     if (props.disabled && options.length === 0 && placeholder === undefined) {
@@ -105,8 +111,22 @@ function useEnhance(nativeOnly: boolean): boolean {
 
 export const Select = forwardRef<
   HTMLSelectElement,
-  SelectHTMLAttributes<HTMLSelectElement>
->(({ className, children, ...props }, ref) => {
+  SelectHTMLAttributes<HTMLSelectElement> & {
+    /**
+     * A DENSE GRID CELL — forwarded to `Combobox`, which shrinks the chevron and
+     * the clear ✕ from 16px to 12px.
+     *
+     * The same flag `DataPicker` carries, and deliberately the same NAME: a
+     * `<Select>` and a picker sit side by side in one grid row, so two rules for
+     * one glyph would draw two different chevrons in adjacent cells.
+     *
+     * It is destructured out of the spread below rather than passed through —
+     * `compact` is not a `<select>` attribute, and the touch/SSR branch renders a
+     * real one, which would warn about an unknown DOM property.
+     */
+    compact?: boolean;
+  }
+>(({ className, children, compact, ...props }, ref) => {
   // Keep native for multi-select and uncontrolled (defaultValue) usage — the
   // listbox is single-select and controlled-only.
   const nativeOnly = Boolean(props.multiple) || props.value == null;
@@ -140,8 +160,26 @@ export const Select = forwardRef<
   if (!enhance) return native;
 
   const { options, placeholder, hasEmpty } = parseOptions(children);
-  // Defensive: nothing parseable → fall back to the native element.
-  if (options.length === 0) return native;
+  /**
+   * Defensive: nothing PARSEABLE → fall back to the native element.
+   *
+   * `hasEmpty` is what separates "this is not really a select" from "this is a
+   * select with nothing to choose yet", and conflating the two was visible in a
+   * grid row (client, 2026-08-18): Fabric BOM's Style and Combo take their
+   * options from the picked garment order, so before one is picked they hold
+   * only the blank placeholder — `options.length === 0` — and fell through to a
+   * native `<select>`. It drew Chrome's own arrow: darker, larger and a
+   * different shape from the twelve-pixel chevron in every neighbouring cell.
+   *
+   * The control changed identity because its DATA was empty, which is the sort
+   * of inconsistency nobody can diagnose by looking at the screen.
+   *
+   * A blank option is a deliberate declaration, so it is enough to know this is
+   * a real select; the listbox renders it with an empty list, which says "no
+   * choices here yet" rather than silently becoming another control. Only a
+   * `<Select>` with no parseable `<option>` at all still falls back.
+   */
+  if (options.length === 0 && !hasEmpty) return native;
 
   const value = props.value != null ? String(props.value) : "";
   // Preserve a current value that isn't among the options (don't blank it).
@@ -154,6 +192,7 @@ export const Select = forwardRef<
     <>
       <Combobox
         id={props.id}
+        compact={compact}
         options={opts}
         value={value}
         onChange={(v) =>

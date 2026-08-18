@@ -6,7 +6,11 @@ import { useRequiredHold } from "@/components/ui/field";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
-import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
+import {
+  AFFORDANCE_PAD,
+  AFFORDANCE_PAD_COMPACT,
+  FieldAffordance,
+} from "@/components/ui/field-affordance";
 
 export interface ComboboxOption {
   value: string;
@@ -61,6 +65,7 @@ export function Combobox({
   inputClassName,
   openOnFocus = true,
   required = false,
+  compact = false,
 }: {
   options: ComboboxOption[];
   value: string;
@@ -83,6 +88,12 @@ export function Combobox({
    * well so a `<Select>` keeps behaving like the native element it replaces.
    */
   inputClassName?: string;
+  /**
+   * A DENSE GRID CELL — forwarded straight to `FieldAffordance`, which narrows
+   * the slot and the glyph. The same flag and the same NAME `DataPicker` carries,
+   * because a picker and a `<Select>` sit side by side in one grid row.
+   */
+  compact?: boolean;
   /**
    * Open the list as soon as the input is focused. Default true. Pass false for
    * a native-select feel: focus alone leaves the list closed (so Enter can
@@ -324,7 +335,7 @@ export function Combobox({
           // than the inputs beside it. See components/ui/input.tsx.
           "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
           // Reserves the trailing slot; stated beside its width, not here.
-          AFFORDANCE_PAD,
+          compact ? AFFORDANCE_PAD_COMPACT : AFFORDANCE_PAD,
           "placeholder:text-muted-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -346,6 +357,7 @@ export function Combobox({
           hover colour the two had drifted apart on (danger here, foreground
           there, for the identical act). */}
       <FieldAffordance
+        compact={compact}
         onClear={clearable && selected && !open ? () => commit("") : undefined}
         disabled={disabled}
       />
