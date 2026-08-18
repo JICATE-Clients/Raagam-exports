@@ -3642,6 +3642,38 @@ export function AmendmentScreen({
    * and an unsized item absorbs the row's slack — the same failure `hugsContent`
    * records about a grid column left without a `width`.
    */
+  /**
+   * ONE WIDTH ACROSS THE PRICES TAB (client 2026-08-18, screenshot 095838:
+   * "make this four fields in same size").
+   *
+   * The four the operator sees under a style price were 128 / 112 / 111 / 117px
+   * — Size (`w-32`), Price (`w-28`), and the two "+ Add" buttons at whatever
+   * width their labels happened to be. Four near-misses read as a ragged edge,
+   * which is worse than four widths that are obviously different: the eye keeps
+   * trying to line them up.
+   *
+   * `w-32` and not something wider, because the client's other standing note on
+   * this screen pulls the other way — "reduce this size dialing fields length,
+   * now it looks too large, make compact" (screenshot 2335). 128px is the
+   * biggest of the four already, so unifying UP to it moves three controls a
+   * few pixels rather than making the row grow.
+   *
+   * A FIXED WIDTH, NOT A FLOOR, and that is the lesson from `ADD_BUTTON_W` two
+   * hours earlier on this same file: a `min-w` lets the longest label push its
+   * own button wider and the set goes ragged again silently. The longest label
+   * this grid can produce is "+ Add colour price" (~121px, `noun` ∈ rate ·
+   * size · colour) and the outer one is "+ Add style price" (117px), so both
+   * clear 128px with room. If a longer noun ever arrives the constant moves —
+   * one edit, all four — and until it does, nothing can drift apart.
+   *
+   * COLOUR KEEPS ITS OWN. A colour name is a word ("MELANGE GREY"); a size is
+   * 1-3 characters and a price is a number. Narrowing it to match would ellipse
+   * real values to make an alignment the operator never complained about — and
+   * it is not one of the four in the screenshot.
+   */
+  const PRICE_W = "w-32";
+  const PRICE_COLOUR_W = "w-40";
+
   const rateGrid = (g: PriceGroup, mode: string) => {
     const axes = priceAxes(mode);
     // A row with no mode yet is one of THIS set — it is the blank the operator
@@ -3680,9 +3712,9 @@ export function AmendmentScreen({
             reason `ChildGrid` draws it in its `<th>`: the hold itself is
             declared on the control (`priceRateCell`). */}
         <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-          {axes.colour && <span className="w-40 shrink-0">Colour</span>}
-          {axes.size && <span className="w-32 shrink-0">Size</span>}
-          <span className="w-28 shrink-0">Price *</span>
+          {axes.colour && <span className={cn(PRICE_COLOUR_W, "shrink-0")}>Colour</span>}
+          {axes.size && <span className={cn(PRICE_W, "shrink-0")}>Size</span>}
+          <span className={cn(PRICE_W, "shrink-0")}>Price *</span>
         </div>
         <div
           data-grid-body
@@ -3695,9 +3727,9 @@ export function AmendmentScreen({
         >
           {rows.map((r) => (
             <div key={r.key} data-grid-row className="flex items-center gap-2">
-              {axes.colour && <div className="w-40 shrink-0">{priceColourCell(r)}</div>}
-              {axes.size && <div className="w-32 shrink-0">{priceSizeCell(r)}</div>}
-              <div className="w-28 shrink-0">{priceRateCell(r)}</div>
+              {axes.colour && <div className={cn(PRICE_COLOUR_W, "shrink-0")}>{priceColourCell(r)}</div>}
+              {axes.size && <div className={cn(PRICE_W, "shrink-0")}>{priceSizeCell(r)}</div>}
+              <div className={cn(PRICE_W, "shrink-0")}>{priceRateCell(r)}</div>
               <Button
                 type="button"
                 variant="ghost"
@@ -3721,6 +3753,8 @@ export function AmendmentScreen({
               variant="outline"
               size="sm"
               data-row-add
+              /* Same width as the Size and Price boxes above it — see PRICE_W. */
+              className={PRICE_W}
               onClick={() => addRate(g, mode)}
             >
               + Add {noun} price
@@ -3753,9 +3787,9 @@ export function AmendmentScreen({
                     control and it is a real click. The component writes the
                     `truncate` span itself, so the class comes off the call site
                     and a value that fits gets no bubble at all. */}
-                <Truncated text={r.combo || "—"} className="w-40 shrink-0" />
-                <Truncated text={sizeLabel(r.size_id) || "—"} className="w-32 shrink-0" />
-                <span className="w-28 shrink-0">{r.price || "—"}</span>
+                <Truncated text={r.combo || "—"} className={cn(PRICE_COLOUR_W, "shrink-0")} />
+                <Truncated text={sizeLabel(r.size_id) || "—"} className={cn(PRICE_W, "shrink-0")} />
+                <span className={cn(PRICE_W, "shrink-0")}>{r.price || "—"}</span>
                 <Button
                   type="button"
                   variant="ghost"
@@ -6292,6 +6326,8 @@ export function AmendmentScreen({
               setPriceDetails((xs) => xs.filter((x) => !mine.has(x.key)));
             }}
             addLabel="+ Add style price"
+            /* The fourth of the four — see `PRICE_W` above `rateGrid`. */
+            addClassName={PRICE_W}
           />
           <EmptyNote rows={priceDetails.length} label="prices" seeded={seeded} />
         </>
