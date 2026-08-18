@@ -730,18 +730,44 @@ export function MasterFullScreen({
           {/* max-w-3xl (768px) used to cap this pane, which made the whole layout
               contract unreachable here: SectionGrid only goes 2-up at @4xl = 896px,
               so a rail editor was locked into ONE narrow column by construction and
-              a 51-field master had no choice but to scroll. 1180px matches
-              doc/ui/LAYOUT.md §1. The rail beside this costs 228px, so at a
-              1366-wide laptop the cap is not even reached (1366 − 228 − 48 padding
-              = ~1090px of content); it only bites on wide monitors, where it stops
-              fields stretching to absurd widths.
+              a 51-field master had no choice but to scroll.
+
+              1440px, NOT the 1180px a `Sheet` uses, and the difference is the rail
+              (client 2026-08-17). `max-w` + `mx-auto` is a CENTRING rule wearing a
+              width-limit costume: on a Sheet the two are the same thing, but here
+              228px of rail eats one side, so whatever the cap leaves over is split
+              evenly into a gap AFTER THE RAIL and a gap before the card's right
+              edge — dead space on both sides at once, and the operator reads it as
+              padding rather than as centring. At 1180 that was 48px a side on a
+              1536-wide viewport (a 1920 monitor at Windows' 125%), and it GREW with
+              the monitor: 120px a side at 1920 CSS. The old note here reasoned from
+              a 1366 laptop, where the cap is never reached and the flaw is
+              invisible.
+
+              1440 is chosen so the cap stops biting on every viewport up to
+              ~1690 CSS px — every laptop and the common 1920@125% desktop — while
+              still catching a 4K or ultrawide, which is the one thing the cap is
+              actually for. Fields are a FRACTION of this width (`Field`'s 12-col
+              track, field.tsx), so removing the cap entirely would let an `xs`
+              field reach 388px on a 2560 monitor, wider than LAYOUT.md §3's
+              full-size field.
+
+              `px-4` and not `md:px-6` for the same reason: the pane's own padding
+              is the only gutter left once the centring one is gone, and 16px
+              matches the shell's `p-4` so the three gaps either side of the card
+              read as one rhythm.
 
               `@container/editor` is the density container — see the twin comment in
-              components/ui/sheet.tsx. */}
+              components/ui/sheet.tsx. Widening it moves nothing: the density
+              breakpoint is @2xl = 672px and both values clear it.
+
+              THE FOOTER BELOW CARRIES THE SAME CAP, or the primary Save button
+              parks itself to the right of the last field it saves — which is
+              why `wide` below has to move both. */}
           <div
             ref={contentRef}
             className={cn(
-              "@container/editor mx-auto w-full px-4 py-5 md:px-6",
+              "@container/editor mx-auto w-full px-4 py-5",
               // Read off the ACTIVE section, so the pane widens for the one
               // section that needs it and narrows again on the way out. A cap
               // set once for the whole editor would stretch every other
@@ -749,7 +775,7 @@ export function MasterFullScreen({
               //
               // 1720 rather than none: on an ultrawide, an uncapped table with a
               // flexible column would put one picker a foot from its own label.
-              active?.wide ? "max-w-[1720px]" : "max-w-[1180px]",
+              active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
             )}
           >
             {active?.content}
@@ -763,7 +789,7 @@ export function MasterFullScreen({
           orphaned halfway up (client 2026-08-04). */}
       <div
         className={cn(
-          "flex items-center gap-2 border-t border-border bg-surface px-4 py-3 md:px-6",
+          "border-t border-border bg-surface px-4 py-3",
           /**
            * NO SPECIAL RIGHT GUTTER, and that is a consequence of the root above
            * filling its scrollport rather than a separate decision.
@@ -789,71 +815,105 @@ export function MasterFullScreen({
         // registered "save" shortcut exactly as before.
         data-focus-region="footer"
       >
-        {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
-        <div className="flex-1" />
-        {footer.extra}
-        <Button variant="outline" size="md" onClick={footer.onCancel}>
-          Cancel
-        </Button>
-        {footer.onSaveDraft && (
-          <Button
-            variant="outline"
-            size="md"
-            disabled={footer.isPending || !footer.canSave}
-            onClick={footer.onSaveDraft}
-          >
-            {footer.draftLabel ?? "Save as Draft"}
-          </Button>
-        )}
-        {/* Dimmed but ENABLED while blocked, and deliberately NOT `aria-disabled`
-            — it does something when clicked (reveals the first problem), and
-            telling a screen reader it is unavailable would be a lie about a
-            control that acts. The reason is announced by the screen's toast in
-            `onBlockedSave`.
+        {/* THE SAME CAP AS THE CONTENT PANE ABOVE, for the same reason `Sheet`
+            wraps its footer (sheet.tsx). Uncapped, the footer stayed flush to
+            the card while the content was capped and centred, so Save sat 48px
+            to the RIGHT of the last field on screen — a misalignment that was
+            invisible on a laptop and grew with the monitor, because it WAS the
+            centring gutter. Change one of these two widths and change both.
 
-            Staying undisabled is also load-bearing for the keyboard:
-            `submitTargetOf` takes the footer's last non-disabled button, so a
-            disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
-        <Button
-          size="md"
-          disabled={footer.isPending || (!footer.canSave && !blocked)}
-          data-blocked={blocked || undefined}
-          className={cn(blocked && "opacity-60")}
-          onClick={fireSave}
+            `flex` lives here now rather than on the band, so `flex-1` below
+            still pushes the buttons to the right edge of the capped row. */}
+        {/* SAME CAP AS THE CONTENT, including the `wide` one: a section that
+            widens its pane and leaves the footer at 1440 puts Save a couple of
+            inches left of the last column it is saving. */}
+        <div
+          className={cn(
+            "mx-auto flex w-full items-center gap-2",
+            active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
+          )}
         >
-          {footer.isPending ? "Saving…" : footer.saveLabel}
-        </Button>
+          {footer.status && <span className="text-xs text-muted-foreground">{footer.status}</span>}
+          <div className="flex-1" />
+          {footer.extra}
+          <Button variant="outline" size="md" onClick={footer.onCancel}>
+            Cancel
+          </Button>
+          {footer.onSaveDraft && (
+            <Button
+              variant="outline"
+              size="md"
+              disabled={footer.isPending || !footer.canSave}
+              onClick={footer.onSaveDraft}
+            >
+              {footer.draftLabel ?? "Save as Draft"}
+            </Button>
+          )}
+          {/* Dimmed but ENABLED while blocked, and deliberately NOT `aria-disabled`
+              — it does something when clicked (reveals the first problem), and
+              telling a screen reader it is unavailable would be a lie about a
+              control that acts. The reason is announced by the screen's toast in
+              `onBlockedSave`.
+
+              Staying undisabled is also load-bearing for the keyboard:
+              `submitTargetOf` takes the footer's last non-disabled button, so a
+              disabled Save silently hands Enter and Ctrl+S to "Save as Draft". */}
+          <Button
+            size="md"
+            disabled={footer.isPending || (!footer.canSave && !blocked)}
+            data-blocked={blocked || undefined}
+            className={cn(blocked && "opacity-60")}
+            onClick={fireSave}
+          >
+            {footer.isPending ? "Saving…" : footer.saveLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-/** A titled content block inside the editor's content pane. */
+/**
+ * A titled content block inside the editor's content pane.
+ *
+ * THERE IS NO `hint` (client 2026-08-17). Every section carried a sentence
+ * beside its title — "Order Info · Who this order is for, and the styles it
+ * covers" — and 51 of them were the same shape: the section's own name
+ * expanded into prose, naming the fields that were already on screen
+ * underneath. The operator reads the fields, not the sentence about the fields.
+ *
+ * The prop was defended once, and the defence is worth keeping because it
+ * shows what actually changed. This heading is "the most redundant thing on
+ * screen — the rail already names the active section two inches to the left";
+ * the title survived only because dropping it would have taken the hint with
+ * it, "the only place a section explains itself". That last clause was the
+ * weak one. A section that needs explaining has a labelling problem, and the
+ * one hint that carried real information carried it CONDITIONALLY (Style ▸
+ * Components said "Add coordinates first" while the Coordinate picker had
+ * nothing to offer) — which is a state message, and state messages belong
+ * beside the control whose state they describe, not in a slot that must be
+ * filled on every screen whether or not there is anything to say.
+ *
+ * So a section that genuinely needs a line writes one, in its own body, where
+ * it can be conditional. `title` is the whole contract here.
+ *
+ * REMOVED, NOT DEPRECATED. Leaving `hint` accepted-and-ignored would have been
+ * one edit instead of fifteen, and it is exactly the "dead config that reads as
+ * live" this repo warns about elsewhere: 51 strings that look maintained, that
+ * a future reader would keep writing, and that render nothing.
+ */
 export function SectionBody({
   title,
-  hint,
   children,
 }: {
   title: string;
-  hint: string;
   children: ReactNode;
 }) {
   return (
     <div>
-      {/* Title and hint stack on mobile but sit on ONE line in a desktop editor:
-          54px of heading chrome (20 title + 2 + 16 hint + 16 margin) became ~32px.
-          Worth it because under the section rail this heading is the most
-          redundant thing on screen — the rail already names the active section
-          two inches to the left — yet dropping it outright would cost the hint,
-          which is the only place a section explains itself. */}
-      <div className="mb-4 @2xl/editor:mb-3 @2xl/editor:flex @2xl/editor:items-baseline @2xl/editor:gap-2">
-        <h2 className="text-[15px] font-bold tracking-tight text-foreground @2xl/editor:shrink-0">{title}</h2>
-        {/* truncate-reveal: exempt -- truncates ONLY at @2xl, where the hint
-            shares a line with the title; below that it wraps and reads in full.
-            Routing it through <Truncated> would truncate it at every size and
-            hide text that is visible today. */}
-        <p className="mt-0.5 text-[12.5px] text-muted-foreground @2xl/editor:mt-0 @2xl/editor:truncate">{hint}</p>
-      </div>
+      <h2 className="mb-4 text-[15px] font-bold tracking-tight text-foreground @2xl/editor:mb-3">
+        {title}
+      </h2>
       {/* Space the section's cards apart. A section often holds more than one
           `DetailSection` — Address + Communication, Currencies + Shipping —
           and two bordered cards as direct siblings meet flush, reading as one

@@ -1,6 +1,10 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { listCustomers } from "@/lib/masters/customer-service";
+import { listCategories } from "@/lib/masters/category-service";
+import { listLevies } from "@/lib/masters/levy-service";
+import type { Category } from "@/lib/masters/category-types";
+import type { Levy } from "@/lib/masters/levy-types";
 import { listConfigLookups } from "@/lib/masters/extras-service";
 import { listVendorNominations, listVendorsForPicker } from "@/lib/masters/vendor-service";
 import type { VendorNomination } from "@/lib/masters/vendor-nominations";
@@ -217,6 +221,11 @@ async function getConversionRows(): Promise<MbaConversionRow[]> {
  * concern (it depends on a cell the operator is typing into), and it reads
  * `class_code` off these rows.
  *
+ * `category_id` rides along UNRESOLVED — it is a `public.categories` id (0226)
+ * and the client compares it to the BOM line's own Category, which has been the
+ * same kind of value since 0426. Nothing here needs its NAME, so there is no
+ * second read: the comparison is id to id.
+ *
  * `item_class_id` resolves through `config_lookups` in a second query rather
  * than a PostgREST embed. Embeds resolve BY FK and fail at runtime with "could
  * not find a relationship" — invisible to `tsc` and to `next build` (see the
@@ -230,7 +239,7 @@ async function getConversionRows(): Promise<MbaConversionRow[]> {
 async function getMaterialRows(): Promise<MaterialOption[]> {
   const s = await createClient();
   const [itemsRes, classRes] = await Promise.all([
-    s.from("items").select("id, code, name, is_active, item_class_id").order("name"),
+    s.from("items").select("id, code, name, is_active, item_class_id, category_id").order("name"),
     s.from("config_lookups").select("id, code").eq("kind", "item_class"),
   ]);
 
@@ -244,6 +253,7 @@ async function getMaterialRows(): Promise<MaterialOption[]> {
     name: string;
     is_active: boolean;
     item_class_id: string | null;
+    category_id: string | null;
   };
 
   return ((itemsRes.data ?? []) as ItemRowRaw[])
@@ -253,6 +263,7 @@ async function getMaterialRows(): Promise<MaterialOption[]> {
       name: r.name,
       inactive: isInactive(r),
       class_code: (r.item_class_id ? classCode.get(r.item_class_id) : null) ?? null,
+      category_id: r.category_id ?? null,
     }))
     .filter((r) => isAccessoryClass(r.class_code));
 }
@@ -507,23 +518,73 @@ export type MbaFormData = {
   processes: PickerRow[];
   uoms: UomRow[];
   conversions: MbaConversionRow[];
+  /**
+   * The REAL Category master (0426), already scoped to the two accessory item
+   * classes. NOT `config_lookups` kind `material_category` — those two rows are
+   * the GROUP names, which is the bug 0426 fixed.
+   *
+   * Both classes arrive in ONE list because a BOM line has no item class of its
+   * own: one grid holds a button and a poly bag. The screen prefixes each option
+   * by its class, since category names repeat across classes (AGENTS.md,
+   * cascading filters).
+   */
+  categories: Category[];
+  /** For the Category quick-create sheet only — `CategoryPicker` opens the full
+   *  mini-child rather than a name-only add when this is supplied. */
+  levies: Levy[];
   lookups: ConfigLookup[];
 };
 
+/**
+ * Categories under Sewing Accessory and Packing Accessory, in one list.
+ *
+ * SCOPED BY CLASS **CODE**, never by name — the same resolution
+ * `app/(app)/masters/[submodule]/[entity]/page.tsx` uses for Customer ▸ Supplied
+ * Items. A class renamed on the Item Class master would silently empty this list
+ * if it were matched by name, and an empty Category dropdown reads as "the
+ * master has nothing in it" rather than "the lookup broke".
+ *
+ * `inactive` categories are dropped here rather than in SQL only for the NEW
+ * ones; a category a saved line already holds is re-admitted by the screen, the
+ * same way `getMaterialRows` leaves switched-off materials for the picker to
+ * handle.
+ */
+function accessoryCategoriesFrom(all: Category[], lookups: ConfigLookup[]): Category[] {
+  const classIds = new Set(
+    lookups
+      .filter((l) => l.kind === "item_class" && isAccessoryClass(l.code))
+      .map((l) => l.id),
+  );
+  return all.filter((c) => c.item_class_id && classIds.has(c.item_class_id));
+}
+
 /** Every picker option list the editor needs, fetched in parallel. */
 export async function getMbaFormData(): Promise<MbaFormData> {
-  const [orders, customers, items, vendors, nominations, processes, uoms, conversions, lookups] =
-    await Promise.all([
-      getOrderOptions(),
-      listCustomers(),
-      getMaterialRows(),
-      getVendorRows(),
-      listVendorNominations(),
-      getProcessRows(),
-      getUomRows(),
-      getConversionRows(),
-      listConfigLookups(),
-    ]);
+  const [
+    orders,
+    customers,
+    items,
+    vendors,
+    nominations,
+    processes,
+    uoms,
+    conversions,
+    allCategories,
+    levies,
+    lookups,
+  ] = await Promise.all([
+    getOrderOptions(),
+    listCustomers(),
+    getMaterialRows(),
+    getVendorRows(),
+    listVendorNominations(),
+    getProcessRows(),
+    getUomRows(),
+    getConversionRows(),
+    listCategories(),
+    listLevies(),
+    listConfigLookups(),
+  ]);
   return {
     orders,
     customers,
@@ -533,6 +594,10 @@ export async function getMbaFormData(): Promise<MbaFormData> {
     processes,
     uoms,
     conversions,
+    // Scoped AFTER the fetch because the class ids come out of `lookups`, which
+    // is fetched in the same batch — one round trip, not two chained ones.
+    categories: accessoryCategoriesFrom(allCategories, lookups),
+    levies,
     lookups,
   };
 }

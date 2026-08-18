@@ -222,7 +222,7 @@ export function CostCentresClient({
               <div>
                 <Label htmlFor="c-group" className="mb-0.5">Group</Label>
                 <Select id="c-group" value={cGroup} onChange={(e) => setCGroup(e.target.value)} className="w-36">
-                  <option value="">— none —</option>
+                  <option value=""></option>
                   {activeGroups.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.name}

@@ -311,7 +311,7 @@ export function PortMasterScreen({
               value={form.port_type}
               onChange={(e) => set({ port_type: e.target.value as "" | PortType })}
             >
-              <option value="">— Select —</option>
+              <option value=""></option>
               {PORT_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t}

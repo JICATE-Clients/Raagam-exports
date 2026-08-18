@@ -1205,7 +1205,7 @@ export function CustomerMasterScreen({
             icon: User,
             done: done.identity,
             content: (
-                  <SectionBody title="Identity" hint="Who this customer is and how their documents are numbered.">
+                  <SectionBody title="Identity">
                     {/* ONE FieldGrid for the whole section — `SectionBody` has no
                         grid of its own, and two stacked grids would agree on the
                         left edge but not on the row gap. */}
@@ -1276,7 +1276,7 @@ export function CustomerMasterScreen({
                       </Field>
                       <Field label="Business Entity" size={FIELD_SIZE.business_entity} htmlFor="cu-bizentity">
                         <Select id="cu-bizentity" value={form.business_entity} onChange={(e) => set({ business_entity: e.target.value })}>
-                          <option value="">—</option>
+                          <option value=""></option>
                           {BUSINESS_ENTITIES.map((b) => <option key={b} value={b}>{b}</option>)}
                         </Select>
                       </Field>
@@ -1293,7 +1293,7 @@ export function CustomerMasterScreen({
             icon: MapPin,
             done: done.address,
             content: (
-                  <SectionBody title="Address" hint="Primary correspondence address for this customer.">
+                  <SectionBody title="Address">
                     <FieldGrid>
                       {/* A single-line Input, not the 3-row Textarea this used
                           to be: every grid row is as tall as its tallest item,
@@ -1435,7 +1435,7 @@ export function CustomerMasterScreen({
             icon: Users,
             done: done.agents,
             content: (
-                  <SectionBody title="Agents" hint="Brokers / agents who represent this customer.">
+                  <SectionBody title="Agents">
                     <ChildGrid<AgentRow>
                       lockExisting
                       label="Customer Agents"
@@ -1474,7 +1474,7 @@ export function CustomerMasterScreen({
             icon: Package,
             done: done.supplied,
             content: (
-                  <SectionBody title="Supplied Items" hint="Categories the customer supplies (free-issue), by accessory group.">
+                  <SectionBody title="Supplied Items">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <CategoryGrid title="Sewing Accessories" rows={sewing} setRows={setSewing} categories={sewingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
                       <CategoryGrid title="Packaging Accessories" rows={packing} setRows={setPacking} categories={packingCategories} perms={perms} newKey={newKey} setDirty={setDirty} />
@@ -1488,7 +1488,7 @@ export function CustomerMasterScreen({
             icon: Truck,
             done: done.vendors,
             content: (
-                  <SectionBody title="Nominated Vendors" hint="Vendors this customer nominates or recommends for sourcing.">
+                  <SectionBody title="Nominated Vendors">
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <VendorGrid title="Nominated Vendor" rows={nominated} setRows={setNominated} vendors={vendors} newKey={newKey} setDirty={setDirty} />
                       <VendorGrid title="Recommended Vendor" rows={recommended} setRows={setRecommended} vendors={vendors} newKey={newKey} setDirty={setDirty} />
@@ -1502,7 +1502,7 @@ export function CustomerMasterScreen({
             icon: SlidersHorizontal,
             done: done.general,
             content: (
-                  <SectionBody title="General" hint="Trade defaults, shipping, formats and export marking for this customer.">
+                  <SectionBody title="General">
                     <FieldGrid>
                       {/* The three currencies were interleaved with Ship Mode /
                           Type / Pay Mode — the DOM order that drew the legacy
@@ -1521,7 +1521,7 @@ export function CustomerMasterScreen({
                       </Field>
                       <Field label="Ship Mode" size={FIELD_SIZE.ship_mode} htmlFor="cu-shipmode">
                         <Select id="cu-shipmode" value={form.ship_mode} onChange={(e) => set({ ship_mode: e.target.value })}>
-                          <option value="">—</option>
+                          <option value=""></option>
                           {SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                         </Select>
                       </Field>
@@ -1537,7 +1537,7 @@ export function CustomerMasterScreen({
                       </Field>
                       <Field label="Pay Mode" size={FIELD_SIZE.pay_mode} htmlFor="cu-paymode">
                         <Select id="cu-paymode" value={form.pay_mode} onChange={(e) => set({ pay_mode: e.target.value })}>
-                          <option value="">—</option>
+                          <option value=""></option>
                           {PAY_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                         </Select>
                       </Field>

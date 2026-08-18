@@ -119,7 +119,7 @@ export function AdjustmentsClient({ rows, employees, canCreate, canEdit, canDele
                   <div className="sm:col-span-2">
                     <Label htmlFor="aj-emp">Employee</Label>
                     <Select id="aj-emp" value={empKey} onChange={(e) => setEmpKey(e.target.value)}>
-                      <option value="">— select employee —</option>
+                      <option value=""></option>
                       {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
                     </Select>
                   </div>

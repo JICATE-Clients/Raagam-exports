@@ -395,7 +395,7 @@ export function OutDocumentTermMasterScreen({
                 onChange={(e) => set({ type: e.target.value as "" | OutDocTermType })}
                 className="text-base md:text-sm"
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {OUT_DOC_TERM_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}

@@ -254,7 +254,7 @@ function PacksTab({
                   value={form.assortment_type}
                   onChange={(e) => setForm((f) => ({ ...f, assortment_type: e.target.value }))}
                 >
-                  <option value="">-- Select --</option>
+                  <option value=""></option>
                   {ASSORTMENT_TYPES.map((v) => (
                     <option key={v} value={v}>{v}</option>
                   ))}
@@ -559,7 +559,7 @@ function FabricsTab({
                   value={form.stage}
                   onChange={(e) => setForm((f) => ({ ...f, stage: e.target.value }))}
                 >
-                  <option value="">-- Select --</option>
+                  <option value=""></option>
                   {STAGES.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}

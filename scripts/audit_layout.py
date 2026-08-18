@@ -1236,6 +1236,20 @@ def check_created_columns(path: Path, code: str, slug: str):
          this is how a vanished column is diagnosed in seconds
 
     Line-item tables inside a document detail page are out of scope by path.
+
+    THE PAIR HAS THREE RENDERINGS, NOT ONE. AGENTS.md names them together --
+    `withCreatedColumns` (desktop table), `createdMeta` (card) and
+    `createdSection` (RecordViewSheet) -- as one declaration shown three ways. So
+    a listing rendered as CARDS satisfies this rule through `createdMeta`, and
+    demanding the table helper of it would be demanding a table.
+
+    That is not hypothetical: Orders > Material BOM replaced its queue table with
+    a `MobileCardList` grid (2026-08-17) and carries the pair on each card. The
+    check fired anyway -- because it is FILE-level, the file's other, unrelated
+    `<DataTable>` (the Requirement tab, exploded line items inside an editor tab
+    panel) became the first match once the table helper left the file. Widening
+    the guard keeps the granularity the check already had rather than inventing a
+    per-table one it has never claimed.
     """
     if slug in PRIMITIVES or "created-columns" in slug:
         return
@@ -1247,7 +1261,9 @@ def check_created_columns(path: Path, code: str, slug: str):
             "hand-rolled Created column; the wording is settled in "
             "components/ui/created-columns.tsx -- use withCreatedColumns(columns, rows)",
         )
-    if LINE_TABLE_PATH.search(slug) or "withCreatedColumns" in code:
+    if LINE_TABLE_PATH.search(slug) or any(
+        h in code for h in ("withCreatedColumns", "createdMeta", "createdSection")
+    ):
         return
     m = re.search(r"<DataTable\b", code)
     if m:

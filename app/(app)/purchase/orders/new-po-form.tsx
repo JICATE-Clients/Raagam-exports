@@ -260,7 +260,7 @@ export function NewPoForm({
                 onChange={(e) => setVendorId(e.target.value)}
                 required
               >
-                <option value="">— Select vendor —</option>
+                <option value=""></option>
                 {vendors.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
@@ -280,7 +280,7 @@ export function NewPoForm({
                   }}
                   disabled={loadingBudgetLines}
                 >
-                  <option value="">— None —</option>
+                  <option value=""></option>
                   {budgets.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
@@ -303,7 +303,7 @@ export function NewPoForm({
                   value={locationId}
                   onChange={(e) => setLocationId(e.target.value)}
                 >
-                  <option value="">— Select location —</option>
+                  <option value=""></option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}
@@ -399,7 +399,7 @@ export function NewPoForm({
                   });
                 }}
               >
-                <option value="">— General stock —</option>
+                <option value="">General stock</option>
                 {orders.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.order_number ?? "(no SC No)"}
@@ -453,7 +453,7 @@ export function NewPoForm({
                       value={line.item_id}
                       onChange={(e) => updateLine(idx, "item_id", e.target.value)}
                     >
-                      <option value="">— Material —</option>
+                      <option value="">Material</option>
                       {items.map((it) => (
                         <option key={it.id} value={it.id}>
                           {it.name}

@@ -302,7 +302,7 @@ export function CountryPicker({
                   setForm((f) => ({ ...f, country_group: e.target.value as "" | CountryGroup }))
                 }
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {COUNTRY_GROUPS.map((g) => (
                   <option key={g} value={g}>
                     {g}

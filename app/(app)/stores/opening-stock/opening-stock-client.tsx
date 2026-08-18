@@ -88,7 +88,7 @@ export function OpeningStockClient({ rows, stores, canCreate }: Props) {
                   <div>
                     <Label htmlFor="os-store">Store</Label>
                     <Select id="os-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-                      <option value="">— select store —</option>
+                      <option value=""></option>
                       {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                   </div>

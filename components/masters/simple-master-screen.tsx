@@ -561,7 +561,7 @@ export function SimpleMasterScreen<Row>({
           className={cn("h-8 text-sm", f.widthClass)}
           aria-label={f.label}
         >
-          <option value="">—</option>
+          <option value=""></option>
           {(f.options ?? []).map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}

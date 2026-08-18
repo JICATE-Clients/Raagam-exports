@@ -471,7 +471,7 @@ function RecordOutputTab({
                     value={lineId}
                     onChange={(e) => setLineId(e.target.value)}
                   >
-                    <option value="">— no line —</option>
+                    <option value=""></option>
                     {lines.map((l) => (
                       <option key={l.id} value={l.id}>
                         {l.name}

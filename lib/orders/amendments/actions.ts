@@ -221,7 +221,7 @@ function structureFilled(r: AmendmentInput["combos"][number]["structures"][numbe
   return (
     r.structure_id ||
     r.fabric_type ||
-    r.composition_id ||
+    r.fabric_item_id ||
     r.gsm ||
     r.gsm_tolerance ||
     r.item_sub_type ||
@@ -349,6 +349,11 @@ function normalizeQuantities(data: AmendmentInput) {
       style_no: clean(r.style_no),
       consignee_id: r.consignee_id ?? null,
       assortment_type_id: r.assortment_type_id ?? null,
+      // The buyer PO this destination belongs to (0427). Written whatever the
+      // header's `multi_order` says: turning the switch off HIDES the column,
+      // and a value the operator typed while it was on must survive that —
+      // clearing here would delete data on a mis-click of a checkbox.
+      po_no: clean(r.po_no),
       po_qty: Number(r.po_qty) || 0,
       delivery_date: clean(r.delivery_date),
       earlier_shipment_date: clean(r.earlier_shipment_date),
@@ -373,6 +378,7 @@ function normalizeQuantities(data: AmendmentInput) {
         r.style_no ||
         r.consignee_id ||
         r.assortment_type_id ||
+        r.po_no ||
         r.po_qty ||
         r.delivery_date ||
         r.earlier_shipment_date ||
@@ -502,7 +508,7 @@ async function writeAssortTree(
   const kept = data.quantities.filter(
     (r) =>
       r.country_id || clean(r.style_ref_no) || clean(r.style_no) || r.consignee_id ||
-      r.assortment_type_id || Number(r.po_qty) || clean(r.delivery_date) ||
+      r.assortment_type_id || clean(r.po_no) || Number(r.po_qty) || clean(r.delivery_date) ||
       clean(r.earlier_shipment_date) || r.warehouse_id || r.discharge_port_id ||
       clean(r.pack) || clean(r.ratio_for) || clean(r.master_carton_name) ||
       clean(r.inner_carton_name) || clean(r.pack_description),
@@ -638,7 +644,7 @@ async function writeComboTree(
         sno,
         structure_id: st.structure_id,
         fabric_type: clean(st.fabric_type),
-        composition_id: st.composition_id,
+        fabric_item_id: st.fabric_item_id,
         gsm: st.gsm,
         gsm_tolerance: st.gsm_tolerance,
         item_sub_type: clean(st.item_sub_type),

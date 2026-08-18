@@ -18,6 +18,7 @@ import {
 } from "@/components/masters/master-full-screen";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
@@ -146,6 +147,9 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
+  /** Block / Unblock in the ⋮ — the control that used to be a checkbox on the
+   *  form. One implementation for every master listing (`useBlockAction`). */
+  const { blockItem } = useBlockAction("style");
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [editId, setEditId] = useState<string | null>(null);
@@ -254,20 +258,6 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     () => lookups.filter((l) => l.kind === "fabric_structure"),
     [lookups],
   );
-  /**
-   * THE TYPE COLUMN'S VOCABULARY — a real master list, not two hard-coded words.
-   *
-   * 'fabric_type' holds Solid · Yarn Dyed · Melange, the processing category the
-   * client names (2026-08-11). Type used to offer `COMPONENT_TYPE_OPTIONS` =
-   * ["Circular","Flat"], which was a RESTATEMENT OF STRUCTURE: the old auto-fill
-   * mapped the 'circular' structure to the word "Circular", so the column
-   * carried nothing Structure did not already say.
-   */
-  const fabricTypeOpts = useMemo(
-    () => lookups.filter((l) => l.kind === "fabric_type"),
-    [lookups],
-  );
-
   /** The GARMENTS class — a style is a garment, so its category comes from
    *  there. Resolved by CODE, not by a hardcoded id: the seven classes are
    *  seeded rows whose ids differ per environment. */
@@ -662,7 +652,22 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       customer_id: r.customer_id,
       approved_sample_id: r.approved_sample_id,
       style_name: r.style_name ?? "",
-      season: r.season ?? "",
+      /**
+       * UPPER-CASED ON THE WAY IN, and this is load-bearing rather than tidy.
+       * `SEASON_OPTIONS` is capital since 2026-08-17, so a stored "Winter"
+       * matches no `<option>` — a `<select>` given a value it has no option for
+       * renders its FIRST option, which here is the blank "—". The field would
+       * read as unanswered and the next Save would write NULL over a season the
+       * operator never touched. Every style in the live database is Title-case
+       * today, so this is the whole difference between the CAPS change being a
+       * display fix and it being silent data loss.
+       *
+       * A value that is not one of the four survives untouched — the Select
+       * renders it as an extra option (see its note) rather than dropping it,
+       * the same "the value a record already holds always survives" rule
+       * AGENTS.md states for pickers.
+       */
+      season: (r.season ?? "").toUpperCase(),
       style_year: r.style_year != null ? String(r.style_year) : "",
       article_no: r.article_no ?? "",
       style_category_id: r.style_category_id,
@@ -788,7 +793,16 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       },
       {
         header: "Season",
-        cell: (r) => <span className="text-sm text-muted-foreground">{r.season ?? "—"}</span>,
+        /* `uppercase` is the CSS half of AGENTS.md §CAPITALS, and on this field
+           it is the ONLY half that can reach an existing row: Season is a
+           `<Select>` over a fixed list, so there is no keystroke to intercept
+           and a style saved as "Winter" is only re-written when someone opens
+           and saves it. All 3 styles in the live database are in that state
+           today (checked 2026-08-17), so without this the listing keeps showing
+           Title case after the fix lands. */
+        cell: (r) => (
+          <span className="text-sm uppercase text-muted-foreground">{r.season ?? "—"}</span>
+        ),
       },
       {
         header: "Status",
@@ -812,6 +826,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
           canEdit={perms.canEdit}
           onDelete={() => del(r)}
           canDelete={perms.canDelete}
+          menu={blockItem(r, { label: r.code, canBlock: perms.canDelete })}
           isPending={isPending}
         />
       )),
@@ -1062,30 +1077,80 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       header: "Type",
       width: "11rem",
       /**
-       * WHAT THE STRUCTURE IMPLIES — Circular Knit / Flat Knit / Woven, filled
-       * from the category beside it and still editable.
+       * WHAT THE STRUCTURE IMPLIES — Circular Knit / Flat Knit / Woven, FETCHED
+       * from the category beside it. READ-ONLY since 2026-08-17.
        *
-       * It reads `structureOpts`, the SAME list `componentTypeForCategory`
-       * resolves against, so an auto-filled value can never fail to match an
-       * option. It stores the NAME, because `comp_type` is a text column.
        *
-       * This is no longer the Solid / Yarn Dyed / Melange list: that is the
-       * fabric's COLOUR type, which only a fabric can answer — and the Fabric
-       * column left this grid (see below). A category cannot imply it: a Single
-       * Jersey may be solid, yarn-dyed or melange.
+       * READ THIS BEFORE CHANGING IT. THIS COLUMN HAS BEEN WRONG THREE TIMES,
+       * and each answer looked right until the next one arrived:
+       *
+       *   1. `COMPONENT_TYPE_OPTIONS` = ["Circular", "Flat"] — a RESTATEMENT OF
+       *      STRUCTURE. The auto-fill mapped the 'circular' structure to the
+       *      word "Circular", so the column carried nothing Structure had not
+       *      already said one cell to its left.
+       *   2. The 'fabric_type' lookup — Solid · Yarn Dyed · Melange. Wrong for
+       *      the opposite reason: that is the fabric's COLOUR type, which only a
+       *      FABRIC can answer, and a category cannot imply it — a Single Jersey
+       *      may be solid, yarn-dyed or melange. It was also unanswerable here
+       *      once the Fabric column left this grid (see below). Its `useMemo`
+       *      outlived it as dead code with a comment still calling itself "THE
+       *      TYPE COLUMN'S VOCABULARY", which is how a fourth wrong answer gets
+       *      written; removed on 2026-08-17.
+       *   3. The `fabric_structure` NAMES, auto-filled and still editable —
+       *      right about where the value comes from, wrong about who owns it.
+       *
+       *
+       * READ-ONLY, NOT HIDDEN (client 2026-08-17: "the Type fields should be set
+       * to Read Only format or hidden if not required"). Both were offered and
+       * they are not interchangeable.
+       *
+       * Hiding it was rejected because the value is still STORED — `comp_type`
+       * is written by `normalizeComponents` on every save — so a hidden Type
+       * would be a column that keeps saving with nothing on screen to account
+       * for it. It is also not restated anywhere else in the row: the Structure
+       * cell shows "SINGLE JERSEY", not "Circular Knit", so removing this cell
+       * removes the answer rather than a duplicate of it.
+       *
+       * Read-only is what generation 3 was missing rather than a new rule. The
+       * value has a single source of truth already — `categories
+       * .fabric_structure_id`, declared on the Category master and resolved by
+       * `componentTypeForCategory` — and letting the cell be typed into made
+       * this screen a SECOND place to answer it. A component whose Type
+       * disagrees with its Structure is not a richer record; it is two answers
+       * to one question, which is the same fault generation 1 had in reverse.
+       * The place to correct a wrong Type is the Category master's Fabric
+       * Structure, and from there every style using that category follows.
+       *
+       * `<Input readOnly>`, NOT `disabled` and NOT a greyed `<Select>`:
+       *   - `readOnly` sets `tabIndex={-1}` in the primitive itself, which takes
+       *     the cell out of Tab, out of the ↑↓←→ walk and out of Enter-advance
+       *     in one attribute (`input.tsx`) — so this is NOT a hand-rolled
+       *     tabIndex and must not become one. `disabled` would additionally lose
+       *     selectability and read as broken.
+       *   - it is unconditional, never gated on "has a value been generated
+       *     yet". Every component row derives its Type the same way, so there is
+       *     no state in which typing here would be correct. That is the standing
+       *     auto-field rule.
+       *   - `useRequiredHold` never fires on a readOnly field, and this column
+       *     declares no `required` on either half, so nothing can cage the
+       *     operator on a cell they cannot fill.
+       *   - it PRINTS WHATEVER IS STORED, which the `<Select>` could not. A
+       *     value left over from generation 1 or 2 ("Circular", "Solid") is in
+       *     neither list, so the select fell back to its first option and showed
+       *     "—" while the row state — and the next save — still carried the old
+       *     word. Display and storage now agree.
+       *
+       * No `className="h-8"`: `Input` already carries `h-9 @2xl/editor:h-8`, so
+       * the flat override the `<Select>` had was a call site patching one
+       * property of a control's size (the `text-size-noop` shape) and made this
+       * cell 4px short of the pickers beside it in a narrow container.
+       *
+       * BLANK IS A LEGITIMATE STATE and needs no fix here: a category whose
+       * master record has no Fabric Structure resolves to null, and the fill
+       * deliberately leaves the cell alone rather than blanking it
+       * (`?? x.comp_type` on the Structure cell above).
        */
-      cell: (r) => (
-        <Select
-          value={r.comp_type}
-          onChange={(e) => mutComps((xs) => xs.map((x) => (x.key === r.key ? { ...x, comp_type: e.target.value } : x)))}
-          className="h-8"
-        >
-          <option value="">—</option>
-          {structureOpts.map((o) => (
-            <option key={o.id} value={o.name}>{o.name}</option>
-          ))}
-        </Select>
-      ),
+      cell: (r) => <Input aria-label="Type" value={r.comp_type} readOnly placeholder="—" />,
     },
     /* FABRIC WITHDRAWN 2026-08-11 (client: "remove that fabric field for now").
        The COLUMN `item_id` and every stored value stay, and — unlike a header
@@ -1122,13 +1187,31 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
        * the column flex makes the grid exactly its cell at every width, which is
        * the only way two columns stay aligned across viewports.
        *
-       * `narrow` still caps the whole grid at 32rem, so the picker cannot run
-       * away even if this cell is ever widened.
+       * STILL NO WIDTH UNDER `inlineCards` (2026-08-17), and the argument gets
+       * stronger rather than merely surviving: an inline column with no `width`
+       * is `flex-1`, so the picker is exactly the 4/12 cell at every viewport —
+       * which is what the paragraph above wanted and what a fixed `14rem` could
+       * only approximate at one width. `narrow`'s 32rem cap is gone with the
+       * table (see the grid's own note), so nothing else is deciding this width.
        */
       cell: (r) => (
         <LookupDialogPicker
           kind="size" label="Size" options={sizeOpts}
           value={r.size_id}
+          /**
+           * PICK-ONCE. A style cannot be made in L twice, and a duplicate is not
+           * merely untidy: the size set is what every size-wise quantity
+           * downstream is keyed on, so a repeat double-counts it. The screen
+           * allowed it until 2026-08-17 — screenshot 2316 shows L, L, M, M.
+           *
+           * `usedIds` is `DataPicker`'s existing prop for exactly this and is safe
+           * to hand this row's own value: it excludes the SIBLINGS, not the
+           * current selection, so the size already on this row stays visible.
+           * Coordinates on this same screen and the Garment Order's own size grid
+           * (`amendment-screen.tsx`, `sizeGrid`) both do it this way already —
+           * this list was the odd one out.
+           */
+          usedIds={sizes.filter((x) => x.key !== r.key).map((x) => x.size_id).filter(Boolean) as string[]}
           onChange={(id) => mutSizes((xs) => xs.map((x) => (x.key === r.key ? { ...x, size_id: id } : x)))}
           canCreate={masterPerms.canCreate} canEdit={masterPerms.canEdit} compact
         />
@@ -1236,11 +1319,21 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         !!form.style_description.trim() ||
         coords.some((c) => c.coordinate_id),
       content: (
-        <SectionBody
-          title="Style"
-          hint="What this style is, who it is for, and the garments it is made of."
-        >
-          <DetailSection label="Style Details" cols={12}>
+        <SectionBody title="Style">
+          {/* SEVEN FIELDS ON ONE ROW (client 2026-08-17). `cols={14}` rather
+              than 12 because the smallest span is `xs` (2) and 7 x 2 = 14 — the
+              fields keep the existing size, the TRACK is what widened. Twelve
+              tops out at six.
+
+              IT ONLY ADDS UP BECAUSE BLOCKED LEFT. This section held EIGHT
+              fields in two rows of four; Blocked moved to the listing's row
+              actions in the same request ("no more in the creating screen"), and
+              eight would need 16. The two changes are one change.
+
+              A field here is ~155px against LAYOUT.md §3's ~280px — narrower
+              than anywhere else in the app. That is the trade the single row
+              costs, and it is stated rather than hidden. */}
+          <DetailSection label="Style Details" cols={14}>
             {/**
               * THE SERIAL — STL/<fy><fy+1>/<n>, e.g. STL/2627/0001. The format
               * is `public.garment_style_code_format()`; nothing composes it here.
@@ -1264,7 +1357,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               * "(auto)" placeholder survives only as the fallback for when the
               * database cannot answer.
               */}
-            <Field label="Serial No" size="sm" htmlFor="st-code">
+            <Field label="Serial No" size="xs" htmlFor="st-code">
               <Input
                 id="st-code"
                 readOnly
@@ -1292,7 +1385,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               * The narrowing itself is NOT built — see the note on Approved
               * Sample No below. The order stands on its own regardless.
               */}
-            <Field label="Date" required size="sm" htmlFor="st-date">
+            <Field label="Date" required size="xs" htmlFor="st-date">
               <Input
                 id="st-date"
                 type="date"
@@ -1311,7 +1404,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 `RequiredScope` context, which is the same route CurrencyPicker
                 takes on the amendment screen. `htmlFor` so a blocked Save can
                 land the cursor here via `goToSection(..., { fieldId })`. */}
-            <Field label="Customer" required size="sm" htmlFor="st-customer">
+            <Field label="Customer" required size="xs" htmlFor="st-customer">
               <CustomerPicker
                 id="st-customer"
                 customers={data.customers}
@@ -1355,7 +1448,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             {/* NO LONGER COMPULSORY (client 2026-08-13) — `samples` has zero
                 rows, so a required field with an empty picker made the Style
                 master unsaveable. See the Save-gate note above. */}
-            <Field label="Approved Sample No" size="sm" htmlFor="st-sample">
+            <Field label="Approved Sample No" size="xs" htmlFor="st-sample">
               <RecordPicker
                 id="st-sample"
                 label="Approved Sample No"
@@ -1365,7 +1458,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 onChange={(id) => set({ approved_sample_id: id })}
               />
             </Field>
-            <Field label="Style" required size="sm" htmlFor="st-name">
+            <Field label="Style" required size="xs" htmlFor="st-name">
               {/* `uppercase` is the SCREEN half of AGENTS.md §CAPITALS (client
                   2026-08-14). It does two things a `.toUpperCase()` in the
                   handler would not: it uppercases the keystroke, and it adds the
@@ -1406,40 +1499,34 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 Unit also reads better here: Piece/Set is what the Coordinates
                 grid is capped by, and it is a property of the style itself
                 rather than of the "general" descriptive block. */}
-            <Field label="Style Description" size="sm" htmlFor="st-styledesc">
+            <Field label="Style Description" size="xs" htmlFor="st-styledesc">
               <Input
                 id="st-styledesc"
                 value={form.style_description}
                 onChange={(e) => set({ style_description: e.target.value })}
               />
             </Field>
-            <Field label="Unit" required size="sm" htmlFor="st-unitkind">
+            <Field label="Unit" required size="xs" htmlFor="st-unitkind">
               <Select
                 id="st-unitkind"
                 value={form.unit_kind}
                 onChange={(e) => setUnitKind(e.target.value)}
               >
-                <option value="">—</option>
+                <option value=""></option>
                 {UNIT_KIND_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </Select>
             </Field>
-            {/* The tick's word moves up into the field label and the cell gets
-                `min-h-9 items-center`, so it centres on the same 36px control
-                height as the Select beside it. */}
-            <Field label="Blocked" size="sm" htmlFor="st-blocked">
-              <label className="flex min-h-9 w-fit cursor-pointer items-center gap-2">
-                <input
-                  id="st-blocked"
-                  type="checkbox"
-                  checked={form.blocked}
-                  onChange={(e) => set({ blocked: e.target.checked })}
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                />
-                <span className="text-sm text-foreground">Yes</span>
-              </label>
-            </Field>
+            {/* BLOCKED IS A ROW ACTION NOW (client 2026-08-17): "we are used to
+                give that block while CREATING the data but we need to move this
+                in ACTION only, no more in the creating screen". The ⋮ on the
+                listing carries Block / Unblock — see `useBlockAction`.
+
+                `form.blocked` stays in the form state and in the save payload,
+                so an edit round-trips it rather than nulling it; it is simply no
+                longer typed here. Its departure is also what lets the seven
+                fields above sit on one row. */}
           </DetailSection>
           {/**
             * GENERAL — was its own rail section until 2026-08-11. It kept every
@@ -1455,16 +1542,54 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             * on the Save side — `unit_kind` is still `required` in
             * `sectionValidity`, which is what actually gates Save.
             */}
-          <DetailSection label="General" cols={12}>
-            <Field label="Season" size="sm" htmlFor="st-season">
+          {/* SAME TRACK AS STYLE DETAILS ABOVE (client 2026-08-17: "reduce the
+              general detail field size like above section").
+
+              At `cols={12}` + `sm` these four fields took 3/12 each and stretched
+              to ~370px, while the seven above sat at ~155px — so the two blocks
+              read as different forms and nothing lined up down the page. On the
+              SAME 14-col track at `xs` a General field is the same ~155px and
+              lands in the same column as the field above it: Season under Serial
+              No, Year under Date, and so on. That vertical alignment is the whole
+              point of LAYOUT.md §3's one-width rule.
+
+              Four fields leave 6 of 14 empty to the right. That is the honest
+              cost of matching the row above, and it is the same trade Style
+              Details makes — widening them to fill the row is what created the
+              mismatch being fixed. */}
+          <DetailSection label="General" cols={14}>
+            {/* CAPS (client 2026-08-17). Season is a `<Select>` over a fixed
+                vocabulary, so `<Input uppercase>` — the mechanism AGENTS.md
+                §CAPITALS names — does not apply: there is no keystroke, and a
+                CSS transform on the trigger would show capitals while storing
+                Title case, which is the "merely displayed" half the rule
+                refuses. The OPTION VALUES are capital instead
+                (`SEASON_OPTIONS`), so what is picked is what is stored, and
+                `capsTextNullable()` on the schema covers every writer that is
+                not this dropdown. */}
+            <Field label="Season" size="xs" htmlFor="st-season">
               <Select id="st-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
-                <option value="">—</option>
+                <option value=""></option>
                 {SEASON_OPTIONS.map((o) => (
                   <option key={o} value={o}>{o}</option>
                 ))}
+                {/* A STORED SEASON THAT IS NOT ONE OF THE FOUR KEEPS ITS OPTION.
+                    The column is plain `text` (0124) and has always taken
+                    imported free text, so "SS26" is a value this list cannot
+                    represent — and a `<select>` silently falls back to its first
+                    option for a value it has no option for, which here is the
+                    blank. The field would read as empty and the next Save would
+                    blank the column. Same statement as "the one row that
+                    survives is the one the record already holds" under
+                    AGENTS.md §"Disabled rows", applied to a fixed list rather
+                    than a master. Never rendered for the four normal words. */}
+                {form.season &&
+                  !(SEASON_OPTIONS as readonly string[]).includes(form.season) && (
+                    <option value={form.season}>{form.season}</option>
+                  )}
               </Select>
             </Field>
-            <Field label="Year" size="sm" htmlFor="st-year">
+            <Field label="Year" size="xs" htmlFor="st-year">
               <Input
                 id="st-year"
                 type="number"
@@ -1473,7 +1598,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 placeholder="e.g. 2026"
               />
             </Field>
-            <Field label="Article No." size="sm" htmlFor="st-article">
+            <Field label="Article No." size="xs" htmlFor="st-article">
               {/* CAPS for the same reason as Style: an article number is a stored
                   VALUE, and the CAPITALS exemptions cover free prose, digits,
                   email and auto fields — not a code an operator types. Write half
@@ -1494,7 +1619,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               * offers nothing rather than the whole master.
               */}
             {/* COMPULSORY — red ⓘ on the legacy General tab. */}
-            <Field label="Style Category" required size="sm" htmlFor="st-category">
+            <Field label="Style Category" required size="xs" htmlFor="st-category">
               <CategoryPicker
                 id="st-category"
                 label="Style Category"
@@ -1619,12 +1744,34 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 removes the button AND makes Enter on the last row DECLINE rather
                 than grow the grid, so the keyboard cannot get past the limit
                 either. */}
-            {/* `narrow` for the same reason as Sizes — this became a one-column
-                grid when M.List No was withdrawn, and a lone Coordinate picker
-                has no business spanning the section. */}
+            {/* `narrow` because this became a one-column grid when M.List No was
+                withdrawn, and a lone Coordinate picker has no business spanning
+                the section. It USED TO SAY "for the same reason as Sizes"; Sizes
+                dropped `narrow` on 2026-08-17 when it went `inlineCards`, so the
+                two are no longer the same shape.
+
+                THIS GRID IS STILL A TABLE, AND THAT IS THE SAME COUPLING SIZES
+                FELL DOWN — `narrow` shows the table from `@md` (448px of the
+                grid's own inline size), and an `lg` cell is ~690px at 1920 but
+                ~520px on a 1366 laptop and less again in a narrow window. It has
+                the headroom Sizes did not, so it is left alone rather than
+                converted unasked; if this one ever reports as stacked cards, the
+                fix is the one below, not more width. */}
+            {/* `frameless` — THREE NESTED FRAMES OTHERWISE (client 2026-08-17,
+                screenshot 2326: "three layered table lined layout"). This grid
+                sits INSIDE a `DetailSection`, so the section drew a bordered
+                card, `ChildGrid` drew a second one inside it, and the table drew
+                its own border inside that. Its own note is exactly this case:
+                "drop the outer bordered card so the grid can nest INSIDE a
+                DetailSection without a double border".
+
+                Sizes below already carries it; Components does not need it
+                because it sits straight in the `SectionBody` with no section
+                card around it. Coordinates was the one that never got it. */}
             <Field size="lg">
               <ChildGrid<CoordRow>
                 narrow
+                frameless
                 columns={coordColumns}
                 rows={coords}
                 hideAdd={!!coordCap && coords.length >= coordCap.max}
@@ -1670,14 +1817,24 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       icon: Boxes,
       done: comps.some((c) => c.coordinate_id || c.component_id || c.fabric_category_id),
       content: (
-        <SectionBody
-          title="Components"
-          hint={
-            coordinateIds.size === 0
-              ? "Add coordinates first — a component is a part of one of them."
-              : "What each coordinate is built from, its fabric, and any extra process it needs. Coordinate offers only the ones on the Coordinates tab."
-          }
-        >
+        <SectionBody title="Components">
+          {/* THE ONE SECTION LINE THAT SURVIVED THE 2026-08-17 SWEEP, and it
+              survived by becoming conditional. `SectionBody` used to take a
+              `hint`, and this call site passed a ternary: the second branch was
+              the decorative restatement every other section had and is gone
+              with them, but the first is a STATE MESSAGE — it says why the
+              Coordinate picker in the grid below has nothing to offer, which is
+              not derivable from looking at it.
+
+              Rendered here rather than in the primitive because that is the
+              whole point of removing the prop: a slot that must be filled on
+              every screen gets filled with prose, and a line a screen writes
+              for itself can appear only when there is something to say. */}
+          {coordinateIds.size === 0 && (
+            <p className="mb-3 text-[12.5px] text-muted-foreground">
+              Add coordinates first — a component is a part of one of them.
+            </p>
+          )}
           {/* A TABLE AGAIN.
 
               This grid was `forceCards listRows frameless` + `renderMobileRow`
@@ -1691,6 +1848,17 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               five columns on one line instead of a stacked card per component.
               `ChildGrid` still falls back to cards on a narrow viewport by
               itself; `forceCards` is what made it do so at every width. */}
+          {/* NOT `narrow` — TRIED ON 2026-08-17 AND REVERTED THE SAME DAY at the
+              client's word ("restore the component section, it's too narrow").
+
+              The reasoning that led there was that all four columns hold one
+              picker each, which is the case `narrow` names. What that misses is
+              that these are pickers over REAL MASTER NAMES — a coordinate, a
+              component, a fabric category — not the short codes Coordinates and
+              Sizes hold, so capping the table squeezed four name-length values
+              into a width sized for abbreviations. Column COUNT is not what
+              `narrow` should be judged on; the length of what the columns carry
+              is. Do not re-apply it here. */}
           <ChildGrid<CompRow>
             columns={compColumns}
             rows={comps}
@@ -1708,7 +1876,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       icon: Ruler,
       done: sizes.some((s) => s.size_id),
       content: (
-        <SectionBody title="Sizes" hint="The size set this style is made in.">
+        <SectionBody title="Sizes">
           {/* THE GROUP IS A SHORTCUT, NOT THE SOURCE OF TRUTH. Picking one
               REPLACES the rows below, which stay editable afterwards — add an
               XXL, drop the S. The style keeps its own size rows, so editing a
@@ -1795,13 +1963,19 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               see its own note in `field.tsx`, and the skill's "one width" rule,
               which bars `xl` for making a plain FIELD wider, not for this.
 
-              `label=""` ON THE GRID'S CELL, which is the vertical half of the
-              same complaint. An omitted label draws no label line at all, so the
-              grid's card started ~16px above the textarea beside it; `label=""`
-              RESERVES the row without drawing one, and the two tops line up.
-              That is the documented purpose of the empty string — it is what put
-              "Fill sizes" back beside the Size Group select it belongs to
-              (client 2026-08-11), and the button two lines up already uses it.
+              THE VERTICAL HALF OF THE SAME COMPLAINT IS NOW THE GRID'S OWN JOB,
+              and this changed on 2026-08-17 — see the grid below. It was
+              `<Field label="">`, whose documented purpose is to RESERVE the label
+              row without drawing one so a control lines up with the labelled
+              fields beside it (the "Fill sizes" button two lines up still does
+              exactly that, client 2026-08-11). The grid is `inlineCards
+              flushRows` now, and that mode draws its column header band at
+              `Label`'s exact metrics — so it IS the label line. Reserving a
+              second one would put the grid 20px below the textarea it is meant to
+              line up with, which is the 08-14 complaint upside down. Hence no
+              `label` on this cell, and none on the grid either: a `ChildGrid`
+              caption costs the cell a band the cell beside it does not have
+              (`child-grid.tsx`'s `label` note, Material ▸ Fabric ▸ Composition).
 
               IT WAS ALONE ON ITS OWN ROW FOR ONE DAY, and the note that put it
               there argued textareas should not share a row at all — the 08-11
@@ -1823,11 +1997,108 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               CAPITALS exemptions, so this box is deliberately not `uppercase`
               even though the Style fields around it are. */}
           <FieldGrid>
-            {/* `narrow`: one column holding a two-character value. Without it the
-                Size picker stretched the full width of the section. */}
-            <Field label="" size="md">
+            {/* INLINE ROWS, NOT A TABLE AND NOT STACKED CARDS (client
+                2026-08-17, screenshot 2315: one boxed card per size, each with
+                its own `#N ✕` band and a select under it — eight sizes was a
+                screenful of chrome for eight two-character values).
+
+                THE CARDS WERE NOT ASKED FOR; THEY WERE FALLEN INTO. This grid was
+                `narrow` + the default responsive mode, and `narrow` COUPLES the
+                width cap to the layout: the table is `@md:block` on the grid's own
+                inline size, so below 28rem/448px the responsive half hands over to
+                the stacked cards. `child-grid.tsx` warns about exactly this ("the
+                grid silently flips to stacked cards, which looks like a different
+                bug entirely") — and the flip was collateral from the 08-14 realign
+                two comments up, which moved this cell from `lg` (6/12, ~690px,
+                comfortably a table) to `md` (4/12, ~450px, within a pixel of the
+                breakpoint). So a change made for the horizontal complaint silently
+                answered the vertical one with 127px-tall cards, and on a 1366
+                laptop — where 4/12 is ~330px — there was no width at which it
+                could have come back.
+
+                The fix is to stop the layout depending on the width at all rather
+                than to buy width back, BECAUSE THE NARROW CELL IS WHAT THE CLIENT
+                ASKED FOR TWICE. `inlineCards` is that mode and says so: "a flex
+                'table' that survives a half-width column, where a real <table>
+                would overflow". One shared header, one line per size, the same
+                `#N`, the same ✕, the same keyboard nav — a table's density with
+                none of its minimum width.
+
+                `flushRows` + `frameless` are the pair that mode needs when it
+                shares its row with a plain `Field`, and they are the same two
+                Material ▸ Fabric ▸ Composition passes for the same reason: the
+                header band drops to `Label`'s metrics and the rows lose their card
+                inset, so the first Size picker lands level with the Description
+                textarea beside it instead of 17px lower and 10px right of it.
+
+                `narrow` IS GONE, deliberately. Its cap (32rem) is what the flip
+                hung off, and in inline mode it can no longer earn its keep: the
+                4/12 cell is already the cap, and the columns flex to fill it — the
+                same "exactly its cell at every width" the Size column's own note
+                argues for. Left on, it would cap the grid at 512px on a wide
+                screen and re-open the band of white the 08-14 realign closed.
+
+                `hideIndex` IS THE OTHER HALF OF THE ALIGNMENT, and it took a second
+                report to find (client 2026-08-17, screenshot 2316: "still its not
+                looks not aligned"). The mode switch above fixed the height and left
+                two offsets, both of which measured to an exact number that
+                decomposed to one line of source:
+
+                  24px HORIZONTAL — the inline row's `#N` track (`w-4` + `gap-2`),
+                  which pushed every size box right of the Size Group select above
+                  it and of the "+ Add size" button below it. `hideIndex` drops it;
+                  the ✕ and Ctrl+Del are untouched, and 1..6 was carrying nothing
+                  here (sizes are stored by order, `sno: 0`).
+
+                  8px VERTICAL — `flushRows`' header band was 22px where `Label` is
+                  14px, so the first size box sat 8px below the Description textarea
+                  beside it. That was a defect in the PRIMITIVE against its own
+                  documented contract, not something this screen could hold: fixed
+                  in `child-grid.tsx`, which now imports `LABEL_METRICS` instead of
+                  retyping it. It moves Fabric ▸ Composition by the same 8px, the
+                  only other `flushRows` grid, and in the same direction.
+
+                Measured, not eyeballed: the reported screenshot is at 125% OS
+                scale, so both figures came from dividing physical pixel positions
+                by 1.25 before believing them.
+
+                BOTH OF THOSE PROPS ARE GONE AGAIN — the list is `across` now (see
+                the grid), which has no header band to align and no ordinal to
+                hide. They stay in the primitive and are still right there: the
+                8px was a defect in `flushRows` itself, and Fabric ▸ Composition
+                keeps that fix. */}
+            {/* ACROSS, NOT DOWN (client 2026-08-17, screenshot 2321: "why can't
+                we able to [a] row design instead of column based").
+
+                Ten sizes were ten lines of 40px with the rest of the section
+                empty beside them. `across` lays each size in a cell of
+                `FIELD_TRACK` and wraps — six to a line, so ten sizes is two
+                lines. The full reasoning, and every detail of what that mode
+                draws, is on the prop in `child-grid.tsx`.
+
+                THIS IS THE SISTER SCREEN'S LAYOUT, not a new idea: the Garment
+                Order's Style(s) tab answered the identical complaint on
+                2026-08-14 and hand-rolled it (`amendment-screen.tsx`'s
+                `sizeGrid`). It moved into `ChildGrid` rather than being copied a
+                second time — the `foldRows` note's lesson, applied.
+
+                `size="full"` AND DESCRIPTION MOVES BACK BELOW. The 08-14 pairing
+                (4 + 8, the note above) existed because a `narrow` one-column grid
+                drew ~410px and left a band of white beside it; a grid that now
+                fills the row leaves no band, so the reason is spent rather than
+                overruled. That comment already carried the expiry — "a style with
+                eight sizes will out-grow a 3-row textarea" — and across-layout is
+                what makes the sizes wide instead of tall.
+
+                `<Field label="Sizes">` is where the label lives now, which is the
+                same rule the amendment screen records: a hand-rolled caption is
+                not the same height as `Field`'s label, so let the primitive draw
+                it. That also keeps `Sizes` and `Description` reading as two
+                labelled rows of one section. */}
+            <Field label="Sizes" size="full">
               <ChildGrid<SizeRow>
-                narrow
+                across
+                frameless
                 columns={sizeColumns}
                 rows={sizes}
                 seedRow
@@ -1836,7 +2107,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 addLabel="+ Add size"
               />
             </Field>
-            <Field label="Description" size="xl" htmlFor="st-desc">
+            <Field label="Description" size="full" htmlFor="st-desc">
               <Textarea
                 id="st-desc"
                 value={form.description}
@@ -1861,6 +2132,13 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       <PageHeader
         title={editId ? "Edit Style" : "New Style"}
         description="Wire each ⓘ field from stored data. Blank grid rows are ignored."
+        /* THE EDITOR BRANCH ONLY. This screen swaps a list and an editor at one
+           URL, and the editor already carries its own "← Back to list" in
+           `actions` below — the derived link would be a second Back on the same
+           row, aimed at the module hub rather than at the list the operator came
+           from. The LIST branch above keeps the default, which is exactly the
+           case `back` was added for (`page-header.tsx`). */
+        back={false}
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>
             ← Back to list

@@ -130,7 +130,7 @@ export function NewReceivableForm({ buyers, shipments, currencies }: Props) {
                   value={buyerId}
                   onChange={(e) => handleBuyerChange(e.target.value)}
                 >
-                  <option value="">— select buyer —</option>
+                  <option value=""></option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
@@ -146,7 +146,7 @@ export function NewReceivableForm({ buyers, shipments, currencies }: Props) {
                   value={shipmentId}
                   onChange={(e) => setShipmentId(e.target.value)}
                 >
-                  <option value="">— none —</option>
+                  <option value=""></option>
                   {filteredShipments.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.code ?? s.id.slice(0, 8)}

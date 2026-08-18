@@ -300,7 +300,7 @@ export function PrepareCostSheetClient({
                 <div className="lg:col-span-2">
                   <Label htmlFor="cs-enq">Enquiry *</Label>
                   <Select id="cs-enq" value={opportunityId} onChange={(e) => onPickEnquiry(e.target.value)}>
-                    <option value="">Select enquiry…</option>
+                    <option value=""></option>
                     {opportunities.map((o) => (
                       <option key={o.id} value={o.id}>
                         {(o.code ?? "—") +
@@ -313,7 +313,7 @@ export function PrepareCostSheetClient({
                 <div>
                   <Label htmlFor="cs-style">Style</Label>
                   <Select id="cs-style" value={styleId} onChange={(e) => setStyleId(e.target.value)} disabled={!opportunityId}>
-                    <option value="">None</option>
+                    <option value=""></option>
                     {enquiryStyles.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}

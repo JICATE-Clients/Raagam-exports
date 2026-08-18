@@ -257,8 +257,8 @@ function OtherExpensesTab({ expenses, costSheetId, opportunityId, currency, canE
         <div className="flex gap-2 items-end flex-wrap rounded border border-border p-3">
           <div><Label>Cost Head</Label><Input className="w-24" value={form.cost_short_name} onChange={(e) => setForm({ ...form, cost_short_name: e.target.value })} /></div>
           <div><Label>Description</Label><Input className="w-32" value={form.item_description} onChange={(e) => setForm({ ...form, item_description: e.target.value })} /></div>
-          <div><Label>Type</Label><Select className="w-24" value={form.type_for} onChange={(e) => setForm({ ...form, type_for: e.target.value })}><option value="">—</option><option value="O">Overall</option><option value="S">Per Style</option></Select></div>
-          <div><Label>Rate Type</Label><Select className="w-20" value={form.rate_type} onChange={(e) => setForm({ ...form, rate_type: e.target.value })}><option value="">—</option><option value="Q">Qty</option><option value="F">Fixed</option><option value="P">%</option></Select></div>
+          <div><Label>Type</Label><Select className="w-24" value={form.type_for} onChange={(e) => setForm({ ...form, type_for: e.target.value })}><option value=""></option><option value="O">Overall</option><option value="S">Per Style</option></Select></div>
+          <div><Label>Rate Type</Label><Select className="w-20" value={form.rate_type} onChange={(e) => setForm({ ...form, rate_type: e.target.value })}><option value=""></option><option value="Q">Qty</option><option value="F">Fixed</option><option value="P">%</option></Select></div>
           <div><Label>Qty</Label><Input className="w-20" type="number" value={form.cons_qty} onChange={(e) => setForm({ ...form, cons_qty: e.target.value })} /></div>
           <div><Label>Rate</Label><Input className="w-20" type="number" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} /></div>
           <Button size="sm" disabled={isPending} onClick={addRow}>{isPending ? "Adding…" : "Add"}</Button>

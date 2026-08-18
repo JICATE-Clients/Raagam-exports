@@ -296,7 +296,7 @@ export function CountryMasterScreen({ rows, perms }: { rows: Country[]; perms: P
               value={form.country_group}
               onChange={(e) => set({ country_group: e.target.value as "" | CountryGroup })}
             >
-              <option value="">— Select —</option>
+              <option value=""></option>
               {COUNTRY_GROUPS.map((g) => (
                 <option key={g} value={g}>
                   {g}

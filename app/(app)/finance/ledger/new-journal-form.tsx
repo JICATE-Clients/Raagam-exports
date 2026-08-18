@@ -148,7 +148,7 @@ export function NewJournalForm({
                   value={locationId}
                   onChange={(e) => setLocationId(e.target.value)}
                 >
-                  <option value="">— All locations —</option>
+                  <option value="">All locations</option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}
@@ -193,7 +193,7 @@ export function NewJournalForm({
                     value={line.gl_account_id}
                     onChange={(e) => updateLine(idx, "gl_account_id", e.target.value)}
                   >
-                    <option value="">— Account —</option>
+                    <option value="">Account</option>
                     {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.code} {a.name}

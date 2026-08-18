@@ -93,9 +93,34 @@ function normalizeComponents(data: GarmentStyleInput) {
     .map((c, i) => ({ ...c, sno: i + 1 }));
 }
 
+/**
+ * Sizes — blank rows dropped, repeats dropped, then renumbered.
+ *
+ * DE-DUPLICATED (client 2026-08-17, screenshot 2316: a Sizes tab reading
+ * L, L, M, M). The screen's `usedIds` is what stops a second "L" being OFFERED,
+ * and that is the half the operator sees; this is the half that holds for every
+ * other way the array can arrive — a size group filled twice, a payload replayed,
+ * or the day `garment_styles` becomes a `lib/data-io` entity, which writes
+ * straight past the action. AGENTS.md's standing phrasing: the screen check is a
+ * courtesy, this one is the guard.
+ *
+ * FIRST OCCURRENCE WINS, which is what makes the renumbering below mean
+ * anything: the operator's order is the size order, and dropping the LATER
+ * duplicate keeps the row they entered first where they put it.
+ *
+ * `sno` is assigned AFTER the filter, so the stored serials stay 1..n with no
+ * gap where a duplicate was — the read side sorts on `sno` (`service.ts`).
+ */
 function normalizeSizes(data: GarmentStyleInput) {
+  const seen = new Set<string>();
   return data.sizes
     .filter((s) => !!s.size_id)
+    .filter((s) => {
+      const id = s.size_id as string;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
     .map((s, i) => ({ size_id: s.size_id as string, sno: i + 1 }));
 }
 

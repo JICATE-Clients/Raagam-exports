@@ -179,7 +179,7 @@ export function GrnNewForm({ openPoLines, vendors, locations }: Props) {
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
               >
-                <option value="">Select location</option>
+                <option value=""></option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}

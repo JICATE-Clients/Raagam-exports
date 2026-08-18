@@ -343,7 +343,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
       header: "Assort Type",
       cell: (r) => (
         <Select className="h-8" value={r.assort_type} onChange={(e) => updateLine(r.key, { assort_type: e.target.value })}>
-          <option value="">—</option>
+          <option value=""></option>
           {ASSORT_TYPES.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
@@ -391,6 +391,10 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
     <div data-focus-scope className="space-y-4">
       <PageHeader
         title={editId ? `Edit Packing Advice ${editCode ?? ""}` : "New Packing Advice"}
+        // back={false}: this screen swaps a list and an editor at ONE url, and
+        // the editor already shows "← Back to list". The derived hub link is
+        // right on the LIST branch above and a second, differently aimed Back here.
+        back={false}
         description="Fill the header, then add carton/assortment lines. Every ⓘ / ⊕ field is a picker over stored data."
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>
@@ -423,7 +427,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
             </Field>
             <Field label="Carton SlNo.By" size="sm" htmlFor="pa-carton">
               <Select id="pa-carton" value={form.carton_slno_by} onChange={(e) => set({ carton_slno_by: e.target.value })}>
-                <option value="">—</option>
+                <option value=""></option>
                 {CARTON_SLNO_BY.map((o) => (
                   <option key={o} value={o}>{o}</option>
                 ))}

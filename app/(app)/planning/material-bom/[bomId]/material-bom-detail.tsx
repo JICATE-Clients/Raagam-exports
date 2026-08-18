@@ -218,7 +218,7 @@ function ProductLineForm({
             value={form.yarn_reqd_form}
             onChange={(e) => setForm((f) => ({ ...f, yarn_reqd_form: e.target.value }))}
           >
-            <option value="">-- None --</option>
+            <option value=""></option>
             {YARN_REQD_FORMS.map((v) => (
               <option key={v} value={v}>
                 {YARN_REQD_FORM_LABELS[v]}
@@ -705,7 +705,7 @@ function ProcessSequenceTab({
             value={stageForm.stage}
             onChange={(e) => setStageForm((f) => ({ ...f, stage: e.target.value }))}
           >
-            <option value="">-- Select --</option>
+            <option value=""></option>
             {stageOptions.map((s) => (
               <option key={s} value={s}>
                 {s.toUpperCase()}
@@ -728,7 +728,7 @@ function ProcessSequenceTab({
             value={stageForm.loss_for}
             onChange={(e) => setStageForm((f) => ({ ...f, loss_for: e.target.value }))}
           >
-            <option value="">-- Select --</option>
+            <option value=""></option>
             {lossForOptions.map((v) => (
               <option key={v} value={v}>
                 {lossForLabels[v] ?? v}

@@ -27,7 +27,33 @@ import { styleProblems } from "./rules";
 // ============================================================================
 
 // Fixed dropdowns — legacy option lists (confirm exact values via screenshots).
-export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
+/**
+ * CAPS (client 2026-08-17 — "fix the Season field to display in CAPITAL CASES
+ * instead of small cases").
+ *
+ * The list itself is the display half here, and that is the whole difference
+ * from Style / Article No. beside it. AGENTS.md §CAPITALS names `<Input
+ * uppercase>` as the mechanism, but Season is a `<Select>` over a fixed
+ * vocabulary — there is no keystroke to intercept and a CSS transform on the
+ * trigger would leave the stored word Title-case, which is "merely displayed",
+ * the exact thing the rule refuses. So the OPTION VALUES are capital, which
+ * makes every new save capital by construction.
+ *
+ * The write half is still stated separately (`capsTextNullable()` on `season`
+ * below), because these four words are not the only thing the column can hold:
+ * it is plain `text` (0124) and has always accepted imported free text.
+ *
+ * THE TWO SEASON LISTS ARE SEPARATE LITERALS AND ONLY THIS ONE MOVED.
+ * `lib/orders/amendments/types.ts` has its own copy, still Title-case, and
+ * nothing keeps them in step — `lib/orders/amendments/style-options.ts` says so
+ * in as many words. That is safe rather than merely tolerated: `styleOptions`
+ * compares through `norm` (trim + upper-case on BOTH sides), so a style stored
+ * "SUMMER" still matches an order header holding "Summer". Verified against the
+ * live database on 2026-08-17 — all 3 styles carry Title-case seasons and no
+ * order header carries one at all — so the facet's behaviour is unchanged by
+ * this commit.
+ */
+export const SEASON_OPTIONS = ["SUMMER", "WINTER", "SPRING", "AUTUMN"] as const;
 export const COMPONENT_TYPE_OPTIONS = ["Circular", "Flat"] as const;
 
 export interface GarmentStyleCoordinate {
@@ -228,7 +254,15 @@ export const garmentStyleInput = z
      * three spaces used to pass that check and would now save as "".
      */
     style_name: capsName("Style name is required"),
-    season: nullableText,
+    /**
+     * CAPS, and the transform belongs HERE for the same reason `article_no`
+     * below records: a season is a stored VALUE, and `SEASON_OPTIONS` being
+     * capital only covers the four words a person can pick from the dropdown.
+     * The column is plain `text` and takes free text from any other writer, so
+     * the schema is what makes "summer" stored as "SUMMER" whatever the path.
+     * Null and undefined still pass through — a style need not name a season.
+     */
+    season: capsTextNullable(),
     style_year: z.coerce.number().int().nullable().default(null),
     /** A stored value, so CAPS by the same rule as `style_name`. `nullableText`
      *  is the plain optional string it used to be; `capsTextNullable` is that

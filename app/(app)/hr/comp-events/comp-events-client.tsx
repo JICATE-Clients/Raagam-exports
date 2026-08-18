@@ -128,7 +128,7 @@ export function CompEventsClient({ rows, employees, canCreate, canApprove, canDe
                   <div className="sm:col-span-2">
                     <Label htmlFor="cm-emp">Employee</Label>
                     <Select id="cm-emp" value={empKey} onChange={(e) => setEmpKey(e.target.value)}>
-                      <option value="">— select employee —</option>
+                      <option value=""></option>
                       {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
                     </Select>
                   </div>

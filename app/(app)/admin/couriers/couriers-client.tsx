@@ -226,7 +226,7 @@ export function CouriersClient({ couriers, despatches, courierOpts, canCreate, c
                   <div>
                     <Label htmlFor="d-courier">Courier</Label>
                     <Select id="d-courier" value={dCourier} onChange={(e) => setDCourier(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {courierOpts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </Select>
                   </div>

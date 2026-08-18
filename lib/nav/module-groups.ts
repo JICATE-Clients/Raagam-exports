@@ -453,16 +453,24 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/orders/budget-approval", label: "Approval", description: "Approve or reject a submitted order budget — the last gate before purchase may act on it" },
         ],
       },
-      // THE REGISTER, a standalone row since the Order Entry group dissolved.
+      // THE REGISTER IS OFF THE MENU (client 2026-08-17). It is the fourth child
+      // of `retired` at the bottom of this table, and the note there says why the
+      // group now holds two different kinds of screen.
       //
-      // It pointed at `/orders` — the module root — while that route WAS the All
-      // Orders table. The root is now an index of these sub-modules
-      // (`components/shell/module-hub.tsx`), so the register moved to a route of
-      // its own on 2026-08-13 and became a card of Order Entry. With that group
-      // gone it is a row: looking an order up is not one of the six setup steps
-      // and putting it inside that hub would have made the flow seven cards
-      // long, one of which is not a step.
-      { kind: "link", href: "/orders/all", label: "All Orders" },
+      // Its history, kept because the row has moved three times and a fourth
+      // move should read as a move: it pointed at `/orders` — the module root —
+      // while that route WAS the All Orders table; the root became an index of
+      // these sub-modules on 2026-08-13, so the register took a route of its own
+      // and became a card of Order Entry; when that group dissolved on 08-14 it
+      // was promoted to a standalone `kind: "link"` row here.
+      //
+      // A `link` HAS NO `hidden` FLAG, and one was deliberately not added.
+      // `moduleNavChildren` and `ModuleHub` both read `e.kind === "group" &&
+      // e.hidden`, so the flag would have needed a second branch in each, plus a
+      // ruling on what `backTarget` and `owningNavHref` should answer for a row
+      // that is not rendered. Moving the entry into the group that already means
+      // "off the menu, still on the URL" needs none of that and is the shape
+      // three screens have been in since 08-14.
       // Sits directly under Order Entry by request (operator, 2026-08-08), not
       // in 14-step flow position — amending an order is what the operator does
       // next after raising one, so the two rows belong side by side. Row ORDER
@@ -596,19 +604,43 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // records: a registry entry that is gone stops being type-checked and its
       // routes stop being asserted, so it rots. These stay in the type system,
       // stay in assertion 2's route check, and come back by deleting one word.
+      //
+      // ALL ORDERS JOINED ON 2026-08-17 (client), and it is the first child here
+      // that is NOT a superseded legacy menu — it is the `sales_orders` register,
+      // and the only code path in the app that inserts into that table. So the
+      // group now means exactly what its `hidden` flag means and no more, "off
+      // the menu, still on the URL", and the note below no longer claims Order
+      // Setup replaced everything in it.
+      //
+      // TWO VISIBLE CONSEQUENCES, both inherited from the three above rather
+      // than new, and both correct-by-derivation rather than chosen:
+      //
+      // - `backTarget` sends a group child to its group hub, so the register's
+      //   "← Back" reads "Retired Screens" and lands on /orders/retired. That is
+      //   the honest answer for a screen with no sidebar row; the alternative,
+      //   `cardOnly`, is not available — it would strand the screen out of nav
+      //   search and assertion 7 fails a child whose row resolves to nothing.
+      // - `owningNavHref` does not filter `hidden`, so it resolves the register
+      //   to a row that is never rendered and no sub-module lights up. The
+      //   Orders module row still does.
       {
         kind: "group",
         slug: "retired",
         hidden: true,
         label: "Retired Screens",
-        description: "Legacy order screens kept reachable, but no longer in the menu",
+        description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
-          "These screens were taken off the Orders menu because the six-step Order Setup replaces them. They still work and still open from search — nothing has been deleted.",
+          "These screens are off the Orders menu — the first three because the six-step Order Setup replaces them, and All Orders by request. They all still work and still open from search — nothing has been deleted.",
         children: [
           { href: "/orders/order-booking", label: "Order Booking", description: "Book confirmed orders against capacity" },
           { href: "/orders/pack-ratios", label: "Pack Ratios", description: "Size and colour ratios per carton" },
           { href: "/orders/excess-orders", label: "Excess Orders", description: "Supplementary quantities beyond the planned order, size-wise" },
+          // Keeps its `hub-count-map.ts` entry (`sales_orders`), so the card here
+          // still shows how many orders are behind it. Nothing needed changing
+          // for that: the map is keyed by href, and `GroupHub` reads it for a
+          // child exactly as `ModuleHub` did for the standalone row.
+          { href: "/orders/all", label: "All Orders", description: "Every order raised, with its SC No, buyer, value and status" },
         ],
       },
     ],

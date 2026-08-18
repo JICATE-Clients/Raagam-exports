@@ -132,7 +132,7 @@ export function OverBudgetClient({ rows, pos, canCreate, canEdit, canApprove }: 
                   <div>
                     <Label htmlFor="ob-po">Purchase order (optional)</Label>
                     <Select id="ob-po" value={poId} onChange={(e) => setPoId(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {pos.map((p) => <option key={p.id} value={p.id}>{p.code ?? p.id.slice(0, 8)}{p.vendor_name ? ` — ${p.vendor_name}` : ""}</option>)}
                     </Select>
                   </div>

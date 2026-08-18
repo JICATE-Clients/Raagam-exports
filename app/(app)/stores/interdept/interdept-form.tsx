@@ -108,7 +108,7 @@ export function InterdeptForm({
             <div>
               <Label>From Store *</Label>
               <Select value={fromStore} onChange={(e) => setFromStore(e.target.value)}>
-                <option value="">-- Select --</option>
+                <option value=""></option>
                 {stores.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -117,7 +117,7 @@ export function InterdeptForm({
             <div>
               <Label>To Store *</Label>
               <Select value={toStore} onChange={(e) => setToStore(e.target.value)}>
-                <option value="">-- Select --</option>
+                <option value=""></option>
                 {stores.filter((s) => s.id !== fromStore).map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -141,7 +141,7 @@ export function InterdeptForm({
             {lines.map((line, idx) => (
               <div key={idx} className="mb-2 flex gap-2">
                 <Select className="flex-1" value={line.item_id} onChange={(e) => setLines((p) => p.map((l, i) => i === idx ? { ...l, item_id: e.target.value } : l))}>
-                  <option value="">-- Item --</option>
+                  <option value="">Item</option>
                   {items.map((i) => (
                     <option key={i.id} value={i.id}>{i.name}</option>
                   ))}

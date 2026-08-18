@@ -1,12 +1,16 @@
 "use client";
 
-import { ChevronDown, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRequiredHold } from "@/components/ui/field";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
+import {
+  AFFORDANCE_PAD,
+  AFFORDANCE_PAD_COMPACT,
+  FieldAffordance,
+} from "@/components/ui/field-affordance";
 
 export interface ComboboxOption {
   value: string;
@@ -47,7 +51,13 @@ export function Combobox({
   options,
   value,
   onChange,
-  placeholder = "Select…",
+  // AN UNFILLED CONTROL SHOWS NOTHING — not "Select…", and not the "—" this
+  // briefly used instead (client 2026-08-17). See the long note at the
+  // placeholder in components/ui/data-picker.tsx: a Combobox sits under a
+  // `<Field label>` or a grid column header like every other control, so the
+  // verb+noun was the label said twice, and a dash is a mark meaning what the
+  // box and chevron already mean.
+  placeholder = "",
   clearable = false,
   disabled = false,
   id,
@@ -79,17 +89,9 @@ export function Combobox({
    */
   inputClassName?: string;
   /**
-   * A DENSE GRID CELL — shrink the chevron and the clear ✕ from 16px to 12px and
-   * tuck them closer to the edge.
-   *
-   * The same flag `DataPicker` carries, and it must stay the same flag: a
-   * `<Select>` and a picker sit side by side in one grid row, so two different
-   * rules for one glyph would render two different chevrons in adjacent cells.
-   *
-   * WHAT IT IS ACTUALLY BUYING is not tidiness but WIDTH. On an 80px cell the
-   * icon plus its inset is ~28px — a fifth of the box — and that is what pushes
-   * the value into truncating: "Colour" rendered as "C..". Twelve pixels still
-   * reads as a dropdown and hands ~10px back to the text.
+   * A DENSE GRID CELL — forwarded straight to `FieldAffordance`, which narrows
+   * the slot and the glyph. The same flag and the same NAME `DataPicker` carries,
+   * because a picker and a `<Select>` sit side by side in one grid row.
    */
   compact?: boolean;
   /**
@@ -331,7 +333,9 @@ export function Combobox({
           // <Select> actually renders (select.tsx upgrades to Combobox on a fine
           // pointer), so missing it here would leave every dropdown 4px taller
           // than the inputs beside it. See components/ui/input.tsx.
-          "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 pr-8 text-base md:text-sm",
+          "h-9 @2xl/editor:h-8 w-full rounded-md border border-border bg-surface px-3 text-base md:text-sm",
+          // Reserves the trailing slot; stated beside its width, not here.
+          compact ? AFFORDANCE_PAD_COMPACT : AFFORDANCE_PAD,
           "placeholder:text-muted-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -348,37 +352,15 @@ export function Combobox({
         )}
       />
       </Tooltip>
-      {clearable && selected && !open ? (
-        <button
-          type="button"
-          aria-label="Clear"
-          // Out of the Tab order, same as DataPicker's clear (data-picker.tsx:755).
-          // It renders ONLY once a value is chosen and sits inside the input's pr-8,
-          // so leaving it focusable made "Tab after picking" look like it did nothing
-          // — focus had moved onto a ✕ drawn on top of the field. `lib/focus.ts`
-          // enumerates `button`, so this also keeps it out of the ↑↓←→ spatial walk
-          // and the Sheet focus trap, not just native Tab. Clicking still clears.
-          tabIndex={-1}
-          onClick={() => commit("")}
-          className={cn(
-            "absolute top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground",
-            compact ? "right-1.5" : "right-2",
-          )}
-        >
-          <X className={cn("shrink-0", compact ? "h-3 w-3" : "h-4 w-4")} />
-        </button>
-      ) : (
-        /* See `compact`: 16px of chevron plus its inset is ~28px of an 80px grid
-           cell, which is what pushes the VALUE into truncating. */
-        <span
-          className={cn(
-            "pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground",
-            compact ? "right-1.5" : "right-3",
-          )}
-        >
-          <ChevronDown className={cn("shrink-0", compact ? "h-3 w-3" : "h-4 w-4")} />
-        </span>
-      )}
+      {/* The same slot DataPicker draws, from the same file — including the
+          `tabIndex={-1}` this branch used to argue for on its own, and the
+          hover colour the two had drifted apart on (danger here, foreground
+          there, for the identical act). */}
+      <FieldAffordance
+        compact={compact}
+        onClear={clearable && selected && !open ? () => commit("") : undefined}
+        disabled={disabled}
+      />
 
       {open &&
         rect &&

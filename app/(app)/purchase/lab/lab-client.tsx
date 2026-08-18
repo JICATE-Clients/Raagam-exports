@@ -250,7 +250,7 @@ export function LabClient(props: Props) {
                     <div>
                       <Label htmlFor="s-buyer">Buyer</Label>
                       <Select id="s-buyer" value={sBuyer} onChange={(e) => setSBuyer(e.target.value)}>
-                        <option value="">— select —</option>
+                        <option value=""></option>
                         {buyers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                       </Select>
                     </div>
@@ -259,7 +259,7 @@ export function LabClient(props: Props) {
                     <div>
                       <Label htmlFor="s-order">Order</Label>
                       <Select id="s-order" value={sOrder} onChange={(e) => setSOrder(e.target.value)}>
-                        <option value="">— select —</option>
+                        <option value=""></option>
                         {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number ?? o.id.slice(0, 8)}</option>)}
                       </Select>
                     </div>
@@ -294,21 +294,21 @@ export function LabClient(props: Props) {
                   <div>
                     <Label htmlFor="t-standard">Standard</Label>
                     <Select id="t-standard" value={tStandard} onChange={(e) => setTStandard(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {standardOpts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                     </Select>
                   </div>
                   <div>
                     <Label htmlFor="t-order">Order</Label>
                     <Select id="t-order" value={tOrder} onChange={(e) => setTOrder(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number ?? o.id.slice(0, 8)}</option>)}
                     </Select>
                   </div>
                   <div>
                     <Label htmlFor="t-item">Item</Label>
                     <Select id="t-item" value={tItem} onChange={(e) => setTItem(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                     </Select>
                   </div>
@@ -326,7 +326,7 @@ export function LabClient(props: Props) {
                     <div>
                       <Label htmlFor="t-vendor">Outside lab</Label>
                       <Select id="t-vendor" value={tVendor} onChange={(e) => setTVendor(e.target.value)}>
-                        <option value="">— select —</option>
+                        <option value=""></option>
                         {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                       </Select>
                     </div>

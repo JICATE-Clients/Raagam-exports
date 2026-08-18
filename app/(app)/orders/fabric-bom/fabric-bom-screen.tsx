@@ -160,6 +160,21 @@ const numOrNull = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * The separator that joins a fabric's address keys.
+ *
+ * A CONTROL CHARACTER, so a combo or component name containing the separator
+ * cannot forge another row's key — the same reasoning, and the same character,
+ * as `SEP` in lib/orders/material-bom/requirement.ts.
+ *
+ * WRITTEN AS AN ESCAPE, NEVER AS A RAW BYTE. A literal NUL in a source file
+ * makes git treat that file as BINARY: no diff, no three-way merge, and a
+ * conflict it simply refuses to resolve. That is exactly what happened to both
+ * of these screens on 2026-08-18 and it is invisible until the day two branches
+ * touch the same file.
+ */
+const SEP = "\u0000";
+
 export function FabricBomScreen({
   tasks,
   boms,
@@ -361,7 +376,7 @@ export function FabricBomScreen({
       }) =>
         [l.style_ref_no ?? "", l.combo ?? "", l.structure_id ?? "", l.component_id ?? ""]
           .map((v) => v.trim().toUpperCase())
-          .join(" ");
+          .join(SEP);
 
       const held = new Set(lines.map(addressOf));
       const fresh = res.rows.filter((r) => !held.has(addressOf(r)));
@@ -499,7 +514,9 @@ export function FabricBomScreen({
           onChange={(e) => setCell(r.key, { fabric_type: e.target.value })}
         >
           {/* EMPTY, not "—". Unlike Style above, a blank Type means "not chosen"
-              and nothing else, so there is no fact for a label to carry. */}
+              and nothing else, so there is no fact for a label to carry.
+              (Arrived at independently on master as `<option value=""></option>`
+              — same element, same intent.) */}
           <option value="" />
           {FABRIC_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -805,10 +822,7 @@ export function FabricBomScreen({
       // than a red count, and `footer.onBlockedSave` is what replaces it.
       done: !!form.garment_order_id,
       content: (
-        <SectionBody
-          title="Fabric BOM"
-          hint="Which garment order this plans fabric for."
-        >
+        <SectionBody title="Fabric BOM">
           <FieldGrid>
             <Field label="Garment order" required size="sm" htmlFor="fb-order">
               <RecordPicker
@@ -874,10 +888,7 @@ export function FabricBomScreen({
       // this section holds the grid and nothing else — see `FullScreenSection.wide`.
       wide: true,
       content: (
-        <SectionBody
-          title="Fabric Lines"
-          hint="One line per fabric, per colourway and panel. Consumption is per garment."
-        >
+        <SectionBody title="Fabric Lines">
           <div className="mb-3 flex items-center justify-end">
             <Button
               type="button"
@@ -942,10 +953,7 @@ export function FabricBomScreen({
       icon: Calculator,
       done: preview.some((p) => p.qty != null),
       content: (
-        <SectionBody
-          title="Calculated Quantities"
-          hint="Production target x consumption x (1 + wastage). Recomputed as you type, and stored on save."
-        >
+        <SectionBody title="Calculated Quantities">
           {!form.garment_order_id ? (
             <p className="text-sm text-muted-foreground">Pick a garment order first.</p>
           ) : orderErr ? (

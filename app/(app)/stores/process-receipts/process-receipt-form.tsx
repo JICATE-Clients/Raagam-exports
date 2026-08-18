@@ -93,7 +93,7 @@ export function ProcessReceiptForm({
             <div>
               <Label>Process Order *</Label>
               <Select value={procOrderId} onChange={(e) => setProcOrderId(e.target.value)}>
-                <option value="">-- Select --</option>
+                <option value=""></option>
                 {processOrders.map((po) => (
                   <option key={po.id} value={po.id}>{po.code ?? po.id.slice(0, 8)}</option>
                 ))}
@@ -102,7 +102,7 @@ export function ProcessReceiptForm({
             <div>
               <Label>Into Store *</Label>
               <Select value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-                <option value="">-- Select --</option>
+                <option value=""></option>
                 {stores.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -127,7 +127,7 @@ export function ProcessReceiptForm({
               <div key={idx} className="mb-2 space-y-1 rounded border border-border p-2">
                 <div className="flex gap-2">
                   <Select className="flex-1" value={line.item_id} onChange={(e) => updateLine(idx, "item_id", e.target.value)}>
-                    <option value="">-- Item --</option>
+                    <option value="">Item</option>
                     {items.map((i) => (
                       <option key={i.id} value={i.id}>{i.name}</option>
                     ))}

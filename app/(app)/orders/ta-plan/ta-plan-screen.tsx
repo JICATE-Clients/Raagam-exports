@@ -309,7 +309,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
           value={r.from_activity_id ?? ""}
           onChange={(e) => onPickFromActivity(r.key, e.target.value || null)}
         >
-          <option value="">—</option>
+          <option value=""></option>
           {fromActivityOptions
             .filter((o) => o.id !== r.activity_id)
             .map((o) => (
@@ -382,6 +382,10 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
     <div data-focus-scope className="space-y-4">
       <PageHeader
         title={editId ? "Edit TA Plan" : "New TA Plan"}
+        // back={false}: this screen swaps a list and an editor at ONE url, and
+        // the editor already shows "← Back to list". The derived hub link is
+        // right on the LIST branch above and a second, differently aimed Back here.
+        back={false}
         description="Schedule activities against the order. End Dt = Start Dt + Days Required."
         actions={
           <Button variant="outline" size="md" onClick={() => setMode("list")}>

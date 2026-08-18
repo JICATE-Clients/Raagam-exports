@@ -132,7 +132,7 @@ export function NewShipmentForm({ buyers, currencies, orders }: Props) {
                   value={buyerId}
                   onChange={(e) => setBuyerId(e.target.value)}
                 >
-                  <option value="">— select buyer —</option>
+                  <option value=""></option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { FIELD_TRACK } from "@/components/ui/field";
+import { FIELD_TRACK, FIELD_TRACK_14 } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,7 +44,9 @@ export function DetailSection({
 }: {
   label: ReactNode;
   children: ReactNode;
-  cols?: 1 | 2 | 3 | 12;
+  /** `12` is the density track; `14` is the same thing one row wider, for a
+   *  section specified as SEVEN fields on one line — see `FIELD_TRACK_14`. */
+  cols?: 1 | 2 | 3 | 12 | 14;
   /**
    * How many columns of the parent `SectionGrid` this section occupies. `2`
    * makes it claim the full row — for a section that is genuinely wide (a child
@@ -88,7 +90,11 @@ export function DetailSection({
         className={cn(
           // `cols={12}` IS `FIELD_TRACK` — the same string `FieldGrid` uses, so
           // a card body and a section can never lay fields out differently.
-          cols === 12 ? FIELD_TRACK : "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5",
+          cols === 12
+            ? FIELD_TRACK
+            : cols === 14
+              ? FIELD_TRACK_14
+              : "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5",
           cols === 2 && "sm:grid-cols-2",
           cols === 3 && "sm:grid-cols-2 lg:grid-cols-3",
         )}

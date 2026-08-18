@@ -142,6 +142,64 @@ export const PRICE_TYPE_OPTIONS = [
 ] as const;
 export type PriceType = (typeof PRICE_TYPE_OPTIONS)[number];
 export const SEASON_OPTIONS = ["Summer", "Winter", "Spring", "Autumn"] as const;
+
+/**
+ * Color/Print ▸ the Dyeing row's **Type**, and there are TWO lists because the
+ * question is not the same one (client 2026-08-17).
+ *
+ *   Yarn dyeing   → Y/D, Melange
+ *   Fabric dyeing → Dyed, Melange
+ *
+ * Yarn is either dyed as yarn (Y/D) or bought already melange; fabric is
+ * piece-dyed after knitting (Dyed) or knitted from melange yarn. "Melange" is in
+ * both because a melange fabric IS melange yarn — the same fact stated from
+ * either side — and offering it in only one would make the other section
+ * unable to describe a perfectly ordinary order.
+ *
+ * KEYED BY `section`, NOT one merged list, for the reason AGENTS.md's cascading
+ * filters section gives: two facets side by side where one answers the other's
+ * question. A single list offering Y/D under Fabric dyeing would be offering a
+ * value that cannot be right there.
+ *
+ * NOT TO BE CONFUSED WITH `ITEM_SUB_TYPE_OPTIONS` (combo-rules.ts), which is
+ * the STRUCTURE's Fabric Type — Solid / Melange / Yarn Dyed / Printed. That one
+ * decides which aesthetic field a component fills (`takesDyedColour`); this one
+ * describes how a declared dyeing is done and drives nothing. They share two
+ * words and no meaning, so they are deliberately separate constants: merging
+ * them would put `printed` and `solid` into a dyeing dropdown and `Y/D` into a
+ * rule that tests for `yarn_dyed`.
+ */
+export const DYE_TYPE_OPTIONS = {
+  yarn: ["Y/D", "Melange"],
+  fabric: ["Dyed", "Melange"],
+} as const;
+
+/**
+ * The Type options for one dyeing row, with whatever it already holds.
+ *
+ * `dye_type` was free TEXT until 2026-08-17, so a stored value need not be in
+ * either list. It is appended rather than dropped — the standing rule from
+ * AGENTS.md's "Disabled rows": a value the record already holds that the picker
+ * no longer offers renders the cell EMPTY, and the next save writes that
+ * emptiness over real data.
+ *
+ * Compared EXACTLY, not case-folded, and that is the subtle half. `<Select>`
+ * matches its `value` by exact string, so folding "melange" onto "Melange" here
+ * would tidy the list and leave the cell blank — reintroducing the bug this
+ * carve-out exists to prevent. A near-duplicate entry is the honest cost.
+ *
+ * `garment_order_amendment_dyeings` held ZERO rows when this was written, so the
+ * carve-out is future-proofing rather than a migration: it protects a value
+ * typed between this change and its deploy.
+ */
+export function dyeTypeOptions(
+  section: "yarn" | "fabric",
+  held?: string | null,
+): string[] {
+  const list: string[] = [...DYE_TYPE_OPTIONS[section]];
+  const v = held?.trim();
+  return v && !list.includes(v) ? [...list, v] : list;
+}
 // Reused from the Applicant/Customer masters (see doc/masters-open-questions.md).
 export const SHIP_MODES = ["AIR", "ROAD", "SEA"] as const;
 export const PAY_MODES = ["CAD", "CASH", "CHEQUE", "DA", "DD", "DP", "LC", "OTH"] as const;
@@ -323,8 +381,15 @@ export interface AmendmentComboStructure {
   structure_id: string | null;
   /** "Type" — 'main' | 'trims_fabric'. NOT the Style master's comp_type. */
   fabric_type: string | null;
-  /** "Composition" — `compositions` (0225), an FK since 0408. */
-  composition_id: string | null;
+  /**
+   * "Composition" — THE FABRIC MATERIAL that declares it (0430).
+   *
+   * `items` of class FABRIC, not the `compositions` master this pointed at from
+   * 0408 to 2026-08-17. The screen shows the fabric's `material_mixings` blend,
+   * so the composition is DERIVED from the row rather than answered twice —
+   * which is what let it be fetched from the Structure at all.
+   */
+  fabric_item_id: string | null;
   gsm: number | null;
   gsm_tolerance: number | null;
   /** "Fabric Type" — 'solid' | 'melange' | 'yarn_dyed'. */
@@ -431,6 +496,12 @@ export interface AmendmentQuantity {
   style_no: string | null;
   consignee_id: string | null;
   assortment_type_id: string | null;
+  /**
+   * The buyer PO this destination belongs to (0427), asked only while the
+   * header's `multi_order` is on. Null on every single-PO order, where the
+   * header's own `po_no` answers for the whole document — see the migration.
+   */
+  po_no: string | null;
   po_qty: number;
   delivery_date: string | null;
   earlier_shipment_date: string | null;
@@ -512,7 +583,19 @@ export interface GarmentOrderAmendment {
   delivery_date: string | null;
   excess_pct: number;
   pack: boolean;
+  /**
+   * MULTI STYLE — this PO carries more than one style line.
+   *
+   * The column keeps the legacy `Mult.Ord` name and the UI says "Multi Style"
+   * (client 2026-08-17). What it has always meant here is the number of STYLES:
+   * it captions the Style(s) grid and `addStyle` sets it when a second line is
+   * added. Renaming the column would rewrite a value every stored row already
+   * carries a meaning for, for a label fix — see 0427.
+   */
   mult_ord: boolean;
+  /** MULTI ORDER — several buyer PO numbers on this one order (0427). Opens the
+   *  PO No column on the Quantities tab. Not `mult_ord`; see it above. */
+  multi_order: boolean;
   // logistic scalars
   department_id: string | null;
   ship_type_id: string | null;
@@ -687,7 +770,7 @@ export const amendmentComboStructureInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   structure_id: uuidN,
   fabric_type: nullableText,
-  composition_id: uuidN,
+  fabric_item_id: uuidN,
   gsm: z.coerce.number().nullable().default(null),
   gsm_tolerance: z.coerce.number().nullable().default(null),
   item_sub_type: nullableText,
@@ -777,6 +860,11 @@ export const amendmentQuantityInput = z.object({
   style_no: nullableText,
   consignee_id: uuidN,
   assortment_type_id: uuidN,
+  /* `nullableText`, NOT `capsTextNullable()`, and deliberately so: this is the
+     same PO number the HEADER's `po_no` holds, which is `nullableText` below.
+     Capsing one of the two would let the same buyer reference read two ways
+     depending on which switch was on when it was typed. */
+  po_no: nullableText,
   po_qty: num,
   // Dates are plain ISO strings here, as everywhere in this module — the input
   // is `<input type="date">`, whose value is always ISO regardless of the
@@ -866,7 +954,10 @@ export const amendmentInput = z.object({
   delivery_date: nullableText,
   excess_pct: num,
   pack: z.boolean().default(false),
+  /** MULTI STYLE. The column name is the legacy one — see the row type. */
   mult_ord: z.boolean().default(false),
+  /** MULTI ORDER (0427) — several buyer POs, one per quantity line. */
+  multi_order: z.boolean().default(false),
   /**
    * WITHDRAWN FROM THE FORM (client), and therefore from this schema.
    *

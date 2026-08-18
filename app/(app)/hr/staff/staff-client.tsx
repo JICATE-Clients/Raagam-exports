@@ -185,7 +185,7 @@ export default function StaffClient({
                     setForm({ ...form, location_id: e.target.value || null })
                   }
                 >
-                  <option value="">— Select —</option>
+                  <option value=""></option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}

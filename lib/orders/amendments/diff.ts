@@ -284,7 +284,7 @@ type FlatStructure = {
   combo: string | null;
   structure_id: string | null;
   fabric_type: string | null;
-  composition_id: string | null;
+  fabric_item_id: string | null;
   gsm: number | null;
   gsm_tolerance: number | null;
   item_sub_type: string | null;
@@ -299,7 +299,7 @@ function flattenStructures(combos: ComboRow[]): FlatStructure[] {
         combo: c.combo,
         structure_id: st.structure_id,
         fabric_type: st.fabric_type,
-        composition_id: st.composition_id,
+        fabric_item_id: st.fabric_item_id,
         gsm: st.gsm,
         gsm_tolerance: st.gsm_tolerance,
         item_sub_type: st.item_sub_type,
@@ -316,13 +316,16 @@ const COMBO_STRUCTURES: TabSpec<FlatStructure> = {
   // names is a different fabric, not an edited one — the same reading a
   // recoloured dyeing gets. What remains as fields are the things that can
   // genuinely change ABOUT a given fabric on a given combo: its GSM, its
-  // tolerance, its composition.
+  // tolerance, and which fabric material states its composition.
   key: (r) => `${norm(r.style_ref_no)}|${norm(r.combo)}|${r.structure_id ?? ""}`,
   rowLabel: (r) =>
     [r.style_ref_no?.trim() || "(no style)", r.combo?.trim()].filter(Boolean).join(" · "),
   fields: [
     { field: "fabric_type", label: "Type" },
-    { field: "composition_id", label: "Composition" },
+    // STILL LABELLED "Composition" though the column now names a fabric (0430):
+    // the operator changed the composition — the fabric is how it is said. A diff
+    // reads to the person who signed the amendment, not to the schema.
+    { field: "fabric_item_id", label: "Composition" },
     { field: "gsm", label: "GSM" },
     { field: "gsm_tolerance", label: "Tolerance" },
     { field: "item_sub_type", label: "Fabric Type" },

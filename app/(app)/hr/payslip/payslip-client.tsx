@@ -66,7 +66,7 @@ export function PayslipClient({
                 value={workerId}
                 onChange={(e) => setWorkerId(e.target.value)}
               >
-                <option value="">Select worker…</option>
+                <option value=""></option>
                 {workers.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.code ? `${w.code} — ` : ""}{w.name}
@@ -82,7 +82,7 @@ export function PayslipClient({
                 value={runId}
                 onChange={(e) => setRunId(e.target.value)}
               >
-                <option value="">Select run…</option>
+                <option value=""></option>
                 {runs.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.code ?? "Run"} · {fmtDate(r.period_start)} – {fmtDate(r.period_end)} ({r.status})

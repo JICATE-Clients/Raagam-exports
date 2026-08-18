@@ -143,7 +143,7 @@ export function LcDetailClient({ lc, buyers, currencies, canEdit, canDelete }: P
               <div>
                 <Label htmlFor="e-buyer">Buyer</Label>
                 <Select id="e-buyer" value={buyerId} onChange={(e) => setBuyerId(e.target.value)}>
-                  <option value="">— select —</option>
+                  <option value=""></option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}

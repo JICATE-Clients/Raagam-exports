@@ -203,7 +203,14 @@ export const Select = forwardRef<
             stopPropagation() {},
           } as unknown as ChangeEvent<HTMLSelectElement>)
         }
-        placeholder={placeholder ?? "Select…"}
+        // Only reached by a `<Select>` with NO empty `<option>` — otherwise
+        // `parseOptions` above has already taken that option's own label as the
+        // placeholder, and those labels were blanked app-wide on 2026-08-17
+        // (209 of them: "— Select —", "Select…", "-- None --", a bare "—").
+        // The `All …` ones deliberately survived: on a FILTER that is a real
+        // choice, not an empty state. Same default as the picker and the
+        // Combobox; see data-picker.tsx.
+        placeholder={placeholder ?? ""}
         clearable={hasEmpty}
         disabled={props.disabled}
         // Carry the mandatory declaration across the native → listbox swap, or a

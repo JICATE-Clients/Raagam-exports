@@ -121,7 +121,7 @@ export function NewProcessOrderForm({
             <div>
               <Label>Processor (Vendor) *</Label>
               <Select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-                <option value="">-- Select --</option>
+                <option value=""></option>
                 {vendors.map((v) => (
                   <option key={v.id} value={v.id}>{v.name}</option>
                 ))}
@@ -138,7 +138,7 @@ export function NewProcessOrderForm({
             <div>
               <Label>Location</Label>
               <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                <option value="">-- Select --</option>
+                <option value=""></option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>{l.name}</option>
                 ))}

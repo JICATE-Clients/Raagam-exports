@@ -294,7 +294,7 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
           <div>
             <Label htmlFor="s-enq">Enquiry *</Label>
             <Select id="s-enq" value={form.opportunity_id} onChange={(e) => set("opportunity_id", e.target.value)}>
-              <option value="">Select enquiry…</option>
+              <option value=""></option>
               {opportunities.map((o) => (
                 <option key={o.id} value={o.id}>
                   {(o.code ?? "—") +
@@ -331,7 +331,7 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
           <div>
             <Label htmlFor="s-style">Style</Label>
             <Select id="s-style" value={form.style_id} onChange={(e) => set("style_id", e.target.value)} disabled={!form.opportunity_id}>
-              <option value="">None</option>
+              <option value=""></option>
               {enquiryStyles.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -349,7 +349,7 @@ export function SamplesClient({ samples, opportunities, styles, uoms, perms }: P
             <div>
               <Label htmlFor="s-unit">Unit</Label>
               <Select id="s-unit" value={form.unit_id} onChange={(e) => set("unit_id", e.target.value)}>
-                <option value="">Select…</option>
+                <option value=""></option>
                 {uoms.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.code}

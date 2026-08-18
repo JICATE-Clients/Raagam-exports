@@ -260,7 +260,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                     onChange={(e) => handleQuoteSelect(e.target.value)}
                     required
                   >
-                    <option value="">— select quote —</option>
+                    <option value=""></option>
                     {quotes.map((q) => (
                       <option key={q.id} value={q.id}>
                         {q.code ?? q.id.slice(0, 8)} — {q.buyers?.name ?? "?"} (
@@ -301,7 +301,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   onChange={(e) => setBuyerId(e.target.value)}
                   required
                 >
-                  <option value="">— select buyer —</option>
+                  <option value=""></option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
@@ -323,7 +323,7 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
                   value={locationId}
                   onChange={(e) => setLocationId(e.target.value)}
                 >
-                  <option value="">— select location —</option>
+                  <option value=""></option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.code} — {l.name}

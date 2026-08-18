@@ -175,7 +175,7 @@ function PriceListTab({ rows }: { rows: StylePriceList[] }) {
             <div><Label>Reference</Label><Input value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></div>
             <div><Label>Effective From</Label><Input type="date" value={form.effective_from} onChange={(e) => setForm({ ...form, effective_from: e.target.value })} /></div>
             <div><Label>Style Type</Label><Input value={form.style_type} onChange={(e) => setForm({ ...form, style_type: e.target.value })} /></div>
-            <div><Label>Rate For</Label><Select value={form.rate_for} onChange={(e) => setForm({ ...form, rate_for: e.target.value })}><option value="">Select…</option><option value="bulk">Bulk</option><option value="sample">Sample</option></Select></div>
+            <div><Label>Rate For</Label><Select value={form.rate_for} onChange={(e) => setForm({ ...form, rate_for: e.target.value })}><option value=""></option><option value="bulk">Bulk</option><option value="sample">Sample</option></Select></div>
           </DetailSection>
         </div>
       </Sheet>

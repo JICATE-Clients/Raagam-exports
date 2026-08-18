@@ -68,7 +68,7 @@ export function TransferForm({
           <div>
             <Label>From Store *</Label>
             <Select value={fromStore} onChange={(e) => setFromStore(e.target.value)}>
-              <option value="">-- Select --</option>
+              <option value=""></option>
               {stores.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -77,7 +77,7 @@ export function TransferForm({
           <div>
             <Label>To Store *</Label>
             <Select value={toStore} onChange={(e) => setToStore(e.target.value)}>
-              <option value="">-- Select --</option>
+              <option value=""></option>
               {stores.filter((s) => s.id !== fromStore).map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -86,7 +86,7 @@ export function TransferForm({
           <div>
             <Label>Item *</Label>
             <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-              <option value="">-- Select --</option>
+              <option value=""></option>
               {items.map((i) => (
                 <option key={i.id} value={i.id}>{i.name} ({i.code})</option>
               ))}

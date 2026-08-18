@@ -67,7 +67,7 @@ export function PoCancellationsClient({ rows, pos, canEdit }: Props) {
                 <div className="min-w-[220px] flex-1">
                   <Label htmlFor="pc-po">Purchase order</Label>
                   <Select id="pc-po" value={poId} onChange={(e) => setPoId(e.target.value)}>
-                    <option value="">— select PO —</option>
+                    <option value=""></option>
                     {pos.map((p) => <option key={p.id} value={p.id}>{p.code ?? p.id.slice(0, 8)}{p.vendor_name ? ` — ${p.vendor_name}` : ""}</option>)}
                   </Select>
                 </div>

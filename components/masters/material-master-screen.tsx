@@ -1118,7 +1118,7 @@ export function MaterialMasterScreen({
     const used = new Set(usedIds ?? []);
     return (
       <Select value={value} onChange={(e) => onChange(e.target.value)} className="text-base md:text-sm">
-        <option value="">— None —</option>
+        <option value=""></option>
         {units
           .filter((u) => (limitTo ? limitTo.has(u.id) : u.is_active) || u.id === value)
           .map((u) => (
@@ -1256,7 +1256,7 @@ export function MaterialMasterScreen({
           <div key={key}>
             <Label>{isAccessory ? "Transaction Type" : "Type"}</Label>
             <Select value={form.material_type} onChange={(e) => set({ material_type: e.target.value })} className="text-base md:text-sm">
-              <option value="">— Select —</option>
+              <option value=""></option>
               {typeOptions.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -1864,7 +1864,7 @@ export function MaterialMasterScreen({
                 value={form.fabric_type_id}
                 onChange={(e) => handleFabricTypeChange(e.target.value)}
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {fabricTypes
                   .filter((t) => t.is_active || t.id === form.fabric_type_id)
                   .map((t) => (
@@ -1919,7 +1919,7 @@ export function MaterialMasterScreen({
                 // spacing is deliberately tight everywhere else.
                 <Field label="Using" size="full" required={req("fabric_using")} className="[&>label]:mb-1.5">
                   <Select value={form.fabric_using} onChange={(e) => handleFabricUsingChange(e.target.value)}>
-                    <option value="">— Select —</option>
+                    <option value=""></option>
                     {FABRIC_USING.map((u) => (
                       <option key={u} value={u}>
                         {u}
@@ -2338,7 +2338,7 @@ export function MaterialMasterScreen({
                 onChange={(e) => handleItemClassChange(e.target.value)}
                 className="text-base md:text-sm"
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {itemClasses
                   .filter((c) => c.is_active || c.id === form.item_class_id)
                   .map((c) => (
@@ -2502,7 +2502,7 @@ export function MaterialMasterScreen({
                                     onChange={(e) => setAnswers((a) => ({ ...a, [q.lineId]: e.target.value }))}
                                     className="text-base md:text-sm"
                                   >
-                                    <option value="">— Select —</option>
+                                    <option value=""></option>
                                     {choices.map((opt) => (
                                       <option key={opt} value={opt}>
                                         {opt}

@@ -25,6 +25,7 @@ import { deletedToast } from "@/lib/masters/delete-message";
 import { BANK_TYPES, type Bank, type BankBranch, type BankInput, type BankType } from "@/lib/masters/bank-types";
 import type { Country } from "@/lib/masters/country-types";
 import { isInactive } from "@/lib/masters/inactive";
+import { useBlockAction } from "@/components/masters/use-block-action";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useSpellSuggest } from "@/lib/masters/use-spell-suggest";
@@ -125,6 +126,8 @@ export function BankMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  /** Block / Unblock in the ⋮ — one implementation for every master listing. */
+  const { blockItem } = useBlockAction("bank");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState(BLANK);
@@ -383,10 +386,12 @@ export function BankMasterScreen({
           onDelete: remove,
           // Duplicate lives behind the ⋮ — it is a create, not row CRUD, and it
           // is the only master that offers one.
-          menu: (r) =>
-            perms.canCreate && perms.canEdit
+          menu: (r) => [
+            ...(perms.canCreate && perms.canEdit
               ? [{ label: "Duplicate", icon: Copy, onClick: () => openDuplicate(r) }]
-              : [],
+              : []),
+            ...blockItem(r, { label: r.name, canBlock: perms.canDelete }),
+          ],
         }}
         empty="No bank records yet."
         mobile={{
@@ -510,21 +515,12 @@ export function BankMasterScreen({
                 ))}
               </div>
             </Field>
-            {/* Edit only, so it takes a short second row rather than a share of
-                the first — that keeps row 1 identical between New and Edit. */}
-            {editId && (
-              <Field size="sm">
-                <label className="flex h-8 cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
-                    checked={form.inactive}
-                    onChange={(e) => set({ inactive: e.target.checked })}
-                  />
-                  <span className="text-sm text-foreground">Inactive</span>
-                </label>
-              </Field>
-            )}
+            {/* THE INACTIVE CHECKBOX IS GONE FROM THIS FORM (client 2026-08-17):
+                blocking is a row ACTION on the listing now, never a field while
+                the record is being created or edited. `form.inactive` is still
+                in the input and still round-trips, so an edit cannot null it —
+                the value is simply no longer typed here. See
+                `useBlockAction` / `lib/masters/active-registry.ts`. */}
           </DetailSection>
 
           {/* Twelve fields per branch — well past the ~5 a row can hold, so

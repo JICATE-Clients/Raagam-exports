@@ -833,7 +833,7 @@ function DescriptionsTab({ orderId }: { orderId: string }) {
         <div data-focus-scope className="space-y-3 rounded border border-border p-3">
           <FieldGrid>
             <Field label="Type" size="sm" htmlFor="pd-type">
-              <Select id="pd-type" value={f.description_type} onChange={(e) => setF({ ...f, description_type: e.target.value })}><option value="">Select…</option>{DESCRIPTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</Select>
+              <Select id="pd-type" value={f.description_type} onChange={(e) => setF({ ...f, description_type: e.target.value })}><option value=""></option>{DESCRIPTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</Select>
             </Field>
             <Field label="Description" size="lg" htmlFor="pd-description">
               <Input id="pd-description" uppercase value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
@@ -918,7 +918,7 @@ function TrimsTab({
                 const supply_type = e.target.value;
                 const { items } = nominatedVendorOptions({ ...vendorRule, supplyType: supply_type });
                 setF((p) => ({ ...p, supply_type, vendor_id: !p.vendor_id || items.some((v) => v.id === p.vendor_id) ? p.vendor_id : null }));
-              }}><option value="">Select…</option>{SUPPLY_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}</Select>
+              }}><option value=""></option>{SUPPLY_TYPES.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}</Select>
             </Field>
             {/* Stays `compact` — the picker keeps its own short "pick the supply
                 type first" line inside the box, which is the whole point of
@@ -968,7 +968,7 @@ function FabricTab({ orderId }: { orderId: string }) {
               <Input id="fb-gsm" type="number" value={f.gsm} onChange={(e) => setF({ ...f, gsm: e.target.value })} />
             </Field>
             <Field label="Type" size="sm" htmlFor="fb-type">
-              <Select id="fb-type" value={f.fabric_type} onChange={(e) => setF({ ...f, fabric_type: e.target.value })}><option value="">Select…</option><option value="main">Main</option><option value="trims_fabric">Trims Fabric</option></Select>
+              <Select id="fb-type" value={f.fabric_type} onChange={(e) => setF({ ...f, fabric_type: e.target.value })}><option value=""></option><option value="main">Main</option><option value="trims_fabric">Trims Fabric</option></Select>
             </Field>
           </FieldGrid>
           <Button size="sm" disabled={isPending} onClick={() => startTransition(async () => { const res = await addOrderFabric({ sales_order_id: orderId, structure_name: f.structure_name || null, composition: f.composition || null, gsm: f.gsm ? Number(f.gsm) : null, fabric_type: (f.fabric_type as "main" | "trims_fabric") || null }, orderId); if (res.ok) { success("Added."); setAdding(false); setF({ structure_name: "", composition: "", gsm: "", fabric_type: "" }); router.refresh(); } else error(res.error); })}>{isPending ? "Adding…" : "Add"}</Button>
@@ -1004,7 +1004,7 @@ function ApprovalParamsTab({ orderId }: { orderId: string }) {
               <Input id="ap-parameter" uppercase value={f.parameter_name} onChange={(e) => setF({ ...f, parameter_name: e.target.value })} />
             </Field>
             <Field label="Status" size="sm" htmlFor="ap-status">
-              <Select id="ap-status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">—</option>{APPROVAL_PARAM_STATUSES.map(s => <option key={s} value={s}>{s === "ok" ? "OK" : "NOT OK"}</option>)}</Select>
+              <Select id="ap-status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value=""></option>{APPROVAL_PARAM_STATUSES.map(s => <option key={s} value={s}>{s === "ok" ? "OK" : "NOT OK"}</option>)}</Select>
             </Field>
             <Field label="Comment" size="sm" htmlFor="ap-comment">
               <Input id="ap-comment" uppercase value={f.comment} onChange={(e) => setF({ ...f, comment: e.target.value })} />

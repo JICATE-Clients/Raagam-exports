@@ -489,7 +489,7 @@ function AccessTab({
                 value={selectedUserId}
                 onChange={(e) => setSelectedUserId(e.target.value)}
               >
-                <option value="">— select user —</option>
+                <option value=""></option>
                 {eligible.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.full_name ?? p.email ?? p.id}
