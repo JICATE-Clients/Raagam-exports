@@ -13,6 +13,17 @@ import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
+ * The body track for `across="compact"` — fixed 9rem cells that wrap, instead of
+ * `FIELD_TRACK`'s twelve fractions of the section. See the `across` prop.
+ *
+ * A LITERAL, never interpolated: Tailwind v4 scans source text, so a computed
+ * `grid-cols-[repeat(auto-fill,${w})]` produces no CSS at all — the same warning
+ * `FIELD_TRACK` itself carries.
+ */
+const ACROSS_COMPACT_TRACK =
+  "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5 grid-cols-[repeat(auto-fill,9rem)]";
+
+/**
  * The controls that form a row's navigable axis, in DOM order.
  *
  * `[data-field-trigger]` (a dialog-picker trigger) counts as a field even
@@ -705,6 +716,7 @@ export function ChildGrid<T extends { key: string }>({
   flushRows = false,
   hideIndex = false,
   listRows = false,
+  flatRows = false,
   rowSummary,
   foldRows = false,
   canFold,
@@ -910,9 +922,7 @@ export function ChildGrid<T extends { key: string }>({
    *     exists to remove.
    *   - `FIELD_SPAN.xs` per record (2 of 12). A FIXED span, never `flex-1`: the
    *     items have to line up in columns as they wrap, and an unsized item absorbs
-   *     the row's slack — the same failure `hugsContent` records. Both call sites
-   *     want `xs`; a per-caller `itemSize` prop is where that becomes a choice,
-   *     and is deliberately not shipped until one needs a different width.
+   *     the row's slack — the same failure `hugsContent` records.
    *   - The "+ Add" INSIDE `data-grid-body`, taking a cell of its own. It lines up
    *     with the records above it and lands on the same line as the last of them
    *     instead of costing a fresh 40px — and `enterNestedGrid` looks for
@@ -939,8 +949,34 @@ export function ChildGrid<T extends { key: string }>({
    *
    * FOR A ONE-CONTROL RECORD. Two columns per record would render side by side
    * inside a 2/12 span; use `inlineCards` or `forceCards` for those.
+   *
+   * `across="compact"` — THE SAME LAYOUT ON A FIXED 9rem TRACK instead of the
+   * 12-column one (client 2026-08-18, screenshot 2335: "reduce this size dialing
+   * fields length, now it looks too large, make compact").
+   *
+   * A span is a FRACTION of whatever it is given, and that is the whole defect:
+   * the Style master's size list is `size="full"`, so 2/12 of a full-width
+   * section is ~248px — a quarter of a metre of dropdown holding "XL". The
+   * earlier note above predicted the fix as a per-caller `itemSize`, and that is
+   * the wrong shape for it: every size on `FIELD_SPAN` is a fraction too, `xs`
+   * is already the smallest, and the value here is 2-4 characters wide however
+   * wide the section is. What the record needs is a WIDTH, not a share.
+   *
+   * So the compact track is `repeat(auto-fill, 9rem)` — 144px cells, wrapping,
+   * left-aligned, identical at 1366 and at 1920. Nine sizes to a line where the
+   * fractional track fitted six, and the tenth wraps under the first rather than
+   * the picker growing to swallow the slack.
+   *
+   * The track is a literal constant for the reason `FIELD_TRACK` is: Tailwind v4
+   * scans source text, so `grid-cols-[repeat(auto-fill,${n})]` would compile to
+   * no CSS at all.
+   *
+   * KEEP THE DEFAULT WHERE THE RECORDS SIT UNDER FIELDS. The 12-col track is not
+   * decoration there — on the Garment Order's Style(s) tab a size cell lands
+   * exactly under Style / Order Unit / PO Qty, and a 9rem cell would line up with
+   * nothing. Compact is for a list that stands on its own row.
    */
-  across?: boolean;
+  across?: boolean | "compact";
   /**
    * TAKE THE WIDTH GIVEN instead of hugging the columns — for a grid that shares
    * a row with another grid, where the two cards' edges must line up.
@@ -1036,6 +1072,32 @@ export function ChildGrid<T extends { key: string }>({
    * The row still carries `data-grid-row`, so keyboard nav is unaffected.
    */
   listRows?: boolean;
+  /**
+   * Cards mode with the BAND KEPT and the BOX DROPPED — rows divided by a rule
+   * instead of each sitting in its own bordered card.
+   *
+   * The middle setting between `forceCards` and `listRows`, and it exists
+   * because those two were the only choices and neither fit a client asking for
+   * one less frame (2026-08-18, screenshot 2342: "remove that New style price
+   * frame, just that top frame is enough"). `forceCards` draws a card inside the
+   * section's own card. `listRows` drops the card but ALSO drops the header —
+   * summary and ✕ both — so the screen has to hand-roll a band, which is the
+   * ~20 lines of duplicated chrome the Combos structure grid deleted when it
+   * moved the other way. Choosing between two frames and no delete button is
+   * not a choice a grid should force.
+   *
+   * So: `rowSummary` still draws, the ✕ still sits in it carrying
+   * `data-row-remove` for Ctrl+Del, folding still works — only the border and
+   * the 10px of padding go, and a hairline takes over the job of saying where
+   * one row ends.
+   *
+   * There is no focus wash to keep: the row tint was removed app-wide on
+   * 2026-08-18 (see `app/globals.css`). The rule between rows is what says
+   * where one row ends.
+   *
+   * Cards-mode only, like `listRows`. Pair it with `forceCards`.
+   */
+  flatRows?: boolean;
   /**
    * Who this row IS, drawn beside its `#N` in the cards-mode header band.
    *
@@ -1185,6 +1247,9 @@ export function ChildGrid<T extends { key: string }>({
    * unused. The props stay as they are — they are the public API across ~32
    * screens — but nothing downstream reads them directly any more.
    */
+  /** `across="compact"` is the same mode on a fixed track — see the prop. */
+  const acrossCompact = across === "compact";
+
   const mode: "across" | "inline" | "cards" | "responsive" = across
     ? "across"
     : inlineCards
@@ -1542,7 +1607,7 @@ export function ChildGrid<T extends { key: string }>({
              the `across` prop for why this exists and what each piece is for. */
           <div
             data-grid-body
-            className={FIELD_TRACK}
+            className={acrossCompact ? ACROSS_COMPACT_TRACK : FIELD_TRACK}
             onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
           >
             {view.map((row, localI) => {
@@ -1554,7 +1619,9 @@ export function ChildGrid<T extends { key: string }>({
                   // `items-center`, not `items-start`: a record here is ONE short
                   // control, so there is no two-line cell to tilt the row — the
                   // case `items-start` exists for in the inline layout.
-                  className={cn("flex items-center gap-1.5", FIELD_SPAN.xs)}
+                  // On the compact track the CELL is already 9rem, so there is no
+                  // span to take: the item fills the fixed column it was dealt.
+                  className={cn("flex items-center gap-1.5", !acrossCompact && FIELD_SPAN.xs)}
                 >
                   {columns.map((c, ci) => (
                     <div key={ci} className="min-w-0 flex-1">
@@ -1600,7 +1667,11 @@ export function ChildGrid<T extends { key: string }>({
                    keeps its column slot so it lines up with the records above,
                    and matches `ChildGrid`'s own Add button everywhere else —
                    `variant="outline" size="sm"`, content width. */
-                className={cn("justify-self-start", FIELD_SPAN.xs)}
+                className={cn(
+                  "justify-self-start whitespace-nowrap",
+                  !acrossCompact && FIELD_SPAN.xs,
+                  addClassName,
+                )}
                 onClick={handleAdd}
               >
                 {addLabel}
@@ -1812,7 +1883,21 @@ export function ChildGrid<T extends { key: string }>({
         <div
           data-grid-body
           className={cn(
-            listRows ? "divide-y divide-border" : "space-y-2",
+            /* NO `divide-y` HERE — the rule between rows is drawn BY the row
+               (`border-t` on every row after the first, below). Tailwind's
+               `divide-y` is `& > :not(:last-child)`, so it hangs the rule off
+               the row's BOTTOM edge: with a totals band as the last child, the
+               last row stopped being last and grew a border under it — a grey
+               line across the section directly above "+ Add quantity" (client
+               2026-08-18, screenshots 2345 · 2346). Drawing it on the row's TOP
+               instead cannot paint a trailing edge, whatever follows the rows. */
+            listRows || flatRows ? undefined : "space-y-2",
+            /* `tableFrom` is the caller-declared breakpoint at which the table
+               takes over; it falls back to the `narrow` pair when unset. Merged
+               with the rule above rather than replacing it — the two answer
+               different questions (WHICH rule between rows, and AT WHAT WIDTH
+               the cards give way), and an earlier resolution that took one side
+               whole would have silently reverted the other's fix. */
             mode === "responsive" &&
               (tableFrom
                 ? TABLE_FROM[tableFrom].hide
@@ -1870,11 +1955,31 @@ export function ChildGrid<T extends { key: string }>({
             <div
               key={row.key}
               data-grid-row
+              /**
+               * `data-row-box` is INERT and kept on purpose. It was the opt-out
+               * from the `--row-active` row wash, narrowed twice — first to
+               * rows that draw a card (client 2026-08-18, screenshot 2338
+               * "some sections have this grey bg"), then to every cards-family
+               * row (2343, Quantities) — before the client removed the wash
+               * from the whole application rather than from one more place.
+               *
+               * It stays because it costs nothing and it is the answer already
+               * worked out for the shape: a row laid out as a PANEL OF FIELDS
+               * must never take a full-row fill, whatever that fill is for.
+               * `app/globals.css` says what to do if the cue ever returns.
+               */
+              data-row-box=""
               className={cn(
                 "space-y-2",
                 // `py-2` only — no horizontal padding, so a flat row's fields keep
                 // the grid's own left edge and line up with the sections above it.
-                listRows ? "py-2 first:pt-0 last:pb-0" : "rounded-lg border border-border p-2.5",
+                listRows || flatRows
+                  ? "py-2 first:pt-0 last:pb-0"
+                  : "rounded-lg border border-border p-2.5",
+                // The divider, owned by the row that needs one — see the
+                // container. `localI` is the index on the PAGE, so the first row
+                // the operator can see never carries a rule above it.
+                (listRows || flatRows) && localI > 0 && "border-t border-border",
                 // Only when the ✕ floats: `relative` to hang it on, and room on
                 // the right so the last field's LABEL does not run under it. A
                 // banded card needs neither — its ✕ is in the flow.
@@ -1887,7 +1992,26 @@ export function ChildGrid<T extends { key: string }>({
                  Tab out of one row lands on the next row's remaining field and
                  the row unfolds around the cursor. `onFocus` bubbles, so one
                  handler catches the mouse and the keyboard. */
-              onFocus={folded ? () => setOpenRowKey(row.key) : undefined}
+              /* ANY ROW CLAIMS THE FOLD, not just a folded one (client
+                 2026-08-18: "if the user moved to next structure details, close
+                 the first one automatically").
+                 
+                 `folded ? …` was the whole bug. A row that CANNOT fold —
+                 `canFold` refuses a structure with nothing picked yet, and a
+                 blank row is exactly the one an operator moves to next — got no
+                 handler at all, so focusing it left `openRowKey` pointing at the
+                 row behind. Two rows stood open, which is the state "one open at
+                 a time" exists to prevent, and it appeared precisely when the
+                 operator started the second one.
+                 
+                 The functional update is what keeps this free: re-focusing
+                 inside the row already open returns the same key, so React
+                 bails out instead of re-rendering the grid on every Tab. */
+              onFocus={
+                foldRows && renderFoldedRow
+                  ? () => setOpenRowKey((k) => (k === row.key ? k : row.key))
+                  : undefined
+              }
               /* AND A CLICK ANYWHERE, minus buttons: the row's own ✕ is inside
                  this handler's reach, and unfolding a row on the way to deleting
                  it is a flicker with no purpose. */
@@ -1951,7 +2075,18 @@ export function ChildGrid<T extends { key: string }>({
               container is what carries `@lg:hidden`, so a band outside it would
               render alongside the table's <tfoot> at wide sizes. */}
           {hasTotals && (
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t-2 border-border pt-2">
+            /* NO RULE ABOVE THE TOTALS (client 2026-08-18, screenshots 2345 ·
+               2346: "above of the add quantity i can see the grey line remove
+               it", and the same on Approval Qty). `border-t-2 border-border` was
+               a table's `<tfoot>` habit carried onto a card stack, where it does
+               not read as "figures below the line" — the band holds the "+ Add"
+               button as its left half, so the rule drew a full-width line above
+               a BUTTON. `pt-2` still sets it apart, and the labels are already
+               uppercase-muted against a bold figure.
+
+               The table's own <tfoot> and the inline band keep theirs: there the
+               figures really do sit under columns of numbers. */
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 pt-2">
               {/* The empty left half of a right-aligned totals row — Add takes it
                   when it can, and an empty span holds the `justify-between` apart
                   when it cannot, so the figures stay right-aligned either way. */}

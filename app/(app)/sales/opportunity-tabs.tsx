@@ -443,7 +443,7 @@ function StylesTab({
                     so the inner list stays out of the outer axis. */}
                 <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addCombo)}>
                 {combos.map((c, ci) => (
-                  <div key={ci} data-grid-row className="mb-3 rounded border border-border p-3 space-y-2">
+                  <div key={ci} data-grid-row data-row-box className="mb-3 rounded border border-border p-3 space-y-2">
                     <div className="flex gap-2 items-end">
                       <div className="flex-1"><Label>Combo</Label><Input value={c.combo} onChange={(e) => updateCombo(ci, "combo", e.target.value)} placeholder="e.g. Red/Blue" /></div>
                       <div className="w-28"><Label>Order Qty</Label><Input type="number" value={c.order_qty} onChange={(e) => updateCombo(ci, "order_qty", e.target.value)} /></div>

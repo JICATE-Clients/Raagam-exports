@@ -1579,7 +1579,7 @@ export function ConsigneeMasterScreen({
                           scrolled to be read (client 2026-07-30). */}
                       <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="space-y-3">
                       {contacts.map((c, i) => (
-                        <div data-grid-row key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
+                        <div data-grid-row data-row-box key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-medium text-muted-foreground">
                               Contact #{i + 1}
@@ -1956,7 +1956,7 @@ export function ConsigneeMasterScreen({
                     {/* No inner scroll — see ChildGrid's `pageSize` note. */}
                     <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addNotifyRef)} className="space-y-3">
                     {notifyRefs.map((n, i) => (
-                      <div data-grid-row key={n.key} className="space-y-2 rounded-md border border-border p-2.5">
+                      <div data-grid-row data-row-box key={n.key} className="space-y-2 rounded-md border border-border p-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-medium text-muted-foreground">
                             Notify #{i + 1}
