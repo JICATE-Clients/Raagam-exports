@@ -52,7 +52,9 @@ import {
   MasterFullScreen,
   SectionBody,
   type FullScreenSection,
+  type MasterFullScreenHandle,
 } from "@/components/masters/master-full-screen";
+import { sectionValidity } from "@/lib/screens/validity";
 import { Field, FieldGrid, FIELD_TRACK } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -653,6 +655,9 @@ export function AmendmentScreen({
 
   const router = useRouter();
   const { success, error: toastError } = useToast();
+  /** The editor shell, so a blocked Save can steer to the section that owns the
+   *  problem — see `revealFirstProblem`. */
+  const shellRef = useRef<MasterFullScreenHandle>(null);
   const [isPending, start] = useTransition();
 
   const [mode, setMode] = useState<"list" | "edit">("list");
@@ -2051,15 +2056,77 @@ export function AmendmentScreen({
    * Requiredness that does not reach the Save button is half a rule; AGENTS.md
    * calls the two "enforcers" of one declaration.
    */
-  const canSave =
-    !!form.location_id &&
-    !!form.customer_id &&
-    !!form.amend_date &&
-    !!form.ship_type_id &&
-    !!form.ship_mode &&
-    !!form.pay_mode &&
-    !!form.pay_terms_id &&
-    !!form.currency_code;
+  /**
+   * WHAT IS STOPPING A SAVE, AND WHICH SECTION HOLDS IT (client 2026-08-18:
+   * "the changes I have done in combo details section, it's not live").
+   *
+   * They were not live because the order had never been SAVED, and the screen
+   * never said so. This gate is eight fields; five of them live in Logistic,
+   * one rail row away from the Combos tab the operator was working in. The
+   * footer passed `canSave` and no `onBlockedSave`, and `master-full-screen.tsx`
+   * says what that means in its own words — "omit it and the button behaves
+   * exactly as it always has: disabled". So Save sat dead with no toast, no
+   * marked field and no count, on a screen whose rail dots mean "has rows"
+   * rather than "has a problem": Combos and Quantities showed filled dots while
+   * every field actually blocking the save showed a hollow one.
+   *
+   * The database is what settled it. `garment_order_amendment_combo_structures`
+   * held ZERO rows while the combo save path — payload, action, three-level
+   * insert — is correct end to end, and the one order in the system is seeded
+   * demo data whose `updated_at` still equals its `created_at`. No save has ever
+   * succeeded from this screen.
+   *
+   * DERIVED, NOT HAND-ASSEMBLED. The `&&` chain this replaces is the shape
+   * `sectionValidity` exists to end: a list a screen can forget to extend, whose
+   * failure is a dead button two sections away from its cause
+   * (`customer-master-screen.tsx:1649` is the case that named it). The same list
+   * now feeds the rail's red counts, the blocked-Save reveal and the button
+   * state, so the three cannot disagree.
+   *
+   * THE KEYS ARE THE RAIL'S KEYS. `revealFirstProblem` hands `p.section`
+   * straight to `goToSection`, so a key here that does not name a rail row is a
+   * blocked Save that reports the right message and then jumps nowhere.
+   *
+   * The CONDITIONS are unchanged, deliberately — this is a fix for a silence,
+   * not a re-negotiation of what an order needs. Whether Save should require the
+   * five Logistic fields at all is a separate question for the client; if the
+   * answer is no, they move out of this list rather than losing their labels.
+   */
+  const validity = sectionValidity({
+    sections: [{ key: "orderinfo" }, { key: "logistic" }],
+    values: form,
+    fields: [
+      // Order Info. Labels are the words ON the fields, because a blocked Save
+      // reads them out loud — "Unit", not "Location"; "Deli.Dt" is not here at
+      // all because it does not block.
+      { section: "orderinfo", label: "Unit", required: true, empty: (f) => !f.location_id },
+      { section: "orderinfo", label: "Customer", required: true, empty: (f) => !f.customer_id },
+      { section: "orderinfo", id: "hd-date", label: "Date", required: true, empty: (f) => !f.amend_date },
+      // Logistic — the five that were invisible from where the operator stood.
+      { section: "logistic", label: "Ship Type", required: true, empty: (f) => !f.ship_type_id },
+      { section: "logistic", id: "lg-shipmode", label: "Ship Mode", required: true, empty: (f) => !f.ship_mode },
+      { section: "logistic", id: "lg-paymode", label: "Pay Mode", required: true, empty: (f) => !f.pay_mode },
+      { section: "logistic", label: "Pay Terms", required: true, empty: (f) => !f.pay_terms_id },
+      { section: "logistic", label: "Currency", required: true, empty: (f) => !f.currency_code },
+    ],
+  });
+
+  const canSave = validity.canSave;
+
+  /**
+   * Save, when it cannot save. Names the first problem, goes to the section that
+   * owns it and lands on the field — and because the button stays ENABLED,
+   * Ctrl+S and Enter-off-the-last-field route here too. With it disabled,
+   * `submitTargetOf` (lib/focus.ts) resolved the surface's primary action to the
+   * last non-disabled footer button, so both keys quietly hit "Save as Draft" or
+   * Cancel instead: the 2026-07-25 bug, live again on this screen until now.
+   */
+  const revealFirstProblem = () => {
+    const p = validity.first;
+    if (!p) return;
+    toastError(p.message);
+    shellRef.current?.goToSection(p.section, p.fieldId ? { fieldId: p.fieldId } : "problem");
+  };
 
   // ---- Phase 2 grid row updaters / adders / removers ----
   const updateStyle = (key: string, patch: Partial<StyleRow>) =>
@@ -2424,7 +2491,20 @@ export function AmendmentScreen({
       st.gsm_tolerance.trim() ||
       st.item_sub_type ||
       st.components.some(
-        (c) => c.coordinate_id || c.component_id || c.color_name.trim() || c.print_id,
+        (c) =>
+          c.coordinate_id ||
+          c.component_id ||
+          c.color_name.trim() ||
+          c.print_id ||
+          // `processed_as_trim` WAS MISSING HERE and it is the whole point of the
+          // paragraph above. `componentFilled` in actions.ts counts it, so a
+          // component whose only content is a ticked Processed as Trim IS
+          // stored — and then read back as "says nothing", which let
+          // `seedComboFromStyle` overwrite the saved structures with
+          // style-derived ones on the next [Detail] open. Silent loss of a row
+          // the server had just written, which is exactly the drift the twins
+          // were documented to prevent.
+          c.processed_as_trim,
       )
     );
 
@@ -4173,83 +4253,45 @@ export function AmendmentScreen({
    * reason `pcs_per_pack` has no column.
    */
   /**
-   * IS THIS ORDER PACKED TO AN ASSORTMENT?
+   * IS THIS ROW PACKED TO AN ASSORTMENT?
    *
-   * Client rule (2026-08-13): the ratio grid is for orders where "Assort" is
-   * chosen in the packing options. Until now the Assort button opened for any
-   * row naming a style, so a Solid Colour / Solid Size order — one colour and
-   * one size per carton, nothing to ration — offered a ratio matrix anyway.
+   * ONE FIELD ANSWERS — `Assortment Type`, the column two cells to the LEFT of
+   * the Details button it gates. Nothing else is consulted: not the Pack toggle,
+   * not the Pack type(s) section, not the row's own free-text `pack` note (that
+   * one is typed INSIDE the overlay, so gating on it was always circular).
    *
-   * IT READS THE ORDER'S PACK TYPES, NOT THE ROW'S `pack`. That column is a
-   * free-text carton note the operator types INSIDE this very overlay, so
-   * gating on it would be circular: you would have to open the sheet to earn
-   * the right to open it. The pack TYPE is a header decision — the Pack type(s)
-   * section, gated on the Pack toggle — and three of its four values assort on
-   * at least one axis.
+   * THE PACK CONNECTION IS CUT, DELIBERATELY (client 2026-08-18: "no more
+   * connection with pack and quantity tab"). The gate used to fall back to the
+   * ORDER's Pack type(s) whenever a row had named no type of its own, so a
+   * Quantities row could be refused by a switch in Order Info — and the refusal
+   * sent the operator to a different section to turn something on in order to
+   * earn a button sitting beside a field they had already filled. Pack still
+   * gates its OWN section in Order Info; what it no longer does is reach across
+   * into this tab.
    *
-   * EMPTY-AND-EXPLAIN, never a silent disable. Each refusal names the switch
-   * that turns it on; a greyed button with no reason is the failure the
-   * nominated-vendor rule records, where the operator never learns what is
-   * missing.
-   */
-  /**
-   * IS ANYTHING ASSORTED HERE — asked of the ROW FIRST (client 2026-08-18: "I
-   * chose assortment type but that details button is not enabling, still in
-   * disable mode").
-   *
-   * The gate used to read the ORDER's Pack type(s) and nothing else, while
-   * `Assortment Type` is a column of the Quantities grid — two cells to the LEFT
-   * of the very button it was being refused by. So the operator set the field
-   * that names an assortment, on the row whose Details they wanted, and the
-   * button ignored it and quoted a different section back at them.
-   *
-   * TWO STORES, ONE VOCABULARY, and that is the trap this rule now has to hold.
    * `pack_type` (order level, text from `PACK_TYPE_OPTIONS`) and
    * `assortment_type_id` (row level, an FK into the `assortment_type` lookup)
-   * are separate columns that 0400 deliberately seeded with the SAME four names
-   * — "Solid Colour / Solid Size" through "Assort Colour / Assort Size" — so the
-   * two tabs read alike to an operator. They are not one field, and merging them
-   * is not this fix: what they share is the vocabulary, which is why ONE
-   * predicate can answer for both.
+   * were deliberately seeded by 0400 with the SAME four names — "Solid Colour /
+   * Solid Size" through "Assort Colour / Assort Size" — so the two tabs read
+   * alike to an operator. Sharing a vocabulary is not sharing a rule, and
+   * reading one to decide the other is precisely what is being removed here.
    *
-   * THE ROW WINS WHEN IT HAS SPOKEN. A row-level type is the more specific
-   * declaration and it is the one the operator can see next to the button, so
-   * when it is set it decides — including when it decides NO, which is how
-   * "Solid Colour / Solid Size" on a row still refuses. Only when the row is
-   * silent does the order-level rule answer, with its original wording, so an
-   * order that never reached the Quantities grid behaves exactly as before.
-   *
-   * `form.pack` is deliberately NOT consulted on the row branch. It gates the
-   * Pack type(s) SECTION, and the Assortment Type column is on screen whether it
-   * is on or off — refusing a value the screen just accepted is the shape of the
-   * bug being fixed, not a rule worth preserving.
+   * EMPTY-AND-EXPLAIN, never a silent disable. A blank type names the field to
+   * fill; a Solid / Solid type says why there is no ratio to set. A greyed
+   * button with no reason is the failure the nominated-vendor rule records.
    */
   const assortsRatio = (name: string) => /assort/i.test(name);
 
   const assortGateFor = (r: QuantityRow): { ok: boolean; why?: string } => {
     const rowType =
       assortmentTypes.find((a) => a.id === r.assortment_type_id)?.name.trim() ?? "";
-    if (rowType) {
-      return assortsRatio(rowType)
-        ? { ok: true }
-        : {
-            ok: false,
-            why: `Assortment Type is ${rowType} — one colour and one size per carton, so there is no ratio to set`,
-          };
-    }
-    return !form.pack
-      ? { ok: false, why: "Turn Pack on in Order Info, or pick an Assortment Type on this row" }
-      : packTypes.filter((p) => p.pack_type.trim()).length === 0
-        ? {
-            ok: false,
-            why: "Declare a Pack type first — see the Pack type(s) section — or pick an Assortment Type on this row",
-          }
-        : packTypes.some((p) => assortsRatio(p.pack_type))
-          ? { ok: true }
-          : {
-              ok: false,
-              why: "Pack type is Solid Colour / Solid Size — one colour and one size per carton, so there is no ratio to set",
-            };
+    if (!rowType) return { ok: false, why: "Pick an Assortment Type on this row" };
+    return assortsRatio(rowType)
+      ? { ok: true }
+      : {
+          ok: false,
+          why: `Assortment Type is ${rowType} — one colour and one size per carton, so there is no ratio to set`,
+        };
   };
 
   const ratioTotalOf = (l: AssortLineRow) =>
@@ -4606,17 +4648,16 @@ export function AmendmentScreen({
        * and the sizes are the style's; with no style there are no columns.
        * Same shape as the Combos [Detail] gate.
        *
-       * AND ON SOMETHING HERE BEING ASSORTED (`assortGateFor`, client
-       * 2026-08-13) — a Solid Colour / Solid Size line has one colour and one
-       * size in a carton, so there is no ratio to set. Each refusal names the
-       * switch that turns it on rather than greying out in silence.
+       * AND ON THIS ROW BEING ASSORTED (`assortGateFor`, client 2026-08-13) — a
+       * Solid Colour / Solid Size line has one colour and one size in a carton,
+       * so there is no ratio to set. Each refusal names the field that turns it
+       * on rather than greying out in silence.
        *
-       * THAT GATE IS PER ROW, and it was not until 2026-08-18: it read the
-       * order's Pack type(s) while `Assortment Type` — the field that names an
-       * assortment, two cells to the LEFT of this button — sat on the row being
-       * refused. The row's own type now decides whenever it is set, and the
-       * order-level rule answers only for a row that has not declared one. See
-       * `assortGateFor` for why two columns carry the same four words.
+       * THAT GATE IS PER ROW AND READS ONE FIELD — `Assortment Type`, two cells
+       * to the LEFT of this button. Until 2026-08-18 it fell back to the ORDER's
+       * Pack type(s), so a row could be refused by a toggle in Order Info; that
+       * connection is cut. See `assortGateFor` for why two columns still carry
+       * the same four words.
        *
        * The count is what makes the tree visible from outside — a destination
        * carrying three assortment lines otherwise looks exactly like one
@@ -4630,8 +4671,8 @@ export function AmendmentScreen({
        * `assortGateFor` rule above. What was broken is that it could
        * not SAY SO: a truly `disabled` button stops firing pointer events, so its
        * `title` never surfaces, and both reasons this button withholds itself
-       * ("Pick a Ref No first", "Turn Pack on in Order Info") were written and
-       * unreadable. A greyed control with no reason is precisely the failure the
+       * ("Pick a Ref No first", "Pick an Assortment Type on this row") were
+       * written and unreadable. A greyed control with no reason is precisely the failure the
        * nominated-vendor rule records — and the comment above already claimed
        * "each refusal names the switch that turns it on", which the markup then
        * prevented.
@@ -7267,6 +7308,12 @@ export function AmendmentScreen({
     key: "orderinfo",
     label: "Order Info",
     icon: ClipboardList,
+    /* A red COUNT replaces the done dot while something here blocks the save —
+       `blockingBySection`, so the badge and the dead button always mean the same
+       thing. Without it the rail could only ever say "this section has rows",
+       which is why every field blocking the save showed a hollow dot while the
+       two sections the operator had filled showed green ones. */
+    problems: validity.bySection.orderinfo,
     /*
      * The SC No is minted, so it cannot be what marks this section done — Unit
      * and Customer are what the operator actually supplies.
@@ -7589,6 +7636,10 @@ export function AmendmentScreen({
         label: t.label,
         icon: SECTION_ICONS[t.key] ?? FileText,
         done: sectionDone[t.key],
+        // Only `logistic` can carry one today; the lookup is keyed rather than
+        // hard-coded so a field declared against another tab tomorrow shows up
+        // on the rail without this line being remembered.
+        problems: validity.bySection[t.key],
         content: t.content,
       })),
   ];
@@ -7690,6 +7741,7 @@ export function AmendmentScreen({
           so the screen opened on the charge blocks and read as the wrong screen
           entirely. */}
       <MasterFullScreen
+        ref={shellRef}
         mount="page"
         open
         // No `header`: the route's own PageHeader above already names the
@@ -7729,6 +7781,23 @@ export function AmendmentScreen({
           onSave: () => submit(false),
           saveLabel: amending ? "Save amendment" : "Save garment order",
           canSave,
+          /* THE LINE THAT WAS MISSING. Without it the primitive disables Save,
+             which is a dead button and — via `submitTargetOf` — Ctrl+S and Enter
+             landing on Cancel. See `revealFirstProblem`. */
+          onBlockedSave: revealFirstProblem,
+          /* "3 to fix", between the status and Cancel, so the operator can see
+             there is something to fix WITHOUT pressing a button first. Clicking
+             it re-fires the reveal. Chrome, so Tab steps over it. */
+          extra:
+            validity.blocking.length > 0 ? (
+              <button
+                type="button"
+                onClick={revealFirstProblem}
+                className="text-xs font-medium text-danger hover:underline"
+              >
+                {validity.blocking.length} to fix
+              </button>
+            ) : undefined,
           onSaveDraft: perms.canCreate ? () => submit(true) : undefined,
           isPending,
         }}
