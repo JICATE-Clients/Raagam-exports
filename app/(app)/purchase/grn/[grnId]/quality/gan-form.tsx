@@ -123,7 +123,7 @@ export function GanForm({ grnId }: { grnId: string }) {
                     <Input placeholder="Actual" value={param.actual_value} onChange={(e) => updateParam(idx, "actual_value", e.target.value)} />
                     <div className="flex gap-1">
                       <Select value={param.result} onChange={(e) => updateParam(idx, "result", e.target.value)}>
-                        <option value="">--</option>
+                        <option value=""></option>
                         <option value="pass">Pass</option>
                         <option value="fail">Fail</option>
                       </Select>

@@ -1359,7 +1359,7 @@ export function VendorMasterScreen({
   // inline in the `sections` prop so the prop stays legible.
   const SECTION_CONTENT: Record<SectionKey, ReactNode> = {
     identity: (
-      <SectionBody title="Identity" hint="Who this vendor is, their category and registration details.">
+      <SectionBody title="Identity">
         {/* The identity band — no card chrome, so `FieldGrid` rather than a
             `DetailSection`. It replaces a hand-rolled `sm:grid-cols-2`, which
             gave a three-word Type dropdown the same half-row box as the
@@ -1395,7 +1395,7 @@ export function VendorMasterScreen({
               value={form.vendor_type}
               onChange={(e) => setVendorType(e.target.value as "" | VendorType)}
             >
-              <option value="">— Select —</option>
+              <option value=""></option>
               {VENDOR_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -1529,7 +1529,7 @@ export function VendorMasterScreen({
       </SectionBody>
     ),
     address: (
-      <SectionBody title="Address" hint="One or more addresses for this vendor.">
+      <SectionBody title="Address">
         {/* Ten fields per address — past the ~5 a row can hold and past the 8 at
             which LAYOUT.md §6 says stop inlining, so a card per address with a
             FieldGrid inside. This replaces a hand-rolled `min-w-[1120px]` table
@@ -1654,10 +1654,7 @@ export function VendorMasterScreen({
       </SectionBody>
     ),
     itemcat: (
-      <SectionBody
-        title="Item Category"
-        hint="What this vendor supplies, and on what terms. Legacy shows this tab only for a Bought Items Vendor."
-      >
+      <SectionBody title="Item Category">
         {/* The vendor-level radio the legacy form puts above the grid. Four
             mutually exclusive values, so radios rather than a Select: they are
             all visible at once and each is one click, which is what the legacy
@@ -1799,10 +1796,7 @@ export function VendorMasterScreen({
       </SectionBody>
     ),
     process: (
-      <SectionBody
-        title="Process"
-        hint="The processes this vendor is paid to do, and the VAT that applies. Legacy shows this tab only for a Processor."
-      >
+      <SectionBody title="Process">
         <ChildGrid<ProcessRow>
           lockExisting
           label="Vendor Process Detail"
@@ -1866,10 +1860,7 @@ export function VendorMasterScreen({
       </SectionBody>
     ),
     service: (
-      <SectionBody
-        title="Service"
-        hint="The services this vendor provides, and on what terms. Legacy shows this tab only for a Service Provider."
-      >
+      <SectionBody title="Service">
         <ChildGrid<ServiceRow>
           lockExisting
           label="Service Detail"
@@ -1916,10 +1907,7 @@ export function VendorMasterScreen({
       </SectionBody>
     ),
     subcontract: (
-      <SectionBody
-        title="SubContractor"
-        hint="What this vendor sub-contracts, and on what terms. Legacy shows this tab only for a Sub Contractor."
-      >
+      <SectionBody title="SubContractor">
         {/* The Process grid without VAT — legacy asks a sub-contractor only which
             process and on what terms, over the same Process master. */}
         <ChildGrid<SubcontractRow>
@@ -1961,7 +1949,7 @@ export function VendorMasterScreen({
       </SectionBody>
     ),
     other: (
-      <SectionBody title="Other Details" hint="Banking, GST and ledger-group defaults for this vendor.">
+      <SectionBody title="Other Details">
         {/* Thirteen fields, so titled sections rather than one flat list
             (LAYOUT.md §4) — the two headings this used to draw by hand (a
             bare `<h3>` over a `border-t`) were saying the same thing without
@@ -2027,7 +2015,7 @@ export function VendorMasterScreen({
                 value={form.gst_reg_status}
                 onChange={(e) => set({ gst_reg_status: e.target.value as "" | GstRegStatus })}
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {GST_REG_STATUSES.map((g) => (
                   <option key={g} value={g}>
                     {g}

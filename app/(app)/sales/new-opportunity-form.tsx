@@ -146,7 +146,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   onChange={(e) => setBuyerId(e.target.value)}
                   required
                 >
-                  <option value="">Select buyer…</option>
+                  <option value=""></option>
                   {buyers.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name} ({b.code})
@@ -230,7 +230,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   value={enquiryAgainst}
                   onChange={(e) => setEnquiryAgainst(e.target.value)}
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {ENQUIRY_AGAINST.map((v) => (
                     <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
                   ))}
@@ -244,7 +244,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   value={orderType}
                   onChange={(e) => setOrderType(e.target.value)}
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {ORDER_TYPES.map((v) => (
                     <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
                   ))}
@@ -259,7 +259,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                     value={brandId}
                     onChange={(e) => setBrandId(e.target.value)}
                   >
-                    <option value="">Select…</option>
+                    <option value=""></option>
                     {brands.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.brand_name}
@@ -277,7 +277,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                     value={seasonId}
                     onChange={(e) => setSeasonId(e.target.value)}
                   >
-                    <option value="">Select…</option>
+                    <option value=""></option>
                     {seasons.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.season_name ?? s.season}{s.season_yr ? ` ${s.season_yr}` : ""}
@@ -336,7 +336,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   value={receiptMode}
                   onChange={(e) => setReceiptMode(e.target.value)}
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {RECEIPT_MODES.map((v) => (
                     <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
                   ))}
@@ -350,7 +350,7 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   value={deliveryMode}
                   onChange={(e) => setDeliveryMode(e.target.value)}
                 >
-                  <option value="">Select…</option>
+                  <option value=""></option>
                   {/* Printed as stored — CAPS at rest since migration 0368, so
                       the old first-letter re-casing is dead weight. */}
                   {DELIVERY_MODES.map((v) => (

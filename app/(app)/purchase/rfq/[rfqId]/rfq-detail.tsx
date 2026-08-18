@@ -230,7 +230,7 @@ export function RfqDetail({
                     }
                     required
                   >
-                    <option value="">— Select vendor —</option>
+                    <option value=""></option>
                     {vendors.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.name}

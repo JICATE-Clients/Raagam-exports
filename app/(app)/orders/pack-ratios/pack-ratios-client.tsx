@@ -254,7 +254,7 @@ export function PackRatiosClient({
               <Input id="pr-inner-name" uppercase value={form.inner_carton_name} onChange={(e) => setForm({ ...form, inner_carton_name: e.target.value })} />
             </Field>
             <Field label="Ratio For" size="sm" htmlFor="pr-ratio-for">
-              <Select id="pr-ratio-for" value={form.ratio_for} onChange={(e) => setForm({ ...form, ratio_for: e.target.value })}><option value="">Select…</option><option value="master">Master</option><option value="inner">Inner</option></Select>
+              <Select id="pr-ratio-for" value={form.ratio_for} onChange={(e) => setForm({ ...form, ratio_for: e.target.value })}><option value=""></option><option value="master">Master</option><option value="inner">Inner</option></Select>
             </Field>
             <Field label="Country" size="sm" htmlFor="pr-country">
               <Input id="pr-country" uppercase value={form.country_code} onChange={(e) => setForm({ ...form, country_code: e.target.value })} />

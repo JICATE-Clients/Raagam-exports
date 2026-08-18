@@ -172,7 +172,7 @@ function ShortageItemForm({
             value={form.due_to}
             onChange={(e) => setForm((f) => ({ ...f, due_to: e.target.value }))}
           >
-            <option value="">-- None --</option>
+            <option value=""></option>
             {DUE_TO_TYPES.map((v) => (
               <option key={v} value={v}>
                 {DUE_TO_LABELS[v]}

@@ -135,14 +135,14 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
                     <div>
                       <Label htmlFor="ra-po">Purchase order</Label>
                       <Select id="ra-po" value={poId} onChange={(e) => { setPoId(e.target.value); setLineId(""); }}>
-                        <option value="">— select PO —</option>
+                        <option value=""></option>
                         {pos.map((p) => <option key={p.id} value={p.id}>{p.code ?? p.id.slice(0, 8)}</option>)}
                       </Select>
                     </div>
                     <div>
                       <Label htmlFor="ra-line">Line</Label>
                       <Select id="ra-line" value={lineId} onChange={(e) => setLineId(e.target.value)} disabled={!selectedPo}>
-                        <option value="">— select line —</option>
+                        <option value=""></option>
                         {(selectedPo?.lines ?? []).map((l) => <option key={l.id} value={l.id}>{l.description}</option>)}
                       </Select>
                     </div>

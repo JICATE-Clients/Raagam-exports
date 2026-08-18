@@ -133,7 +133,7 @@ export function NewIwoForm({ customers, styles, itemClasses }: Props) {
               </Field>
               <Field label="For" size="sm" htmlFor="iwo-for">
                 <Select id="iwo-for" value={iwoFor} onChange={(e) => setIwoFor(e.target.value)}>
-                  <option value="">—</option>
+                  <option value=""></option>
                   {IWO_FOR_OPTIONS.map((f) => (
                     <option key={f} value={f}>{f}</option>
                   ))}
@@ -151,7 +151,7 @@ export function NewIwoForm({ customers, styles, itemClasses }: Props) {
                   value={itemClassId ?? ""}
                   onChange={(e) => setItemClassId(e.target.value || null)}
                 >
-                  <option value="">—</option>
+                  <option value=""></option>
                   {itemClasses.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}

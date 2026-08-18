@@ -88,7 +88,7 @@ export function JobOrdersClient({ rows, orders, canCreate }: Props) {
                   <div>
                     <Label htmlFor="jo-order">Sales order</Label>
                     <Select id="jo-order" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number ?? o.id.slice(0, 8)}</option>)}
                     </Select>
                   </div>

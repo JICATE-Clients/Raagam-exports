@@ -311,10 +311,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
       icon: ClipboardList,
       done: !!amendDate && !!orderId,
       content: (
-        <SectionBody
-          title="Garment Process Amendment"
-          hint="Which order is being amended, and when."
-        >
+        <SectionBody title="Garment Process Amendment">
           <FieldGrid>
             {/* `Input readOnly` sets `tabIndex={-1}` itself, which is what keeps
                 an auto field off the typing path — no `skipTab` needed. It also
@@ -369,10 +366,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
       icon: SlidersHorizontal,
       done: component.some((r) => r.style_id),
       content: (
-        <SectionBody
-          title="Component Process"
-          hint="Styles whose component process this amendment changes. Blank rows are ignored."
-        >
+        <SectionBody title="Component Process">
           {/* `ChildGrid`, not the hand-rolled <table> this screen carried — that
               one drew its own S No cell and its own Trash2 button, so it
               inherited neither Ctrl+Del nor `data-row-remove`. */}
@@ -393,10 +387,7 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
       icon: Shirt,
       done: garment.some((r) => r.style_id),
       content: (
-        <SectionBody
-          title="Garment Process"
-          hint="Styles whose garment process this amendment changes. Blank rows are ignored."
-        >
+        <SectionBody title="Garment Process">
           <ChildGrid<LineRow>
             columns={lineColumns(mutGarment)}
             rows={garment}

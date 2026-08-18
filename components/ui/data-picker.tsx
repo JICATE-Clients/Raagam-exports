@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, RequiredScope, useRequiredHold } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import { pickerKeyDown, usePickerFocusReturn } from "@/components/masters/picker
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { cn } from "@/lib/utils";
+import { AFFORDANCE_PAD, FieldAffordance } from "@/components/ui/field-affordance";
 
 /** One selectable record. `sublabel` renders muted beside the label. */
 export type PickerRow = {
@@ -1040,31 +1041,39 @@ export function DataPicker({
           readOnly={!fine}
           value={triggerText}
           /**
-           * "—", NOT "— Select {noun} —" (client 2026-08-17).
+           * AN UNFILLED PICKER SHOWS NOTHING (client 2026-08-17).
            *
-           * The noun in that placeholder is the LABEL REPEATED WITH A VERB. A
-           * picker is `compact` inside a `<Field label>` — which is every picker
-           * on a form — so the word already stands directly above the box, and
-           * inside a `ChildGrid` cell the column header says it a third time.
-           * "Select Merchandiser" then has to fit a 202px trigger, so it
-           * ellipsed itself: the screen showed "— Select Merchand... —" under a
-           * label reading "Merchand." (screenshot 2320). A value truncating is
-           * a real cost; a truncating restatement of the label is that cost
-           * paid for nothing.
+           * It used to read "— Select {noun} —", which is the LABEL REPEATED
+           * WITH A VERB: a picker is `compact` inside a `<Field label>` — which
+           * is every picker on a form — so the word already stands directly
+           * above the box, and inside a `ChildGrid` cell the column header says
+           * it a third time. "Select Merchandiser" then had to fit a 202px
+           * trigger, so it ellipsed itself: the screen showed
+           * "— Select Merchand... —" under a label reading "Merchand."
+           * (screenshot 2320).
            *
-           * A BARE EM-DASH IS ALREADY THIS APP'S "NOTHING CHOSEN" — every
-           * native `<Select>` on these screens renders `<option value="">—`,
-           * and `created-columns.tsx` prints "—" for an unknown creator. The
-           * picker was the one control disagreeing.
+           * IT WENT TO "—" FIRST, AND THAT WAS WRONG THE SAME WAY. The em-dash
+           * was defended here as the app's existing "nothing chosen" — and it
+           * is, in a TABLE CELL, where a column of blanks would be ambiguous
+           * with a column that failed to load (`created-columns.tsx` still
+           * prints one, correctly). A FORM FIELD is not a table cell: it has a
+           * box, a border and a chevron already saying "a value goes here", so
+           * the dash adds a mark that means what the box already means. Sixty
+           * fields each drawing a dash is a screen of dashes, which is what the
+           * client saw and rejected within the hour.
            *
-           * NOT BLANK. An empty trigger reads as a text box nobody filled in;
-           * "—" reads as a chooser standing at none, which is what it is.
+           * The general rule underneath both reversals: **an empty control says
+           * nothing.** Emptiness is legible on its own; every attempt to
+           * announce it costs width and adds a mark to scan past.
            *
            * The noun is not lost — it still names the panel, the search box
            * ("Search customers…"), the add button and every toast, all places
-           * where nothing else on screen says it.
+           * where nothing else on screen says it. And an explicit `placeholder`
+           * still wins, which is where a MEANINGFUL empty state lives: Order
+           * Entry's Rejection Rule reads "No projection", because blank there
+           * is a state of the order rather than an unanswered field.
            */
-          placeholder={selected ? selected.label : (placeholder ?? "—")}
+          placeholder={selected ? selected.label : (placeholder ?? "")}
           // A picker trigger IS a field to the operator. The marker is what
           // makes `gridKeyNav` gate Enter-adds-row on `data-field-empty` — a
           // grid whose first cell is an empty picker used to grow a blank row
@@ -1102,7 +1111,9 @@ export function DataPicker({
             // a row with them. `@2xl/editor:h-8` is the compact density; it is a
             // CONTAINER query, so a picker inside a ~440px nested panel or on a
             // phone keeps the full 36px touch target.
-            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-3 pr-8 text-base md:text-sm",
+            "h-9 @2xl/editor:h-8 w-full rounded-md border bg-surface px-3 text-base md:text-sm",
+            // Reserves the trailing slot; stated beside its width, not here.
+            AFFORDANCE_PAD,
             // An unfocused input honours `text-overflow`, so a clipped value
             // now ends in an ellipsis instead of stopping mid-word as if that
             // were all of it.
@@ -1116,21 +1127,15 @@ export function DataPicker({
             !selected && !open && "text-muted-foreground",
           )}
         />
-        {clearable && selected && !open ? (
-          <button
-            type="button"
-            aria-label={`Clear ${noun}`}
-            tabIndex={-1}
-            onClick={() => onChange(null)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-danger"
-          >
-            <X className="h-4 w-4 shrink-0" />
-          </button>
-        ) : (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-            <ChevronDown className="h-4 w-4 shrink-0" />
-          </span>
-        )}
+        {/* ▼, or ✕ once there is something to clear — one slot on the field's
+            right edge, drawn by `field-affordance.tsx` for this and Combobox
+            both. It used to be two hand-drawn branches here and two more there,
+            which is how the pair drifted apart. */}
+        <FieldAffordance
+          onClear={clearable && selected && !open ? () => onChange(null) : undefined}
+          clearLabel={`Clear ${noun}`}
+          disabled={disabled}
+        />
       </Tooltip>
       )}
 

@@ -126,7 +126,7 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
                   value={budgetId}
                   onChange={(e) => setBudgetId(e.target.value)}
                 >
-                  <option value="">— None —</option>
+                  <option value=""></option>
                   {budgets.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}

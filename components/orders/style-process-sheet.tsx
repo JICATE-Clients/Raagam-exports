@@ -164,7 +164,7 @@ export function StyleProcessSheet({
             patch(r.key, { kind: next, process_id: stillValid ? r.process_id : null });
           }}
         >
-          <option value="">— Select Type —</option>
+          <option value=""></option>
           {PROCESS_KIND_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}

@@ -186,7 +186,7 @@ export function PartyOpeningsClient({
               <div>
                 <Label htmlFor="po-party">{PARTY_TYPE_LABELS[partyType]} *</Label>
                 <Select id="po-party" value={partyId} onChange={(e) => setPartyId(e.target.value)} required>
-                  <option value="">— select —</option>
+                  <option value=""></option>
                   {partyChoices.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}

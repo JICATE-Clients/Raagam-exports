@@ -55,6 +55,7 @@ import {
 } from "@/components/masters/master-full-screen";
 import { Field, FieldGrid, FIELD_TRACK } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { SectionGrid } from "@/components/masters/section-grid";
 import { useToast } from "@/components/ui/toast";
@@ -74,7 +75,11 @@ import { lookupLabel } from "@/lib/masters/extras-types";
 import {
   gsmRange,
   structureProblems,
-  FABRIC_TYPE_OPTIONS,
+  // FABRIC_TYPE_OPTIONS is deliberately NOT imported any more — the only control
+  // that offered it was the withdrawn "Type" field (see the structure card). The
+  // constant stays in combo-rules.ts: `fabric_type` is still stored, still copied
+  // by `order-seed.ts` and still reported by `diff.ts`, so the vocabulary is
+  // still the definition of what those values mean.
   ITEM_SUB_TYPE_OPTIONS,
   asItemSubType,
   takesDyedColour,
@@ -231,8 +236,23 @@ type ComboStructRow = {
   key: string;
   /** A fabric CATEGORY (0409) — SINGLE JERSEY, not Circular Knit. */
   structure_id: string | null;
+  /**
+   * "Type" — 'main' | 'trims_fabric'. WITHDRAWN FROM THE CARD (client
+   * 2026-08-17), CARRIED NOT DROPPED: the control is gone, this field is not.
+   * `writeComboTree` deletes and reinserts every child row, so dropping it from
+   * the payload would NULL every stored Type on the next save. Same treatment
+   * `combo_description` has, and the reasoning lives at the card.
+   */
   fabric_type: string;
-  composition_id: string | null;
+  /**
+   * "Composition" — THE FABRIC MATERIAL THAT DECLARES IT (0430), not a row of
+   * the `compositions` master this pointed at until 2026-08-17.
+   *
+   * The cell shows that fabric's mixing blend, so the composition is fetched
+   * from the Structure rather than answered a second time — which is the whole
+   * of what the client asked for (screenshot 2324). See `fabricsFor`.
+   */
+  fabric_item_id: string | null;
   gsm: string;
   gsm_tolerance: string;
   item_sub_type: string;
@@ -449,7 +469,7 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
         key: newKey(),
         structure_id: st.structure_id,
         fabric_type: txt(st.fabric_type),
-        composition_id: st.composition_id,
+        fabric_item_id: st.fabric_item_id,
         gsm: num(st.gsm),
         gsm_tolerance: num(st.gsm_tolerance),
         item_sub_type: txt(st.item_sub_type),
@@ -1056,6 +1076,56 @@ export function AmendmentScreen({
         })),
     [data.categories, fabricClassId],
   );
+  /**
+   * THE FABRICS UNDER A STRUCTURE — the Composition cell's options (0430).
+   *
+   * The picker's rows ARE the compositions: `getFabricRows` labels each fabric
+   * with its `material_mixings` blend, so 1X1 LYCRA RIB offers
+   * "95% 30'S COTTON COMBED / 5% 20'S ELASTANE" rather than a material code
+   * nobody reads. That is the same lesson the Structure picker beside it
+   * records — a picker over a master-detail table must label its rows from the
+   * DETAIL.
+   *
+   * SCOPED TO THE PICKED STRUCTURE, at the caller: the cascading-picker rule
+   * puts the narrowing where the parent is known, and the parent here is the
+   * row's own cell. Unscoped, a Single Jersey composition would be offered on a
+   * rib.
+   *
+   * WITH NO STRUCTURE PICKED IT OFFERS NOTHING — deliberately, and it is the
+   * one branch worth stating: the field cannot be answered before its parent is,
+   * and the alternative ("offer every fabric until a structure narrows it") is
+   * the blank-supply-type bug the nominated-vendor rule was written for.
+   *
+   * EMPTY AND EXPLAIN, never empty and silent — `fabricPlaceholder` says which
+   * of the two reasons it is, in the closed box, the way `NominatedVendorPicker`
+   * says "Pick Supply Type first". A list that is empty for an unstated reason
+   * reads as a broken field, which is precisely how this one was reported.
+   *
+   * A HELD VALUE ALWAYS SURVIVES the filter — "Disabled rows", and the same
+   * `currentValue` shape every other picker on this screen uses. Narrowing the
+   * structure around a fabric already chosen must not blank it on the next save.
+   */
+  const fabricsFor = (structureId: string | null, current: string | null) => {
+    const rows = data.fabrics.filter(
+      (f) => (structureId && f.category_id === structureId) || (current != null && f.id === current),
+    );
+    return rows.map((f) => ({ ...f, inactive: isInactive(f) }));
+  };
+
+  /**
+   * WHY the Composition list is empty, in the words of the thing to do about it.
+   *
+   * Three states and they are not the same problem: no Structure yet (answer the
+   * cell to the left), a Structure whose category holds no fabric (the Material
+   * master has nothing to offer — a real gap, and naming it is how anyone finds
+   * out), or a normal list, where the default "— Select composition —" is right.
+   */
+  const fabricPlaceholder = (structureId: string | null, count: number) => {
+    if (!structureId) return "— Pick a Structure first —";
+    if (count === 0) return "— No fabric under this structure —";
+    return undefined;
+  };
+
   /** Every fabric category by id — the knit family lives on it (0409). */
   const categoryById = useMemo(
     () => new Map(data.categories.map((c) => [c.id, c])),
@@ -1726,7 +1796,7 @@ export function AmendmentScreen({
           sno: 0,
           structure_id: st.structure_id,
           fabric_type: st.fabric_type || null,
-          composition_id: st.composition_id,
+          fabric_item_id: st.fabric_item_id,
           gsm: numOrNull(st.gsm),
           gsm_tolerance: numOrNull(st.gsm_tolerance),
           item_sub_type: st.item_sub_type || null,
@@ -2266,30 +2336,206 @@ export function AmendmentScreen({
    * is the same contract `pickStyle` has with Article No — one place answers,
    * the other inherits, and a deliberate difference survives.
    */
+  /**
+   * Picking a Structure FILLS THE ROW AROUND IT — Fabric Type from what the
+   * order declared, and Composition from the fabric itself (client 2026-08-17,
+   * screenshot 2324: "this section need to fetch from previous tab
+   * automatically, now its not doing it").
+   *
+   * ONLY WHEN THE ANSWER IS UNAMBIGUOUS. A category holding one fabric has one
+   * possible composition, so filling it in saves a keystroke and can be no more
+   * wrong than the Structure above it; SINGLE JERSEY holds eight, and choosing
+   * one of eight is a guess wearing the clothes of a fetch. There the cell is
+   * left blank with its list already narrowed to those eight — the operator
+   * answers a short question instead of an open one.
+   *
+   * SEEDS, NEVER OVERWRITES, exactly as `item_sub_type` beside it has since
+   * 0415: `st.fabric_item_id ||` keeps an answer the operator has already given.
+   * Re-picking the SAME structure therefore changes nothing, and re-picking a
+   * DIFFERENT one leaves the old fabric standing — which is why the fabric is
+   * cleared first when it belongs to the structure being replaced. Without that
+   * clause the row would name a rib's composition under a jersey, and the cell
+   * would look filled and correct.
+   *
+   * ON THE CHANGE, NEVER IN AN EFFECT — the Style master's Type column records
+   * why (0405): an effect keyed on the structure also fires when a SAVED order
+   * is opened, and would overwrite every stored composition on load.
+   */
   const pickComboStructure = (comboKey: string, structKey: string, id: string | null) => {
     const declared = id ? structures.find((s) => s.structure_id === id)?.item_sub_type : null;
     mutStructs(comboKey, (sts) =>
-      sts.map((st) =>
-        st.key === structKey
-          ? {
-              ...st,
-              structure_id: id,
-              item_sub_type: st.item_sub_type || declared || "",
-            }
-          : st,
-      ),
+      sts.map((st) => {
+        if (st.key !== structKey) return st;
+        // A fabric belonging to the structure being replaced is stale, not held.
+        const held =
+          st.fabric_item_id &&
+          data.fabrics.find((f) => f.id === st.fabric_item_id)?.category_id === st.structure_id &&
+          st.structure_id !== id
+            ? null
+            : st.fabric_item_id;
+        const only = id ? data.fabrics.filter((f) => f.category_id === id) : [];
+        return {
+          ...st,
+          structure_id: id,
+          item_sub_type: st.item_sub_type || declared || "",
+          fabric_item_id: held || (only.length === 1 ? only[0].id : null),
+        };
+      }),
     );
   };
   const blankStruct = (): ComboStructRow => ({
     key: newKey(),
     structure_id: null,
     fabric_type: "",
-    composition_id: null,
+    fabric_item_id: null,
     gsm: "",
     gsm_tolerance: "",
     item_sub_type: "",
     components: [],
   });
+
+  /**
+   * Does this structure row say anything at all?
+   *
+   * The screen-side twin of `structureFilled` in `actions.ts`, which is what
+   * decides whether the row is worth STORING — the two must agree, or the overlay
+   * would re-seed rows the server had just saved. `rowFilled` above cannot answer
+   * it: `components` is an array, and an empty one is neither `""` nor null, so
+   * every blank structure reads as filled through that one.
+   */
+  const structSaysSomething = (st: ComboStructRow) =>
+    !!(
+      st.structure_id ||
+      st.fabric_type ||
+      st.fabric_item_id ||
+      st.gsm.trim() ||
+      st.gsm_tolerance.trim() ||
+      st.item_sub_type ||
+      st.components.some(
+        (c) => c.coordinate_id || c.component_id || c.color_name.trim() || c.print_id,
+      )
+    );
+
+  /**
+   * OPENING THE DETAIL FILLS IT FROM THE STYLE (client 2026-08-17, screenshot
+   * 2328: the overlay opened blank and "we will give the structure and coordinate
+   * already in style and order info, based on fetch it automatically").
+   *
+   * The style already declares every part of the garment —
+   * `garment_style_components` rows of {coordinate, component, fabric category} —
+   * and this screen has read them since 2026-08-12 to NARROW these very pickers
+   * (`scopedStructures`, `scopedCoordinates`, `scopedComponents`). It knew the
+   * answer and made the operator retype it: a combo of a 4-part style meant
+   * "+ Add structure", then "+ Add component" four times, then picking from lists
+   * that already contained exactly those four. Nothing is fetched here that was
+   * not already in memory.
+   *
+   * THE GROUPING — one structure per DISTINCT `fabric_category_id`, holding the
+   * parts that name it — IS NEW LOGIC, and worth saying so plainly rather than
+   * implying the screen already did it somewhere.
+   *
+   * What justifies it is the SCHEMA, not a function above: 0409 repoints this
+   * screen's `structure_id` at `categories` and its column comment states the
+   * correspondence outright — "Matches `garment_style_components.fabric_category_id`
+   * (0405)". Same id space, asserted by the migration that made it so.
+   *
+   * What does NOT justify it, and is the easy misreading: `scopedStructures`
+   * collects the same distinct categories, but only to narrow the Structure
+   * picker's OPTIONS — it never groups parts. And `scopedComponents` pairs a
+   * component to its COORDINATE, not to a structure; it is handed the combo row
+   * and never the structure row, even though `componentGrid(r, st)` has `st` in
+   * scope. So do not go looking for this rule in either of them.
+   *
+   * A part with no category is DROPPED from the seed rather than parked under
+   * some default — `pickStyle` gives the same treatment (`.filter(Boolean)`), and
+   * a component has nowhere to live except under a structure. A style whose parts
+   * ALL lack a category therefore seeds nothing, which is the degrade below.
+   *
+   * ON THE CLICK, NEVER IN AN EFFECT. `pickComboStructure` states the reason
+   * directly below: "an effect keyed on the structure also fires when a SAVED
+   * order is opened, and would overwrite every stored composition on load." An
+   * effect keyed on `detailComboKey` has exactly that failure — every reopen of a
+   * saved amendment would restate the style over the operator's own rows. The
+   * [Detail] button is the one action that means "show me this combo's parts",
+   * so the seed belongs on it, the same way `pickStyle` seeds on the pick.
+   *
+   * ONCE, AND ONLY INTO A BLANK DETAIL. The moment this combo's Structure
+   * Details says ANYTHING, the seed stands down completely — it does not top up,
+   * merge or fill the gaps.
+   *
+   * That is deliberately stricter than "add the categories that have no row yet",
+   * which is what this was written as first and which is wrong for a reason
+   * `pickStyle` already records: "an effect watching the declared set would re-add
+   * a structure the operator deliberately removed the moment anything else
+   * re-rendered it — the grid would argue back." [Detail] is not a rare act like
+   * picking a style; it is opened to LOOK. A top-up rule would resurrect a
+   * deleted structure on every look, and worse, mark a saved order dirty for it.
+   *
+   * So the rule is the smallest one that answers the complaint as reported — the
+   * overlay "opens as blank" — and it cannot argue back, because after the first
+   * open there is always something to stand down for. Gsm, Tolerance,
+   * Composition and colours are safe by construction rather than by a guard: a
+   * detail holding any of them is never seeded into again.
+   *
+   * IT DEGRADES TO TODAY'S BEHAVIOUR AND SAYS NOTHING. A combo whose style does
+   * not resolve (`buyers.customer_id` unlinked, a free-typed ref), a style that
+   * declares no parts, or a part with no fabric category seeds nothing and leaves
+   * the blank row and the "+ Add structure" button standing. Empty-and-explain is
+   * for a field that REFUSES to offer something; this one simply has nothing to
+   * offer, and `styleDeclaresParts` already drives the hint that says so.
+   *
+   * GSM, TOLERANCE AND COLOUR ARE NEVER SEEDED, and that is the data's answer
+   * rather than a preference: `garment_style_components` has no such columns.
+   * They stay the operator's (client 2026-08-17, same message).
+   */
+  const seedComboFromStyle = (comboKey: string) => {
+    setCombos((xs) =>
+      xs.map((r) => {
+        if (r.key !== comboKey) return r;
+        // Anything answered here at all — including by a previous open, or by a
+        // SAVED order loading its stored rows — and the seed is done.
+        if (r.structures.some(structSaysSomething)) return r;
+        const parts = styleOfCombo(r)?.components ?? [];
+        if (!parts.length) return r;
+
+        // One bucket per fabric category, in the order the style declares them —
+        // `garment_style_components.sno` is the style's own ordering and the
+        // embed selects it, so the parts arrive already sorted.
+        const byCategory = new Map<string, typeof parts>();
+        for (const p of parts) {
+          if (!p.fabric_category_id) continue;
+          const bucket = byCategory.get(p.fabric_category_id);
+          if (bucket) bucket.push(p);
+          else byCategory.set(p.fabric_category_id, [p]);
+        }
+        if (!byCategory.size) return r;
+
+        const partsOf = (categoryId: string): ComboCompRow[] =>
+          (byCategory.get(categoryId) ?? []).map((p) => ({
+            key: newKey(),
+            coordinate_id: p.coordinate_id ?? null,
+            component_id: p.component_id ?? null,
+            color_name: "",
+            print_id: null,
+            processed_as_trim: false,
+          }));
+
+        // REPLACES the blank rows rather than appending below them. Everything
+        // standing here is blank by the guard above, so there is nothing to keep
+        // — and `pickStyle`'s block makes the same move for the same reason: a
+        // seeded list under an empty first row is a row the operator has to
+        // delete before the form reads as filled in.
+        return {
+          ...r,
+          structures: [...byCategory.keys()].map((id) => ({
+            ...blankStruct(),
+            structure_id: id,
+            components: partsOf(id),
+          })),
+        };
+      }),
+    );
+  };
   const addStruct = (comboKey: string) =>
     mutStructs(comboKey, (sts) => [...sts, blankStruct()]);
 
@@ -2450,8 +2696,9 @@ export function AmendmentScreen({
        asking for it was asking the operator to invent a key. The FIELD stays
        and `pickStyle` fills it, which is not tidiness — `(sales_order_id,
        style_ref_no)` is the Orders module key and THREE other tabs resolve on
-       this text: Price Details (`styleLineKeyOf`), Quantities (`refNoOptions`)
-       and Approval Qty (`poQtyOf`). Delete the value along with the column and
+       this text: Price Details (`styleLineKeyOf`), Quantities (matched by TEXT
+       since its Ref No became free entry on 2026-08-17) and Approval Qty
+       (`poQtyOf`). Delete the value along with the column and
        the Price Details picker blanks itself the moment a style is chosen. */
     {
       header: "Style",
@@ -2611,7 +2858,7 @@ export function AmendmentScreen({
             setDyeings((xs) => xs.map((x) => (x.key === r.key ? { ...x, dye_type: e.target.value } : x)))
           }
         >
-          <option value="">—</option>
+          <option value=""></option>
           {dyeTypeOptions(r.section, r.dye_type).map((o) => (
             <option key={o} value={o}>
               {o}
@@ -2823,7 +3070,7 @@ export function AmendmentScreen({
             )
           }
         >
-          <option value="">—</option>
+          <option value=""></option>
           {ITEM_SUB_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -2940,7 +3187,14 @@ export function AmendmentScreen({
           size="sm"
           disabled={!r.combo.trim()}
           title={r.combo.trim() ? undefined : "Name the combo first"}
-          onClick={() => setDetailComboKey(r.key)}
+          onClick={() => {
+            // Seed BEFORE opening, so the overlay's first paint already shows the
+            // style's parts — opening first would render the empty state for a
+            // frame and then swap it, which reads as a glitch rather than as a
+            // form that arrived filled in. See `seedComboFromStyle`.
+            seedComboFromStyle(r.key);
+            setDetailComboKey(r.key);
+          }}
         >
           {/* No count — see the Process button. Same button-hides-a-list shape,
               same client removal. */}
@@ -3272,7 +3526,7 @@ export function AmendmentScreen({
       value={mode}
       onChange={(e) => applyPriceMode(g.rows[0], e.target.value)}
     >
-      <option value="">—</option>
+      <option value=""></option>
       {PRICE_TYPE_OPTIONS.map((o) => (
         <option key={o} value={o}>
           {o}
@@ -3294,7 +3548,7 @@ export function AmendmentScreen({
         )
       }
     >
-      <option value="">—</option>
+      <option value=""></option>
       {comboOptionsForStyle(r.style_ref_no).map((c) => (
         <option key={c} value={c}>
           {c}
@@ -3315,7 +3569,7 @@ export function AmendmentScreen({
         )
       }
     >
-      <option value="">—</option>
+      <option value=""></option>
       {sizeOptionsForStyle(r.style_ref_no).map((z) => (
         <option key={z.id} value={z.id}>
           {z.name}
@@ -3388,6 +3642,38 @@ export function AmendmentScreen({
    * and an unsized item absorbs the row's slack — the same failure `hugsContent`
    * records about a grid column left without a `width`.
    */
+  /**
+   * ONE WIDTH ACROSS THE PRICES TAB (client 2026-08-18, screenshot 095838:
+   * "make this four fields in same size").
+   *
+   * The four the operator sees under a style price were 128 / 112 / 111 / 117px
+   * — Size (`w-32`), Price (`w-28`), and the two "+ Add" buttons at whatever
+   * width their labels happened to be. Four near-misses read as a ragged edge,
+   * which is worse than four widths that are obviously different: the eye keeps
+   * trying to line them up.
+   *
+   * `w-32` and not something wider, because the client's other standing note on
+   * this screen pulls the other way — "reduce this size dialing fields length,
+   * now it looks too large, make compact" (screenshot 2335). 128px is the
+   * biggest of the four already, so unifying UP to it moves three controls a
+   * few pixels rather than making the row grow.
+   *
+   * A FIXED WIDTH, NOT A FLOOR, and that is the lesson from `ADD_BUTTON_W` two
+   * hours earlier on this same file: a `min-w` lets the longest label push its
+   * own button wider and the set goes ragged again silently. The longest label
+   * this grid can produce is "+ Add colour price" (~121px, `noun` ∈ rate ·
+   * size · colour) and the outer one is "+ Add style price" (117px), so both
+   * clear 128px with room. If a longer noun ever arrives the constant moves —
+   * one edit, all four — and until it does, nothing can drift apart.
+   *
+   * COLOUR KEEPS ITS OWN. A colour name is a word ("MELANGE GREY"); a size is
+   * 1-3 characters and a price is a number. Narrowing it to match would ellipse
+   * real values to make an alignment the operator never complained about — and
+   * it is not one of the four in the screenshot.
+   */
+  const PRICE_W = "w-32";
+  const PRICE_COLOUR_W = "w-40";
+
   const rateGrid = (g: PriceGroup, mode: string) => {
     const axes = priceAxes(mode);
     // A row with no mode yet is one of THIS set — it is the blank the operator
@@ -3426,9 +3712,9 @@ export function AmendmentScreen({
             reason `ChildGrid` draws it in its `<th>`: the hold itself is
             declared on the control (`priceRateCell`). */}
         <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-          {axes.colour && <span className="w-40 shrink-0">Colour</span>}
-          {axes.size && <span className="w-32 shrink-0">Size</span>}
-          <span className="w-28 shrink-0">Price *</span>
+          {axes.colour && <span className={cn(PRICE_COLOUR_W, "shrink-0")}>Colour</span>}
+          {axes.size && <span className={cn(PRICE_W, "shrink-0")}>Size</span>}
+          <span className={cn(PRICE_W, "shrink-0")}>Price *</span>
         </div>
         <div
           data-grid-body
@@ -3441,9 +3727,9 @@ export function AmendmentScreen({
         >
           {rows.map((r) => (
             <div key={r.key} data-grid-row className="flex items-center gap-2">
-              {axes.colour && <div className="w-40 shrink-0">{priceColourCell(r)}</div>}
-              {axes.size && <div className="w-32 shrink-0">{priceSizeCell(r)}</div>}
-              <div className="w-28 shrink-0">{priceRateCell(r)}</div>
+              {axes.colour && <div className={cn(PRICE_COLOUR_W, "shrink-0")}>{priceColourCell(r)}</div>}
+              {axes.size && <div className={cn(PRICE_W, "shrink-0")}>{priceSizeCell(r)}</div>}
+              <div className={cn(PRICE_W, "shrink-0")}>{priceRateCell(r)}</div>
               <Button
                 type="button"
                 variant="ghost"
@@ -3467,6 +3753,8 @@ export function AmendmentScreen({
               variant="outline"
               size="sm"
               data-row-add
+              /* Same width as the Size and Price boxes above it — see PRICE_W. */
+              className={PRICE_W}
               onClick={() => addRate(g, mode)}
             >
               + Add {noun} price
@@ -3499,9 +3787,9 @@ export function AmendmentScreen({
                     control and it is a real click. The component writes the
                     `truncate` span itself, so the class comes off the call site
                     and a value that fits gets no bubble at all. */}
-                <Truncated text={r.combo || "—"} className="w-40 shrink-0" />
-                <Truncated text={sizeLabel(r.size_id) || "—"} className="w-32 shrink-0" />
-                <span className="w-28 shrink-0">{r.price || "—"}</span>
+                <Truncated text={r.combo || "—"} className={cn(PRICE_COLOUR_W, "shrink-0")} />
+                <Truncated text={sizeLabel(r.size_id) || "—"} className={cn(PRICE_W, "shrink-0")} />
+                <span className={cn(PRICE_W, "shrink-0")}>{r.price || "—"}</span>
                 <Button
                   type="button"
                   variant="ghost"
@@ -3720,7 +4008,7 @@ export function AmendmentScreen({
             )
           }
         >
-          <option value="">—</option>
+          <option value=""></option>
           {packTypeOptions(r).map((o) => (
             <option key={o} value={o}>
               {o}
@@ -3733,34 +4021,6 @@ export function AmendmentScreen({
 
   // ---------------- Quantities (0398) ----------------
 
-  /**
-   * Ref No OFFERS this amendment's own styles — and since 2026-08-17 it no
-   * longer INSISTS on one (client: "change the Reference field to allow manual
-   * user input instead of automatically listing the style number").
-   *
-   * `(sales_order_id, style_ref_no)` is still the Orders module key, and a ref
-   * that names a style line is still what lets Assort find its size columns and
-   * Style No fill itself — so the list stays, first, and picking from it is
-   * still the fast path. What changed is that a typed value is now accepted,
-   * for the destinations whose reference is the buyer's rather than ours.
-   *
-   * A TYPED REF DEGRADES HONESTLY AND VISIBLY: `sizesOfQuantity` finds no style,
-   * so the Assort overlay says it has no columns rather than rendering an empty
-   * grid, and `styleNoForRef` returns "" rather than the wrong style's name.
-   * Those two already handled a ref no longer on the Styles tab; a typed one is
-   * the same case arriving a different way.
-   *
-   * THE HELD VALUE NO LONGER HAS TO BE RE-ADMITTED to the list. It used to be
-   * pushed in as a synthetic "(not on Styles)" row, because a picker that does
-   * not offer a value renders the cell EMPTY and blanks it on the next save.
-   * Here the cell shows the TEXT whether or not the list contains it, so the
-   * value cannot go missing — and the synthetic row would now be pickable,
-   * writing the words "(not on Styles)" into the ref itself.
-   */
-  const refNoOptions = () =>
-    styles
-      .filter((x) => x.style_ref_no.trim())
-      .map((x) => ({ id: x.style_ref_no, name: x.style_ref_no }));
 
   /**
    * THE CONSIGNEES OF THIS ORDER'S CUSTOMER (client 2026-08-17: "the consignee
@@ -3794,8 +4054,9 @@ export function AmendmentScreen({
    *    full list rather than nothing.
    *  - A row already NAMES a consignee -> it survives whatever the filter says.
    *    Dropping it would show a filled cell as empty and blank the FK on the
-   *    next save ("Disabled rows", and the reason `refNoOptions` above does the
-   *    same thing).
+   *    next save ("Disabled rows"). Quantities' Ref No used to make the same
+   *    move; it no longer needs to, being free text since 2026-08-17 — a typed
+   *    value cannot be dropped by a list that is not there.
    */
   const consigneeOptions = (held: string | null) => {
     const cust = form.customer_id;
@@ -3835,9 +4096,9 @@ export function AmendmentScreen({
    *
    * `styleKey`, never `===`: rows saved before the CAPITALS rule are not
    * upper-cased, and this is the module's join key (the precedent is
-   * `styleOfCombo`). `refNoOptions` can hold a ref no longer on the Styles tab,
-   * so an empty list is a real answer and the overlay says so rather than
-   * rendering a grid with no columns.
+   * `styleOfCombo`). Ref No is FREE TEXT (2026-08-17), so it routinely names no
+   * style line at all — an empty list is the ordinary answer here, not an edge
+   * case, and the overlay says so rather than rendering a grid with no columns.
    */
   const sizesOfQuantity = (q: QuantityRow): SizeRow[] =>
     styles.find((x) => styleKey(x.style_ref_no) === styleKey(q.style_ref_no))?.sizes ?? [];
@@ -4074,9 +4335,13 @@ export function AmendmentScreen({
    * split would be 13 of 12 and wrap, stranding the Assort button on a line of
    * its own with eleven empty columns beside it.
    */
+  /* RENAMED WITH THE COLUMN (client 2026-08-17: "Assort" -> "Details"). This
+     list is matched against `c.header` by STRING, so leaving "Assort" here would
+     silently drop the button from the narrow set and re-widen the row — a rename
+     that compiles and quietly changes the layout. */
   const QTY_NARROW: readonly string[] = form.multi_order
-    ? ["Country", "Ref No", "PO No", "Consignee", "PO Qty", "Assort"]
-    : ["Country", "Ref No", "PO Qty", "Assort"];
+    ? ["Country", "Ref No", "PO No", "Consignee", "PO Qty", "Details"]
+    : ["Country", "Ref No", "PO Qty", "Details"];
 
   const quantityColumns: ChildGridColumn<QuantityRow>[] = [
     {
@@ -4095,18 +4360,44 @@ export function AmendmentScreen({
     },
     {
       header: "Ref No",
+      /**
+       * FREE TEXT, WITH NO LIST AT ALL (client 2026-08-17: "that Ref No field
+       * only free text, no more fetching from any table, so remove that wired
+       * table connection").
+       *
+       * This is the SECOND step of the same request and it reverses the first.
+       * Earlier the same day the field went from a strict picker to `TypeOrPick`
+       * — type OR pick, keeping the style list as the fast path. The client has
+       * now asked for the list gone outright, so the wiring goes with it:
+       * `refNoOptions` is deleted rather than left unused, because a feeder kept
+       * "in case" is what makes the next reader think the list is still meant to
+       * be there.
+       *
+       * `TypeOrPick` STAYS ON THE COLOUR CELL, which is a different answer to a
+       * different question — 0415 built the colour master precisely so "Navy
+       * Blue" and "Dark Blue" stop being two names for one shade, and that field
+       * keeps its list. Only the Reference is unwired.
+       *
+       * STYLE NO IS STILL DERIVED, and that is not a leftover connection. It
+       * reads this order's OWN style lines, not a table, and it exists to CLEAR
+       * a style name left behind by a ref that used to match one — without it a
+       * typed ref would sit beside the previous ref's style name. A ref that
+       * matches nothing resolves to "", which is the honest answer.
+       *
+       * NOT `uppercase`. `style_ref_no` is `nullableText` in the schema, not
+       * `capsTextNullable()`, and AGENTS.md §CAPITALS is explicit that the screen
+       * half alone is the wrong half to have — it would shout what an operator
+       * types while leaving every stored value as it was.
+       */
       cell: (r) => (
-        <TypeOrPick
-          label="Ref No"
-          options={refNoOptions()}
-          valueId={r.style_ref_no || null}
-          text={r.style_ref_no}
-          inputClassName="h-8"
-          /* Style No follows the ref, so the two are answered once — and it is
-             re-derived on a TYPED ref too, which is how a ref that matches no
-             style line clears a style name left over from one that did. */
-          onChange={({ name }) =>
-            setQty(r.key, { style_ref_no: name, style_no: styleNoForRef(name) })
+        <Input
+          className="h-8"
+          value={r.style_ref_no}
+          onChange={(e) =>
+            setQty(r.key, {
+              style_ref_no: e.target.value,
+              style_no: styleNoForRef(e.target.value),
+            })
           }
         />
       ),
@@ -4240,7 +4531,7 @@ export function AmendmentScreen({
       ),
     },
     {
-      header: "Assort",
+      header: "Details",
       /**
        * The legacy [Click] that opens the Assortments screen (operator
        * screenshot 2026-08-12, 11:27), built at last — 0398 deferred it with
@@ -4262,21 +4553,50 @@ export function AmendmentScreen({
        * carrying three assortment lines otherwise looks exactly like one
        * carrying none.
        */
-      cell: (r) => (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!r.style_ref_no.trim() || !assortGate.ok}
-          title={
-            !r.style_ref_no.trim() ? "Pick a Ref No first" : assortGate.why
-          }
-          onClick={() => setAssortQtyKey(r.key)}
-        >
-          {/* No count — see the Process button. */}
-          Assort
-        </Button>
-      ),
+      /**
+       * BLOCKED WITH `aria-disabled`, NEVER `disabled` (client 2026-08-17: "check
+       * why the assort button is not working").
+       *
+       * It WAS working — it refuses when the order has no assorting pack type,
+       * which is the `assortGate` rule above. What was broken is that it could
+       * not SAY SO: a truly `disabled` button stops firing pointer events, so its
+       * `title` never surfaces, and both reasons this button withholds itself
+       * ("Pick a Ref No first", "Turn Pack on in Order Info") were written and
+       * unreadable. A greyed control with no reason is precisely the failure the
+       * nominated-vendor rule records — and the comment above already claimed
+       * "each refusal names the switch that turns it on", which the markup then
+       * prevented.
+       *
+       * Same shape as `RowActions`' `deleteDisabledReason`, for the same reason
+       * stated there: focusable + `aria-disabled` keeps it reachable, lets
+       * `Tooltip`'s hover AND focus branches show the reason, and is honest to a
+       * screen reader because the control genuinely does nothing when clicked.
+       * The reason also rides in `aria-label`, since the bubble is decorative.
+       */
+      cell: (r) => {
+        const why = !r.style_ref_no.trim()
+          ? "Pick a Ref No first"
+          : !assortGate.ok
+            ? (assortGate.why ?? "")
+            : "";
+        const blocked = !!why;
+        return (
+          <Tooltip label={why || "Open assortment details"} touch={blocked}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-disabled={blocked || undefined}
+              aria-label={blocked ? `Details — ${why}` : "Details"}
+              className={blocked ? "cursor-not-allowed opacity-50" : undefined}
+              onClick={blocked ? undefined : () => setAssortQtyKey(r.key)}
+            >
+              {/* No count — see the Process button. */}
+              Details
+            </Button>
+          </Tooltip>
+        );
+      },
     },
   ];
 
@@ -4377,7 +4697,11 @@ export function AmendmentScreen({
             {/* Empty-and-explain: with no style picked there are no combos to
                 offer, and a bare "—" would read as "this order has no colours". */}
             <option value="">
-              {r.style_ref_no.trim() ? "— Select Combo —" : "Pick a Style first"}
+              {/* Blank once a Style is named — the column header already says
+                  "Combo", so "— Select Combo —" was the header repeated inside
+                  the box. The OTHER branch stays: "Pick a Style first" is why
+                  this list is empty, which nothing else on the row says. */}
+              {r.style_ref_no.trim() ? "" : "Pick a Style first"}
             </option>
             {opts.map((c) => (
               <option key={c.key} value={c.combo}>{c.combo}</option>
@@ -4795,9 +5119,29 @@ export function AmendmentScreen({
    * `data-row-add` is what `enterNestedGrid` clicks so Tab can enter a parts
    * list that has no rows yet.
    */
-  const componentGrid = (r: ComboRow, st: ComboStructRow) => (
+  const componentGrid = (r: ComboRow, st: ComboStructRow) => {
+    /*
+     * SAID ONCE, NOT ONCE PER PART (client 2026-08-17, screenshot 2334: these
+     * "fields title for everytime ... making screen two huge").
+     *
+     * Both sentences are properties of the STRUCTURE — its `item_sub_type`, and
+     * the prints THIS order declared — never of an individual part. Carried in
+     * the per-row placeholder they printed identically down every line of the
+     * panel, which is three copies of one fact and three rows of height for it.
+     *
+     * Hoisted rather than DELETED, because the field is empty for a reason and
+     * an unexplained empty box is the "empty-and-explain" rule broken (AGENTS.md
+     * states it for the nominated-vendor list; it is the same shape here).
+     */
+    const printNote = !takesAllOverPrint(st.item_sub_type)
+      ? "Set this structure's Fabric Type to Printed to choose a fabric print."
+      : declaredPrintOptions(st, null).length === 0
+        ? "Declare a print on Color/Print Details to choose one here."
+        : null;
+
     // `r`, not just its key: the Coordinate / Component / Fabric Color options
     // are all properties of the combo's STYLE and its Fabric Type.
+    return (
 
     /*
      * ONE PANEL, ALWAYS DRAWN — with rows or without (operator, 2026-08-12:
@@ -4818,6 +5162,10 @@ export function AmendmentScreen({
       </div>
       <div
         data-grid-body
+        /* NOT `divide-y`: the empty-state note, the narrowing note and the
+           "+ Add component" button are siblings of the rows in here, so a
+           divider on the PARENT would draw a line above each of those too. The
+           hairline is on the row (`border-t`, cancelled on the first). */
         className="space-y-2"
         onKeyDown={(e) => gridKeyNav(e, () => addComp(r.key, st.key))}
       >
@@ -4825,26 +5173,70 @@ export function AmendmentScreen({
           <div
             key={c.key}
             data-grid-row
-            className="rounded-md border border-border bg-surface p-3"
+            /* `relative pr-10` — the ✕ hangs in the corner instead of standing on
+               a line of its own. See the band below.
+
+               NO CARD PER PART (client 2026-08-17, screenshot 2334). A border, a
+               background and 12px of padding around each part turned three
+               one-line rows into three boxes stacked down the panel. The panel
+               above already draws the box that says "these belong to the
+               structure"; a second one per row says nothing further and costs
+               ~40px each. A hairline separates them instead, cancelled on the
+               first row so the panel does not gain a rule under its title. */
+            className="relative border-t border-border/60 pr-10 pt-2 first:border-t-0 first:pt-0"
           >
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground">#{j + 1}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                data-row-remove
-                className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
-                onClick={() =>
-                  mutComps(r.key, st.key, (cs) => cs.filter((x) => x.key !== c.key))
-                }
-                aria-label="Remove component"
-              >
-                <Trash2 className="h-4 w-4 shrink-0" />
-              </Button>
-            </div>
+            {/* NO `#N`, AND THEREFORE NO BAND (client 2026-08-17, screenshot
+                2332: "remove that #1, #2, all this kind of numbering, making huge
+                UI gap"). The number was the only thing this line carried — a
+                part is identified by ITS COORDINATE AND COMPONENT, which are the
+                first two fields under it, never by being third. The ✕ keeps
+                `data-row-remove`, so Ctrl+Del and the mouse are unchanged; it
+                just no longer costs a row of height. Same change, same day, in
+                `ChildGrid`'s own cards band. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-row-remove
+              /* ANCHORED TO THE BOTTOM, not the top: only the FIRST part carries
+                 the column titles (see the fields below), so a top-anchored ✕
+                 would sit level with the controls on every row except that one,
+                 where the label row pushes them ~20px down. The control line is
+                 the bottom of the row in both cases. */
+              className="absolute bottom-1 right-0 text-muted-foreground hover:text-danger"
+              onClick={() =>
+                mutComps(r.key, st.key, (cs) => cs.filter((x) => x.key !== c.key))
+              }
+              aria-label="Remove component"
+            >
+              <Trash2 className="h-4 w-4 shrink-0" />
+            </Button>
             <FieldGrid>
-              <Field label="Coordinate" size="xs">
+              {/*
+                * THE COLUMN TITLES ARE ON THE FIRST PART ONLY (client
+                * 2026-08-17, screenshot 2334: "no need to show this Coordinate /
+                * Component / Fabric Color / Fabric Print fields title for
+                * everytime because making screen two huge").
+                *
+                * `Field` already draws no label row at all when `label` is
+                * omitted — `{label != null && …}` — as opposed to `label=""`,
+                * which RESERVES the row so a control lines up with labelled
+                * fields beside it. Omitting is what reclaims the ~20px.
+                *
+                * WHY THE FIRST ROW RATHER THAN A HEADER STRIP: a strip would be
+                * a second `FieldGrid`, and `FieldGrid` establishes its own
+                * `@container/section` — so the header and the rows would resolve
+                * `@lg/section:col-span-*` against two different containers and
+                * could drift apart at the exact widths where alignment matters.
+                * Titles on row one are aligned BY CONSTRUCTION, because they are
+                * in the same grid as the cells they name, and they degrade
+                * correctly when the row wraps at narrow widths.
+                *
+                * The controls keep their own `label` prop regardless, so the
+                * accessible name and `requiredAttrs`' hold message survive on
+                * every row (`own?.label || ctx.label`).
+                */}
+              <Field label={j === 0 ? "Coordinate" : undefined} size="xs">
                 {/* The style's own coordinates (client 2026-08-12). */}
                 <RecordPicker
                   label="Coordinate"
@@ -4866,7 +5258,7 @@ export function AmendmentScreen({
                   }
                 />
               </Field>
-              <Field label="Component" size="xs">
+              <Field label={j === 0 ? "Component" : undefined} size="xs">
                 {/* Narrowed by the coordinate beside it: the style declares the
                     PAIR (FRONT BODY *of* PIECES), so an unscoped list would
                     offer a collar under a coordinate that has none. */}
@@ -4878,7 +5270,7 @@ export function AmendmentScreen({
                   onChange={(id) => patchComp(r.key, st.key, c.key, { component_id: id })}
                 />
               </Field>
-              <Field label="Fabric Color" size="md">
+              <Field label={j === 0 ? "Fabric Color" : undefined} size="md">
                 {/*
                  * THE ORDER'S OWN DYEING PALETTE, and only when the fabric is
                  * SOLID (client 2026-08-12).
@@ -4893,6 +5285,16 @@ export function AmendmentScreen({
                  *
                  * A Combobox, so free text always works: the field is never
                  * blocked, it is only GUIDED — 0397's rule stays a rule.
+                 *
+                 * NO `placeholder`. `Combobox` already defaults to "" for the
+                 * reason its own note gives (client 2026-08-17): an unfilled
+                 * control shows nothing, because a Combobox sits under a
+                 * `<Field label>` or a column title like every other control, so
+                 * "Select…" is the label said twice. This call site was
+                 * OVERRIDING that default back to "Select…" / "Type a colour" —
+                 * the very words the client pointed at in screenshot 2334,
+                 * printed once per part. Passing nothing is what lets the
+                 * primitive's decision reach this field.
                  */}
                 <Combobox
                   options={colourOptionsFor(st)}
@@ -4900,13 +5302,10 @@ export function AmendmentScreen({
                   onChange={(v) =>
                     patchComp(r.key, st.key, c.key, { color_name: v.toUpperCase() })
                   }
-                  placeholder={
-                    colourOptionsFor(st).length ? "Select…" : "Type a colour"
-                  }
                   clearable
                 />
               </Field>
-              <Field label="Fabric Print" size="md">
+              <Field label={j === 0 ? "Fabric Print" : undefined} size="md">
                 {/* ONE FIELD (0410), and scoped to the prints THIS order
                     declared (2026-08-12) — the all-over / rotary print, not a
                     placement print. No inline create: adding a lookup row here
@@ -4917,13 +5316,6 @@ export function AmendmentScreen({
                   items={declaredPrintOptions(st, c.print_id)}
                   value={c.print_id}
                   onChange={(id) => patchComp(r.key, st.key, c.key, { print_id: id })}
-                  placeholder={
-                    !takesAllOverPrint(st.item_sub_type)
-                      ? "Set Fabric Type to Printed"
-                      : declaredPrintOptions(st, c.print_id).length
-                        ? undefined
-                        : "Declare a print on Color/Print Details first"
-                  }
                 />
               </Field>
             </FieldGrid>
@@ -4963,6 +5355,9 @@ export function AmendmentScreen({
             offered. Add them on the Style master to narrow these.
           </p>
         )}
+        {/* WHY FABRIC PRINT IS EMPTY — once for the structure, not once per
+            part. See `printNote` at the top of this function. */}
+        {printNote && <p className="text-xs text-muted-foreground">{printNote}</p>}
         <Button
           type="button"
           variant="outline"
@@ -4974,7 +5369,8 @@ export function AmendmentScreen({
         </Button>
       </div>
     </div>
-  );
+    );
+  };
 
   /**
    * The structures of one combo — the overlay's outer grid.
@@ -5039,7 +5435,7 @@ export function AmendmentScreen({
       renderFoldedRow={(st) => {
         const parts = st.components?.length ?? 0;
         const summary = [
-          data.compositions.find((c) => c.id === st.composition_id)?.name,
+          data.fabrics.find((f) => f.id === st.fabric_item_id)?.name,
           gsmRange(st.gsm, st.gsm_tolerance) || null,
           ITEM_SUB_TYPE_OPTIONS.find((o) => o.value === st.item_sub_type)?.label,
           parts > 0 ? `${parts} ${parts === 1 ? "part" : "parts"}` : null,
@@ -5093,30 +5489,49 @@ export function AmendmentScreen({
                   onChange={(id) => pickComboStructure(r.key, st.key, id)}
                 />
               </Field>
-              <Field label="Type" size="xs">
-                {/* Main Fabric / Trims Fabric — `order_fabrics.fabric_type`.
-                    NOT the Style master's "Type", which is a different question
-                    wearing the same word (see combo-rules.ts). */}
-                <Select
-                  value={st.fabric_type}
-                  onChange={(e) => patchStruct(r.key, st.key, { fabric_type: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {FABRIC_TYPE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              {/* "Type" (Main Fabric / Trims Fabric) WITHDRAWN FROM THIS CARD
+                  (client 2026-08-17, screenshot 2328), CARRIED NOT DROPPED —
+                  the same treatment `combo_description` got two hundred lines
+                  up, for the same reason: `writeComboTree` DELETES AND REINSERTS
+                  every child row, so a field the form stops carrying is one the
+                  next save NULLs. `fabric_type` therefore keeps its column, its
+                  place in `ComboStructRow`, its Zod key, its line in
+                  `writeComboTree`, its vote in `structureFilled()` and its copy
+                  in `order-seed.ts`. It also keeps its row in `diff.ts`, labelled
+                  "Type": a withdrawn control still has stored values, and an
+                  amendment report that stopped mentioning them would be lying by
+                  omission about what changed.
+
+                  Nothing read it for logic — unlike `item_sub_type` below, which
+                  drives `takesDyedColour` / `takesAllOverPrint` / the structure
+                  problems — so removing the control removes exactly the control.
+
+                  IT IS ALSO WHAT PUTS THIS ROW ON ONE LINE. Seven fields at `xs`
+                  is 7 x 2 = 14 on a 12-column track, so Fabric Type wrapped alone
+                  underneath; the six that remain tile 12 exactly. That is
+                  LAYOUT.md §3's own tiling table (6 cells -> `xs` x6), not a
+                  coincidence worth re-deriving — and it is why this needs no
+                  `FIELD_TRACK_14`, whose doc says it exists only for the case
+                  twelve genuinely cannot hold. */}
               <Field label="Composition" size="xs">
-                <RecordPicker
-                  label="Composition"
-                  compact
-                  items={data.compositions}
-                  value={st.composition_id}
-                  onChange={(id) => patchStruct(r.key, st.key, { composition_id: id })}
-                />
+                {/* FETCHED FROM THE STRUCTURE, not answered against a master
+                    (0430). The options are the fabrics under the picked
+                    Structure, labelled by their blend, and a structure holding
+                    exactly one fills this in by itself — see
+                    `pickComboStructure` and `fabricsFor`. */}
+                {(() => {
+                  const opts = fabricsFor(st.structure_id, st.fabric_item_id);
+                  return (
+                    <RecordPicker
+                      label="Composition"
+                      compact
+                      items={opts}
+                      value={st.fabric_item_id}
+                      placeholder={fabricPlaceholder(st.structure_id, opts.length)}
+                      onChange={(id) => patchStruct(r.key, st.key, { fabric_item_id: id })}
+                    />
+                  );
+                })()}
               </Field>
               <Field label="Gsm" size="xs">
                 <Input
@@ -5145,7 +5560,7 @@ export function AmendmentScreen({
                   value={st.item_sub_type}
                   onChange={(e) => patchStruct(r.key, st.key, { item_sub_type: e.target.value })}
                 >
-                  <option value="">—</option>
+                  <option value=""></option>
                   {ITEM_SUB_TYPE_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -5167,6 +5582,32 @@ export function AmendmentScreen({
       }}
     />
   );
+
+  /**
+   * ONE WIDTH FOR THE TWO "+ Add" BUTTONS (client 2026-08-17, again 2026-08-18:
+   * "change the add size button size like add style button size").
+   *
+   * "+ Add size" and "+ Add style" sit a few pixels apart and read as a pair.
+   * They were ALREADY the same control — both `variant="outline" size="sm"`, so
+   * both `h-8 px-3 text-xs` — and the only thing that ever differed was the
+   * LABEL: content-width buttons whose text differs by one character differ by
+   * ~6px.
+   *
+   * THE FIRST FIX PUT THE FLOOR ON ONE OF THEM, and that is why this is now a
+   * constant. `min-w-[6.75rem]` was set on "+ Add size" alone, described as
+   * sitting "just above the longer label's natural width" — it was 108px
+   * against "+ Add style"'s natural 88px, so the button that had been 6px small
+   * became 20px big and the client reported the same mismatch the other way
+   * round. A width floor tuned by eye to a control it is not applied to can
+   * only ever be right by luck.
+   *
+   * Both read this now — the hand-rolled button below and `ChildGrid`'s own via
+   * `addClassName` — so the value no longer has to be CORRECT, only generous:
+   * whatever it is, the two render the identical box, and a font change moves
+   * them together. That is the same reason `createdColumns` and `keyFills` are
+   * single declarations rather than matching pairs.
+   */
+  const ADD_BUTTON_W = "min-w-[6.75rem]";
 
   /**
    * THIS LAYOUT IS `ChildGrid`'s `across` MODE NOW (2026-08-17).
@@ -5311,8 +5752,13 @@ export function AmendmentScreen({
           /* `justify-self-start` is the part that actually does it, and dropping
              `w-full` alone did NOT: a grid item's default `justify-self` is
              STRETCH, so this button filled its column because it IS a grid cell,
-             whatever its own display says. Content width has to be asked for. */
-          className="justify-self-start @lg/section:col-span-2"
+             whatever its own display says. Content width has to be asked for.
+
+             `ADD_BUTTON_W` is the width floor "+ Add style" BELOW IT reads too
+             (see the constant above `sizeGrid`) — a size change here would make
+             two controls that are meant to match differ for real, so this is a
+             floor, applied to BOTH, never to one of them. */
+          className={cn("justify-self-start @lg/section:col-span-2", ADD_BUTTON_W)}
           onClick={() => addSize(r.key)}
         >
           + Add size
@@ -5411,6 +5857,8 @@ export function AmendmentScreen({
         onAdd={addStyle}
         onRemove={(r) => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
         addLabel="+ Add style"
+        /* Same floor as "+ Add size" above it — see `ADD_BUTTON_W`. */
+        addClassName={ADD_BUTTON_W}
         renderMobileRow={(r, i) => {
           /* OPEN = the row the operator is on. `openStyleKey` unset resolves to
              the LAST row, so a fresh order and a loaded one both open on the one
@@ -5456,10 +5904,18 @@ export function AmendmentScreen({
           return (
           <div
             className={cn(
-              "space-y-2",
+              // `relative pr-10` carries the corner ✕ that replaced the `#N`
+              // band: something has to hold it, and the padding is what keeps the
+              // last field's label out from under it.
+              "relative space-y-2 pr-10",
               // A folded row reads as one thing you can open, so it says so on
               // hover. The open row gets nothing — there is nothing to click.
-              !isOpen && "-mx-2 cursor-pointer rounded-md px-2 hover:bg-surface-muted",
+              //
+              // `pl-2`, NOT `px-2`: `px-*` and `pr-*` are the same twMerge group,
+              // so a `px-2` declared after the `pr-10` above WINS on the right and
+              // the corner ✕ lands back on top of the summary. Setting only the
+              // side this needs is what keeps the two rules from fighting.
+              !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
             )}
             title={isOpen ? undefined : "Open this style"}
             /* FOCUS OPENS THE ROW, which is what keeps this keyboard-operable:
@@ -5484,22 +5940,20 @@ export function AmendmentScreen({
               setOpenStyleKey(r.key);
             }}
           >
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                #{i + 1}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                data-row-remove
-                className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
-                onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
-                aria-label="Remove style"
-              >
-                <Trash2 className="h-4 w-4 shrink-0" />
-              </Button>
-            </div>
+            {/* The ✕ alone, out of the flow — the `#N` beside it went with the
+                rest of them (client 2026-08-17, screenshot 2332). A style line is
+                named by its Style, which is the first field below. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-row-remove
+              className="absolute right-0 top-0 text-muted-foreground hover:text-danger"
+              onClick={() => setStyles((xs) => xs.filter((x) => x.key !== r.key))}
+              aria-label="Remove style"
+            >
+              <Trash2 className="h-4 w-4 shrink-0" />
+            </Button>
             {/* `required={col.required}` is not optional plumbing: with
                 `renderMobileRow` supplied, ChildGrid stops wrapping cells in
                 its own `RequiredScope` (child-grid.tsx:1119), so this Field
@@ -5872,6 +6326,8 @@ export function AmendmentScreen({
               setPriceDetails((xs) => xs.filter((x) => !mine.has(x.key)));
             }}
             addLabel="+ Add style price"
+            /* The fourth of the four — see `PRICE_W` above `rateGrid`. */
+            addClassName={PRICE_W}
           />
           <EmptyNote rows={priceDetails.length} label="prices" seeded={seeded} />
         </>
@@ -6069,8 +6525,12 @@ export function AmendmentScreen({
               return (
                 <div
                   className={cn(
-                    "space-y-2",
-                    !isOpen && "-mx-2 cursor-pointer rounded-md px-2 hover:bg-surface-muted",
+                    // See the Styles row above — the corner ✕ needs a `relative`
+                    // to hang on and the padding to keep clear of the fields.
+                    "relative space-y-2 pr-10",
+                    // `pl-2` not `px-2` — see the Styles row: `px-*` would
+                    // outrank the `pr-10` that keeps the ✕ off the summary.
+                    !isOpen && "-mx-2 cursor-pointer rounded-md pl-2 hover:bg-surface-muted",
                   )}
                   title={isOpen ? undefined : "Open this quantity line"}
                   onFocus={() => {
@@ -6082,24 +6542,20 @@ export function AmendmentScreen({
                     setOpenQtyKey(row.key);
                   }}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                      #{i + 1}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      data-row-remove
-                      className="ml-auto shrink-0 text-muted-foreground hover:text-danger"
-                      onClick={() =>
-                        setQuantities((xs) => xs.filter((x) => x.key !== row.key))
-                      }
-                      aria-label="Remove quantity line"
-                    >
-                      <Trash2 className="h-4 w-4 shrink-0" />
-                    </Button>
-                  </div>
+                  {/* The ✕ alone, out of the flow — see the Styles grid above
+                      and `ChildGrid`'s cards band. A quantity line is named by
+                      its Country, which is the field it folds to. */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-row-remove
+                    className="absolute right-0 top-0 text-muted-foreground hover:text-danger"
+                    onClick={() => setQuantities((xs) => xs.filter((x) => x.key !== row.key))}
+                    aria-label="Remove quantity line"
+                  >
+                    <Trash2 className="h-4 w-4 shrink-0" />
+                  </Button>
                   <FieldGrid>
                     {(isOpen ? [...primary, ...secondary] : primary.slice(0, 1)).map((c) => (
                       /* One line for all eight — see QTY_NARROW for the split
@@ -6392,7 +6848,7 @@ export function AmendmentScreen({
                   value={form.ship_mode}
                   onChange={(e) => set({ ship_mode: e.target.value })}
                 >
-                  <option value="">—</option>
+                  <option value=""></option>
                   {SHIP_MODES.map((o) => (
                     <option key={o} value={o}>{o}</option>
                   ))}
@@ -6442,7 +6898,7 @@ export function AmendmentScreen({
                   value={form.pay_mode}
                   onChange={(e) => set({ pay_mode: e.target.value })}
                 >
-                  <option value="">—</option>
+                  <option value=""></option>
                   {PAY_MODES.map((o) => (
                     <option key={o} value={o}>{o}</option>
                   ))}
@@ -6654,10 +7110,7 @@ export function AmendmentScreen({
      */
     done: !!form.location_id && !!form.customer_id && has(styles),
     content: (
-      <SectionBody
-        title="Order Info"
-        hint="Who this order is for, and the styles it covers."
-      >
+      <SectionBody title="Order Info">
         {/* ONE FieldGrid for the header fields — SectionBody has no grid of its
             own, and two stacked FieldGrids agree on the left edge but not the
             row gap. The `ChildGrid` below is not a second one: it is a card
@@ -6753,7 +7206,7 @@ export function AmendmentScreen({
           </Field>
           <Field label="Season" size="xs" htmlFor="hd-season">
             <Select id="hd-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
-              <option value="">—</option>
+              <option value=""></option>
               {SEASON_OPTIONS.map((o) => (
                 <option key={o} value={o}>{o}</option>
               ))}
@@ -7187,7 +7640,7 @@ export function AmendmentScreen({
                   value={assortQty.ratio_for}
                   onChange={(e) => setQty(assortQty.key, { ratio_for: e.target.value })}
                 >
-                  <option value="">—</option>
+                  <option value=""></option>
                   <option value="master">Master</option>
                   <option value="inner">Inner</option>
                 </Select>

@@ -453,7 +453,7 @@ export function FabricBomScreen({
           value={r.fabric_type}
           onChange={(e) => setCell(r.key, { fabric_type: e.target.value })}
         >
-          <option value="">—</option>
+          <option value=""></option>
           {FABRIC_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
@@ -528,7 +528,7 @@ export function FabricBomScreen({
           value={r.requirement_basis}
           onChange={(e) => setCell(r.key, { requirement_basis: e.target.value })}
         >
-          <option value="">—</option>
+          <option value=""></option>
           {FABRIC_BASES.map((b) => (
             <option key={b} value={b}>
               {FABRIC_BASIS_LABELS[b]}
@@ -757,10 +757,7 @@ export function FabricBomScreen({
       // than a red count, and `footer.onBlockedSave` is what replaces it.
       done: !!form.garment_order_id,
       content: (
-        <SectionBody
-          title="Fabric BOM"
-          hint="Which garment order this plans fabric for."
-        >
+        <SectionBody title="Fabric BOM">
           <FieldGrid>
             <Field label="Garment order" required size="sm" htmlFor="fb-order">
               <RecordPicker
@@ -823,10 +820,7 @@ export function FabricBomScreen({
       icon: ListChecks,
       done: filledLines.length > 0,
       content: (
-        <SectionBody
-          title="Fabric Lines"
-          hint="One line per fabric, per colourway and panel. Consumption is per garment."
-        >
+        <SectionBody title="Fabric Lines">
           <div className="mb-3 flex items-center justify-end">
             <Button
               type="button"
@@ -869,10 +863,7 @@ export function FabricBomScreen({
       icon: Calculator,
       done: preview.some((p) => p.qty != null),
       content: (
-        <SectionBody
-          title="Calculated Quantities"
-          hint="Production target x consumption x (1 + wastage). Recomputed as you type, and stored on save."
-        >
+        <SectionBody title="Calculated Quantities">
           {!form.garment_order_id ? (
             <p className="text-sm text-muted-foreground">Pick a garment order first.</p>
           ) : orderErr ? (

@@ -595,10 +595,7 @@ export function CourierDeliveryAddressMasterScreen({
             icon: User,
             done: done.identity,
             content: (
-              <SectionBody
-                title="Identity"
-                hint="Who this courier address is for, and the country it sits in."
-              >
+              <SectionBody title="Identity">
             <DetailSection label="Details" cols={12}>
               <Field label="Name" size={FIELD_SIZE.name} required htmlFor="cda-name">
                 <Input
@@ -659,7 +656,7 @@ export function CourierDeliveryAddressMasterScreen({
             icon: MapPin,
             done: done.address,
             content: (
-              <SectionBody title="Address" hint="Where the courier delivers, and how to reach them.">
+              <SectionBody title="Address">
             <DetailSection label="Address" cols={12}>
               {/* A single-line Input, not the 3-row Textarea this used to be:
                   every grid row is as tall as its tallest item, so a textarea
@@ -768,7 +765,7 @@ export function CourierDeliveryAddressMasterScreen({
             icon: Users,
             done: done.contacts,
             content: (
-              <SectionBody title="Contacts" hint="People to deal with at this courier address.">
+              <SectionBody title="Contacts">
             {/* Seven fields per row, so stacked cards (LAYOUT.md §6) with a
                 FieldGrid inside: the card body gets the same 12-col track as the
                 sections beside it, instead of seven controls stacked one per

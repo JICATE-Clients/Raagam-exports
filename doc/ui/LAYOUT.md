@@ -249,26 +249,44 @@ paired with its action button, where filling the row only stretches whitespace i
 `w-fit` button's cell. A grid whose cells come from a `columns.map()` cannot be settled
 statically at all — its count is the column count.
 
-### An unfilled field reads "—", never "Select {noun}" (client 2026-08-17)
+### An unfilled field shows NOTHING (client 2026-08-17)
 
-`DataPicker`, `Combobox` and `Select` all default their empty-state placeholder to a bare
-em-dash. The noun in "— Select Customer —" is **the label repeated with a verb**: a picker is
-`compact` inside a `<Field label>`, so the word already stands directly above the box, and in
-a `ChildGrid` cell the column header says it a third time. It cost width it had not earned —
+`DataPicker`, `Combobox` and `Select` all default their empty-state placeholder to an **empty
+string**, and 209 hand-written `<option value="">` labels were blanked to match.
+
+**This reversed twice in one day, and both reversals are the same lesson.** The field first read
+"— Select Customer —": the noun there is *the label repeated with a verb*, since a picker is
+`compact` inside a `<Field label>`, so the word already stands directly above the box, and in a
+`ChildGrid` cell the column header says it a third time. It cost width it had not earned —
 "— Select Merchand... —" ellipsed itself inside a 202px trigger, under a label reading
-"Merchand." — and a bare `—` is what every native `<Select>` on these screens already renders
-for its empty option.
+"Merchand.".
 
-The noun is not lost: it still names the picker's panel, its search box, its add button and
-its toasts, all places where nothing else on screen says it.
+It then went to a bare `—`, defended as the app's existing "nothing chosen". **That defence
+confused a table cell with a form field.** In a table a dash is right and stays right
+(`created-columns.tsx`), because a column of blanks is ambiguous with a column that failed to
+load. A form field already has a box, a border and a chevron saying "a value goes here", so the
+dash is a mark meaning what the box already means — and sixty fields each drawing one is a screen
+of dashes, which is what the client saw and rejected within the hour.
 
-**An explicit `placeholder` still wins, and that is where the exception lives.** Use one when
-the empty state means something the label cannot say — Order Entry's Rejection Rule reads
-"— No projection —", because blank there is a *state of the order*, not an unanswered field.
+**The rule underneath: an empty control says nothing.** Emptiness is legible on its own; every
+attempt to announce it costs width and adds a mark to scan past.
 
-**Remainder, not yet swept:** 128 hand-written `<option value="">— select X —</option>` labels
-across HR, Finance and Purchase. `parseOptions` takes that label verbatim as the placeholder,
-so the default above cannot reach them. None are in the Orders module.
+Three things this does NOT touch, and the boundary matters:
+
+- **`All …` on a filter facet.** 31 `<option value="">All</option>` and ~25 variants survived
+  deliberately. On a filter, "showing everything" is a *real selection* the operator needs to
+  read; a blank filter dropdown reads as broken. `— Any —` and `— All locations —` kept their
+  word and lost their dashes.
+- **A label a control does not otherwise have.** A few dense inline grid rows use the empty option
+  as the only label (`UOM`, `Item` in `dc-new-form` / `new-process-order-form`). Blanking those
+  leaves an unlabelled box. `— Material —` and `— Account —` were de-dashed, not blanked.
+- **An explicit `placeholder`,** which still wins, and is where a MEANINGFUL empty state lives:
+  Order Entry's Rejection Rule reads "No projection", because blank there is a state of the order
+  and not an unanswered field. The same shape kept "Pick a Style first" on the Combo picker while
+  blanking its other branch.
+
+The picker's noun is not lost either — it still names the panel, the search box
+("Search customers…"), the add button and every toast, all places where nothing else says it.
 
 ---
 
@@ -690,6 +708,41 @@ click and focus the first invalid field instead ([Primer](https://primer.style/p
 **Mobile:** controls are `text-base md:text-sm`. `text-sm` alone zooms the iOS viewport on focus.
 Already handled inside `Input` / `Select` / `Textarea` — **do not** re-type it at the call site
 (~499 such no-op classNames already exist; don't add more).
+
+### A heading gets no explanatory sentence (client 2026-08-17)
+
+`SectionBody` takes a `title` and nothing else. It used to require a `hint` too, so every section
+of every rail editor carried a line of prose beside its name — "Order Info · Who this order is for,
+and the styles it covers", "Address · Primary correspondence address for this customer". All 51 of
+them were removed on the client's instruction, and the prop went with them.
+
+**They were the section's own name expanded into prose.** Each one named the fields sitting
+directly underneath it, to an operator who was already looking at those fields, on a surface where
+the rail two inches to the left names the section a third time. The component's own comment had
+already conceded the heading was "the most redundant thing on screen" and kept it only because
+dropping it would take the hint with it — which made the hint the load-bearing half of a heading
+that explains a thing the reader can see.
+
+**A section that needs explaining has a labelling problem.** Fix the label, not by adding a
+sentence under it.
+
+**What survives is state, and it is conditional.** Exactly one of the 51 carried information the
+screen could not otherwise give: Style ▸ Components said "Add coordinates first — a component is a
+part of one of them" *while* the Coordinate picker had nothing to offer. That is a state message,
+and state messages belong beside the control whose state they describe — it now renders in the
+section body, only in that state. **This is the shape a new one must take**: a screen writes its
+own line, where it can be conditional, rather than filling a slot that exists on every screen
+whether or not there is anything to say.
+
+**Removed, not deprecated.** Accepting `hint` and ignoring it would have been one edit instead of
+fifteen, and it is the "dead config that reads as live" failure this repo records elsewhere: 51
+strings that look maintained, that the next screen would copy, and that render nothing.
+
+**`PageHeader`'s `description` STAYS, and that was asked and answered on the same day** — 375 call
+sites, deliberately untouched. It looks like the same thing and is not: a list page has nothing
+else saying what the screen is, and the line is the first thing a new operator reads, where a
+section hint sat beside a rail already naming it. **Do not sweep it by analogy with this one** —
+the analogy was put to the client explicitly and declined.
 
 ---
 

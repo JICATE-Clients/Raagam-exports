@@ -141,7 +141,7 @@ export function OrderCategoriesClient({
               <div>
                 <Label htmlFor="oc-order">Order *</Label>
                 <Select id="oc-order" value={orderId} onChange={(e) => setOrderId(e.target.value)} required>
-                  <option value="">— select order —</option>
+                  <option value=""></option>
                   {orders.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.order_number ?? o.id.slice(0, 8)}
@@ -153,7 +153,7 @@ export function OrderCategoriesClient({
               <div>
                 <Label htmlFor="oc-cat">Category *</Label>
                 <Select id="oc-cat" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-                  <option value="">— select category —</option>
+                  <option value=""></option>
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}

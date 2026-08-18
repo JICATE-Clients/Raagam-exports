@@ -199,7 +199,7 @@ export function AssetsClient({ rows, locations, items, canCreate }: Props) {
                   <div>
                     <Label htmlFor="as-loc">Location</Label>
                     <Select id="as-loc" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </Select>
                   </div>

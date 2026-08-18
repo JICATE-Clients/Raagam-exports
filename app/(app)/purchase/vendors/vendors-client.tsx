@@ -219,7 +219,7 @@ export function VendorsClient({
                     })
                   }
                 >
-                  <option value="">— Select —</option>
+                  <option value=""></option>
                   {VENDOR_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {VENDOR_TYPE_LABELS[t]}

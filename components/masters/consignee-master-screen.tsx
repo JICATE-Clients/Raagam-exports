@@ -1273,10 +1273,7 @@ export function ConsigneeMasterScreen({
             icon: User,
             done: done.identity,
             content: (
-              <SectionBody
-                title="Identity"
-                hint="Who this consignee is, and the customer they ship for."
-              >
+              <SectionBody title="Identity">
                 {/* Four controls, one flush row. Every label is `Field`'s, so
                     the pickers are all `compact`: CountryPicker and
                     CustomerPicker render their OWN <Label> otherwise, and this
@@ -1468,7 +1465,7 @@ export function ConsigneeMasterScreen({
             icon: MapPin,
             done: done.address,
             content: (
-              <SectionBody title="Address" hint="Where the goods go, and who to deal with there.">
+              <SectionBody title="Address">
                 <div className="space-y-4">
                   {/* Four rows of the 12-col track: the street block, then the
                       address line (City · State · Pin · Country) the way it is
@@ -1685,10 +1682,7 @@ export function ConsigneeMasterScreen({
             icon: SlidersHorizontal,
             done: done.general,
             content: (
-              <SectionBody
-                title="General"
-                hint="Currencies, shipping and payment defaults, markings and tax registration."
-              >
+              <SectionBody title="General">
                 <div className="space-y-4">
                   {/* ONE FieldGrid, not the four stacked grids this replaced. They
                       were rows of the same form, so they should share one track's
@@ -1741,7 +1735,7 @@ export function ConsigneeMasterScreen({
                         value={form.ship_mode}
                         onChange={(e) => set({ ship_mode: e.target.value })}
                       >
-                        <option value="">— Select —</option>
+                        <option value=""></option>
                         {SHIP_MODES.map((m) => (
                           <option key={m} value={m}>
                             {m}
@@ -1782,7 +1776,7 @@ export function ConsigneeMasterScreen({
                         value={form.pay_mode}
                         onChange={(e) => set({ pay_mode: e.target.value })}
                       >
-                        <option value="">— Select —</option>
+                        <option value=""></option>
                         {PAY_MODES.map((m) => (
                           <option key={m} value={m}>
                             {m}
@@ -1950,10 +1944,7 @@ export function ConsigneeMasterScreen({
             icon: Bell,
             done: done.notify,
             content: (
-              <SectionBody
-                title="Notify"
-                hint="The parties told when a shipment goes out to this consignee."
-              >
+              <SectionBody title="Notify">
                 <div className="rounded-lg border border-border">
                   <div className="border-b border-border px-3 py-2.5 text-sm font-medium text-foreground">
                     Notify Parties

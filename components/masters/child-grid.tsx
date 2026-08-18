@@ -669,6 +669,7 @@ export function ChildGrid<T extends { key: string }>({
   onAdd,
   onRemove,
   addLabel = "+ Add row",
+  addClassName,
   renderMobileRow,
   pageSize,
   forceCards = false,
@@ -716,6 +717,25 @@ export function ChildGrid<T extends { key: string }>({
   onAdd: () => boolean | void;
   onRemove: (row: T) => void;
   addLabel?: string;
+  /**
+   * Extra classes for the "+ Add" button, for the ONE case a caller needs: two
+   * Add buttons sitting near each other that must render the same box.
+   *
+   * A grid's Add is `variant="outline" size="sm"` and content-width, so two of
+   * them differ by exactly the width of their labels — "+ Add size" is ~6px
+   * narrower than "+ Add style" beside it, which the client has now reported
+   * twice (2026-08-17, 2026-08-18). The first fix put a width floor on the
+   * hand-rolled one alone; a floor tuned to the OTHER button's font metrics can
+   * only be right by luck, and that one overshot by 20px — leaving the pair
+   * mismatched again, the other way round.
+   *
+   * So the floor is declared ONCE and both buttons read it: the caller passes
+   * the same constant here and to its own button, and neither can be measured
+   * against the other again. It is deliberately NOT a default on this
+   * component — widening every "+ Add row" in ~32 screens to suit one pair is a
+   * change nobody asked for.
+   */
+  addClassName?: string;
   /** Custom mobile-card body per row; falls back to stacking every column's cell if omitted. */
   renderMobileRow?: (row: T, index: number) => ReactNode;
   /** Paginate the rows at N per page with a Prev/Next bar, instead of an inner
@@ -1105,6 +1125,50 @@ export function ChildGrid<T extends { key: string }>({
    * exactly one is ever on screen.
    */
   const hasTotals = columns.some((c) => c.total && c.total.kind !== "blank");
+
+  /**
+   * THE "+ ADD" BUTTON, HOISTED so it can render in one of two places.
+   *
+   * `mode !== "across"` because that layout renders its own inside
+   * `data-grid-body` — see the `across` prop. Rendering both gives two Adds.
+   */
+  const addBtn =
+    !hideAdd && mode !== "across" ? (
+      // `data-row-add` is what Tab drives when this grid is NESTED in another
+      // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
+      // LANDS on it; a button is not a field.
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        data-row-add
+        className={addClassName}
+        onClick={handleAdd}
+      >
+        {addLabel}
+      </Button>
+    ) : null;
+
+  /**
+   * DOES ADD RIDE ON THE TOTALS ROW? (client 2026-08-17, Approval Qty.)
+   *
+   * A totals band is right-aligned, so its left half is empty — and the Add
+   * button sat on a row of its own directly beneath that emptiness, costing a
+   * line to say nothing. Pairing them puts Add in the space the totals were
+   * already leaving.
+   *
+   * NOT IN `responsive` MODE, and that is the whole of the care needed here.
+   * The totals band lives INSIDE the cards container because that container
+   * carries `@lg:hidden` in responsive mode (a band outside it would print
+   * alongside the table's own <tfoot> at wide sizes) — so an Add button moved in
+   * there would inherit the same hiding and VANISH on a wide screen. It stays
+   * outside for that mode.
+   *
+   * Only two screens in the app declare column totals today (Approval Qty and
+   * Budgets) and both are `forceCards`, so this pairs on exactly the grids that
+   * asked for it and changes nothing else.
+   */
+  const addOnTotalsRow = !!addBtn && hasTotals && mode !== "responsive";
   /** Where the figures start — everything left of it belongs to the label. */
   const firstTotalIndex = columns.findIndex((c) => c.total && c.total.kind !== "blank");
 
@@ -1636,6 +1700,34 @@ export function ChildGrid<T extends { key: string }>({
               rows.length > 1 &&
               row.key !== (openRowKey ?? rows[rows.length - 1]?.key ?? null) &&
               (canFold ? canFold(row) : true);
+            /**
+             * WHAT THE CARD'S HEADER BAND HAS TO SAY — and whether it has
+             * anything at all (client 2026-08-17, screenshot 2332: "remove that
+             * #1, #2, all this kind of numbering, making huge UI gap").
+             *
+             * THE ORDINAL IS GONE FROM THIS MODE. A card is not a table row: its
+             * fields are stacked and labelled, so nothing here is identified by
+             * position the way "row 3" identifies a line of eight columns. It was
+             * decorative, nothing read it back (no message in this app names a row
+             * by number, and `sno` is written from the array index at save), and
+             * on a grid with no summary it was the ONLY content of a 32px band —
+             * a whole line per row spent printing a number. That is the gap the
+             * client is pointing at, and it is the same reasoning `hideIndex`
+             * states for inline mode, arrived at from the other direction.
+             *
+             * SO THE BAND IS NOW CONDITIONAL, and this is the half that removes
+             * the space rather than merely the digits: with a `rowSummary` the
+             * band still earns its line (it names the row — "Circular Knit"), and
+             * with none there is no line at all, only the ✕ floated into the
+             * card's own corner. Removing the number while keeping the band would
+             * have answered the client's words and not their complaint.
+             */
+            // `!listRows &&` first: in list mode the ROW draws its own header, so
+            // calling the caller's summary here would be work whose result is
+            // thrown away on every render of every row.
+            const summary = !listRows && rowSummary ? rowSummary(row, i) : null;
+            const bandLine = !!summary;
+            const cornerRemove = !listRows && !summary && !locked(row);
             return (
             <div
               key={row.key}
@@ -1645,6 +1737,10 @@ export function ChildGrid<T extends { key: string }>({
                 // `py-2` only — no horizontal padding, so a flat row's fields keep
                 // the grid's own left edge and line up with the sections above it.
                 listRows ? "py-2 first:pt-0 last:pb-0" : "rounded-lg border border-border p-2.5",
+                // Only when the ✕ floats: `relative` to hang it on, and room on
+                // the right so the last field's LABEL does not run under it. A
+                // banded card needs neither — its ✕ is in the flow.
+                cornerRemove && "relative pr-10",
                 // A folded row reads as one thing you can open, and says so.
                 folded && "cursor-pointer hover:bg-surface-muted",
               )}
@@ -1666,22 +1762,35 @@ export function ChildGrid<T extends { key: string }>({
                   : undefined
               }
             >
-              {!listRows && (
+              {bandLine && (
                 /* `ml-auto` on the remove button, not `justify-between` on the
-                   row: with a summary between them, space-between would push the
-                   index and the summary to opposite ends of the card instead of
-                   keeping them together as one label. */
+                   row: the summary is the row's name and the ✕ is an action on
+                   it, so the name stays left and the action goes to the edge. */
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs font-medium text-muted-foreground">#{startIndex + i + 1}</span>
-                  {rowSummary && (
-                    <Truncated className="text-sm font-medium text-foreground">{rowSummary(row, i)}</Truncated>
-                  )}
+                  <Truncated className="text-sm font-medium text-foreground">{summary}</Truncated>
                   {!locked(row) && (
                     <Button type="button" variant="ghost" size="sm" data-row-remove className="ml-auto shrink-0 text-muted-foreground hover:text-danger" onClick={() => onRemove(row)} aria-label="Remove row">
                       <X className="h-4 w-4 shrink-0" />
                     </Button>
                   )}
                 </div>
+              )}
+              {cornerRemove && (
+                /* THE SAME BUTTON, OUT OF THE FLOW — not a second one and not a
+                   lesser one. `data-row-remove` is what Ctrl+Del drives and the
+                   `aria-label` is what a screen reader reads, so both come with
+                   it; only the line it used to stand on is gone. */
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-row-remove
+                  className="absolute right-1 top-1 text-muted-foreground hover:text-danger"
+                  onClick={() => onRemove(row)}
+                  aria-label="Remove row"
+                >
+                  <X className="h-4 w-4 shrink-0" />
+                </Button>
               )}
               {folded ? (
                 renderFoldedRow!(row, i)
@@ -1704,7 +1813,12 @@ export function ChildGrid<T extends { key: string }>({
               container is what carries `@lg:hidden`, so a band outside it would
               render alongside the table's <tfoot> at wide sizes. */}
           {hasTotals && (
-            <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1 border-t-2 border-border pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t-2 border-border pt-2">
+              {/* The empty left half of a right-aligned totals row — Add takes it
+                  when it can, and an empty span holds the `justify-between` apart
+                  when it cannot, so the figures stay right-aligned either way. */}
+              {addOnTotalsRow ? addBtn : <span />}
+              <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1">
               {columns
                 .filter((c) => c.total && c.total.kind !== "blank")
                 .map((c, ci) => (
@@ -1717,6 +1831,7 @@ export function ChildGrid<T extends { key: string }>({
                     </span>
                   </span>
                 ))}
+              </div>
             </div>
           )}
         </div>
@@ -1739,17 +1854,9 @@ export function ChildGrid<T extends { key: string }>({
           />
         )}
 
-        {/* `mode !== "across"` because that layout renders this button ITSELF,
-            inside `data-grid-body` and in a cell of the track — see the `across`
-            prop. Rendering both would give the grid two Add buttons. */}
-        {!hideAdd && mode !== "across" && (
-          // `data-row-add` is what Tab drives when this grid is NESTED in another
-          // grid's row and has no rows yet — see `enterNestedGrid`. Tab still never
-          // LANDS on it; a button is not a field.
-          <Button type="button" variant="outline" size="sm" data-row-add onClick={handleAdd}>
-            {addLabel}
-          </Button>
-        )}
+        {/* Below the grid unless it is riding the totals row — see
+            `addOnTotalsRow`. Rendered in exactly one of the two places. */}
+        {!addOnTotalsRow && addBtn}
       </div>
     </div>
   );

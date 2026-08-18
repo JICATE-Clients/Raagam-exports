@@ -309,7 +309,7 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
           value={r.from_activity_id ?? ""}
           onChange={(e) => onPickFromActivity(r.key, e.target.value || null)}
         >
-          <option value="">—</option>
+          <option value=""></option>
           {fromActivityOptions
             .filter((o) => o.id !== r.activity_id)
             .map((o) => (

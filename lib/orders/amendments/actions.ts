@@ -221,7 +221,7 @@ function structureFilled(r: AmendmentInput["combos"][number]["structures"][numbe
   return (
     r.structure_id ||
     r.fabric_type ||
-    r.composition_id ||
+    r.fabric_item_id ||
     r.gsm ||
     r.gsm_tolerance ||
     r.item_sub_type ||
@@ -644,7 +644,7 @@ async function writeComboTree(
         sno,
         structure_id: st.structure_id,
         fabric_type: clean(st.fabric_type),
-        composition_id: st.composition_id,
+        fabric_item_id: st.fabric_item_id,
         gsm: st.gsm,
         gsm_tolerance: st.gsm_tolerance,
         item_sub_type: clean(st.item_sub_type),

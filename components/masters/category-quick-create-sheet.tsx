@@ -304,7 +304,7 @@ export function CategoryQuickCreateSheet({
               onChange={(e) => setMade(e.target.value as "" | MadeType)}
               className="text-base md:text-sm"
             >
-              <option value="">— Select —</option>
+              <option value=""></option>
               {MADE_TYPES.map((m) => (
                 <option key={m} value={m}>
                   {m}

@@ -2,7 +2,14 @@
 
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, ClipboardList, Copy, Workflow } from "lucide-react";
+import {
+  Calculator,
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  Copy,
+  Workflow,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -741,6 +748,41 @@ export function MbaMasterScreen({
    * where the click lived. The card body IS the button, so keeping it would nest
    * one inside the other — the exact invalid markup that shaped this component.
    */
+  /**
+   * WHICH ITEM ROWS HAVE THEIR "DETAILS" BAND CLOSED (client 2026-08-17, the
+   * `⊟` on the legacy row).
+   *
+   * CLOSED IS THE EXCEPTION, so the set holds the closed keys and a row absent
+   * from it is open. A default of "closed" would hide two REQUIRED fields on
+   * every fresh row, which is the trap below.
+   *
+   * Keyed by the row's own key rather than its index — `mutItems` filters and
+   * re-adds, so an index would follow whichever row moved into that position.
+   */
+  const [detailClosed, setDetailClosed] = useState<Set<string>>(new Set());
+  const toggleDetail = (key: string) =>
+    setDetailClosed((xs) => {
+      const next = new Set(xs);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+
+  /**
+   * MAY THIS ROW CLOSE ITS DETAILS BAND?
+   *
+   * Only once the two REQUIRED fields inside it are answered. `No. of Items` and
+   * `Per Pieces` live in the band, and AGENTS.md's "Mandatory fields" is explicit
+   * that **requiring a hidden field is a record that cannot be saved with nothing
+   * on screen to say why** — the operator would close the band, press Save, be
+   * refused, and have no visible cause.
+   *
+   * Same shape as `canFold` on the grid below ("a row with nothing filled in has
+   * no summary worth showing"), and refused OUT LOUD: the control stays in place
+   * and its tooltip says which field is missing, rather than disappearing.
+   */
+  const canCloseDetail = (r: ItemRow) =>
+    !!r.no_of_items.trim() && !!r.per_pieces.trim();
+
   /** False when the service does not select `created_at` — then the card shows
    *  no Created line at all, rather than a dangling date. `hasCreatedInfo` is the
    *  same guard `withCreatedColumns` applies to a table. */
@@ -1102,7 +1144,7 @@ export function MbaMasterScreen({
           className="h-8"
           required
         >
-          <option value="">—</option>
+          <option value=""></option>
           {REQUIREMENT_BASES.map((b) => (
             <option key={b} value={b}>
               {REQUIREMENT_BASIS_LABELS[b]}
@@ -1230,7 +1272,7 @@ export function MbaMasterScreen({
           onChange={(e) => updItem(r.key, { type: e.target.value })}
           className="h-8"
         >
-          <option value="">—</option>
+          <option value=""></option>
           {MATERIAL_TYPE_OPTIONS.map((o) => (
             <option key={o} value={o}>
               {o}
@@ -1260,7 +1302,7 @@ export function MbaMasterScreen({
           }}
           className="h-8"
         >
-          <option value="">—</option>
+          <option value=""></option>
           {SUPPLY_TYPE_OPTIONS.map((o) => (
             <option key={o} value={o}>
               {o}
@@ -1632,10 +1674,7 @@ export function MbaMasterScreen({
        */
       done: !!form.amend_date && !!form.garment_order_id && items.some((r) => r.item_id),
       content: (
-        <SectionBody
-          title="Material BOM"
-          hint="Which confirmed garment order this plans material for, and every material it needs."
-        >
+        <SectionBody title="Material BOM">
           {/* ONE FLUSH ROW — four `xs` (2 of 12) and Remarks at `md` (4) = 12.
 
               THE COUNT IS WHAT PICKS THE SIZE, not a preference for small. It
@@ -1864,20 +1903,62 @@ export function MbaMasterScreen({
                       makes it lay out on the same `FIELD_TRACK` the band above
                       uses, so the two read as one grid split in two, not as two
                       grids. */}
-                  {restCols.length > 0 && (
-                    <DetailSection label="Details" cols={12}>
-                      {restCols.map((c, ci) => (
-                        <Field
-                          key={ci}
-                          label={c.header}
-                          required={c.required}
-                          size="xs"
+                  {restCols.length > 0 &&
+                    (() => {
+                      const closed = detailClosed.has(row.key);
+                      const mayClose = canCloseDetail(row);
+                      const why = mayClose
+                        ? closed
+                          ? "Show details"
+                          : "Hide details"
+                        : "Fill No. of Items and Per Pieces before hiding these";
+                      return (
+                        <DetailSection
+                          label="Details"
+                          cols={12}
+                          action={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              /* OFF THE TAB PATH BY CONSTRUCTION — Tab lands on
+                                 fields only, and this is chrome, exactly like the
+                                 row's own ✕. It is mouse/pointer affordance for a
+                                 view state; nothing behind it is reachable ONLY
+                                 through it, because the band cannot close while it
+                                 still holds an unanswered required field. */
+                              title={why}
+                              aria-label={why}
+                              aria-expanded={!closed}
+                              disabled={!closed && !mayClose}
+                              onClick={() => toggleDetail(row.key)}
+                            >
+                              {closed ? (
+                                <ChevronRight className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </Button>
+                          }
                         >
-                          {c.cell(row, i)}
-                        </Field>
-                      ))}
-                    </DetailSection>
-                  )}
+                          {/* CLOSED RENDERS NOTHING, rather than hiding with CSS.
+                              A `hidden` field is still in the DOM, so Tab and the
+                              required-hold would both still visit it — the
+                              operator would be sent to a box they cannot see. */}
+                          {!closed &&
+                            restCols.map((c, ci) => (
+                              <Field
+                                key={ci}
+                                label={c.header}
+                                required={c.required}
+                                size="xs"
+                              >
+                                {c.cell(row, i)}
+                              </Field>
+                            ))}
+                        </DetailSection>
+                      );
+                    })()}
                 </div>
               );
             }}
@@ -1895,10 +1976,7 @@ export function MbaMasterScreen({
       icon: Workflow,
       done: procs.some((r) => r.item_id || r.process_id),
       content: (
-        <SectionBody
-          title="Processes"
-          hint="Materials sent out before they can be used — greige buttons for dyeing, labels for printing."
-        >
+        <SectionBody title="Processes">
           <ChildGrid<ProcRow>
             columns={procColumns}
             rows={procs}
@@ -1953,10 +2031,7 @@ export function MbaMasterScreen({
       icon: Calculator,
       done: reqRows.some((r) => r.required != null),
       content: (
-        <SectionBody
-          title="Requirement"
-          hint="Read-only — production quantity × (No. of Items ÷ Per Pieces), plus wastage."
-        >
+        <SectionBody title="Requirement">
           {!form.garment_order_id ? (
             <p className="text-xs text-muted-foreground">
               Pick a garment order first — the requirement is a multiple of its production

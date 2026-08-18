@@ -343,7 +343,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
       header: "Assort Type",
       cell: (r) => (
         <Select className="h-8" value={r.assort_type} onChange={(e) => updateLine(r.key, { assort_type: e.target.value })}>
-          <option value="">—</option>
+          <option value=""></option>
           {ASSORT_TYPES.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
@@ -427,7 +427,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
             </Field>
             <Field label="Carton SlNo.By" size="sm" htmlFor="pa-carton">
               <Select id="pa-carton" value={form.carton_slno_by} onChange={(e) => set({ carton_slno_by: e.target.value })}>
-                <option value="">—</option>
+                <option value=""></option>
                 {CARTON_SLNO_BY.map((o) => (
                   <option key={o} value={o}>{o}</option>
                 ))}

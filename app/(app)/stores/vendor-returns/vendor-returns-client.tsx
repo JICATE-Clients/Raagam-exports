@@ -105,14 +105,14 @@ export function VendorReturnsClient({ rows, stores, vendors, canCreate }: Props)
                   <div>
                     <Label htmlFor="vr-store">Store</Label>
                     <Select id="vr-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
-                      <option value="">— select store —</option>
+                      <option value=""></option>
                       {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                   </div>
                   <div>
                     <Label htmlFor="vr-vendor">Vendor</Label>
                     <Select id="vr-vendor" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-                      <option value="">— none —</option>
+                      <option value=""></option>
                       {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                     </Select>
                   </div>

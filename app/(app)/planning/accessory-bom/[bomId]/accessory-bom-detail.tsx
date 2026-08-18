@@ -253,7 +253,7 @@ function ItemsTab({
                   value={form.bom_for}
                   onChange={(e) => setForm((f) => ({ ...f, bom_for: e.target.value }))}
                 >
-                  <option value="">-- Select --</option>
+                  <option value=""></option>
                   {BOM_FOR_TYPES.map((v) => (
                     <option key={v} value={v}>
                       {BOM_FOR_TYPE_LABELS[v]}
@@ -279,7 +279,7 @@ function ItemsTab({
                     }));
                   }}
                 >
-                  <option value="">-- Select --</option>
+                  <option value=""></option>
                   {SUPPLY_TYPES.map((v) => (
                     <option key={v} value={v}>
                       {SUPPLY_TYPE_LABELS[v]}
@@ -938,7 +938,7 @@ function ProcessesTab({
             value={stageForm.stage}
             onChange={(e) => setStageForm((f) => ({ ...f, stage: e.target.value }))}
           >
-            <option value="">-- Select --</option>
+            <option value=""></option>
             {PROCESS_STAGE_OPTIONS.map((s) => (
               <option key={s} value={s}>
                 {s.toUpperCase()}

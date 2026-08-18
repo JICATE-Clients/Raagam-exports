@@ -381,8 +381,15 @@ export interface AmendmentComboStructure {
   structure_id: string | null;
   /** "Type" — 'main' | 'trims_fabric'. NOT the Style master's comp_type. */
   fabric_type: string | null;
-  /** "Composition" — `compositions` (0225), an FK since 0408. */
-  composition_id: string | null;
+  /**
+   * "Composition" — THE FABRIC MATERIAL that declares it (0430).
+   *
+   * `items` of class FABRIC, not the `compositions` master this pointed at from
+   * 0408 to 2026-08-17. The screen shows the fabric's `material_mixings` blend,
+   * so the composition is DERIVED from the row rather than answered twice —
+   * which is what let it be fetched from the Structure at all.
+   */
+  fabric_item_id: string | null;
   gsm: number | null;
   gsm_tolerance: number | null;
   /** "Fabric Type" — 'solid' | 'melange' | 'yarn_dyed'. */
@@ -763,7 +770,7 @@ export const amendmentComboStructureInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   structure_id: uuidN,
   fabric_type: nullableText,
-  composition_id: uuidN,
+  fabric_item_id: uuidN,
   gsm: z.coerce.number().nullable().default(null),
   gsm_tolerance: z.coerce.number().nullable().default(null),
   item_sub_type: nullableText,

@@ -241,7 +241,7 @@ export function FinanceNotesClient({
               <div>
                 <Label htmlFor="fn-party">{PARTY_TYPE_LABELS[partyType]} *</Label>
                 <Select id="fn-party" value={partyId} onChange={(e) => setPartyId(e.target.value)} required>
-                  <option value="">— select —</option>
+                  <option value=""></option>
                   {partyChoices.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}

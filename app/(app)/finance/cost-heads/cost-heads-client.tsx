@@ -207,7 +207,7 @@ export function CostHeadsClient({
               <div>
                 <Label htmlFor="i-head" className="mb-0.5">Cost head</Label>
                 <Select id="i-head" value={iHead} onChange={(e) => setIHead(e.target.value)} className="w-36">
-                  <option value="">— none —</option>
+                  <option value=""></option>
                   {activeHeads.map((h) => (
                     <option key={h.id} value={h.id}>
                       {h.name}

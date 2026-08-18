@@ -815,7 +815,7 @@ export function ApplicantMasterScreen({
             icon: User,
             done: done.identity,
             content: (
-              <SectionBody title="Identity" hint="Who this applicant is and how they relate to your other parties.">
+              <SectionBody title="Identity">
                 <DetailSection label="Details" cols={12}>
                 <Field label="Name" size={FIELD_SIZE.name} required htmlFor="ap-name">
                 <Input
@@ -902,7 +902,7 @@ export function ApplicantMasterScreen({
             icon: MapPin,
             done: done.address,
             content: (
-              <SectionBody title="Address" hint="Where the applicant is, and how to reach them.">
+              <SectionBody title="Address">
                 {/* Ten fields, so two titled groups rather than one long one
                 (LAYOUT.md §4: 5-7 per section) — where the applicant IS,
                 then how to reach them. */}
@@ -1012,7 +1012,7 @@ export function ApplicantMasterScreen({
             icon: Users,
             done: done.contacts,
             content: (
-              <SectionBody title="Contacts" hint="People to deal with at this applicant.">
+              <SectionBody title="Contacts">
                 {/* Seven fields per contact — past the ~5 a table row can hold,
                 so stacked cards with a FieldGrid inside (LAYOUT.md §6).
                 Replaces a hand-rolled card list with its own header band,
@@ -1147,7 +1147,7 @@ export function ApplicantMasterScreen({
             icon: SlidersHorizontal,
             done: done.general,
             content: (
-              <SectionBody title="General" hint="Currencies, shipping and payment defaults, and the bank account.">
+              <SectionBody title="General">
                 {/* The three currency slots are one legacy concept and nothing
                 else belongs beside them, so this row is three wide by nature
                 — not by inheriting a default. */}
@@ -1196,7 +1196,7 @@ export function ApplicantMasterScreen({
                 value={form.ship_mode}
                 onChange={(e) => set({ ship_mode: e.target.value })}
                 >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {SHIP_MODES.map((m) => (
                 <option key={m} value={m}>
                 {m}
@@ -1222,7 +1222,7 @@ export function ApplicantMasterScreen({
                 value={form.pay_mode}
                 onChange={(e) => set({ pay_mode: e.target.value })}
                 >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {PAY_MODES.map((m) => (
                 <option key={m} value={m}>
                 {m}

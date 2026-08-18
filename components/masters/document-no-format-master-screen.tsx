@@ -413,7 +413,7 @@ export function DocumentNoFormatMasterScreen({
       // is what replaces it: Save stays clickable, names the missing field and
       // steers the cursor to it.
       content: (
-        <SectionBody title="Document No Format" hint="Which numbering series this entry defines.">
+        <SectionBody title="Document No Format">
           <FieldGrid>
             <Field label="Entry No" size="sm" htmlFor="dnf-entry-no">
               {/* `readOnly` sets `tabIndex={-1}` for us — an auto value is never a
@@ -450,10 +450,7 @@ export function DocumentNoFormatMasterScreen({
       icon: ListOrdered,
       done: menus.some((m) => !!m.menu_id),
       content: (
-        <SectionBody
-          title="Menus"
-          hint="Each menu gets its own running number, built from the segments beneath it."
-        >
+        <SectionBody title="Menus">
           <ChildGrid<MenuRow>
             columns={menuColumns}
             rows={menus}

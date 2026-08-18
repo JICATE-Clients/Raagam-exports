@@ -170,13 +170,13 @@ export function OrderBookingClient({
             </Field>
             <Field label="Receipt Mode" size="sm" htmlFor="ob-receipt">
               <Select id="ob-receipt" value={form.receipt_mode} onChange={(e) => setForm({ ...form, receipt_mode: e.target.value })}>
-                <option value="">Select…</option>
+                <option value=""></option>
                 {RECEIPT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
               </Select>
             </Field>
             <Field label="Ship Mode" size="sm" htmlFor="ob-ship">
               <Select id="ob-ship" value={form.ship_mode} onChange={(e) => setForm({ ...form, ship_mode: e.target.value })}>
-                <option value="">Select…</option>
+                <option value=""></option>
                 {SHIP_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
               </Select>
             </Field>

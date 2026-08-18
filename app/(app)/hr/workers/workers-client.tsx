@@ -237,7 +237,7 @@ export default function WorkersClient({
                     }
                     required={isContractorPiece}
                   >
-                    <option value="">— Select Contractor —</option>
+                    <option value=""></option>
                     {contractors
                       .filter((c) => c.is_active)
                       .map((c) => (
@@ -258,7 +258,7 @@ export default function WorkersClient({
                     setForm({ ...form, location_id: e.target.value || null })
                   }
                 >
-                  <option value="">— Select —</option>
+                  <option value=""></option>
                   {locations.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}

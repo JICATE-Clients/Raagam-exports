@@ -103,7 +103,7 @@ export function RequisitionDetail({ docId, status, lines, items, canEdit, canApp
               <div className="w-56">
                 <Label htmlFor="ml-item">Item</Label>
                 <Select id="ml-item" value={itemId} onChange={(e) => setItemId(e.target.value)}>
-                  <option value="">— select item —</option>
+                  <option value=""></option>
                   {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
                 </Select>
               </div>

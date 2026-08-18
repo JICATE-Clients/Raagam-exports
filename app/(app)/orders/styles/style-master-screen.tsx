@@ -1319,10 +1319,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
         !!form.style_description.trim() ||
         coords.some((c) => c.coordinate_id),
       content: (
-        <SectionBody
-          title="Style"
-          hint="What this style is, who it is for, and the garments it is made of."
-        >
+        <SectionBody title="Style">
           {/* SEVEN FIELDS ON ONE ROW (client 2026-08-17). `cols={14}` rather
               than 12 because the smallest span is `xs` (2) and 7 x 2 = 14 — the
               fields keep the existing size, the TRACK is what widened. Twelve
@@ -1515,7 +1512,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 value={form.unit_kind}
                 onChange={(e) => setUnitKind(e.target.value)}
               >
-                <option value="">—</option>
+                <option value=""></option>
                 {UNIT_KIND_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
@@ -1545,7 +1542,22 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
             * on the Save side — `unit_kind` is still `required` in
             * `sectionValidity`, which is what actually gates Save.
             */}
-          <DetailSection label="General" cols={12}>
+          {/* SAME TRACK AS STYLE DETAILS ABOVE (client 2026-08-17: "reduce the
+              general detail field size like above section").
+
+              At `cols={12}` + `sm` these four fields took 3/12 each and stretched
+              to ~370px, while the seven above sat at ~155px — so the two blocks
+              read as different forms and nothing lined up down the page. On the
+              SAME 14-col track at `xs` a General field is the same ~155px and
+              lands in the same column as the field above it: Season under Serial
+              No, Year under Date, and so on. That vertical alignment is the whole
+              point of LAYOUT.md §3's one-width rule.
+
+              Four fields leave 6 of 14 empty to the right. That is the honest
+              cost of matching the row above, and it is the same trade Style
+              Details makes — widening them to fill the row is what created the
+              mismatch being fixed. */}
+          <DetailSection label="General" cols={14}>
             {/* CAPS (client 2026-08-17). Season is a `<Select>` over a fixed
                 vocabulary, so `<Input uppercase>` — the mechanism AGENTS.md
                 §CAPITALS names — does not apply: there is no keystroke, and a
@@ -1555,9 +1567,9 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 (`SEASON_OPTIONS`), so what is picked is what is stored, and
                 `capsTextNullable()` on the schema covers every writer that is
                 not this dropdown. */}
-            <Field label="Season" size="sm" htmlFor="st-season">
+            <Field label="Season" size="xs" htmlFor="st-season">
               <Select id="st-season" value={form.season} onChange={(e) => set({ season: e.target.value })}>
-                <option value="">—</option>
+                <option value=""></option>
                 {SEASON_OPTIONS.map((o) => (
                   <option key={o} value={o}>{o}</option>
                 ))}
@@ -1577,7 +1589,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                   )}
               </Select>
             </Field>
-            <Field label="Year" size="sm" htmlFor="st-year">
+            <Field label="Year" size="xs" htmlFor="st-year">
               <Input
                 id="st-year"
                 type="number"
@@ -1586,7 +1598,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 placeholder="e.g. 2026"
               />
             </Field>
-            <Field label="Article No." size="sm" htmlFor="st-article">
+            <Field label="Article No." size="xs" htmlFor="st-article">
               {/* CAPS for the same reason as Style: an article number is a stored
                   VALUE, and the CAPITALS exemptions cover free prose, digits,
                   email and auto fields — not a code an operator types. Write half
@@ -1607,7 +1619,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               * offers nothing rather than the whole master.
               */}
             {/* COMPULSORY — red ⓘ on the legacy General tab. */}
-            <Field label="Style Category" required size="sm" htmlFor="st-category">
+            <Field label="Style Category" required size="xs" htmlFor="st-category">
               <CategoryPicker
                 id="st-category"
                 label="Style Category"
@@ -1745,9 +1757,21 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                 the headroom Sizes did not, so it is left alone rather than
                 converted unasked; if this one ever reports as stacked cards, the
                 fix is the one below, not more width. */}
+            {/* `frameless` — THREE NESTED FRAMES OTHERWISE (client 2026-08-17,
+                screenshot 2326: "three layered table lined layout"). This grid
+                sits INSIDE a `DetailSection`, so the section drew a bordered
+                card, `ChildGrid` drew a second one inside it, and the table drew
+                its own border inside that. Its own note is exactly this case:
+                "drop the outer bordered card so the grid can nest INSIDE a
+                DetailSection without a double border".
+
+                Sizes below already carries it; Components does not need it
+                because it sits straight in the `SectionBody` with no section
+                card around it. Coordinates was the one that never got it. */}
             <Field size="lg">
               <ChildGrid<CoordRow>
                 narrow
+                frameless
                 columns={coordColumns}
                 rows={coords}
                 hideAdd={!!coordCap && coords.length >= coordCap.max}
@@ -1793,14 +1817,24 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       icon: Boxes,
       done: comps.some((c) => c.coordinate_id || c.component_id || c.fabric_category_id),
       content: (
-        <SectionBody
-          title="Components"
-          hint={
-            coordinateIds.size === 0
-              ? "Add coordinates first — a component is a part of one of them."
-              : "What each coordinate is built from, its fabric, and any extra process it needs. Coordinate offers only the ones on the Coordinates tab."
-          }
-        >
+        <SectionBody title="Components">
+          {/* THE ONE SECTION LINE THAT SURVIVED THE 2026-08-17 SWEEP, and it
+              survived by becoming conditional. `SectionBody` used to take a
+              `hint`, and this call site passed a ternary: the second branch was
+              the decorative restatement every other section had and is gone
+              with them, but the first is a STATE MESSAGE — it says why the
+              Coordinate picker in the grid below has nothing to offer, which is
+              not derivable from looking at it.
+
+              Rendered here rather than in the primitive because that is the
+              whole point of removing the prop: a slot that must be filled on
+              every screen gets filled with prose, and a line a screen writes
+              for itself can appear only when there is something to say. */}
+          {coordinateIds.size === 0 && (
+            <p className="mb-3 text-[12.5px] text-muted-foreground">
+              Add coordinates first — a component is a part of one of them.
+            </p>
+          )}
           {/* A TABLE AGAIN.
 
               This grid was `forceCards listRows frameless` + `renderMobileRow`
@@ -1814,6 +1848,17 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
               five columns on one line instead of a stacked card per component.
               `ChildGrid` still falls back to cards on a narrow viewport by
               itself; `forceCards` is what made it do so at every width. */}
+          {/* NOT `narrow` — TRIED ON 2026-08-17 AND REVERTED THE SAME DAY at the
+              client's word ("restore the component section, it's too narrow").
+
+              The reasoning that led there was that all four columns hold one
+              picker each, which is the case `narrow` names. What that misses is
+              that these are pickers over REAL MASTER NAMES — a coordinate, a
+              component, a fabric category — not the short codes Coordinates and
+              Sizes hold, so capping the table squeezed four name-length values
+              into a width sized for abbreviations. Column COUNT is not what
+              `narrow` should be judged on; the length of what the columns carry
+              is. Do not re-apply it here. */}
           <ChildGrid<CompRow>
             columns={compColumns}
             rows={comps}
@@ -1831,7 +1876,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       icon: Ruler,
       done: sizes.some((s) => s.size_id),
       content: (
-        <SectionBody title="Sizes" hint="The size set this style is made in.">
+        <SectionBody title="Sizes">
           {/* THE GROUP IS A SHORTCUT, NOT THE SOURCE OF TRUTH. Picking one
               REPLACES the rows below, which stay editable afterwards — add an
               XXL, drop the S. The style keeps its own size rows, so editing a

@@ -896,7 +896,7 @@ export function MaterialAttributeMasterScreen({
                 value={itemClassId}
                 onChange={(e) => changeItemClass(e.target.value)}
               >
-                <option value="">— Select —</option>
+                <option value=""></option>
                 {/* `attributes` arrives pre-filtered to accessory classes by the
                     page (see the isAccessoryClass filter there) — this only
                     drops inactive rows. */}
