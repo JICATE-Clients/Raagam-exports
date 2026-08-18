@@ -349,10 +349,11 @@ export function BudgetScreen({
   const costColumns: ChildGridColumn<CostRow>[] = [
     {
       header: "For",
-      width: "10rem",
+      width: "8rem",
       required: true,
       cell: (r) => (
         <Select
+          compact
           className="h-8"
           required
           disabled={!editable}
@@ -369,7 +370,7 @@ export function BudgetScreen({
     },
     {
       header: "Order",
-      width: "12rem",
+      width: "9.5rem",
       cell: (r) => (
         <RecordPicker
           label="Order"
@@ -396,6 +397,8 @@ export function BudgetScreen({
     },
     {
       header: "Item",
+      // NO WIDTH — one of the two flexible columns; the slack goes to the
+      // material name and its description rather than to a number box.
       cell: (r) => (
         <RecordPicker
           label="Item"
@@ -422,7 +425,7 @@ export function BudgetScreen({
     {
       header: "Qty",
       align: "right",
-      width: "8rem",
+      width: "6rem",
       required: true,
       cell: (r) => (
         <Input
@@ -437,7 +440,7 @@ export function BudgetScreen({
     },
     {
       header: "Unit",
-      width: "7rem",
+      width: "6.5rem",
       cell: (r) => (
         <RecordPicker
           label="Unit"
@@ -452,7 +455,7 @@ export function BudgetScreen({
     {
       header: "Rate",
       align: "right",
-      width: "8rem",
+      width: "6.5rem",
       required: true,
       cell: (r) => (
         <Input
@@ -468,7 +471,7 @@ export function BudgetScreen({
     {
       header: "Amount",
       align: "right",
-      width: "10rem",
+      width: "8rem",
       total: {
         kind: "sum",
         of: (r) => {
@@ -691,9 +694,15 @@ export function BudgetScreen({
           <ChildGrid<CostRow>
             columns={costColumns}
             rows={costs}
-            forceCards
-            hideAdd={!editable}
-            lockExisting={!editable}
+            /* ONE ROW PER COST LINE (client, 2026-08-17) — the Fabric BOM header
+               sets out the reasoning. ~790px including the row chrome, so the
+               table shows from 1024 (@5xl) and stacks below it; never a sideways
+               scroll. `renderMobileRow` stays — the DEFAULT stacked cell has no
+               visible label. The pane keeps the standard 1180 cap: two of these eight
+               columns are flexible, and widening to 1720 would spend the extra
+               on an Item picker nothing needs that wide. */
+            tableFrom="5xl"
+            centerHeaders
             renderMobileRow={(row, i) => (
               <FieldGrid>
                 {costColumns.map((c, ci) => (
@@ -703,6 +712,8 @@ export function BudgetScreen({
                 ))}
               </FieldGrid>
             )}
+            hideAdd={!editable}
+            lockExisting={!editable}
             onAdd={() => mutCosts((xs) => [...xs, blankCost(newKey())])}
             onRemove={(r) => mutCosts((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add cost line"

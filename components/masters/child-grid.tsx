@@ -570,6 +570,25 @@ export type ChildGridTotal<T> =
   | { kind: "derived"; value: (rows: T[]) => ReactNode }
   | { kind: "blank" };
 
+/**
+ * Pane widths a `tableFrom` grid may switch at — Tailwind's own container sizes,
+ * NOT arbitrary pixel variants.
+ *
+ * `@min-[1540px]` is valid v4 syntax and was the first attempt, and it is the
+ * wrong tool twice over: it is generated only if the literal survives into a
+ * scanned source file, and a threshold nobody can name invites picking one that
+ * lands a few pixels above the real pane — which renders as stacked cards, looks
+ * like a broken grid, and gives no clue that a width comparison is what failed.
+ * The built-ins are always generated and each has a number a reader can check.
+ */
+export type TableFrom = "5xl" | "6xl" | "7xl";
+
+const TABLE_FROM: Record<TableFrom, { px: number; show: string; hide: string }> = {
+  "5xl": { px: 1024, show: "@5xl:block", hide: "@5xl:hidden" },
+  "6xl": { px: 1152, show: "@6xl:block", hide: "@6xl:hidden" },
+  "7xl": { px: 1280, show: "@7xl:block", hide: "@7xl:hidden" },
+};
+
 export interface ChildGridColumn<T> {
   header: string;
   cell: (row: T, index: number) => ReactNode;
@@ -675,6 +694,8 @@ export function ChildGrid<T extends { key: string }>({
   keyboardNav = true,
   hideAdd = false,
   narrow = false,
+  tableFrom,
+  centerHeaders = false,
   lockExisting = false,
   inlineCards = false,
   fill = false,
@@ -749,6 +770,63 @@ export function ChildGrid<T extends { key: string }>({
    * different bug entirely.
    */
   narrow?: boolean;
+  /**
+   * THE PANE WIDTH THE TABLE NEEDS BEFORE IT MAY APPEAR — the opposite end of
+   * `narrow`, for a grid whose declared widths sum past what `@lg` promises.
+   *
+   * `@lg` IS 512px, NOT 1024. Container-query breakpoints are not the viewport
+   * ones, and that is the trap this prop exists to close: the responsive table
+   * shows from a 512px container, so a row of columns summing to ~1500px renders
+   * as a table inside a 1090px pane on an ordinary laptop and grows the
+   * horizontal scrollbar the operator's rule 4 bans. Nothing warns — the widths
+   * are honoured, the table simply overflows and `overflow-x-auto` does what it
+   * says.
+   *
+   * `5xl` = 1024px, `6xl` = 1152px, `7xl` = 1280px. Set it and the grid is a
+   * table above that width and stacked cards below.
+   * Both halves obey rule 4: no sideways scroll at any width, because the layout
+   * changes instead of the content sliding.
+   *
+   * ## SET IT FROM THE DECLARED WIDTHS, NOT FROM A FEELING ABOUT THE SCREEN
+   *
+   * Add the columns' `width` values up, allow ~80px for the `#` and remove
+   * columns, and pick the first threshold ABOVE the total — leaving the
+   * flexible column enough to be readable at that width. Callers today: Fabric
+   * BOM sums ~1210 and takes `7xl`; Fabric Plan (~950) and Budgeting (~790)
+   * take `5xl`.
+   *
+   * AND KEEP `renderMobileRow`. Below the threshold the grid stacks, and the
+   * DEFAULT stacked cell is a bare `<div>` around a `RequiredScope` — no visible
+   * label. Fourteen unlabelled full-width boxes is a worse screen than the one
+   * this prop was added to fix, and it is what happens if the callback is
+   * dropped as redundant.
+   *
+   * ## WHY A FIXED SET AND NOT A NUMBER
+   *
+   * Tailwind reads class names out of the SOURCE. `@min-[${n}px]:block` built
+   * from a variable produces a class that exists in no stylesheet — the grid
+   * would silently never switch, which looks like the bug this prop fixes. The
+   * strings below are literal for that reason; add a threshold by adding a
+   * literal entry, never by interpolating one.
+   */
+  tableFrom?: TableFrom;
+  /**
+   * EVERY COLUMN HEADING IS CENTRED, whatever its cells do (client, 2026-08-18:
+   * "make all the heading in center, everything should look neat and clean").
+   *
+   * The header normally inherits `ChildGridColumn.align`, which is chosen for
+   * the VALUE — numbers right, text left — and on a row of equal-width cells
+   * that leaves the labels scattered against alternating edges while the boxes
+   * beneath them are all the same size. Centring the labels is what makes the
+   * row read as a row.
+   *
+   * IT IS THE HEADINGS ONLY. The cells keep their own alignment, because that
+   * one is not cosmetic: a column of right-aligned figures lines up on its
+   * decimal point, and centring quantities would take that away to tidy a
+   * heading. Opt-in per grid rather than a new default for the same reason —
+   * a wide free-text column reads better with its label over the text.
+   */
+  centerHeaders?: boolean;
   /**
    * ROWS THAT WERE ALREADY SAVED CANNOT BE REMOVED — only ones added since this
    * grid mounted (client 2026-08-10: "delete permission should not be allowed").
@@ -1106,8 +1184,13 @@ export function ChildGrid<T extends { key: string }>({
           className={cn(
             "hidden overflow-x-auto rounded-lg border border-border",
             // See `narrow`: the cap would otherwise push this below @lg and the
-            // grid would render as cards.
-            narrow ? "@md:block" : "@lg:block",
+            // grid would render as cards. See `wideTable` for the other end —
+            // and note @lg is 512px here, not the 1024 the viewport name suggests.
+            tableFrom
+              ? TABLE_FROM[tableFrom].show
+              : narrow
+                ? "@md:block"
+                : "@lg:block",
             hugsContent && "w-fit max-w-full",
           )}
         >
@@ -1126,7 +1209,7 @@ export function ChildGrid<T extends { key: string }>({
           >
             <thead>
               <tr className="border-b border-border bg-surface-muted">
-                <th className="w-10 px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">#</th>
+                <th className="w-10 px-2 py-2 text-center text-[12.5px] font-semibold text-foreground">#</th>
                 {columns.map((c, i) => (
                   <th
                     key={i}
@@ -1138,8 +1221,17 @@ export function ChildGrid<T extends { key: string }>({
                     // grid appeared to do nothing.
                     style={c.width ? { width: c.width } : undefined}
                     className={cn(
-                      "border-l border-border px-2 py-1.5 text-xs font-semibold text-muted-foreground",
-                      align[c.align ?? "left"],
+                      // DARKER AND A HALF-STEP BIGGER than the muted 12px this
+                      // was (client, 2026-08-18). On a fourteen-column row of
+                      // identical boxes the heading is the ONLY thing telling the
+                      // operator which cell they are in — it is not chrome here,
+                      // it is the label for every value beneath it, and a muted
+                      // grey 12px reads as decoration.
+                      "border-l border-border px-2 py-2 text-[12.5px] font-semibold text-foreground",
+                      // See `centerHeaders`: the heading is centred while the
+                      // CELLS keep `c.align`, so a column of figures still lines
+                      // up on its decimal point.
+                      centerHeaders ? "text-center" : align[c.align ?? "left"],
                       c.className,
                     )}
                   >
@@ -1158,10 +1250,51 @@ export function ChildGrid<T extends { key: string }>({
               {view.map((row, localI) => {
                 const i = offset + localI;
                 return (
-                <tr key={row.key} data-grid-row className="border-b border-border last:border-0">
+                <tr
+                  key={row.key}
+                  data-grid-row
+                  // A ROW HIGHLIGHTS AS A ROW. With every cell drawing its own
+                  // box the eye followed the boxes; a hover tint is what makes
+                  // fourteen cells read as one line again.
+                  className="border-b border-border last:border-0 hover:bg-surface-muted/40"
+                >
                   <td className="px-2 py-1.5 text-center text-xs text-muted-foreground">{startIndex + i + 1}</td>
                   {columns.map((c, ci) => (
-                    <td key={ci} className={cn("border-l border-border px-2 py-1.5", align[c.align ?? "left"], c.className)}>
+                    <td
+                      key={ci}
+                      className={cn(
+                        // FAINTER GRIDLINE. Full-strength rules between cells are
+                        // what makes a data grid look like a 1998 spreadsheet;
+                        // they only need to be strong enough to separate columns.
+                        "border-l border-border/50 px-1.5 py-1",
+                        /**
+                         * THE CELL IS THE BOX — the control inside it is not.
+                         *
+                         * Every cell drew a border AND the input inside drew
+                         * another, so a fourteen-column row carried twenty-eight
+                         * nested rectangles and the eye spent its time on boxes
+                         * instead of values (client, 2026-08-18: "everything
+                         * looks so like same"). Dropping the inner border halves
+                         * that. It is the shape every modern data grid uses —
+                         * borderless at rest, structure from the gridline and the
+                         * header — and NOT the heavy-gridline spreadsheet look,
+                         * which is what the faded rule above is avoiding.
+                         *
+                         * ONLY AT REST, and the exclusions are the whole safety
+                         * of it:
+                         *  - `:focus` keeps its border and ring, so the cell being
+                         *    typed in is the one thing that stands out;
+                         *  - `.border-danger` is how a duplicate, an invalid GSTIN
+                         *    and a rejected picker all render, and a blanket rule
+                         *    here would outrank it and silently erase the only
+                         *    marking an error has.
+                         */
+                        "[&_input:not(:focus):not(.border-danger)]:border-transparent",
+                        "[&_input:not(:focus):not(.border-danger)]:bg-transparent",
+                        align[c.align ?? "left"],
+                        c.className,
+                      )}
+                    >
                       <RequiredScope required={c.required} label={c.header}>
                         {c.cell(row, i)}
                       </RequiredScope>
@@ -1416,7 +1549,12 @@ export function ChildGrid<T extends { key: string }>({
           data-grid-body
           className={cn(
             listRows ? "divide-y divide-border" : "space-y-2",
-            mode === "responsive" && (narrow ? "@md:hidden" : "@lg:hidden"),
+            mode === "responsive" &&
+              (tableFrom
+                ? TABLE_FROM[tableFrom].hide
+                : narrow
+                  ? "@md:hidden"
+                  : "@lg:hidden"),
           )}
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
         >

@@ -38,6 +38,30 @@ export const Input = forwardRef<
   }
 >(({ className, uppercase, onChange, readOnly, tabIndex, ...props }, ref) => {
   /**
+   * AN EMPTY DATE FIELD READS AS A PLACEHOLDER, NOT A VALUE (client, 2026-08-18:
+   * "it should be so mild, not this much bold").
+   *
+   * `<input type="date">` draws its own `mm/dd/yyyy` prompt, and the browser
+   * paints it in the ordinary text colour — so an untouched date sits in a row
+   * of blank boxes looking like the only one already filled in. Every other
+   * empty control here is muted; this makes the date agree with them.
+   *
+   * The `::-webkit-datetime-edit` pseudo-element is the only handle the page
+   * has on that text. It is applied ONLY while the field is empty, so a real
+   * date renders at full strength — muting a value the operator has entered
+   * would be the opposite mistake.
+   *
+   * THIS IS COLOUR ONLY, AND IT IS NOT THE DD/MM/YYYY FIX. The ORDER of the
+   * parts is the browser's locale and no attribute, rule or prop can change it
+   * (doc/ui/LAYOUT.md §12). That needs a masked text input plus a calendar
+   * popover — a component, not a style.
+   */
+  const mutedDate =
+    props.type === "date" && (props.value === "" || props.value == null)
+      ? "[&::-webkit-datetime-edit]:text-muted-foreground"
+      : undefined;
+
+  /**
    * MANDATORY AND BLANK HOLDS THE CURSOR (client 2026-08-04). Declared once, on
    * the enclosing `<Field required>` — the same prop that draws the `*` — so the
    * star and the hold cannot disagree. Never stamped on a readOnly/disabled
@@ -135,6 +159,7 @@ export const Input = forwardRef<
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",
       uppercase && "uppercase placeholder:normal-case",
+      mutedDate,
       className,
     )}
     onChange={

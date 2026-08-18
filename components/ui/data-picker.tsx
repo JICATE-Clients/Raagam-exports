@@ -1039,7 +1039,24 @@ export function DataPicker({
           disabled={disabled}
           readOnly={!fine}
           value={triggerText}
-          placeholder={selected ? selected.label : (placeholder ?? `— Select ${noun} —`)}
+          // A COMPACT PICKER SHOWS NOTHING WHEN EMPTY (client, 2026-08-18).
+          //
+          // `compact` means "trigger only, no <Label> — for dense grid rows",
+          // and a grid row's column HEADER already names the field. "— Select
+          // Structure —" under a column headed Structure says the same thing
+          // twice, and in a narrow cell it does not even manage that: it
+          // truncates to "—…", which is less legible than an empty box and
+          // reads as a value rather than as an absence.
+          //
+          // An EXPLICIT placeholder still wins, which is the case the prop was
+          // added for — an emptiness with a REASON worth stating ("In-house", a
+          // vendor list narrowed to nothing). Those pass a string and are
+          // untouched; only the generated default goes.
+          placeholder={
+            selected
+              ? selected.label
+              : (placeholder ?? (compact ? "" : `— Select ${noun} —`))
+          }
           // A picker trigger IS a field to the operator. The marker is what
           // makes `gridKeyNav` gate Enter-adds-row on `data-field-empty` — a
           // grid whose first cell is an empty picker used to grow a blank row
@@ -1091,19 +1108,34 @@ export function DataPicker({
             !selected && !open && "text-muted-foreground",
           )}
         />
+        {/* THE GLYPH SHRINKS ON A COMPACT TRIGGER (client, 2026-08-18).
+            16px of chevron plus its inset is ~28px of a grid cell that may be
+            only 80px wide — a fifth of the box spent on decoration, and it is
+            what pushes the VALUE into truncating ("Colour" reading as "C.."). At
+            12px it still reads as a dropdown and gives the text back ~10px.
+            The full-size trigger is unchanged: there the 16px icon is in
+            proportion and matches every other control on the field track. */}
         {clearable && selected && !open ? (
           <button
             type="button"
             aria-label={`Clear ${noun}`}
             tabIndex={-1}
             onClick={() => onChange(null)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-danger"
+            className={cn(
+              "absolute top-1/2 -translate-y-1/2 text-muted-foreground hover:text-danger",
+              compact ? "right-1.5" : "right-2",
+            )}
           >
-            <X className="h-4 w-4 shrink-0" />
+            <X className={cn("shrink-0", compact ? "h-3 w-3" : "h-4 w-4")} />
           </button>
         ) : (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-            <ChevronDown className="h-4 w-4 shrink-0" />
+          <span
+            className={cn(
+              "pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground",
+              compact ? "right-1.5" : "right-3",
+            )}
+          >
+            <ChevronDown className={cn("shrink-0", compact ? "h-3 w-3" : "h-4 w-4")} />
           </span>
         )}
       </Tooltip>

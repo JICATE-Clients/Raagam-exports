@@ -55,6 +55,7 @@ export function Combobox({
   inputClassName,
   openOnFocus = true,
   required = false,
+  compact = false,
 }: {
   options: ComboboxOption[];
   value: string;
@@ -77,6 +78,20 @@ export function Combobox({
    * well so a `<Select>` keeps behaving like the native element it replaces.
    */
   inputClassName?: string;
+  /**
+   * A DENSE GRID CELL — shrink the chevron and the clear ✕ from 16px to 12px and
+   * tuck them closer to the edge.
+   *
+   * The same flag `DataPicker` carries, and it must stay the same flag: a
+   * `<Select>` and a picker sit side by side in one grid row, so two different
+   * rules for one glyph would render two different chevrons in adjacent cells.
+   *
+   * WHAT IT IS ACTUALLY BUYING is not tidiness but WIDTH. On an 80px cell the
+   * icon plus its inset is ~28px — a fifth of the box — and that is what pushes
+   * the value into truncating: "Colour" rendered as "C..". Twelve pixels still
+   * reads as a dropdown and hands ~10px back to the text.
+   */
+  compact?: boolean;
   /**
    * Open the list as soon as the input is focused. Default true. Pass false for
    * a native-select feel: focus alone leaves the list closed (so Enter can
@@ -345,13 +360,23 @@ export function Combobox({
           // and the Sheet focus trap, not just native Tab. Clicking still clears.
           tabIndex={-1}
           onClick={() => commit("")}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          className={cn(
+            "absolute top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground",
+            compact ? "right-1.5" : "right-2",
+          )}
         >
-          <X className="h-4 w-4 shrink-0" />
+          <X className={cn("shrink-0", compact ? "h-3 w-3" : "h-4 w-4")} />
         </button>
       ) : (
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-          <ChevronDown className="h-4 w-4 shrink-0" />
+        /* See `compact`: 16px of chevron plus its inset is ~28px of an 80px grid
+           cell, which is what pushes the VALUE into truncating. */
+        <span
+          className={cn(
+            "pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground",
+            compact ? "right-1.5" : "right-3",
+          )}
+        >
+          <ChevronDown className={cn("shrink-0", compact ? "h-3 w-3" : "h-4 w-4")} />
         </span>
       )}
 
