@@ -15,15 +15,33 @@
   --muted-foreground: #5b6472; /* secondary text */
   --border: #e3e6ea;
   --ring: #4f46e5;
-  /* Tint of the row the keyboard is currently inside. A PRE-MIXED literal, not
-   * color-mix(): `--ring` is itself a var(), so Lightning CSS cannot fold the
-   * mix and emits `background-color: var(--ring)` as the fallback — every
-   * focused row would render SOLID indigo on any engine without color-mix
-   * (Chrome <111, Safari <16.2, and the older Android WebViews this PWA
-   * installs into). Deliberately a slate, not the brand hue: --ring and
-   * --primary are the same colour, so a brand tint here is indistinguishable
-   * from the bg-primary/5 that already means "selected". */
-  --row-active: rgb(15 23 42 / 0.05);
+  /* `--row-active`, the tint of the row the keyboard was inside, is GONE
+   * (client 2026-08-18: "remove it from application everywhere, no more that
+   * grey state in anywhere"). It was reported three times in one day —
+   * screenshot 2338 "some sections have this grey bg", 2343 on Quantities,
+   * then in the general: whatever a focused row is, the operator read the
+   * result as a section that HAS a grey background. Two narrowings were tried
+   * first (exclude a boxed row, then every cards-family row); the third report
+   * is what settled it, because a cue nobody wants does not get better by
+   * being shown in fewer places. The `[data-row-box]` opt-out markers are left
+   * standing but inert — harmless attributes, and the exclusion that would be
+   * needed again if the wash ever returns.
+   *
+   * `--cell-active` below STAYS and is now the only fill: it answers "which
+   * BOX am I typing in", which is the question a wash over a whole row never
+   * answered anyway, and it is 8px of indigo inside a control rather than a
+   * band across a section. With the focus ring and the rule between rows, the
+   * cursor is still located three ways. */
+  /* Fill of the FIELD the cursor is in, inside a grid row. Brand-tinted and
+   * deliberately not a slate: it is the one remaining positional fill, and it
+   * is safe as a brand hue in a way a ROW tint was not — bg-primary/5 means
+   * "selected ROW" in data-table.tsx, and nothing anywhere fills a CONTROL to
+   * mean selected. A PRE-MIXED literal, not color-mix(): `--ring` is itself a
+   * var(), so Lightning CSS cannot fold the mix and emits the solid colour as
+   * its fallback — every focused cell would render SOLID indigo on any engine
+   * without color-mix (Chrome <111, Safari <16.2, and the older Android
+   * WebViews this PWA installs into). */
+  --cell-active: #eef2ff; /* indigo 50 */
 
   /* Brand */
   --primary: #4f46e5; /* indigo 600 */
@@ -42,7 +60,7 @@
   --info: #1d4ed8;
   --info-soft: #dbeafe;
 
-  /* Soft brand tints. PRE-MIXED literals for the same reason as --row-active
+  /* Soft brand tints. PRE-MIXED literals for the same reason as --cell-active
    * above: `bg-primary/10` compiles to a `background-color: var(--primary)`
    * FALLBACK outside `@supports (color-mix)`, so the 10%-tint icon wells on the
    * dashboard would render SOLID indigo and swallow the indigo icon inside
@@ -96,10 +114,10 @@
   --muted-foreground: #9aa4b2;
   --border: #262b34;
   --ring: #6366f1;
-  /* Lighter and roughly triple the alpha: a 5% dark tint over #14171d is below
-   * the perceptual floor. A single mix percentage cannot serve both themes,
-   * which is the other reason this is a token rather than a color-mix(). */
-  --row-active: rgb(226 232 240 / 0.07);
+  /* A tint is a shade in the dark. Not --primary-soft (#1e1b4b, indigo 950):
+   * that is a FILL behind indigo icons, and under 14px of --foreground it
+   * drops body text to a contrast the rest of the app does not ask of it. */
+  --cell-active: #232a45;
 
   --primary: #6366f1;
   --primary-hover: #818cf8;
@@ -341,15 +359,67 @@ body {
 }
 
 /*
- * The row the keyboard is inside. Scoped to `[data-grid-row]` — the marker
- * ChildGrid emits and that hand-rolled grids opt into — and deliberately NOT
- * `tbody tr`, which would hit every table in the app including the 14 picker
- * dialogs, whose own arrow-key highlight is `bg-primary/10`. Focusing a row
- * there would have made the highlight DIMMER, and would likewise have masked
- * `bg-primary/5` on selected rows in data-table.tsx.
+ * THERE IS NO ROW WASH. `[data-grid-row]:focus-within` used to fill the row
+ * with `--row-active`; it is removed app-wide on the client's instruction
+ * (2026-08-18) — see the note beside `--cell-active` for the three reports and
+ * the two narrowings that preceded it.
+ *
+ * Do not reinstate it as "just a lighter grey". What was rejected was not the
+ * strength but the SHAPE: a fill behind a row whose fields span the section is
+ * indistinguishable from a section that has a background, at any alpha. If the
+ * "which line am I on" question ever needs answering again, answer it with an
+ * edge (a left rule on the focused row) rather than a fill, and bring back
+ * `[data-row-box]` as its opt-out — the markers are still stamped.
  */
-[data-grid-row]:focus-within {
-  background-color: var(--row-active);
+
+/*
+ * The FIELD the cursor is in — the other half of the same question. The row
+ * tint says which LINE; on a grid that runs eight sizes across one row, that
+ * still leaves eight boxes and no answer to "which one am I typing in"
+ * (client 2026-08-18).
+ *
+ * ## Why a FILL and not another ring
+ *
+ * The control already draws `focus-visible:ring-2 ring-ring` (input.tsx and
+ * its siblings), and the base floor above draws an outline for the ones that
+ * do not. Adding a third band would stack into the exact 3px smear the floor's
+ * comment describes and was layered to avoid. A fill is a free channel: ring =
+ * "focused", fill = "this is the cell", tint = "this is the row", and the
+ * three compose instead of fighting.
+ *
+ * ## `:focus`, not `:focus-visible`
+ *
+ * Two reasons, and the second is the reported half. `:focus-within` on the row
+ * above already fires for the mouse, so a `:focus-visible` cell cue would
+ * disagree with the row it sits in. And Chrome grants a <button> no
+ * :focus-visible on click at all — so a `[data-field-trigger]` (a picker that
+ * is a <button> rather than an <input>) showed NOTHING when clicked into: the
+ * literal "no active state on the button" this rule was asked for.
+ *
+ * ## Scope
+ *
+ * `[data-grid-row]` — the same marker the row tint reads, so every grid that
+ * already gets keyboard nav and Ctrl+Del gets this too, ChildGrid's three
+ * layouts and the hand-rolled ones alike, without one screen being edited. A
+ * grid that carries no marker gets none of the four; that remainder is
+ * `data-grid-row`'s, not this rule's.
+ *
+ * The field axis is ROW_FIELDS (child-grid.tsx) — `isFieldLike` in selector
+ * form — minus two, both because a fill is the wrong shape for them rather
+ * than because they are not fields: a CHECKBOX is a 16px box that a background
+ * would paint over, and a RADIO is already out of ROW_FIELDS. Both keep the
+ * outline. `[tabindex="-1"]` is excluded for the floor's stated reason: a
+ * derived readOnly field (Material's composed name) is not a live destination
+ * and must not advertise itself as one.
+ */
+[data-grid-row]
+  :is(
+    input:not([type="button"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),
+    select,
+    textarea,
+    [data-field-trigger]
+  ):not([disabled]):not([tabindex="-1"]):focus {
+  background-color: var(--cell-active);
 }
 
 /*
