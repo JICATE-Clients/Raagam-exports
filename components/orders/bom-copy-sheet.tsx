@@ -57,7 +57,8 @@ export function BomCopySheet({
           Quantities are recalculated for this order.
         </p>
 
-        <Input
+        {/* caps-input: exempt -- a search QUERY is not a stored value. */}
+        <Input uppercase={false}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search SC No or customer…"

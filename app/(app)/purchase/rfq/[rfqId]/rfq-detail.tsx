@@ -290,7 +290,9 @@ export function RfqDetail({
 
                 <div className="sm:col-span-2">
                   <Label>Notes</Label>
+                  {/* caps-input: exempt -- LC/PO terms are read by a bank and by suppliers; block capitals change how a clause reads, not how a value is stored (client 2026-08-18). */}
                   <Textarea
+                    uppercase={false}
                     rows={2}
                     placeholder="Terms, conditions…"
                     value={quoteForm.notes}

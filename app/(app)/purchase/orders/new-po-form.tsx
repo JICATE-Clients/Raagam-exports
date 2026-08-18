@@ -417,7 +417,9 @@ export function NewPoForm({
 
             <div className="sm:col-span-2 md:col-span-3">
               <Label htmlFor="po-notes">Notes</Label>
+              {/* caps-input: exempt -- LC/PO terms are read by a bank and by suppliers; block capitals change how a clause reads, not how a value is stored (client 2026-08-18). */}
               <Textarea
+                uppercase={false}
                 id="po-notes"
                 rows={2}
                 value={notes}

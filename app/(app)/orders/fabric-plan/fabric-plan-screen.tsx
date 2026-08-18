@@ -948,7 +948,9 @@ export function FabricPlanScreen({
         />
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* caps-input: exempt -- a search QUERY is not a stored value. */}
           <Input
+            uppercase={false}
             className="w-64"
             placeholder="Search SC No, PO or customer…"
             value={search}

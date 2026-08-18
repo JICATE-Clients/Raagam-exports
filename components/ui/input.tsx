@@ -25,6 +25,70 @@ export function holdEmpty(value: unknown): boolean {
  */
 const NEVER_HOLDS = new Set(["checkbox", "radio", "button", "submit", "reset", "image", "range", "color"]);
 
+/**
+ * THE TYPES THAT EXEMPT THEMSELVES FROM CAPITALS.
+ *
+ * `uppercase` is opt-OUT since 2026-08-18 (see `capsByDefault`), so this list is
+ * what stops the flip reaching a value where case is meaning rather than style:
+ *
+ *   - `email` / `url` — a URL PATH is case-sensitive, so uppercasing one breaks
+ *     the link. This is the exemption AGENTS.md already named.
+ *   - `password` — self-evident, and it is a value that belongs to the person.
+ *   - `search` — a query is not a stored value.
+ *   - `number` / `date` / `time` / `datetime-local` / `month` / `week` — caps on
+ *     digits is a no-op, but naming them keeps the rule legible and means a
+ *     field that later grows letters (a `tel` extension, say) is already right.
+ *   - the non-text controls — `appearance` is what DRAWS a checkbox, a radio, a
+ *     range and a colour swatch; a text-transform on those is meaningless, and
+ *     grouping them here matches `NEVER_HOLDS` above rather than inventing a
+ *     second list of "not really a text box".
+ *
+ * A `type` NOT in this set is a text field, and a text field capitalises.
+ */
+const NO_CAPS_TYPES = new Set([
+  "number", "date", "time", "datetime-local", "month", "week",
+  "email", "url", "password", "search", "tel",
+  "file", "checkbox", "radio", "button", "submit", "reset", "image", "range", "color", "hidden",
+]);
+
+/**
+ * CAPITALS ARE THE DEFAULT, AND THIS IS WHERE THAT WAS DECIDED (client
+ * 2026-08-18, screenshot 2348: "update only as capital letter, now it's typing
+ * small letter only, make it like how masterdata module").
+ *
+ * The CAPITALS rule (AGENTS.md) is as old as the masters and was never in
+ * doubt. What was wrong is that its screen half was OPT-IN PER CALL SITE, so it
+ * got applied in `components/masters/` and almost nowhere else: 873 of 968
+ * `<Input>` under `app/(app)` carried no `uppercase`. The proof that a per-call
+ * -site rule cannot hold is inside a single file — `amendment-screen.tsx` had
+ * `uppercase` on Pack Description and not on Styles Details ▸ Description, one
+ * file with two answers and nothing deciding which. That is the fan-out AGENTS.md
+ * says never to answer per screen, so the default moved here instead.
+ *
+ * WHAT THIS BUYS beyond the 873: the ~22 hand-rolled grids inherit it without
+ * being edited, and a screen written next month is correct without knowing the
+ * rule exists. What it COSTS is that the risk inverts — a field that
+ * deliberately never opted in now changes silently — which is why the type list
+ * above exists and why the four genuinely case-sensitive call sites
+ * (a website, an email typed as text, two hand-typed uuids) pass
+ * `uppercase={false}` with a `caps-input: exempt` comment beside them.
+ *
+ * `readOnly` EXEMPTS ITSELF, and this is not a detail: a read-only box holds a
+ * value the operator did not type — a composed Material Name, an age derived
+ * from a date of birth, a fetched party address — so capitalising it would
+ * misreport what is stored rather than change what is entered. AGENTS.md's
+ * exemption for derived `(auto)` fields is exactly this case.
+ *
+ * `ValidatedInput` is untouched by the flip BY CONSTRUCTION: it always passes an
+ * explicit `uppercase={spec?.transform === "upper"}`, and an explicit value beats
+ * a default. That is what keeps every `format="email"` / `format="website"`
+ * master field safe without one line of opt-out — and it is also why turning one
+ * of those into capitals means editing its FORMAT SPEC, not its call site.
+ */
+function capsByDefault(type: string | undefined, readOnly: boolean | undefined) {
+  return !readOnly && !NO_CAPS_TYPES.has(type ?? "text");
+}
+
 export const Input = forwardRef<
   HTMLInputElement,
   InputHTMLAttributes<HTMLInputElement> & {
@@ -33,10 +97,16 @@ export const Input = forwardRef<
      *  genuinely uppercase, AND applies `text-transform: uppercase` so values
      *  ALREADY stored in lower/mixed case (loaded from the DB, never re-typed)
      *  still DISPLAY in caps — the type-time transform alone can't fix those
-     *  (client 2026-07-25). Placeholder stays normal-case so hints read cleanly. */
+     *  (client 2026-07-25). Placeholder stays normal-case so hints read cleanly.
+     *
+     *  ON BY DEFAULT SINCE 2026-08-18 — pass `uppercase={false}` to opt OUT.
+     *  See `capsByDefault` below for why the default flipped and what exempts
+     *  itself without being asked. */
     uppercase?: boolean;
   }
 >(({ className, uppercase, onChange, readOnly, tabIndex, ...props }, ref) => {
+  /** Opt-out, not opt-in: an explicit prop always wins. See `capsByDefault`. */
+  const caps = uppercase ?? capsByDefault(props.type, readOnly);
   /**
    * AN EMPTY DATE FIELD READS AS A PLACEHOLDER, NOT A VALUE (client, 2026-08-18:
    * "it should be so mild, not this much bold").
@@ -189,13 +259,13 @@ export const Input = forwardRef<
       "placeholder:text-muted-foreground",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",
-      uppercase && "uppercase placeholder:normal-case",
+      caps && "uppercase placeholder:normal-case",
       mutedDate,
       noSpinners,
       className,
     )}
     onChange={
-      uppercase
+      caps
         ? (e) => {
             // Preserve the caret — assigning .value moves it to the end.
             const { selectionStart, selectionEnd } = e.target;

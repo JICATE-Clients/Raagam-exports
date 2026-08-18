@@ -729,7 +729,11 @@ export function DataPicker({
     <>
       {!fine && (
         <div className="border-b border-border p-3">
+          {/* caps-input: exempt -- a QUERY is not a stored value, and this one
+              box sits behind ~160 pickers. It filters master rows, so leave the
+              operator's typing alone. */}
           <Input
+            uppercase={false}
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}

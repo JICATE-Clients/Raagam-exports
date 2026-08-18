@@ -142,7 +142,8 @@ export function NewLcForm({ buyers, currencies }: Props) {
               </div>
               <div className="sm:col-span-2 lg:col-span-3">
                 <Label htmlFor="lc-terms">Terms</Label>
-                <Textarea id="lc-terms" value={terms} onChange={(e) => setTerms(e.target.value)} rows={2} placeholder="Optional terms…" />
+                {/* caps-input: exempt -- LC/PO terms are read by a bank and by suppliers; block capitals change how a clause reads, not how a value is stored (client 2026-08-18). */}
+                <Textarea uppercase={false} id="lc-terms" value={terms} onChange={(e) => setTerms(e.target.value)} rows={2} placeholder="Optional terms…" />
               </div>
             </div>
 
