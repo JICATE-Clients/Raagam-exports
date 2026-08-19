@@ -731,10 +731,35 @@ async function writeComboTree(
   return { ok: true };
 }
 
-/** Strip child arrays so only header columns hit garment_order_amendments. */
+/**
+ * Strip child arrays so only header columns hit garment_order_amendments.
+ *
+ * **EVERY ARRAY ON `AmendmentInput` MUST APPEAR HERE**, and this list has now
+ * fallen behind that schema twice: `style_sizes` and `style_processes` were
+ * added to the input and to `writeChildren`'s insert table, and nobody came back
+ * to this function — so both rode the spread into the header write and PostgREST
+ * answered "Could not find the 'style_processes' column of
+ * 'garment_order_amendments' in the schema cache" on the first save (client
+ * 2026-08-19, creating an order).
+ *
+ * It fails LOUDLY, which is the one mercy: the insert is rejected outright
+ * rather than silently dropping the children. But it fails at runtime on a real
+ * save, and TypeScript cannot see it — a rest spread happily carries an extra
+ * property, so nothing here goes red when the input grows.
+ *
+ * The pairing to remember: an array added to `amendmentInput` needs THREE edits,
+ * not one — the Zod field, an entry in `writeChildren`'s `inserts` table (which
+ * also drives the delete loop), and a line here. Checked by
+ * `npm run check:amendment-header`.
+ */
 function headerOnly(data: AmendmentInput) {
   const {
     styles: _st,
+    // Both of these are CHILD tables keyed off the styles above
+    // (`garment_order_amendment_style_sizes` / `..._style_processes`), never
+    // columns on the header. See the note above — they are why it exists.
+    style_sizes: _ss,
+    style_processes: _sp,
     dyeings: _dy,
     prints: _pr,
     structures: _sc,
@@ -751,6 +776,8 @@ function headerOnly(data: AmendmentInput) {
   } = data;
   void _loc;
   void _st;
+  void _ss;
+  void _sp;
   void _dy;
   void _pr;
   void _sc;
