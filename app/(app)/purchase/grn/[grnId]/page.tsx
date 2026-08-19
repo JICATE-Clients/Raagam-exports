@@ -145,7 +145,6 @@ export default async function GrnDetailPage({
             columns={lineColumns}
             rows={lines}
             getKey={(r) => r.id}
-            empty="No lines on this GRN."
           />
         </CardBody>
       </Card>

@@ -324,7 +324,6 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
                 id="f-style"
                 value={form.style_code}
                 onChange={(e) => set("style_code", e.target.value)}
-                placeholder="e.g. PLO-001"
               />
             </div>
             <div>
@@ -350,7 +349,6 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
               id="f-desc"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              placeholder="e.g. Core Polo"
             />
           </div>
 
@@ -393,7 +391,6 @@ export function DefineStylesClient({ styles, opportunities, uoms, perms }: Props
               id="f-composition"
               value={form.composition}
               onChange={(e) => set("composition", e.target.value)}
-              placeholder="e.g. 100% Cotton"
             />
           </div>
 

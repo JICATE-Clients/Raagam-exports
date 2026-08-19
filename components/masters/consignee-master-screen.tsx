@@ -1578,7 +1578,7 @@ export function ConsigneeMasterScreen({
                           scroll-in-a-box. One contact card is already taller than
                           the old max-h-56, so even a single contact had to be
                           scrolled to be read (client 2026-07-30). */}
-                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addContact)} className="space-y-3">
+                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e)} className="space-y-3">
                       {contacts.map((c, i) => (
                         <div data-grid-row data-row-box key={c.key} className="space-y-2 rounded-md border border-border p-2.5">
                           <div className="flex items-center justify-between">
@@ -1668,7 +1668,7 @@ export function ConsigneeMasterScreen({
                         </div>
                       ))}
                       </div>
-                      <Button type="button" variant="outline" size="sm" onClick={addContact}>
+                      <Button type="button" variant="outline" size="sm" data-row-add onClick={addContact}>
                         + Add contact
                       </Button>
                     </div>
@@ -1955,7 +1955,7 @@ export function ConsigneeMasterScreen({
                       <p className="text-xs text-muted-foreground">No notify parties yet.</p>
                     )}
                     {/* No inner scroll — see ChildGrid's `pageSize` note. */}
-                    <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addNotifyRef)} className="space-y-3">
+                    <div data-grid-body onKeyDown={(e) => gridKeyNav(e)} className="space-y-3">
                     {notifyRefs.map((n, i) => (
                       <div data-grid-row data-row-box key={n.key} className="space-y-2 rounded-md border border-border p-2.5">
                         <div className="flex items-center justify-between">
@@ -1995,7 +1995,7 @@ export function ConsigneeMasterScreen({
                       </div>
                     ))}
                     </div>
-                    <Button type="button" variant="outline" size="sm" onClick={addNotifyRef}>
+                    <Button type="button" variant="outline" size="sm" data-row-add onClick={addNotifyRef}>
                       + Add notify party
                     </Button>
                   </div>

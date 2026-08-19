@@ -99,11 +99,11 @@ export function InterdeptForm({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>From Department *</Label>
-              <Input value={fromDept} onChange={(e) => setFromDept(e.target.value)} placeholder="e.g. Cutting" />
+              <Input value={fromDept} onChange={(e) => setFromDept(e.target.value)} />
             </div>
             <div>
               <Label>To Department *</Label>
-              <Input value={toDept} onChange={(e) => setToDept(e.target.value)} placeholder="e.g. Sewing" />
+              <Input value={toDept} onChange={(e) => setToDept(e.target.value)} />
             </div>
             <div>
               <Label>From Store *</Label>

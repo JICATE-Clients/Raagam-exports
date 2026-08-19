@@ -266,7 +266,6 @@ function OrdersTab({
               ]}
               rows={o.details}
               getKey={(d) => d.id}
-              empty="No split details."
             />
           </div>
         ))}

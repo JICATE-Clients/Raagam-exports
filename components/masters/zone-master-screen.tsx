@@ -403,7 +403,6 @@ export function ZoneMasterScreen({
                       uppercase
                       value={row.area_name}
                       onChange={(e) => updateChild(row.key, e.target.value)}
-                      placeholder="Area name"
                     />
                   ),
                 },

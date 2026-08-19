@@ -162,7 +162,6 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   id="nof-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Spring 2026 Collection"
                   required
                 />
               </div>
@@ -174,7 +173,6 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   id="nof-season"
                   value={season}
                   onChange={(e) => setSeason(e.target.value)}
-                  placeholder="e.g. SS26"
                 />
               </div>
 
@@ -294,7 +292,6 @@ export function NewOpportunityForm({ buyers, brands = [], seasons = [] }: Props)
                   id="nof-agent"
                   value={agentName}
                   onChange={(e) => setAgentName(e.target.value)}
-                  placeholder="Agent / representative"
                 />
               </div>
 

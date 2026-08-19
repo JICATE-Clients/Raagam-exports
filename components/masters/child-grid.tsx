@@ -59,7 +59,37 @@ const ACROSS_COMPACT_TRACK =
  * than about what a field is.
  */
 const ROW_FIELDS =
-  'input:not([type="button"]):not([type="hidden"]):not([type="radio"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [data-field-trigger]:not([disabled])';
+  'input:not([type="button"]):not([type="hidden"]):not([type="radio"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [data-field-trigger]:not([disabled]), [data-row-open]:not([disabled])';
+
+/**
+ * `data-row-open` — A ROW'S OWN "OPEN THIS" BUTTON, and it is a CELL of the row
+ * (client 2026-08-19, screenshot 2358: "that tab navigation is not moving to the
+ * details button, why").
+ *
+ * Combos ▸ Detail is the case. It sits under its own column header, between
+ * Combo and the row's ✕, and it is the ONLY way to reach the Structure Details
+ * overlay — six fields per structure and a components grid, an entire surface
+ * behind one button. Tab visits fields, a `<Button>` is not one, so that surface
+ * was mouse-only. This is the same argument `enterNestedGrid` was written for
+ * ("an empty nested list has no keyboard way in at all — Tab lands on fields, and
+ * this is a button"), one shape along.
+ *
+ * IT JOINS `ROW_FIELDS`, WHICH MEANS ALL THREE MOVEMENT KEYS, NOT JUST TAB. That
+ * is deliberate and it is the whole reason this marker exists instead of a
+ * Tab-only list: AGENTS.md's rule is that Tab, Enter and the arrows read ONE
+ * definition, "because when they disagreed the disagreement was visible inside a
+ * single grid row" — Tab stopping on a control the arrows stepped over is
+ * literally the 2026-08-01 bug. A Detail cell reachable by Tab but invisible to
+ * ←/→ would rebuild it.
+ *
+ * THE ✕ IS STILL NOT THIS. A Remove has Ctrl+Del, so it loses nothing by staying
+ * off the axis; Detail has no key of its own, which is what earns it one. Mark a
+ * button only when it OPENS something the keyboard cannot otherwise reach — never
+ * to make an action "convenient", or the typing path fills up with chrome again.
+ *
+ * `:not([disabled])` matches the rest of the selector: a Detail button greyed out
+ * because the combo is unnamed is not a place the cursor can usefully stop.
+ */
 
 /**
  * Enter-on-last-row must not grow a grid that has its "+ Add" hidden (a
@@ -72,7 +102,6 @@ const ROW_FIELDS =
  * relies on this: its rows appear by filling in the trailing blank one, never by
  * a key or a click, so every "add" there is really a move.
  */
-const NO_ADD = () => false;
 
 // `focusField` (lib/focus.ts) focuses a cell and puts the caret at the end, so
 // typing appends rather than overwrites — and so ←/→ can leave the cell on the
@@ -81,7 +110,7 @@ const NO_ADD = () => false;
 /** Direct descendants only — a nested ChildGrid must not steal the outer one's rows. */
 function ownDescendants(scope: HTMLElement, selector: string, boundary: string): HTMLElement[] {
   return Array.from(scope.querySelectorAll<HTMLElement>(selector)).filter(
-    (el) => el.closest(boundary) === scope,
+    (el) => el.closest(boundary) === scope && el.offsetParent !== null,
   );
 }
 
@@ -95,6 +124,38 @@ function ownDescendants(scope: HTMLElement, selector: string, boundary: string):
  * the key without 22 edits — the same reason this file finds rows by
  * `data-grid-row` and not by `<tr>`. New code should carry the marker.
  */
+/**
+ * THE FRAME A GRID DRAWS AROUND ITSELF, exported so a non-grid panel standing
+ * BESIDE a grid can match it exactly.
+ *
+ * "One frame per grid" (the screen-layout skill) says how many borders there
+ * are; it says nothing about a control that has to sit next to one. On Style ▸
+ * Components & Sizes the framed Components table shared a row with an unframed
+ * Sizes control, and the client read the bare half as floating (2026-08-18).
+ * Retyping these classes there would have put the same four numbers in two
+ * files, which is how a border ends up 1px or 2px off and nobody can say which
+ * one is wrong — the reason `FIELD_SPAN` and `FIELD_TRACK` are exported too.
+ *
+ * A LITERAL, never a template. Tailwind v4 scans source text, so interpolating
+ * anything into it produces no CSS at all (`FIELD_TRACK` carries the same
+ * warning).
+ */
+export const GRID_FRAME = "rounded-lg border border-border p-2.5 @2xl/editor:p-2";
+
+/**
+ * `openRowKey`'s "nothing is open" value — see the state declaration below.
+ *
+ * A STRING THAT CANNOT BE A ROW KEY, rather than a second boolean beside the
+ * key: the fold test is one comparison (`row.key !== target`), and a sentinel
+ * keeps it one comparison. Callers mint keys with `newKey()` (`k0`, `k1`, ...)
+ * or a uuid, so a parenthesised phrase is unreachable by construction.
+ *
+ * PRINTABLE, deliberately. The first cut used a literal NUL, which is a valid
+ * JS string and made `grep` report the whole file as binary -- every text tool
+ * in this repo, the audit scripts included, then treats it as unreadable.
+ */
+const ALL_FOLDED = "(all folded)";
+
 const ROW_REMOVE = '[data-row-remove], [aria-label^="Remove" i]';
 
 /**
@@ -133,7 +194,14 @@ const ROW_ADD = "[data-row-add]";
  * complaint of 2026-08-01 walking back in through its own fix.
  */
 function tabFieldsIn(row: HTMLElement): HTMLElement[] {
-  return Array.from(row.querySelectorAll<HTMLElement>(ROW_FIELDS));
+  // `offsetParent` for the same reason `focusablesIn` (lib/focus.ts) has always
+  // filtered on it: a grid in the default `responsive` mode has BOTH a table and
+  // a card layout mounted with CSS hiding one, and a `foldRows` grid keeps
+  // collapsed rows in the DOM. Tab aiming at a hidden cell lands nowhere, and
+  // "nowhere" is what restarts the cycle at the top of the form.
+  return Array.from(row.querySelectorAll<HTMLElement>(ROW_FIELDS)).filter(
+    (el) => el.offsetParent !== null,
+  );
 }
 
 /**
@@ -352,9 +420,25 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
     target = step(into, dir === 1 ? -1 : into.length);
     if (!target) return false; // a collapsed / summary-only row: let Tab pass
   }
+  /**
+   * CLAIM THE KEY ONLY IF THE CURSOR ARRIVED (client 2026-08-19).
+   *
+   * `focusField` now reports whether the element actually took focus. It cannot
+   * always: a hidden twin from the other responsive layout, a collapsed row, a
+   * node React unmounted between the query and the move. Before this, Tab was
+   * consumed regardless — the cursor ended up on `<body>`, and the provider's
+   * `restoreFocusIfLost()` then resumed from the TOP of the form. That is the
+   * "Tab jumps back to the first field" report, and from inside this function it
+   * looked like a successful move.
+   *
+   * Declining hands the key on — `cycleTab` gets it, finds the next real stop
+   * (the grid's "+ Add", the next section) and moves there — which is the same
+   * decline-and-bubble every other refusal in this file uses. A key that does
+   * the next best thing beats a key that silently loses the cursor.
+   */
+  if (!focusField(target)) return false;
   e.preventDefault();
   e.stopPropagation();
-  focusField(target);
   return true;
 }
 
@@ -375,15 +459,21 @@ function tabAlongRow(e: React.KeyboardEvent<HTMLElement>): boolean {
  * they passed `forceCards` when this was written). That is why arrow keys
  * appeared to work on some screens and not others (client 2026-07-24 #2).
  */
-export function gridKeyNav(
-  e: React.KeyboardEvent<HTMLElement>,
-  /**
-   * Add a row. **Return `false` to decline** — the grid then leaves the key
-   * alone so it reaches the parent grid (or the provider). Returning nothing
-   * means "handled", which is what every existing caller does.
-   */
-  addRow: () => boolean | void,
-) {
+/**
+ * THE `addRow` ARGUMENT IS GONE (client 2026-08-19).
+ *
+ * Every caller used to hand this function a way to add a row, because Enter on
+ * the last row added one. Enter now moves to the grid's "+ Add" button and the
+ * button adds — so the callback was dead, and 18 call sites were passing a
+ * function that could never run. A parameter nothing calls is worse than no
+ * parameter: the next reader assumes Enter still adds because the wiring says so.
+ *
+ * The refusal it carried ("return false to decline", so a grid that cannot grow
+ * right now lets Enter reach the parent) did not disappear with it — it moved to
+ * `ownAddControl` returning null, which is the same decline-and-bubble, decided
+ * by whether there is anything to move TO rather than by a callback's answer.
+ */
+export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
   if (removeRowKey(e)) return;
   if (tabAlongRow(e)) return;
   const vertical = e.key === "ArrowDown" || e.key === "ArrowUp";
@@ -480,8 +570,10 @@ export function gridKeyNav(
       ? fields[0]
       : (fields[col] ?? fields[fields.length - 1]);
     if (!next) return false;
-    focusField(next);
-    return true;
+    // The same test Tab now makes: this function's callers use its answer to
+    // decide whether to consume the key, and "I found an element" is not the
+    // same fact as "the cursor is on it" — see `focusField`.
+    return focusField(next);
   };
 
   // Consume the key only once the destination actually took focus. A row with no
@@ -542,29 +634,85 @@ export function gridKeyNav(
     // Runaway rows cannot come back through this door: after the parent adds,
     // `focusColIn` lands on the NEW row's first field, so the next Enter is on
     // the parent's own empty picker and the guard fires there normally.
-    if (!fromChildGrid && isTrigger && el.getAttribute("data-field-empty") !== "false") return;
-    // ASK FIRST, THEN CLAIM THE KEY. A grid that cannot grow right now must
-    // DECLINE, so Enter carries on up to the parent grid — the same
-    // decline-and-bubble hand-off the `e.currentTarget` note above exists for.
-    //
-    // This is what "Enter Enter starts the next attribute" is built on. The
-    // Material Attribute values list refuses to add after a blank value (there
-    // is nothing to add until the row already there has been typed into), but
-    // `preventDefault` used to fire BEFORE `addRow` was called — so the refusal
-    // was invisible and Enter simply died in the empty box. A keyboard operator
-    // inside a nested list had no key that meant "done here, next parent row"
-    // (client 2026-08-04).
-    //
-    // Order matters: `addRow()` runs before `preventDefault`, so a caller that
-    // returns nothing (every pre-existing one) behaves exactly as before.
-    if (addRow() === false) return;
+    /**
+     * ENTER GOES TO THE "+ ADD" BUTTON. IT DOES NOT ADD (client 2026-08-19:
+     * "enter key automatically creating the new section … instead need to move
+     * to that add button, then on that button need to create").
+     *
+     * Everything below this line used to add a row outright. The button is a Tab
+     * stop now (`isRowAdd`, lib/focus.ts), so Enter lands on the same control the
+     * mouse uses and a SECOND Enter — the browser's native click — is what
+     * creates the row. `landOnAddedRow` then puts the cursor in it, exactly as
+     * before, so the end of the journey is unchanged; only the confirmation step
+     * is new.
+     *
+     * THE EMPTY-PICKER GUARD IS GONE WITH IT, and that is a consequence rather
+     * than a decision. It existed because "holding Enter wrote a run of blank
+     * child records to the server" — Enter added, the new row's empty picker was
+     * again the last row, and the next Enter added another. Enter creates nothing
+     * now, so a runaway is unreachable; and keeping the guard would have broken
+     * the very case that prompted this change, since a grid ending in a blank
+     * picker (Garment Order sizes, Material Attribute values) would still have
+     * declined the key and never reached the button.
+     *
+     * NO BUTTON, NO CLAIM. A grid with `hideAdd`, or one that has hit its own
+     * cap, has nothing to move to — so decline WITHOUT preventDefault and let the
+     * key carry on to the parent grid or to `enterAdvances`, which is the same
+     * decline-and-bubble hand-off the rest of this function relies on. Silently
+     * swallowing Enter at the end of a grid that cannot grow is how a surface
+     * loses its only route to Save.
+     */
+    const addBtn = ownAddControl(body);
+    if (!addBtn) return;
     e.preventDefault();
     e.stopPropagation();
-    window.setTimeout(() => {
-      const fresh = ownDescendants(body, "[data-grid-row]", "[data-grid-body]");
-      focusColIn(fresh[fresh.length - 1]);
-    }, 30);
+    addBtn.focus();
+    return;
   }
+}
+
+/**
+ * This grid's own "+ Add" control, and only ever this grid's.
+ *
+ * It lives in one of two places depending on the layout, which is why this is a
+ * function rather than a selector: `across` mode renders it INSIDE
+ * `data-grid-body` so it takes a cell on the wrapping track, every other mode
+ * renders it as a SIBLING of the body. `enterNestedGrid` already depends on the
+ * first of those.
+ *
+ * Scoped both ways. Inside, `ownDescendants` stops at a nested `data-grid-body`,
+ * so a child grid's button is not mistaken for ours. Outside, the sibling search
+ * excludes anything the body contains, so the same nested button cannot be found
+ * by the second branch either — which would otherwise send Enter at the end of a
+ * parent row into the CHILD's Add.
+ */
+function ownAddControl(body: HTMLElement): HTMLElement | null {
+  const inside = ownDescendants(body, "[data-row-add]", "[data-grid-body]")[0];
+  if (inside) return inside;
+  /**
+   * WALKING UP, BUT NEVER PAST A SECOND GRID.
+   *
+   * One level is not enough in practice: Work Timing puts "+ Add shift" in the
+   * card's HEADER band, which is a sibling of the div holding the body, so a
+   * `body.parentElement` search misses it. Unbounded walking is worse — it would
+   * eventually find some other grid's button and send Enter there.
+   *
+   * The bound is the ambiguity itself: stop as soon as an ancestor contains more
+   * than one `data-grid-body`, because from there a `[data-row-add]` can no
+   * longer be attributed to US. Consignee is exactly that shape — Contacts and
+   * Notify are two grids under one section — so the walk halts and Enter simply
+   * declines rather than adding a contact from the notify grid.
+   */
+  let scope = body.parentElement;
+  while (scope) {
+    if (scope.querySelectorAll("[data-grid-body]").length > 1) return null;
+    const found = Array.from(scope.querySelectorAll<HTMLElement>("[data-row-add]")).find(
+      (b) => !body.contains(b) && b.offsetParent !== null,
+    );
+    if (found) return found;
+    scope = scope.parentElement;
+  }
+  return null;
 }
 
 /**
@@ -710,6 +858,7 @@ export function ChildGrid<T extends { key: string }>({
   tableFrom,
   centerHeaders = false,
   lockExisting = false,
+  hideRemove = false,
   inlineCards = false,
   across = false,
   fill = false,
@@ -891,6 +1040,20 @@ export function ChildGrid<T extends { key: string }>({
    * silently permits what it is meant to prevent.
    */
   lockExisting?: boolean;
+  /**
+   * NO ✕ ON ANY ROW — for a grid whose rows are DERIVED rather than entered.
+   *
+   * Distinct from `lockExisting`, which withholds the ✕ only from the rows
+   * present at MOUNT and its own doc records the hole: rows arriving later are
+   * treated as new and stay removable. A derived grid re-creates its rows on
+   * every render, so that guard would protect the first set and nothing after
+   * it — the operator could delete a row the next render puts straight back.
+   *
+   * Removing the button also removes Ctrl+Del, which drives that same button
+   * (`locked` is read by both), so the keyboard and the mouse agree without a
+   * second rule.
+   */
+  hideRemove?: boolean;
   /** One flex row per record with a single shared header, honouring each
    *  column's `width`. Use instead of `forceCards` for grids of narrow fields
    *  (Mixing %, Shade) that shouldn't stack. Ignores `renderMobileRow`. */
@@ -1192,8 +1355,30 @@ export function ChildGrid<T extends { key: string }>({
   useEffect(() => {
     onAddRef.current = onAdd;
   });
-  /** Which row shows its fields, when `foldRows` is on. Null = the last row. */
-  const [openRowKey, setOpenRowKey] = useState<string | null>(null);
+  /**
+   * Which row shows its fields, when `foldRows` is on.
+   *
+   * THREE STATES, and the third is why this is not just `string | null`:
+   *   - a row key  → that row is open (the operator clicked it)
+   *   - `null`     → THE LAST ROW is open. `handleAdd` sets this, because the
+   *                  grid never sees the key the caller just minted, so "the
+   *                  last one" is how a newly added row names itself.
+   *   - `ALL_FOLDED` → nothing is open. The mount state.
+   *
+   * **A GRID OPENS WITH EVERYTHING FOLDED** (client 2026-08-19, on Combos ▸
+   * Structure Details: "instead of open one section the sections should be in
+   * closed state, because it's making confusion for the user"). It used to mount
+   * at `null`, which resolves to the last row — so a two-structure combo opened
+   * with one section expanded and the operator could not tell whether that was a
+   * selection, a default, or the only one there was.
+   *
+   * The sentinel matters: collapsing this back to "null means nothing open"
+   * would take `handleAdd` with it, and a structure added by the "+ Add" button
+   * would arrive FOLDED — no fields to type into, and nothing for
+   * `landOnAddedRow` (AGENTS.md) to put the cursor in. Mounting closed and
+   * opening on add are two different questions and need two different values.
+   */
+  const [openRowKey, setOpenRowKey] = useState<string | null>(ALL_FOLDED);
   const seeded = useRef(false);
   useEffect(() => {
     if (!seedRow || hideAdd) return;
@@ -1228,7 +1413,6 @@ export function ChildGrid<T extends { key: string }>({
     if (paginated) pg.setPage(Number.MAX_SAFE_INTEGER);
     return true;
   };
-  const addFn = hideAdd ? NO_ADD : handleAdd;
   /**
    * Four layouts, ONE choice.
    *
@@ -1352,7 +1536,7 @@ export function ChildGrid<T extends { key: string }>({
    */
   const [storedKeys] = useState<Set<string>>(() => new Set(rows.map((r) => r.key)));
   /** Withhold the ✕ — and with it Ctrl+Del, which drives that same button. */
-  const locked = (row: T) => lockExisting && storedKeys.has(row.key);
+  const locked = (row: T) => hideRemove || (lockExisting && storedKeys.has(row.key));
 
   return (
     // TWO ELEMENTS, TWO JOBS — the outer one is the CONTAINER-QUERY element and
@@ -1382,7 +1566,7 @@ export function ChildGrid<T extends { key: string }>({
       <div
         className={cn(
           "space-y-2 @2xl/editor:space-y-1.5",
-          !frameless && "rounded-lg border border-border p-2.5 @2xl/editor:p-2",
+          !frameless && GRID_FRAME,
           // The card hugs exactly when the table inside it does, so there is no
           // dead space between the last column and the border. `max-w-full`
           // keeps a table wider than the cap inside the section; the scroll
@@ -1474,7 +1658,7 @@ export function ChildGrid<T extends { key: string }>({
                 gridKeyNav takes its grid from `e.currentTarget`. It used to be on
                 the <table>, which still worked when the grid was derived from the
                 event target, but would now resolve to a node that owns no rows. */}
-            <tbody data-grid-body onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}>
+            <tbody data-grid-body onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}>
               {view.map((row, localI) => {
                 const i = offset + localI;
                 return (
@@ -1608,7 +1792,7 @@ export function ChildGrid<T extends { key: string }>({
           <div
             data-grid-body
             className={acrossCompact ? ACROSS_COMPACT_TRACK : FIELD_TRACK}
-            onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
+            onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
           >
             {view.map((row, localI) => {
               const i = offset + localI;
@@ -1684,7 +1868,7 @@ export function ChildGrid<T extends { key: string }>({
             // `flushRows` removes the gap under the header band as well, so the
             // first row starts where a `Field`'s control does. See the prop.
             className={cn(!flushRows && "space-y-1.5")}
-            onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
+            onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
           >
             {/* THE ONE BAND, when the grid has no rows to head.
                 `view.length > 0` gates the column headers, so an empty inline grid
@@ -1905,7 +2089,7 @@ export function ChildGrid<T extends { key: string }>({
                   ? "@md:hidden"
                   : "@lg:hidden"),
           )}
-          onKeyDown={keyboardNav ? (e) => gridKeyNav(e, addFn) : undefined}
+          onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
         >
           {view.map((row, localI) => {
             const i = offset + localI;
@@ -1973,13 +2157,44 @@ export function ChildGrid<T extends { key: string }>({
                 "space-y-2",
                 // `py-2` only — no horizontal padding, so a flat row's fields keep
                 // the grid's own left edge and line up with the sections above it.
+                /**
+                 * `py-3`, NOT `py-2` (client 2026-08-19, screenshot 2379).
+                 *
+                 * A record's own fields sit 8px apart (`FieldGrid`'s `gap-y-2`),
+                 * so at `py-2` the gap BETWEEN two records was 16px against 8px
+                 * WITHIN one — a ratio of two, which the eye does not read as a
+                 * boundary. At `py-3` it is 24px against 8px, and proximity does
+                 * most of the grouping before any line is drawn at all.
+                 *
+                 * This is the cheapest cue available and the only one that adds
+                 * no ink: a fill is closed (the row tint was removed app-wide on
+                 * 2026-08-18) and a box per row is closed (the client asked for
+                 * one frame, which is why `flatRows` exists). 8px per record is
+                 * the price, paid once per row rather than per field.
+                 */
                 listRows || flatRows
-                  ? "py-2 first:pt-0 last:pb-0"
+                  ? "py-3 first:pt-0 last:pb-0"
                   : "rounded-lg border border-border p-2.5",
-                // The divider, owned by the row that needs one — see the
-                // container. `localI` is the index on the PAGE, so the first row
-                // the operator can see never carries a rule above it.
-                (listRows || flatRows) && localI > 0 && "border-t border-border",
+                /**
+                 * The divider, owned by the row that needs one — see the
+                 * container. `localI` is the index on the PAGE, so the first row
+                 * the operator can see never carries a rule above it.
+                 *
+                 * `border-strong`, NOT `border-border`: this line says "a new
+                 * record starts here" and it was being drawn in the same token
+                 * and the same 1px as an <Input>'s own edge, so it carried no
+                 * more weight than field chrome. A boundary BETWEEN records has
+                 * to outrank the boundaries WITHIN one, or there is nothing for
+                 * the eye to parse. See `--border-strong` in app/globals.css for
+                 * why "stronger" is not "darker".
+                 */
+                /* `border-t-2`, not `border-t` (client 2026-08-19, second
+                   report: still invisible at 1px). WEIGHT is the half colour
+                   cannot carry on its own — a 1px line reads as chrome whatever
+                   its shade, because every field edge on the screen is also 1px.
+                   Two pixels is a different KIND of line, which is what "a new
+                   record starts here" has to be. */
+                (listRows || flatRows) && localI > 0 && "border-t-2 border-border-strong",
                 // Only when the ✕ floats: `relative` to hang it on, and room on
                 // the right so the last field's LABEL does not run under it. A
                 // banded card needs neither — its ✕ is in the flow.

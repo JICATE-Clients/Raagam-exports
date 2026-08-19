@@ -172,7 +172,6 @@ export function GarmentProcessesClient({
                   uppercase
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Embroidery"
                   list="common-processes"
                   required
                 />

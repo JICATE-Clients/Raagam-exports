@@ -134,7 +134,6 @@ export default async function IndentApprovalPage() {
             columns={withCreatedColumns(columns, indents)}
             rows={indents}
             getKey={(r) => r.id}
-            empty="No pending indents to approve."
           />
         </CardBody>
       </Card>

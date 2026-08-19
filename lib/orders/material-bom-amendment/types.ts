@@ -72,18 +72,23 @@ export const REQUIREMENT_BASIS_LABELS: Record<(typeof REQUIREMENT_BASES)[number]
 };
 
 /**
- * ## THREE COLUMNS HERE ARE WITHDRAWN, NOT DROPPED (client 2026-08-17)
+ * ## THE THREE COLUMNS WITHDRAWN ON 2026-08-17 ARE ALL BACK, WHICH IS WHY A
+ * ## WITHDRAWAL HERE IS NEVER A DELETION
  *
- * "UI streamlining": `type`, `alternate_uom_id` and `combination` came off the
- * Items grid to shorten a 22-column row. They keep their DB columns, their
- * stored values, and their place in `mbaItemInput` — because `writeChildren`
- * DELETES AND REINSERTS every child row, so a field the form stops carrying is
- * a field the next save destroys. That is 0418's withdrawal pattern for
- * `attribute_id`, and the same one AGENTS.md records for `amend_type`.
+ * "UI streamlining" took `type`, `alternate_uom_id` and `combination` off the
+ * Items grid to shorten a 22-column row. `type` returned the same day with a
+ * corrected option list; the other two returned on 2026-08-19, when the client
+ * asked for the item row in legacy's order column-for-column (screenshot 2362).
+ *
+ * Each restoration cost one grid column and nothing else — no migration, no
+ * change here — because the withdrawals kept the DB columns, the stored values
+ * and the place in `mbaItemInput`. That is not tidiness: `writeChildren` DELETES
+ * AND REINSERTS every child row, so a field the form stops carrying is a field
+ * the next save destroys. 0418's pattern for `attribute_id`, and the one
+ * AGENTS.md records for `amend_type`.
  *
  * None of the three ever reached `lib/orders/material-bom/requirement.ts`, so
- * nothing computed changes. Restoring any of them is a grid column and nothing
- * else.
+ * nothing computed changed in either direction.
  */
 export interface MbaItem {
   id: string;
@@ -145,17 +150,21 @@ export interface MbaItem {
   vendor_id: string | null;
   purchase_uom_id: string | null;
   consumption_uom_id: string | null;
-  /** WITHDRAWN from the grid 2026-08-17. Nothing read it: the engine converts
-   *  consumption → purchase and never consults a third unit. */
+  /** Legacy's third unit beside Consumption and Purchase. Off the grid
+   *  2026-08-17, back on it 2026-08-19 with legacy's row order. Nothing reads
+   *  it: the engine converts consumption → purchase and never consults a third
+   *  unit. */
   alternate_uom_id: string | null;
   /** Which pack size this line buys, e.g. the 2,500 m cone rather than the
    *  5,000 m one (0348). It cannot live on the material: items.purchase_uom_id
    *  holds a single UOM ("Cone") and cannot tell two cone sizes apart, so the
    *  choice belongs to the BOM line. */
   uom_conversion_id: string | null;
-  /** WITHDRAWN from the grid 2026-08-17. Free text that collided by name with
-   *  `requirement_basis = 'combination'` (0420, colour x size) while having
-   *  nothing to do with it. Still round-tripped. */
+  /** Free text that collides by name with `requirement_basis = 'combination'`
+   *  (0420, colour x size) while having nothing to do with it. That collision is
+   *  why it left the grid on 2026-08-17; the client had it back on 2026-08-19
+   *  with legacy's row, so `REQUIREMENT_BASIS_LABELS.combination` keeps its
+   *  "(Color + Size)" qualifier as the only thing distinguishing the two. */
   combination: string | null;
   moq: number | null;
   /** The NUMERATOR — how many are used. Renamed from `quantity_nos` by 0418. */
@@ -165,6 +174,38 @@ export interface MbaItem {
   /** This line's wastage buffer, shown as "Wastage %". */
   excess_pct: number | null;
   required_by: string | null;
+  /**
+   * PER-PANEL CONSTRUCTION (0436), the Combination sheet's rows. EMPTY IS THE
+   * ORDINARY CASE and means "this line's own `no_of_items` / `per_pieces`
+   * apply to the whole garment" — the opt-in half of 0436, which is what keeps
+   * every line written before it unchanged.
+   */
+  components: MbaItemComponent[];
+}
+
+/**
+ * One panel's share of a Material BOM line (0436).
+ *
+ * WHY THIS EXISTS AT ALL: a sleeve seam is shorter than a front seam, so thread
+ * consumption genuinely differs by panel. 0423 rejected a component axis on the
+ * premise that it never does ("one collar interlining per garment whichever
+ * panel it is cut for") — true of interlining, false of thread. Read 0436's
+ * header before adding a fifth `requirement_basis` for this; it deliberately is
+ * not one.
+ */
+export interface MbaItemComponent {
+  id: string;
+  item_line_id: string;
+  sno: number;
+  component_id: string;
+  /** The trim's colour ON THIS PANEL. NULL means the line's own Item Color.
+   *  Two colours under one line are two things to buy, so they become two
+   *  requirement rows — see `MbaRequirement.item_color_id`. */
+  item_color_id: string | null;
+  no_of_items: number;
+  /** Never defaulted to 1 — CHECKed `> 0` in the column (0436), same rule 0418
+   *  states for the line. */
+  per_pieces: number;
 }
 
 export interface MbaProcess {
@@ -190,6 +231,15 @@ export interface MbaRequirement {
   style_ref_no: string | null;
   combo: string | null;
   size_id: string | null;
+  /**
+   * The TRIM's own colour, not the garment combo above it (0436).
+   *
+   * It was SHOWN AND NEVER STORED until then: the Requirement tab computes an
+   * Item Color in `colourOf` and throws it away on save, so a purchase order had
+   * no colour to be checked against. Harmless while one line meant one colour;
+   * a wrong purchase the moment a line's panels carry two.
+   */
+  item_color_id: string | null;
   slice_label: string;
   basis_qty: number;
   no_of_items: number;
@@ -247,6 +297,22 @@ const nullableText = z.string().optional().nullable();
 const uuidN = z.string().uuid().nullable().default(null);
 const numN = z.coerce.number().nullable().default(null);
 
+/**
+ * One row of the Combination sheet (0436).
+ *
+ * `per_pieces` is `.positive()` rather than merely non-null, which mirrors the
+ * column's CHECK — and the rule lives HERE rather than in the action for the
+ * reason the whole file repeats: `lib/data-io` parses with these schemas and
+ * writes straight to Postgres.
+ */
+export const mbaItemComponentInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  component_id: z.string().uuid(),
+  item_color_id: uuidN,
+  no_of_items: z.coerce.number().nonnegative(),
+  per_pieces: z.coerce.number().positive("Pieces must be more than 0"),
+});
+
 export const mbaItemInput = z
   .object({
     sno: z.coerce.number().int().nonnegative().default(0),
@@ -275,6 +341,9 @@ export const mbaItemInput = z
     per_pieces: numN,
     excess_pct: z.coerce.number().min(0).max(100).nullable().default(0),
     required_by: nullableText,
+    /** The Combination sheet's rows (0436). Defaulted to `[]`, never required:
+     *  the opt-in is what keeps every line written before 0436 valid. */
+    components: z.array(mbaItemComponentInput).default([]),
   })
   /**
    * THE LINE RULES LIVE IN THE SCHEMA, NOT IN THE ACTION.
@@ -314,6 +383,26 @@ export const mbaItemInput = z
         path: ["requirement_basis"],
         message: "Choose how this material splits",
       });
+    }
+
+    /**
+     * TWO PANELS OF THE SAME COLOUR ARE ONE PURCHASE, so naming one twice
+     * silently DOUBLES the line's rate rather than failing — the quietest way
+     * this table can be wrong. The column has the same unique index; this is the
+     * half that answers with a sentence instead of a Postgres error, and the
+     * half a spreadsheet import meets first.
+     */
+    const seen = new Set<string>();
+    for (const [i, c] of (v.components ?? []).entries()) {
+      const key = `${c.component_id}:${c.item_color_id ?? ""}`;
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["components", i, "component_id"],
+          message: "This panel is already on the line in that colour",
+        });
+      }
+      seen.add(key);
     }
   });
 

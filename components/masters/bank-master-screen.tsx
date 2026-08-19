@@ -537,6 +537,7 @@ export function BankMasterScreen({
             onRemove={(b) => removeBranch(b.key)}
             addLabel="+ Add branch"
             forceCards
+            flatRows
             pageSize={3}
             // `forceCards` + `renderMobileRow` mean these never render; they
             // are the fallback if this grid is ever switched back to a table.
@@ -576,7 +577,6 @@ export function BankMasterScreen({
                       }))}
                     value={b.country_id}
                     onChange={(v) => setBranchAt(b.key, { country_id: v })}
-                    placeholder="— Select —"
                     clearable
                   />
                 </Field>

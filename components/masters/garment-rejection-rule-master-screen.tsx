@@ -374,7 +374,6 @@ export function GarmentRejectionRuleMasterScreen({
                 cell: (l) => (
                   <Input
                     uppercase
-                    placeholder="e.g. UPTO 100"
                     value={l.range_label}
                     onChange={(e) => setLineAt(l.key, { range_label: e.target.value })}
                   />

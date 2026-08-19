@@ -193,7 +193,6 @@ function ItemsTab({
           columns={itemColumns}
           rows={cancel.items}
           getKey={(r) => r.id}
-          empty="No items recorded."
         />
 
         {formMode !== null && (

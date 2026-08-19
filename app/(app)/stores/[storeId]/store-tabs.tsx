@@ -97,7 +97,6 @@ function BalancesTab({ balances }: { balances: BalanceWithItem[] }) {
       columns={columns}
       rows={balances}
       getKey={(b) => `${b.store_id}-${b.item_id}`}
-      empty="No stock on hand in this store."
     />
   );
 }
@@ -347,7 +346,6 @@ function MovementsTab({
             <Label htmlFor="mv-note">Note (optional)</Label>
             <Input
               id="mv-note"
-              placeholder="e.g. PO#1234 / reason…"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />

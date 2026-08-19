@@ -328,7 +328,7 @@ export function ExchangeRateMasterScreen({
               )}
               {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
                   no longer exists; the pager replaced it.) */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row data-row-box key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">
@@ -377,7 +377,7 @@ export function ExchangeRateMasterScreen({
                 </div>
               ))}
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>
+              <Button type="button" variant="outline" size="sm" data-row-add onClick={addLine}>
                 + Add currency
               </Button>
             </div>

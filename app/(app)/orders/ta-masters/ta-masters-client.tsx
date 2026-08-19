@@ -253,7 +253,6 @@ export function TaMastersClient({
                     uppercase
                     value={shortName}
                     onChange={(e) => setShortName(e.target.value)}
-                    placeholder="e.g. KNIT"
                     required
                   />
                 </Field>
@@ -263,7 +262,6 @@ export function TaMastersClient({
                     uppercase
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Knitting"
                     required
                   />
                 </Field>

@@ -263,7 +263,6 @@ export default function RolesClient({
         columns={withCreatedColumns(roleColumns, roles)}
         rows={roles}
         getKey={(r) => r.id}
-        empty="No roles defined."
       />
 
       {selectedRole && (

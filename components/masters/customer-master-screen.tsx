@@ -1632,7 +1632,7 @@ export function CustomerMasterScreen({
                           {
                             header: "Marking",
                             cell: (m) => (
-                              <Input uppercase value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" placeholder="Marking text" />
+                              <Input uppercase value={m.marking} onChange={(e) => { setMarkings((xs) => xs.map((r) => (r.key === m.key ? { ...r, marking: e.target.value } : r))); setDirty(true); }} className="text-base md:text-sm" />
                             ),
                           },
                         ]}
@@ -1767,6 +1767,7 @@ function CategoryGrid({
       label={title}
       pageSize={10}
       forceCards
+      flatRows
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), category_id: "" }]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}
@@ -1822,6 +1823,7 @@ function VendorGrid({
       label={title}
       pageSize={10}
       forceCards
+      flatRows
       rows={rows}
       onAdd={() => { setRows((xs) => [...xs, { key: newKey(), vendor_id: "" }]); setDirty(true); }}
       onRemove={(r) => { setRows((xs) => xs.filter((x) => x.key !== r.key)); setDirty(true); }}

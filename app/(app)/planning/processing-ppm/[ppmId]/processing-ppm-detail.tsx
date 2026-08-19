@@ -444,7 +444,6 @@ export function ProcessingPpmDetail({
           columns={yarnColumns}
           rows={ppm.yarns}
           getKey={(r) => r.id}
-          empty="No yarns recorded."
         />
       </CardBody>
     </Card>

@@ -129,7 +129,7 @@ export function AdjustmentsClient({ rows, employees, canCreate, canEdit, canDele
                       {ADJUSTMENT_KINDS.map((k) => <option key={k} value={k}>{ADJUSTMENT_KIND_LABELS[k]}</option>)}
                     </Select>
                   </div>
-                  <div><Label htmlFor="aj-label">Label</Label><Input id="aj-label" placeholder="e.g. HRA, Uniform" value={label} onChange={(e) => setLabel(e.target.value)} required /></div>
+                  <div><Label htmlFor="aj-label">Label</Label><Input id="aj-label" value={label} onChange={(e) => setLabel(e.target.value)} required /></div>
                   <div><Label htmlFor="aj-amt">Amount</Label><Input id="aj-amt" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
                   <div><Label htmlFor="aj-month">Effective month</Label><Input id="aj-month" type="date" value={month} onChange={(e) => setMonth(e.target.value)} /></div>
                   <div className="flex items-end">

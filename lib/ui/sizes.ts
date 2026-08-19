@@ -31,3 +31,46 @@
  * and `xs`–`lg` are how you hit it.
  */
 export type FieldSize = "xs" | "sm" | "md" | "lg" | "xl" | "full";
+
+/**
+ * A field's width when its value has a KNOWN MAXIMUM — a width, not a share.
+ *
+ * `FieldSize` above is a FRACTION of whatever section it lands in, and that is the
+ * whole reason this exists. `xs` is the floor of that scale and still renders
+ * ~182px in an 1180px sheet, ~224px in a 1440px pane and **~282px in the Combos ▸
+ * Structure Details overlay** (client screenshot 2354, 2026-08-18) — where the
+ * SMALLEST size the system can express came out the same width as LAYOUT.md §3's
+ * standard full-size field. A three-digit GSM had twenty digits of room, and there
+ * was nothing smaller to ask for.
+ *
+ * So a value whose width is a property of the DATA rather than of the row takes one
+ * of these instead. The test is the one §3 already states: does the value have a
+ * hard maximum the schema guarantees? A GSM does. A customer name does not.
+ *
+ * THIS IS NOT A RETURN TO "SIZE TO THE DATA". There are FIVE widths for the whole
+ * application, not one per field — the failure this must never become is a screen
+ * measured against its own longest value (`order-tabs.tsx`'s `w-16` GSM box, which
+ * §3 correctly refused). One width still governs every field holding TEXT; this adds
+ * a small shared set for the values that are demonstrably not text.
+ *
+ * They replace four unnamed constants each invented separately in ONE day:
+ * `CELL = "5rem"` (fabric-bom), `PRICE_W = "w-32"` (amendment), `across="compact"`'s
+ * 9rem (child-grid) and the older hand-typed `w-16`. Four workarounds for one gap is
+ * what a missing vocabulary looks like.
+ *
+ * Sizes are measured, not chosen: 4 digits plus the input's own `px-3` padding and
+ * 1px borders is ~65px at 14px type and ~70px at 16px, so `num` clears both. `w-16`
+ * (64px) does NOT — which is why the 13 fields already hard-coded to it need to get
+ * WIDER, and that is a bug fix wearing the costume of a contradiction.
+ */
+export type FieldWidth =
+  /** 4.5rem · 72px — a 3-4 digit number: GSM, tolerance, a count, a percent. */
+  | "num"
+  /** 7rem · 112px — a derived pair or short code: "195 - 205", an HSN. */
+  | "range"
+  /** 9rem · 144px — a short enum read as a word: FRONT, BOTTOM, XL. */
+  | "code"
+  /** 11rem · 176px — a two-word enum: "Circular Knit", "Yarn Dyed". */
+  | "term"
+  /** 18rem · 288px — LAYOUT.md §3's ~280px, named so a mixed row can state it. */
+  | "name";

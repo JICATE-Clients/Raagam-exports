@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,7 @@ import type { ConfigLookup } from "@/lib/masters/extras-types";
 import type { Category } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import { createdMeta, withCreatedColumns } from "@/components/ui/created-columns";
+import { mixingList } from "@/lib/masters/mixing-name";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type LineRow = { key: string; category_id: string; description: string; mixing_pct: string };
@@ -109,6 +110,48 @@ export function CompositionMasterScreen({
   const lineLabel = (l: { category_id: string | null; description: string }) =>
     (l.category_id ? categoryName.get(l.category_id) : null) ?? l.description;
 
+  /**
+   * THE NAME IS THE MIXING (client 2026-08-19, screenshot 2355). A composition
+   * has no identity of its own beyond the yarns in it and their shares, so the
+   * operator was being asked to re-type, as prose, the two rows they had just
+   * picked below — and any two operators typed it differently, which is how a
+   * master ends up with COTTON 50 ELASTANE 50 sitting beside 50% COTTON / 50%
+   * ELASTANE meaning the same fabric.
+   *
+   * Reads exactly as the list's own Mixing column does, and as the Material
+   * master's Yarn/Fabric names do inside their brackets — `mixingList` is that
+   * one rendering (`ANTHRA MELANGE 50%, ELASTANE 50%`). A composition's name
+   * has no head in front of it, so it takes the bare list, not the bracketed
+   * form.
+   *
+   * Only COMPLETE lines join it: a fibre with no share yet, or a share with no
+   * fibre, would put a half-line into the name and take it straight back out on
+   * the next keystroke. Nothing complete → null, and the effect below leaves the
+   * field alone rather than blanking it.
+   */
+  const composedName = useMemo(() => {
+    const filled = lines
+      .map((l) => ({
+        pct: l.mixing_pct,
+        // Same resolution the column and the search text use: the category
+        // where there is one, the stored text for a pre-0384 line.
+        label: ((l.category_id ? categoryName.get(l.category_id) : null) ?? l.description).trim(),
+      }))
+      .filter((m) => m.label && m.pct.trim());
+    return filled.length ? mixingList(filled).toUpperCase() : null;
+  }, [lines, categoryName]);
+
+  // Write it. Depends on `composedName` only — the value-compare is what keeps
+  // the effect from looping on its own set(). The operator can still click into
+  // Name and overwrite it (Yarn and Fabric behave the same way in the Material
+  // master); the next change to a mixing line composes over the top again, which
+  // is the trade that keeps one grid and one name from drifting apart.
+  useEffect(() => {
+    if (composedName) {
+      setForm((f) => (f.name === composedName ? f : { ...f, name: composedName }));
+    }
+  }, [composedName]);
+
   // Real-time duplicate check on Name (mirrors the on-save guard in composition-actions).
   const dupError = useDuplicateName({
     table: "compositions",
@@ -121,11 +164,19 @@ export function CompositionMasterScreen({
   });
 
   /**
-   * "Did you mean?" — dupError above only fires on an EXACT collision, so a
-   * one-character miss sails past it and becomes a second row meaning the same
-   * thing as the first. Advisory only: the typed text saves as typed unless the
-   * operator accepts a chip. Suppressed while the red error shows — one line
-   * under the input, and the name it collided with is the one that is no use.
+   * "Did you mean?" — STOOD DOWN, deliberately, and kept rather than deleted.
+   *
+   * The chips exist to catch a one-character miss the exact-match duplicate
+   * check sails past. That is a typing failure, and since the name above is
+   * composed from the picked yarns there is no typing left to fail: a chip here
+   * would offer to "correct" the app's own output, and accepting it would put
+   * the Name out of step with the grid that produced it until the next
+   * keystroke silently composed over it again. Same reason
+   * `material-master-screen.tsx` gates its strip on `nameIsComposed`.
+   *
+   * The duplicate ERROR still applies — two rows naming the same blend is
+   * exactly what must be blocked, and the operator clears it by changing a
+   * mixing line, not the text.
    */
   const nameSuggest = useSpellSuggest({
     name: form.name ?? "",
@@ -134,7 +185,7 @@ export function CompositionMasterScreen({
     // No curated vocabulary: this master has no real-world standard to draw
     // on, so the rows beside what is being typed are the only safe candidates.
     seed: [],
-    enabled: open,
+    enabled: false,
     onApply: (v) => setForm((f) => ({ ...f, name: v })),
   });
 
@@ -473,8 +524,17 @@ export function CompositionMasterScreen({
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
-                // ↓ into the suggestion strip, Enter applies, Esc dismisses.
-                onKeyDown={nameSuggest.onKeyDown}
+                // A composed Name is never a tab stop — the operator reaches it
+                // by CLICK on the rare occasion they want to override one, and
+                // Tab walks the fields that actually compose it instead. Fixed,
+                // not keyed off whether a name has been composed yet: that would
+                // make the field a tab stop exactly while the form is blank,
+                // which is when it is being tabbed through.
+                tabIndex={-1}
+                // Emitted even though nothing is typed here: the HOLD stands
+                // itself down for a field the operator cannot reach with the
+                // keyboard, but the red border and the announcement are what a
+                // duplicate blend still needs to say.
                 {...dupFieldProps(dupError, "cmp-name")}
               />
               <DuplicateError error={dupError} id="cmp-name" />

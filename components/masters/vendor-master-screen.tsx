@@ -1546,6 +1546,7 @@ export function VendorMasterScreen({
           onRemove={(a) => removeAddress(a.key)}
           addLabel="+ Add address"
           forceCards
+          flatRows
           pageSize={3}
           // `forceCards` + `renderMobileRow` mean these never render; they are
           // the fallback if this grid is ever switched back to a table.
@@ -1689,6 +1690,7 @@ export function VendorMasterScreen({
           onRemove={(r) => removeItemCat(r.key)}
           addLabel="+ Add item category"
           forceCards
+          flatRows
           pageSize={3}
           // Never rendered under `forceCards`; the fallback if this is ever
           // switched back to a table.
@@ -1805,6 +1807,7 @@ export function VendorMasterScreen({
           onRemove={(r) => dropRow(setProcRows, r.key)}
           addLabel="+ Add process"
           forceCards
+          flatRows
           pageSize={3}
           columns={[
             { header: "Process", cell: (r) => processLabel.get(r.process_id) ?? "—" },
@@ -1869,6 +1872,7 @@ export function VendorMasterScreen({
           onRemove={(r) => dropRow(setSvcRows, r.key)}
           addLabel="+ Add service"
           forceCards
+          flatRows
           pageSize={4}
           columns={[
             { header: "Service Type", cell: (r) => serviceTypeLabel.get(r.service_type_id) ?? "—" },
@@ -1918,6 +1922,7 @@ export function VendorMasterScreen({
           onRemove={(r) => dropRow(setSubRows, r.key)}
           addLabel="+ Add sub-contract"
           forceCards
+          flatRows
           pageSize={4}
           columns={[{ header: "Process", cell: (r) => processLabel.get(r.process_id) ?? "—" }]}
           renderMobileRow={(r) => (

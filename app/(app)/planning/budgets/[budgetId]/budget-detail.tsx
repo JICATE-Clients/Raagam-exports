@@ -711,7 +711,7 @@ function ProcessSection({
                   </Button>
                 )}
               </div>
-              <DataTable columns={itemColumns} rows={proc.items} getKey={(r) => r.id} empty="No items." />
+              <DataTable columns={itemColumns} rows={proc.items} getKey={(r) => r.id} />
               {editItemId && proc.items.some((it) => it.id === editItemId) && itemFormUI(proc.id, proc, false)}
               {addItemFor === proc.id && itemFormUI(proc.id, proc, true)}
             </div>
@@ -1043,7 +1043,7 @@ function CmtSection({
                   </Button>
                 )}
               </div>
-              <DataTable columns={opColumns} rows={cmt.operations} getKey={(r) => r.id} empty="No operations." />
+              <DataTable columns={opColumns} rows={cmt.operations} getKey={(r) => r.id} />
               {editOpId && cmt.operations.some((op) => op.id === editOpId) && opFormUI(cmt.id, cmt, false)}
               {addOpFor === cmt.id && opFormUI(cmt.id, cmt, true)}
             </div>
@@ -1264,7 +1264,7 @@ function GeneralTab({
           <CardTitle>Cost Heads ({heads.length})</CardTitle>
         </CardHeader>
         <CardBody>
-          <DataTable columns={headColumns} rows={heads} getKey={(r) => r.id} empty="No cost heads." />
+          <DataTable columns={headColumns} rows={heads} getKey={(r) => r.id} />
         </CardBody>
       </Card>
 
@@ -1273,7 +1273,7 @@ function GeneralTab({
           <CardTitle>Styles P&L ({styles.length})</CardTitle>
         </CardHeader>
         <CardBody>
-          <DataTable columns={styleColumns} rows={styles} getKey={(r) => r.id} empty="No style data." />
+          <DataTable columns={styleColumns} rows={styles} getKey={(r) => r.id} />
         </CardBody>
       </Card>
     </div>

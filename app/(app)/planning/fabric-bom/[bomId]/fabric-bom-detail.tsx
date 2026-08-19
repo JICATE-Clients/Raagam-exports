@@ -628,7 +628,6 @@ function FabricsTab({
                 columns={clothColumns}
                 rows={fab.cloths}
                 getKey={(r) => r.id}
-                empty="No cloths."
               />
 
               {editClothId &&
@@ -854,7 +853,6 @@ function ComponentsTab({
                 columns={comboColumns}
                 rows={comp.combos}
                 getKey={(r) => r.id}
-                empty="No combos."
               />
 
               {addComboFor === comp.id && (

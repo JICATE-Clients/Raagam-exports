@@ -36,7 +36,7 @@ function fail(msg: string): Result {
  * looking at.
  */
 function rev(): void {
-  revalidatePath("/orders/material-bom-amendment");
+  revalidatePath("/orders/material-bom");
   revalidatePath("/orders/amendments");
   revalidatePath("/orders/garment-orders");
   revalidatePath("/orders/all");
@@ -578,6 +578,11 @@ export async function copyMaterialBomFrom(
     alternate_uom_id: (c.alternate_uom_id as string) ?? null,
     uom_conversion_id: (c.uom_conversion_id as string) ?? null,
     combination: (c.combination as string) ?? null,
+    // THE PANELS CANNOT TRAVEL, for the same reason `component_id` and
+    // `style_ref_no` below do not: a component belongs to a STYLE, and a source
+    // order's styles are not this one's (0436). Copying them would point every
+    // panel row at a style the target order has never heard of.
+    components: [],
     moq: numOrNull(c.moq),
     no_of_items: numOrNull(c.no_of_items),
     per_pieces: numOrNull(c.per_pieces),

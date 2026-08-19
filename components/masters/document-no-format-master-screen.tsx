@@ -457,6 +457,7 @@ export function DocumentNoFormatMasterScreen({
             // A GRID WRAPS; IT NEVER SCROLLS SIDEWAYS — and a table row could not
             // hold the segment panel each menu owns anyway.
             forceCards
+            flatRows
             // OPEN WITH ONE BLANK ROW. Also the keyboard's only way in: Tab lands
             // on fields, and an empty grid's sole affordance is a button.
             seedRow

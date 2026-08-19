@@ -156,7 +156,6 @@ export function AccountsClient({
                   id="acc-code"
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value })}
-                  placeholder="e.g. 1001"
                   required
                 />
               </div>
@@ -167,7 +166,6 @@ export function AccountsClient({
                   id="acc-name"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Cash and Cash Equivalents"
                   required
                 />
               </div>
@@ -221,7 +219,6 @@ export function AccountsClient({
         columns={withCreatedColumns(columns, accounts)}
         rows={accounts}
         getKey={(r) => r.id}
-        empty="No accounts in the chart of accounts."
       />
     </div>
   );

@@ -208,7 +208,6 @@ export function ProcessAmendments({
           columns={columns}
           rows={amendments}
           getKey={(a) => a.id}
-          empty="No amendments raised for this order's process plan."
         />
 
         {canCreate && formOpen && (

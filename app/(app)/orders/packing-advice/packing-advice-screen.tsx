@@ -502,6 +502,7 @@ export function PackingAdviceScreen({ rows, data, perms, masterPerms }: Props) {
             rows={lines}
             seedRow
             forceCards
+            flatRows
             renderMobileRow={(row, i) => (
               <FieldGrid>
                 {lineColumns.map((c, ci) => (

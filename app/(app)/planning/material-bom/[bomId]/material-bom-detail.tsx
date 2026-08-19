@@ -231,7 +231,6 @@ function ProductLineForm({
           <Textarea
             rows={2}
             maxLength={250}
-            placeholder="Max 250 characters"
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
@@ -838,7 +837,6 @@ function ProcessSequenceTab({
                 columns={stageColumns}
                 rows={seq.stages}
                 getKey={(r) => r.id}
-                empty="No stages."
               />
 
               {/* Edit form for a stage belonging to this sequence */}

@@ -504,6 +504,18 @@ const REDIRECTED: Record<string, string> = {
   // can confirm it. What is still asserted below is the pair — the page exists
   // and it really does `redirect("…")` to exactly this string.
   "/admin/document-no-formats": "/masters/system/document-no-format",
+  // Material BOM was never an amendment screen — one door, and the revision
+  // case is `bomStatus`'s `recalculate` state in place. The URL was named after
+  // `material_bom_amendments` (0265), which took ITS name from the legacy
+  // RP-Software screen, so the route was naming the storage rather than the
+  // work. Renamed on the client's report, 2026-08-19; the old URL redirects so
+  // no bookmark breaks.
+  //
+  // ASSERTION 6 DOES NOT REACH THIS ENTRY and 6a is why it now exists: the route
+  // post-dates the old flat nav, so it is not in OLD_NAV_LEAVES, so the pairing
+  // below was never tested. Found by BREAKING it — the target was pointed at
+  // /orders/amendments and the check still said OK.
+  "/orders/material-bom-amendment": "/orders/material-bom",
 };
 
 for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {
@@ -533,6 +545,35 @@ for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {
     } else if (!readFileSync(`${APP}${leaf}/page.tsx`, "utf8").includes(`redirect("${target}")`)) {
       fail(`${leaf} — declared as redirecting to ${target}, but does not`);
     }
+  }
+}
+
+// ------------------------------------------------------------------------ 6a
+// EVERY `REDIRECTED` ENTRY IS A LIVE PAIR, whether or not the old nav reached it.
+//
+// Assertion 6 checks the pair only for a key it happens to walk past — one that
+// is in OLD_NAV_LEAVES. That list is a VERBATIM snapshot of `git show
+// HEAD:components/shell/nav.ts` and must stay one, so a route renamed after the
+// regrouping can never appear in it, and its entry in the table above was
+// asserting nothing while reading exactly like a rule that was.
+//
+// That is the failure this repo keeps meeting from the other side: a check that
+// prints the same "OK" whether it inspected the thing or returned before
+// reaching it. Verified by breaking it first — with the loop below in place, a
+// wrong target reports "declared as redirecting to X, but does not".
+//
+// THE TARGET IS DELIBERATELY NOT ASSERTED, and that was tried first. A
+// `routeExists(to)` here fails on `/masters/system/document-no-format`, which is
+// correct and live — it is served by the DYNAMIC `/masters/[submodule]/[entity]`
+// route, so there is no folder to find. A check that reports a working redirect
+// as broken teaches people to ignore it, which costs more than the case it
+// would catch. What the pair below does assert is the half that can be known
+// from this file.
+for (const [from, to] of Object.entries(REDIRECTED)) {
+  if (!routeExists(from)) {
+    fail(`${from} — declared as redirecting to ${to}, but the page is gone`);
+  } else if (!readFileSync(`${APP}${from}/page.tsx`, "utf8").includes(`redirect("${to}")`)) {
+    fail(`${from} — declared as redirecting to ${to}, but does not`);
   }
 }
 

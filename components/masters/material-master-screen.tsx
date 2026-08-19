@@ -64,6 +64,7 @@ import {
 } from "@/lib/masters/category-types";
 import type { Levy } from "@/lib/masters/levy-types";
 import type { Uom } from "@/lib/masters/types";
+import { mixingParens } from "@/lib/masters/mixing-name";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 type MixRow = {
@@ -79,38 +80,6 @@ type ConvRow = { key: string; alt_qty: string; alt_uom_id: string; base_qty: str
 type UsingItemRow = { key: string; used_item_id: string; description: string; shade: string; uom_id: string };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
-
-/**
- * A mixing share as it should READ in a composed name.
- *
- * The grid holds the raw string an `<input type="number">` produced, and that is
- * not a number that has been through anything: a typed "050" stays "050", and a
- * legacy row's "45.00" stays "45.00". Straight into the name, that showed the
- * operator `050% 16'S OE COTTON` (client 2026-08-04). Legacy prints `45%`.
- *
- * `Number()` then `String()` is the whole normalisation — it drops leading zeros
- * and trailing zero decimals while leaving a real fraction alone (33.33 stays
- * 33.33). Falls back to the trimmed text if the cell somehow holds a non-number,
- * so a name is never silently emptied by a value the composer could not read.
- */
-function pctText(raw: string): string {
-  const n = Number(raw);
-  return Number.isFinite(n) ? String(n) : raw.trim();
-}
-
-/**
- * THE MIXING PARENTHETICAL, exactly as legacy RP prints it:
- * `(COTTON 45%, POLYSTER 55%)` — each component named first, its share after,
- * comma-separated, wrapped in one pair of brackets.
- *
- * Shared by the Yarn and Fabric branches of `suggestedName`. Fabric has had this
- * shape since 2026-07-23 and Yarn had a different one (`45% COTTON / 55% ...`)
- * until 2026-08-04, which is the drift this helper exists to prevent: two
- * branches of one function composing the same idea two different ways.
- */
-function mixingParens(rows: readonly { pct: string; label: string }[]): string {
-  return `(${rows.map((m) => `${m.label} ${pctText(m.pct)}%`).join(", ")})`;
-}
 
 const BLANK = {
   code: "",
@@ -1747,7 +1716,6 @@ export function MaterialMasterScreen({
                 // LAYOUT.md §5a already prescribes the short form for a blank
                 // option, and the label above this box says "Structure" — the
                 // noun in the placeholder was redundant at any width.
-                placeholder="— Select —"
                 // MANDATORY, and it always was — `category_id` has been in
                 // FABRIC's `REQUIRED_BY_FORM` set from the start, so Save was
                 // already blocked without it. The picker just never carried the

@@ -113,7 +113,6 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
                 id="rfq-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Cotton yarn Q3 purchase"
                 required
               />
             </div>
@@ -155,7 +154,7 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
             </p>
             {/* ↓/↑ walk a column across RFQ lines — gridKeyNav, see
                 components/masters/child-grid.tsx. */}
-            <div className="space-y-2" data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
+            <div className="space-y-2" data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
               {lines.map((line, idx) => (
                 <div key={idx} data-grid-row className="flex items-center gap-2">
                   <div className="flex-1">
@@ -184,6 +183,11 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
                       type="button"
                       variant="ghost"
                       size="icon"
+                      /* Ctrl+Del finds a row's remove by this marker or by an
+                         aria-label starting "Remove"; a bare × had neither, so
+                         the row was mouse-only to delete. */
+                      data-row-remove
+                      aria-label="Remove line"
                       className="text-danger hover:text-danger shrink-0"
                       onClick={() => removeLine(idx)}
                     >
@@ -198,6 +202,7 @@ export function NewRfqForm({ budgets }: { budgets: BudgetForPicker[] }) {
               variant="ghost"
               size="sm"
               className="mt-2"
+              data-row-add
               onClick={addLine}
             >
               + Add line

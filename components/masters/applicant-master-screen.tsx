@@ -1031,6 +1031,7 @@ export function ApplicantMasterScreen({
                 onRemove={(c) => removeContact(c.key)}
                 addLabel="+ Add contact"
                 forceCards
+                flatRows
                 pageSize={3}
                 // Paged cards all look alike; the name says which one this is.
                 rowSummary={(c) =>

@@ -54,7 +54,7 @@ export const FOCUSABLE_SELECTOR =
  * `child-grid.tsx` — and the one place that skipped it (Sheet's Tab trap) is the
  * one every masters editor tabs through.
  */
-export function focusField(el: HTMLElement): void {
+export function focusField(el: HTMLElement): boolean {
   el.focus();
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
     const len = el.value.length;
@@ -64,6 +64,30 @@ export function focusField(el: HTMLElement): void {
       /* number/email inputs reject selection ranges */
     }
   }
+  /**
+   * DID THE CURSOR ACTUALLY ARRIVE? (client 2026-08-19, reported twice: "tab is
+   * moving to the first field again instead of the next section".)
+   *
+   * `.focus()` on an element the browser will not focus — display:none, an
+   * unmounted node still held in a stale array, a collapsed accordion row, a
+   * `visibility:hidden` cell — silently does NOTHING and leaves
+   * `document.activeElement` on `<body>`. The caller then calls
+   * `preventDefault()` believing it moved, so the key is spent; the cursor is
+   * nowhere; and the provider's own `restoreFocusIfLost()` restarts the cycle at
+   * the TOP of the form. That is the "Tab jumped back to the first field"
+   * complaint, and it is why the code reads as correct — the DECISION was right
+   * and the LANDING failed, which nothing checked.
+   *
+   * Returning the answer lets a caller decline the key instead of swallowing it,
+   * so the contract's next rule gets a turn. `gridKeyNav` already reasons this
+   * way for the arrows ("consume the key only once the destination actually took
+   * focus"); this makes the same test available to every mover rather than
+   * leaving each to remember it.
+   *
+   * The return value is additive — every existing `focusField(x)` statement
+   * ignores it and behaves exactly as before.
+   */
+  return document.activeElement === el;
 }
 
 /**
@@ -386,6 +410,58 @@ export function isFieldLike(el: HTMLElement): boolean {
   if (el.matches(FIELD_TRIGGER)) return true;
   if (el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) return true;
   return el instanceof HTMLInputElement && !/^(button|submit|reset|hidden|image)$/.test(el.type);
+}
+
+/**
+ * A grid's "+ Add" control — A TAB STOP SINCE 2026-08-19, on the client's
+ * instruction, and this REVERSES two written rules on purpose.
+ *
+ * What they reversed, and why the old rules existed:
+ *
+ *   "Tab moves between FIELDS and nothing else — not a ✕, not a child row's
+ *   Remove, not Save or Cancel." That is still true of every one of those. The
+ *   ✕ came off the Tab path because it sat MID-ROW and Tab stopped on it between
+ *   two cells; "+ Add" is at the END of the grid, where the operator is already
+ *   heading, so the reasoning that removed the ✕ never applied to it.
+ *
+ *   "Enter on the last row adds a row." It did — instantly, with no confirmation
+ *   — and that is what the client asked to change: reaching the last field and
+ *   pressing Enter "suddenly creates the next section". Enter now MOVES to this
+ *   button and stops; a second Enter, on the button, is what creates the row.
+ *
+ * So a row now costs two deliberate keys instead of one automatic one. That is
+ * the trade the client chose: an operator entering ten sizes presses Enter twice
+ * per size, and in exchange nothing is ever created by a keystroke aimed at
+ * moving. Do not "optimise" it back to one key without asking.
+ *
+ * IT IS NOT A FIELD, and this predicate is deliberately separate from
+ * `isFieldLike` rather than folded into it. `isFieldLike` answers "can a value be
+ * typed here", and it is read by the arrows, by `focusFirstField`, by
+ * `ROW_FIELDS` and by the required/duplicate holds — a button joining that set
+ * would put ↑↓←→ on it, let a form open onto it, and make it a candidate for a
+ * cursor hold. Tab and Enter are the only two keys that should reach it, which is
+ * exactly the two places this is called from.
+ *
+ * Enter ON the button needs no code at all: `enterAdvances` stands down on
+ * anything that is not an input/select/trigger, so the browser's native
+ * Enter-clicks-a-button fires, `landOnAddedRow` hears the click and puts the
+ * cursor in the new row — the same path the mouse already took.
+ */
+export function isRowAdd(el: HTMLElement): boolean {
+  return el.matches("[data-row-add]");
+}
+
+/**
+ * A row's own "open this" button — Combos ▸ Detail (client 2026-08-19).
+ *
+ * Declared here for the same reason `isRowAdd` is: `cycleTab` needs it, and a
+ * page-level grid outside a focus scope is served by `cycleTab` rather than by
+ * `tabAlongRow`. Inside a grid the row axis (`ROW_FIELDS`, child-grid.tsx) also
+ * carries the marker, so Tab, Enter and the arrows all agree about it — see the
+ * note there for why that has to be one definition rather than a Tab-only list.
+ */
+export function isRowOpen(el: HTMLElement): boolean {
+  return el.matches("[data-row-open]");
 }
 
 /**
@@ -923,7 +999,39 @@ export function arrowNavigate(e: NavKeyEvent, root: HTMLElement | null): boolean
           ? "right"
           : "left";
   const next = spatialNeighbour(t, dir, items) ?? items[forward ? idx + 1 : idx - 1];
-  if (!next) return false;
+  /**
+   * OFF THE EDGE OF THE SECTION, THE ARROWS HAND OVER TOO (client 2026-08-19:
+   * "I can't move section to section using the arrow key").
+   *
+   * Tab and Enter have both crossed sections since 2026-07-31, through
+   * `registerContentEdge`; the arrows stopped dead at the last field and did
+   * NOTHING. That is the one thing this contract says must never happen — "all
+   * three movement keys read one definition, because when they disagreed the
+   * disagreement was visible inside a single grid row". Here the disagreement
+   * was visible across a whole editor: Tab left the section, ↓ did not.
+   *
+   * Same callback, so the three keys cannot drift: ↓ / → open the NEXT section,
+   * ↑ / ← the PREVIOUS one — and `onContentEdge` lands "first" going forward and
+   * "last" going back, so ↑ arrives on the previous section's last field rather
+   * than its first, which is what makes the movement reversible.
+   *
+   * Region-gated exactly as Tab is: a footer button or a header ✕ is not a
+   * section edge. And ← / → reach here only once the caret is already at the end
+   * of the text (the `atCaretEdge` gate above), so this cannot fire while the
+   * operator is still moving through a value.
+   *
+   * The horizontal keys hand over as well, deliberately. On a 12-column track
+   * the last field of a section is as often reached by → as by ↓, and a rule
+   * that crossed on one but not the other would be the same split one level
+   * down.
+   */
+  if (!next) {
+    if (regionOf(t) === "content" && contentEdgeFor(root)?.(forward ? 1 : -1)) {
+      e.preventDefault();
+      return true;
+    }
+    return false;
+  }
 
   e.preventDefault();
   focusField(next);
@@ -1068,6 +1176,54 @@ export function isRowAddControl(el: HTMLElement): boolean {
 }
 
 /**
+ * IS A GRID ROW STILL BLANK? — the one gate on growing a grid.
+ *
+ * Read by BOTH doors, which is the whole point: `gridKeyNav`'s Enter rung
+ * (child-grid.tsx) and the "+ Add" click that reaches `landOnAddedRow`. The test
+ * it replaces asked "is the focused cell a picker that declares itself empty?" —
+ * keyed on the CONTROL, so it leaked through every state that was not an empty
+ * picker, and a grid ending in a typed <Input> grew a fresh blank row on every
+ * Enter (client 2026-08-18).
+ *
+ * SPLIT FROM THE DOM on purpose, the same way `keyFills` is split from
+ * `keyFillsField` and `enterTicks` from `enterAdvances`: the rule takes a list of
+ * fields, so `scripts/check-keyboard-holds.mts` can exercise the branch that
+ * actually runs rather than a parallel copy of it.
+ */
+export type RowField = {
+  /** The control's current value, trimmed. "" for an empty text box. */
+  value: string;
+  /** A picker's own answer via `data-field-empty`; undefined when it declares nothing. */
+  declaredEmpty?: boolean;
+  /** A checkbox or radio, whose "empty" is not the same question as a text box's. */
+  tickBox: boolean;
+  /** True when the value on screen was put there by the app, not typed by the operator. */
+  prefilled: boolean;
+};
+
+/**
+ * TODO(you): decide what makes a row "still blank".
+ *
+ * Return true to REFUSE growing the grid, false to allow it. Things worth
+ * weighing, each of which changes what an operator feels:
+ *
+ *  - A row where the ONLY filled cells are defaults the app put there (a UOM
+ *    that prefills to PCS, a date that prefills to today) — has the operator
+ *    started this row, or not? `prefilled` is there to answer it either way.
+ *  - An unticked checkbox is not the same kind of empty as an empty text box:
+ *    "off" is a real, deliberate value. `tickBox` marks them.
+ *  - A bespoke picker declares nothing (`declaredEmpty === undefined`). Reading
+ *    its silence as "filled" is what handed the runaway-blank-row bug back last
+ *    time; reading it as "empty" risks caging a grid that cannot grow at all.
+ *  - A grid with no fields in the row at all (`fields.length === 0`) — that is
+ *    not a blank row, it is a row that has not rendered yet.
+ */
+export function rowIsBlank(fields: RowField[]): boolean {
+  void fields;
+  throw new Error("rowIsBlank: not implemented");
+}
+
+/**
  * IS THIS SURFACE AN EDITOR? — the gate that decides whether Tab belongs to this
  * contract at all.
  *
@@ -1156,9 +1312,17 @@ export function cycleTab(
 
   // Which region the stops live in. A non-field origin aims at the content, so a
   // moused-to ✕ or Save leads back to the data rather than nowhere.
-  const region = from && isFieldLike(from) ? regionOf(from) : "content";
+  // `isRowAdd` counts as an origin too, or Tab off the "+ Add" button would
+  // reset the region to "content" and jump back to the top of the form instead
+  // of carrying on to the field after the grid.
+  const region =
+    from && (isFieldLike(from) || isRowAdd(from) || isRowOpen(from))
+      ? regionOf(from)
+      : "content";
   const isStop = (el: HTMLElement) =>
-    isFieldLike(el) && !isOffTabPath(el) && regionOf(el) === region;
+    (isFieldLike(el) || isRowAdd(el) || isRowOpen(el)) &&
+    !isOffTabPath(el) &&
+    regionOf(el) === region;
   // The fallback above: a surface with nothing field-like still has to trap.
   const stops = items.some(isStop) ? isStop : (el: HTMLElement) => !isOffTabPath(el);
 
@@ -1194,6 +1358,22 @@ export function cycleTab(
   if (wrapped && regionOf(items[idx]) === "content" && contentEdgeFor(root)?.(dir)) {
     return true;
   }
-  focusField(items[nextIdx]);
+  /**
+   * IF THE STOP WILL NOT TAKE FOCUS, KEEP LOOKING (client 2026-08-19).
+   *
+   * `items` is a snapshot; between building it and moving, a node can stop being
+   * focusable — React unmounts a collapsed row, a layout swap hides the twin of
+   * a responsive grid. Landing on one of those left the cursor on `<body>` while
+   * this function returned "handled", and `restoreFocusIfLost()` then resumed at
+   * the top of the form. Walk on to the next real stop instead; only give up
+   * once nothing in the cycle will take it, and then leave the key alone rather
+   * than pretending to have moved.
+   */
+  let at: number | undefined = nextIdx;
+  for (let n = 0; n < items.length && at !== undefined; n++) {
+    if (focusField(items[at])) return true;
+    at = step(at);
+    if (at === nextIdx) break; // all the way round
+  }
   return true;
 }

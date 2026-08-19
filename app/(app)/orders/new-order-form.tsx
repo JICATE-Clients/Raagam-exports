@@ -119,7 +119,6 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
       cell: (l) => (
         <Input
           uppercase
-          placeholder="e.g. Navy"
           value={l.color}
           onChange={(e) => updateLine(l.key, { color: e.target.value })}
         />
@@ -131,7 +130,6 @@ export function NewOrderForm({ quotes, buyers, locations }: Props) {
       cell: (l) => (
         <Input
           uppercase
-          placeholder="e.g. M"
           value={l.size}
           onChange={(e) => updateLine(l.key, { size: e.target.value })}
         />

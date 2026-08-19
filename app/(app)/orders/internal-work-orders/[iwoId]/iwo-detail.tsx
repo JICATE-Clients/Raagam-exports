@@ -280,7 +280,6 @@ export function IwoDetail({ iwo, lines, canEdit, canDelete }: Props) {
                     uppercase
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g. Body panels"
                     required
                   />
                 </Field>

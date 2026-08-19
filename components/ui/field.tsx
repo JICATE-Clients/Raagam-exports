@@ -1,6 +1,6 @@
 import { cloneElement, createContext, isValidElement, useContext, type ReactNode } from "react";
 import { Label } from "@/components/ui/label";
-import type { FieldSize } from "@/lib/ui/sizes";
+import type { FieldSize, FieldWidth } from "@/lib/ui/sizes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -115,7 +115,7 @@ export function useRequiredHold(
  * be able to load. The reasoning is in that file; the SPAN map below is the half
  * that stays here.
  */
-export type { FieldSize };
+export type { FieldSize, FieldWidth };
 
 /**
  * The 12-col track that the spans below query. Exported so `DetailSection` and
@@ -148,6 +148,69 @@ export const FIELD_TRACK =
  */
 export const FIELD_TRACK_14 =
   "grid gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5 @lg/section:grid-cols-14";
+
+/**
+ * A THIRTY-TWO-column variant, for ELEVEN fields on one row AT THREE WIDTHS.
+ *
+ * Same mechanism as 14 above — the track widens, the fields keep sizes that
+ * already exist — but this one is not a uniform row, and that is the point.
+ * Material BOM's item line was asked for all eleven columns on one row (client
+ * 2026-08-19), which is legacy's own grid row and twelve columns tops out at
+ * six. It shipped as 22 columns of one `xs` each, and the client came straight
+ * back: the three Uom cells hold a THREE-LETTER CODE — CONE, DZN, PCS — and were
+ * as wide as the Material picker beside them, which was clipping at "BUTTO…".
+ *
+ * 32 IS WHAT MAKES THE THREE EXISTING SIZES ADD UP. `xs` is 2, `sm` is 3, `md`
+ * is 4, so:
+ *
+ *   4 narrow  (3 Uoms + MOQ)                        xs   4 x 2 =  8
+ *   4 medium  (Type, Attribute, Supply Type, Comb.) sm   4 x 3 = 12
+ *   3 wide    (Category, Material, Vendor)          md   3 x 4 = 12
+ *                                                              -----
+ *                                                                32
+ *
+ * At ~1504px of editor width that is **~83px** narrow, **~130px** medium,
+ * **~178px** wide — against LAYOUT.md §3's ~280px everywhere else, and against
+ * the flat ~126px that 22 gave every cell. The wide ones gained 41%; the Uoms
+ * lost a third they never used.
+ *
+ * A SEPARATE LITERAL, never `grid-cols-${n}`. Tailwind v4 scans source text, so
+ * an interpolated class produces no CSS at all — the warning both constants
+ * above carry. (Verified rather than assumed: `repeat(22,minmax(0,1fr))` was
+ * confirmed in the emitted CSS before this constant replaced it, because a
+ * class that compiles to nothing would silently drop the row back to two.)
+ *
+ * ## `items-end` IS LOAD-BEARING, NOT TIDINESS
+ *
+ * At 83px "Consumption Uom" wraps to two lines, and a two-line label pushes its
+ * control ~17px BELOW every control beside it (client 2026-08-19, screenshot
+ * 2383: "align it clearly"). This is the same fault `label=""` already guards
+ * from the other direction — an ABSENT label collapsing its row and lifting the
+ * control ~16px above its neighbours (client 2026-08-11) — so it gets the same
+ * answer: the row is what aligns, not the label.
+ *
+ * `items-end` bottom-aligns each cell box, and the control is each box's last
+ * child, so the controls line up whatever the labels do. It fixes the wrap
+ * rather than forbidding it, which is why no label here has to be abbreviated
+ * or truncated to keep the row straight.
+ *
+ * ## WHAT IT IS NOT is a horizontal scrollbar
+ *
+ * The operator had those removed on 2026-08-10 ("the row wraps instead") and the
+ * layout skill makes it standing; legacy fits twelve columns on a line by
+ * scrolling, and this fits eleven by making them narrower. The fields shrink;
+ * the row never moves sideways. Nothing overflows either: `Field` sets
+ * `min-w-0` on every cell and these are `minmax(0, 1fr)` tracks, so a long value
+ * clips inside its cell instead of widening the row — and no control in this app
+ * declares a `min-w-*` of its own, checked before the first of these tracks was
+ * added, because one that did would push the row back out.
+ *
+ * A clipped value stays readable: every picker trigger carries `text-ellipsis`
+ * plus the hover / press-and-hold bubble (AGENTS.md, "Truncated values"). An
+ * ellipsis with no way to read past it would not be acceptable at any width.
+ */
+export const FIELD_TRACK_32 =
+  "grid items-end gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5 @lg/section:grid-cols-32";
 
 /**
  * A `FieldSize`'s span on the track above. Exported for the same reason
@@ -183,12 +246,102 @@ export const FIELD_SPAN: Record<FieldSize, string> = {
   full: "@lg/section:col-span-12", // stands alone on its row — grids, textareas
 };
 
+/**
+ * A `FieldWidth`'s class. The vocabulary and its reasoning live in
+ * `lib/ui/sizes.ts`; this is the rendering half, split exactly as
+ * `FieldSize`/`FIELD_SPAN` are and for the same reason.
+ *
+ * STATIC LITERALS, never `w-[${n}]`. Tailwind v4 scans source text, so an
+ * interpolated width compiles to no CSS at all — the identical warning
+ * `FIELD_TRACK` and `FIELD_TRACK_14` both carry.
+ *
+ * These are NOT container queries. A span has to be one, because it means "a
+ * share of this section" and the section's width varies; a width means the same
+ * 72px in a 1180px sheet, a 1440px pane and a 440px picker dialog. That
+ * invariance IS the point — it is what a fraction could never give.
+ */
+export const FIELD_WIDTH: Record<FieldWidth, string> = {
+  num: "w-[4.5rem]", // 72px
+  range: "w-28", //     112px
+  code: "w-36", //      144px — the width `across="compact"` already settled on
+  term: "w-44", //      176px
+  name: "w-72", //      288px
+};
+
+/**
+ * A row of fields laid out by their WIDTHS instead of by twelfths.
+ *
+ * `FieldGrid` divides the row into 12 equal columns, so shrinking the control
+ * inside a cell leaves the CELL at its old width and the value floating in dead
+ * space — the "surplus reads as a HOLE rather than as room" failure
+ * `amendment-screen.tsx` already recorded when it tried a wider track. Nothing
+ * short of leaving the fractional track can make a row genuinely compact.
+ *
+ * So this is `flex-wrap`, left-aligned: each field takes the width its data
+ * needs, the row ends where its content ends, and a row too long for the pane
+ * wraps rather than scrolling sideways (the operator's rule 4). It is the same
+ * shape `ChildGrid`'s `across="compact"` uses — `repeat(auto-fill, 9rem)`,
+ * client-approved 2026-08-18, screenshot 2335 — generalised so the next screen
+ * does not invent a fifth constant.
+ *
+ * **The sums-to-12 rule does not apply here and is not being broken.** "A row is
+ * settled when it sums to 12" (LAYOUT.md §3, 2026-08-17) is a statement about a
+ * FRACTIONAL track, where leftover columns read as page padding because every
+ * field visibly shares one ruler. A content-width row has no twelfths to leave
+ * over: it simply ends. Do not "settle" one by stretching a field.
+ *
+ * Use `FieldGrid` for a row of text fields — that is still the house layout and
+ * the one-width rule still governs it. Use this where the row is mostly values
+ * with known maxima and the fractional track has nothing narrow enough to offer.
+ */
+/**
+ * A ROW OF FIELDS ALIGNS ON ITS CONTROLS, NOT ON ITS LABELS
+ * (`items-end`, client 2026-08-19, screenshot 2374).
+ *
+ * `items-start` looks equivalent right up to the first label that does not fit
+ * its box. `FieldRow` sizes each field by `w`, so a `w="num"` cell is 72px wide
+ * and its LABEL is stuck with the same 72px: "NoOf Cartons" has a space, wraps
+ * to two lines, and pushes its input a line lower than the nine boxes beside it.
+ * On the Assortments grid that was one box sitting visibly below the row.
+ *
+ * Bottom-aligning moves the slack to where nobody reads for alignment. A
+ * two-line label now starts higher and every control still sits on one line —
+ * which is what an operator means by "aligned", because the boxes are what the
+ * eye tracks along a row.
+ *
+ * The trade is real and narrow: a field carrying a `hint` bottom-aligns on the
+ * HINT, so its control would ride high. No `FieldRow` in the app uses one, and a
+ * row of width-sized controls is the wrong place for helper text anyway — but if
+ * one ever needs it, that is the case to handle rather than a reason to go back
+ * to top alignment, which misaligns on the far more common long label.
+ */
+export const FIELD_ROW =
+  "flex flex-wrap items-end gap-x-3 gap-y-2 @2xl/editor:gap-y-1.5";
+
+export function FieldRow({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  // Two elements, not one, for the reason `FieldGrid` documents below: a size
+  // container query does not apply to its own container, so any `@lg/section:`
+  // class on this div would resolve against an ANCESTOR named `section`.
+  return (
+    <div className={cn("@container/section", className)}>
+      <div className={FIELD_ROW}>{children}</div>
+    </div>
+  );
+}
+
 /** See `FIELD_SPAN` above — this is the name the rest of this file uses. */
 const SPAN = FIELD_SPAN;
 
 export function Field({
   label,
   size = "md",
+  w,
   required,
   hint,
   htmlFor,
@@ -206,6 +359,15 @@ export function Field({
    */
   label?: ReactNode;
   size?: FieldSize;
+  /**
+   * A fixed WIDTH instead of a share of the track — for a value with a known
+   * maximum (a GSM, a count, a size label). Wins over `size` when both are set.
+   *
+   * Only meaningful inside a `FieldRow`: in a `FieldGrid` the surrounding CELL
+   * still takes its column, so the control would shrink and leave a hole beside
+   * it. Vocabulary and reasoning: `lib/ui/sizes.ts`.
+   */
+  w?: FieldWidth;
   required?: boolean;
   /** Small helper text under the control. */
   hint?: ReactNode;
@@ -249,7 +411,23 @@ export function Field({
       : children;
 
   return (
-    <div className={cn(SPAN[size], "min-w-0", className)}>
+    /**
+     * `w` WINS OVER `size`, which is what this prop has always claimed and had
+     * never done (found 2026-08-19).
+     *
+     * `FieldWidth` and `FIELD_WIDTH` were added on 2026-08-18 for the client's
+     * "quantity fields usually only require three or four digits", the prop was
+     * threaded through this signature and documented as winning over `size` —
+     * and the render never read it. Six call sites on the Combos ▸ Structure
+     * Details row passed `w="num"` / `w="name"` and got `SPAN["md"]`, the
+     * DEFAULT size, because `size` was left unset beside them. So the narrowing
+     * that request asked for shipped as a no-op, and it looked deliberate: the
+     * vocabulary existed, the call sites used it, the audit had nothing to say.
+     *
+     * A dead prop is worse than a missing one. A missing prop makes a call site
+     * fail to compile; this one accepted the instruction and dropped it.
+     */
+    <div className={cn(w ? FIELD_WIDTH[w] : SPAN[size], "min-w-0", className)}>
       {label != null && (
         <Label
           htmlFor={htmlFor}
@@ -302,13 +480,33 @@ export function Field({
 export function FieldGrid({
   children,
   className,
+  cols = 12,
 }: {
   children: ReactNode;
   className?: string;
+  /**
+   * How many columns the track has. `12` is the house default and every existing
+   * caller takes it.
+   *
+   * `14` and `32` are the wider tracks — see `FIELD_TRACK_14` / `FIELD_TRACK_32`
+   * for what earns one. Both exist so a row SPECIFIED BY THE CLIENT can hold
+   * seven or eleven fields without inventing a new `FieldSize`; the track is
+   * what widens, and on 32 the fields then take THREE of the existing sizes so
+   * a Uom code and a Material name are not the same width. `DetailSection`
+   * takes the same numbers for the same reason, so a section and a card body
+   * cannot lay fields out differently.
+   */
+  cols?: 12 | 14 | 32;
 }) {
   return (
     <div className={cn("@container/section", className)}>
-      <div className={FIELD_TRACK}>{children}</div>
+      <div
+        className={
+          cols === 32 ? FIELD_TRACK_32 : cols === 14 ? FIELD_TRACK_14 : FIELD_TRACK
+        }
+      >
+        {children}
+      </div>
     </div>
   );
 }

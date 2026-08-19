@@ -566,7 +566,6 @@ export function BomShortageDetail({
                   columns={sizeColumns}
                   rows={it.sizes as SizeRow[]}
                   getKey={(r) => r.id}
-                  empty="No sizes."
                 />
               </div>
             ))}

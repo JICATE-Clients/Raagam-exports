@@ -131,7 +131,7 @@ export function BankLimitsClient({ limits, currencies, canCreate, canDelete }: P
             <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <Label htmlFor="bl-bank">Bank *</Label>
-                <Input id="bl-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} required placeholder="e.g. HDFC Bank" />
+                <Input id="bl-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} required />
               </div>
               <div>
                 <Label htmlFor="bl-type">Facility</Label>

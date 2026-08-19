@@ -9,6 +9,8 @@
  * identical exactly until one of them is improved.
  */
 
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
+
 /** Trim a number to the shortest honest string: 195, not 195.00. */
 function num(n: number): string {
   return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
@@ -187,3 +189,163 @@ export const fabricTypeLabel = (v: string | null | undefined): string =>
   FABRIC_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "";
 export const itemSubTypeLabel = (v: string | null | undefined): string =>
   ITEM_SUB_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? "";
+
+/* ------------------------------------------------------------------------- *
+ * THE COMPOSITION A STRUCTURE IS MADE OF (0434)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * ONE MIXING LINE, as the match reads it. `pct` is nullable because a
+ * single-component fabric stores no share at all (9 of the 14 live FABRIC items
+ * are in exactly that state) — see `blendOf` for what that means.
+ */
+export type MixingShare = { category_id: string | null; pct: number | null };
+
+/** A FABRIC material reduced to what the match needs. */
+export type FabricBlend = {
+  id: string;
+  /** The fabric CATEGORY — what the Structure cell holds. */
+  category_id: string | null;
+  mixing: readonly MixingShare[];
+};
+
+/**
+ * A composition reduced to the same shape. `Deactivatable` rather than a bare
+ * `inactive`, so a feeder only has to SELECT its own column and the rule reads
+ * it through `isInactive()` — the schema spells the flag three ways and this is
+ * the one place both callers would otherwise each get it wrong.
+ */
+export type CompositionBlend = Deactivatable & {
+  id: string;
+  lines: readonly { category_id: string | null; mixing_pct: number }[];
+};
+
+/**
+ * A blend as a CANONICAL MULTISET — yarn category id → summed percentage.
+ *
+ * Summing repeats is the only normalisation there is, and it is exact rather
+ * than approximate: `SOLID FLEECE` names cotton twice (30'S COMBED 55% and 16'S
+ * COMPACT 35%), and as a COMPOSITION that fabric is COTTON 90% / POLYESTER 10%.
+ * A composition speaks in categories; a fabric's mixing speaks in yarn items.
+ * Collapsing to the category is what makes the two comparable at all.
+ *
+ * `null` MEANS "CANNOT BE READ", and it is deliberately not an empty map: two
+ * unreadable blends would then compare equal and match each other.
+ *
+ * The percentage rules, each of which a live row depends on:
+ * - ONE line with no share means 100. A single component IS the whole cloth,
+ *   and this is 9 of the 14 fabrics.
+ * - MORE than one line with ANY share missing is unreadable. `YARN DYED SINGLE
+ *   JERSEY (10'S COMBED COTTON, 10'S GREY MELANGE)` is exactly that row: the
+ *   split is genuinely unknown, and assuming an even one would invent a figure
+ *   the master never stated. Refusing is the same call `getFabricRows` already
+ *   makes when it renders those yarns with no "0%" beside them.
+ * - A line whose yarn carries no category cannot be keyed, so the whole blend
+ *   is unreadable. None today; that is not something to rely on.
+ */
+export function blendOf(mixing: readonly MixingShare[]): Map<string, number> | null {
+  if (!mixing.length) return null;
+  const single = mixing.length === 1;
+  const out = new Map<string, number>();
+  for (const m of mixing) {
+    if (!m.category_id) return null;
+    // `pct` is nullable only for the single-line case above; anywhere else a
+    // missing share makes the whole blend unreadable rather than assumed.
+    const pct = m.pct == null ? (single ? 100 : null) : m.pct;
+    if (pct == null || !Number.isFinite(pct)) return null;
+    out.set(m.category_id, (out.get(m.category_id) ?? 0) + pct);
+  }
+  return out.size ? out : null;
+}
+
+/**
+ * The same canonicalisation from the master's side.
+ *
+ * A line with no `category_id` makes its composition unmatchable — pre-0384
+ * rows are the case, and the live `Test Composition` is one. It returns `null`
+ * rather than throwing, and it must NEVER key such a line on the string
+ * `"null"`: two categoryless lines would then agree with each other and the
+ * rule would confidently match the wrong record.
+ */
+export function blendOfComposition(c: CompositionBlend): Map<string, number> | null {
+  if (!c.lines.length) return null;
+  const out = new Map<string, number>();
+  for (const l of c.lines) {
+    if (!l.category_id) return null;
+    const pct = Number(l.mixing_pct);
+    if (!Number.isFinite(pct)) return null;
+    out.set(l.category_id, (out.get(l.category_id) ?? 0) + pct);
+  }
+  return out.size ? out : null;
+}
+
+/** Both columns are `numeric(6,2)`, so this is lossless on both sides. */
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * STRICT multiset equality — same categories, same shares to 2dp.
+ *
+ * There is no tolerance band and there should not be one. The two columns
+ * (`material_mixings.blend_pct`, `composition_lines.mixing_pct`) are the same
+ * numeric type at the same precision, so there is no float drift for a band to
+ * absorb — it would buy nothing and cost correctness: COTTON 95 / ELASTANE 5
+ * and COTTON 90 / ELASTANE 10 are different cloth, a different price and a
+ * different customer approval.
+ */
+function sameBlend(a: Map<string, number>, b: Map<string, number>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [cat, pct] of a) {
+    const other = b.get(cat);
+    if (other === undefined || round2(other) !== round2(pct)) return false;
+  }
+  return true;
+}
+
+/**
+ * THE RULE: which composition a structure is made of, or `null`.
+ *
+ * Structure (a fabric CATEGORY) → its sole fabric → that fabric's blend → the
+ * composition stating the same blend. This is what keeps 0430's "fetch it from
+ * the previous tab automatically" true while the cell reads the master again;
+ * `pickComboStructure` and `order-seed.ts` both call it, so the screen and the
+ * server cannot answer differently.
+ *
+ * IT ABSTAINS AT EVERY AMBIGUITY, and `null` always means "leave the cell
+ * alone" — never "clear it". Same shape as `componentTypeForCategory`.
+ *
+ *   no structure                  → null
+ *   category holds != 1 fabric    → null  (SINGLE JERSEY holds eight; the same
+ *                                          unambiguous-only rule `soleFabricIn`
+ *                                          already applies to the fabric)
+ *   fabric's blend unreadable     → null  (see `blendOf`)
+ *   composition line categoryless → that composition is SKIPPED, not fatal
+ *   composition switched off      → skipped: never auto-fill a row the picker
+ *                                   is about to hide
+ *   two compositions match        → null: ambiguity is ambiguity
+ *
+ * NEVER MATCH ON THE LABEL. `getFabricRows` names the yarn ITEM (30'S COTTON
+ * COMBED) and a composition names the CATEGORY (COTTON), so the two strings
+ * differ by construction even when the blend is identical — and a string match
+ * would break again the day someone renames a yarn. Ids and numbers only.
+ */
+export function compositionForStructure(
+  structureId: string | null,
+  fabrics: readonly FabricBlend[],
+  compositions: readonly CompositionBlend[],
+): string | null {
+  if (!structureId) return null;
+  const under = fabrics.filter((f) => f.category_id === structureId);
+  if (under.length !== 1) return null;
+  const want = blendOf(under[0].mixing);
+  if (!want) return null;
+
+  let found: string | null = null;
+  for (const c of compositions) {
+    if (isInactive(c)) continue;
+    const have = blendOfComposition(c);
+    if (!have || !sameBlend(want, have)) continue;
+    if (found) return null; // two answers is no answer
+    found = c.id;
+  }
+  return found;
+}

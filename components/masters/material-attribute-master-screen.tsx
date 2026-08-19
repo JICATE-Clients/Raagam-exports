@@ -945,7 +945,6 @@ export function MaterialAttributeMasterScreen({
                 // would read "— Select Category —" where it has always read
                 // "— Select —" (LAYOUT.md §5a, and the label above already says
                 // which). Stated so `title` changes the NAMES and not the text.
-                placeholder="— Select —"
                 categories={availableCategories}
                 value={categoryId}
                 onChange={setCategoryId}
@@ -1225,7 +1224,7 @@ export function MaterialAttributeMasterScreen({
                     // Both kinds now, because both are editable. A stepped list
                     // used to be read-only text with nothing to focus, so it
                     // needed no grid nav; its rows are real inputs now.
-                    onKeyDown={(e) => gridKeyNav(e, () => addOption(l.key))}
+                    onKeyDown={(e) => gridKeyNav(e)}
                   >
                     {stepped && l.options.length === 0 && (
                       <p className="text-xs text-muted-foreground">
@@ -1264,7 +1263,6 @@ export function MaterialAttributeMasterScreen({
                                   value={o.description}
                                   uppercase
                                   onChange={(e) => setOptionAt(l.key, o.key, { description: e.target.value })}
-                                  placeholder="Type a value…"
                                   aria-invalid={dup ? true : undefined}
                                   className={cn(dup && "border-danger")}
                                 />

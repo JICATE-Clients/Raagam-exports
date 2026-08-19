@@ -166,7 +166,7 @@ export function ProcessHsnAssignScreen({
         className="h-8 w-52 text-base md:text-sm"
         aria-label={`HSN for ${r.name}`}
       >
-        <option value="">Not set</option>
+        <option value=""></option>
         {offList && <option value={val}>{val} (legacy)</option>}
         {/* A retired HSN is not offered, but the one THIS process already carries
             stays — otherwise it would fall through to the "(legacy)" branch above
@@ -213,7 +213,7 @@ export function ProcessHsnAssignScreen({
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Set HSN</span>
             <Select value={bulkHsn} onChange={(e) => setBulkHsn(e.target.value)} aria-label="Bulk HSN" className="h-8 w-52 text-sm">
-              <option value="">Not set</option>
+              <option value=""></option>
               {hsnOptions.map((o) => (
                 <option key={o.id} value={o.code ?? ""}>
                   {hsnLabel(o)}

@@ -94,7 +94,14 @@ export async function updateComposition(id: string, data: CompositionInput): Pro
 export async function deleteComposition(id: string): Promise<DeleteResult> {
   if (!(await can("masters", "delete"))) return fail("Forbidden");
   const s = await createClient();
-  const res = await deleteOrDeactivate(s, "compositions", id, "blocked"); // lines cascade
+  // `inactive`, not `blocked` — 0299 renamed the column and this call site was
+  // missed. PostgREST answers an UPDATE over a missing column with an ERROR,
+  // not a no-op, so the soft-disable path failed outright for every composition
+  // something else referenced. `lib/data-io/entities.ts` already spells it
+  // `activeColumn: "inactive"` for this same table; the two write paths
+  // disagreed. Four sibling masters (bins, divisions, our_banks, processes) are
+  // still in this state; garment_styles genuinely IS `blocked`.
+  const res = await deleteOrDeactivate(s, "compositions", id, "inactive"); // lines cascade
   if (!res.ok) return fail(res.error);
   rev();
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };

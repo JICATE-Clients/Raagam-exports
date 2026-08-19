@@ -98,7 +98,6 @@ export async function ApprovalsSection({ caps }: { caps: DashboardCaps }) {
         columns={columns}
         rows={rows}
         getKey={(r) => r.key}
-        empty="Nothing is waiting for approval."
       />
     </Card>
   );

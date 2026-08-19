@@ -172,7 +172,6 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
               <Label htmlFor="purpose">Purpose *</Label>
               <Input
                 id="purpose"
-                placeholder="e.g. Button Coloring, Embroidery"
                 value={purpose}
                 onChange={(e) => setPurpose(e.target.value)}
               />
@@ -195,7 +194,7 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
       <Card>
         <CardHeader>
           <CardTitle>Line Items</CardTitle>
-          <Button size="sm" variant="outline" onClick={addLine}>
+          <Button size="sm" variant="outline" data-row-add onClick={addLine}>
             Add Line
           </Button>
         </CardHeader>
@@ -221,7 +220,7 @@ export function DcNewForm({ vendors, locations, items, uoms }: Props) {
               </thead>
               {/* Row markers give ↓/↑ Excel-style column-wise movement across
                   lines — see gridKeyNav in components/masters/child-grid.tsx. */}
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
                 {lines.map((l) => (
                   <tr
                     key={l.tempId}

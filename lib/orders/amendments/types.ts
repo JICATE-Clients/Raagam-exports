@@ -382,14 +382,17 @@ export interface AmendmentComboStructure {
   /** "Type" — 'main' | 'trims_fabric'. NOT the Style master's comp_type. */
   fabric_type: string | null;
   /**
-   * "Composition" — THE FABRIC MATERIAL that declares it (0430).
+   * "Composition" — a row of the COMPOSITION MASTER (0434).
    *
-   * `items` of class FABRIC, not the `compositions` master this pointed at from
-   * 0408 to 2026-08-17. The screen shows the fabric's `material_mixings` blend,
-   * so the composition is DERIVED from the row rather than answered twice —
-   * which is what let it be fetched from the Structure at all.
+   * It pointed at `compositions` from 0408, at `items` of class FABRIC from
+   * 0430, and at the master again from 2026-08-19. The swap back is not a
+   * revert: 0430 moved off the master because a composition could only be
+   * TYPED, and it can now be FETCHED — `compositionForStructure()` reduces the
+   * structure's sole fabric to yarn categories and finds the master row stating
+   * that blend. The fetch 0430 was asked for survives; the value is a master
+   * record again.
    */
-  fabric_item_id: string | null;
+  composition_id: string | null;
   gsm: number | null;
   gsm_tolerance: number | null;
   /** "Fabric Type" — 'solid' | 'melange' | 'yarn_dyed'. */
@@ -460,7 +463,23 @@ export interface AmendmentApprovalQty {
   /** The colour this line is for (0413). By VALUE from the Combos tab. */
   combo: string | null;
   combo_description: string | null;
-  /** Ordered pieces of this combo. Typed — nothing derives it (0413). */
+  /**
+   * The SIZE this line is for (0435) — a `config_lookups` size, the same
+   * vocabulary the assortment tree uses. NULL on a row seeded from a legacy
+   * order, which has no size axis (`order_pack_ratios` is per style).
+   *
+   * Approval Qty is typed at THIS level and nowhere else (client 2026-08-19).
+   * The combo line the operator sees above it is the sum of its sizes, so two
+   * places to enter one number never exist.
+   */
+  size_id: string | null;
+  /**
+   * Ordered pieces of this style + combo + size.
+   *
+   * DERIVED SINCE 0435 and stored as a snapshot — it used to be typed. It comes
+   * from the Quantities tab's assortment tree, which already states the pieces
+   * of every (style, combo, size); nothing on this tab types it any more.
+   */
   qty: number;
   approval_qty: number;
 }
@@ -537,9 +556,24 @@ export interface AmendmentAssortLine {
   id: string;
   quantity_id: string;
   sno: number;
+  /**
+   * WHICH STYLE THIS LINE PACKS, BY VALUE (0433) — the Multiple Style half of
+   * the Single / Multiple switch on the quantity row. Same reason `combo` is
+   * text: `writeChildren` reinserts every Styles Details row on each save, so
+   * an FK to one would dangle.
+   *
+   * NULL on a Single Style pack, and that is not "not filled in yet" — it is
+   * the line saying it INHERITS the destination's style. Copying the parent's
+   * ref down would go stale the moment that ref was edited.
+   */
+  style_ref_no: string | null;
   /** The colourway, BY VALUE — a combo row's id is rewritten on every save. */
   combo: string | null;
   no_of_cartons: number;
+  /** Ratio bundles per carton — the third factor of Solid Colour / Assort Size's
+   *  `cartons x inners x ratio` (0432). Ignored by a Solid / Solid line, which
+   *  has no ratio and no knowable carton count. */
+  inners_per_carton: number;
   sizes: AmendmentAssortLineSize[];
 }
 
@@ -770,7 +804,7 @@ export const amendmentComboStructureInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   structure_id: uuidN,
   fabric_type: nullableText,
-  fabric_item_id: uuidN,
+  composition_id: uuidN,
   gsm: z.coerce.number().nullable().default(null),
   gsm_tolerance: z.coerce.number().nullable().default(null),
   item_sub_type: nullableText,
@@ -815,6 +849,10 @@ export const amendmentApprovalQtyInput = z.object({
      changed on one side. */
   combo: nullableText,
   combo_description: nullableText,
+  /* The size axis (0435). Nullable for the same reason `combo` is: a seeded
+     legacy order has neither, and refusing the row would drop a real approval
+     quantity rather than carry it. */
+  size_id: uuidN,
   qty: num,
   approval_qty: num,
 });
@@ -846,10 +884,33 @@ export const amendmentAssortLineSizeInput = z.object({
 /** Quantities ▸ Assort ▸ one line of the Assortments grid (0414). */
 export const amendmentAssortLineInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
+  /**
+   * Which style this line packs (0433) — NOT capsed, the same call
+   * `amendmentStyleSizeInput` above makes and for the same reason: this is a
+   * REFERENCE to a ref typed on the Styles Details grid, and the CAPITALS rule
+   * reaches a value where it is typed, not where it is named again. All eight
+   * other `style_ref_no` inputs in this file are `nullableText`; capsing the
+   * ninth would be the odd one out, and the join does not need it — `styleKey()`
+   * normalises both sides precisely because rows predating the rule are mixed
+   * case.
+   */
+  style_ref_no: nullableText,
   // CAPS: a colourway name is a field VALUE stored in capitals, and it must
   // match `amendmentComboInput.combo`, which it references by value.
   combo: capsTextNullable(),
   no_of_cartons: num,
+  /**
+   * DEFAULTS TO 1, NOT 0 (0432) — the one number here that is a MULTIPLIER
+   * rather than a term. `num` would default it to zero and zero the line's
+   * whole quantity, so a document saved by an importer that never heard of
+   * inners would read as an order for nothing. One inner per carton is the
+   * plain `cartons x ratio` reading every row written before 0432 has.
+   *
+   * `.catch(1)` covers the other half `.default()` cannot: a default only fires
+   * on `undefined`, while `z.coerce.number()` turns "" into 0 — and an empty box
+   * on screen is the likeliest way this arrives.
+   */
+  inners_per_carton: z.coerce.number().positive().default(1).catch(1),
   sizes: z.array(amendmentAssortLineSizeInput).default([]),
 });
 

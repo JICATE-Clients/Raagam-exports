@@ -186,7 +186,7 @@ export default function AttendanceClient({
                   See gridKeyNav in components/masters/child-grid.tsx — the same
                   markers ChildGrid emits, so a hand-rolled table gets identical
                   behaviour without adopting the component. */}
-              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => {})}>
+              <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
                 {workers.map((w) => {
                   const r = rows[w.id];
                   const otCapped = r.ot_hours > maxOtPerDay;

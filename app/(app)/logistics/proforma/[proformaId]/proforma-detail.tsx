@@ -257,7 +257,6 @@ export function ProformaDetail({ proforma, lines, canEdit, canDelete }: Props) {
                   id="pl-desc"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g. Men's knitted polo"
                   required
                 />
               </div>

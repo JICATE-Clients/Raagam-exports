@@ -136,7 +136,6 @@ function LineForm({
         <div className="sm:col-span-2">
           <Label>Description *</Label>
           <Input
-            placeholder="e.g. 30/1 Compact yarn"
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
@@ -370,7 +369,7 @@ function CommercialTab({
           <>
             <div>
               <Label>Foreign Currency</Label>
-              <Input uppercase value={fields.foreign_currency_code} onChange={(e) => set("foreign_currency_code", e.target.value)} disabled={!canEdit} placeholder="e.g. USD" />
+              <Input uppercase value={fields.foreign_currency_code} onChange={(e) => set("foreign_currency_code", e.target.value)} disabled={!canEdit} />
             </div>
             <div>
               <Label>Exchange Rate</Label>

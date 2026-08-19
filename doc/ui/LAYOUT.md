@@ -280,10 +280,22 @@ Three things this does NOT touch, and the boundary matters:
 - **A label a control does not otherwise have.** A few dense inline grid rows use the empty option
   as the only label (`UOM`, `Item` in `dc-new-form` / `new-process-order-form`). Blanking those
   leaves an unlabelled box. `— Material —` and `— Account —` were de-dashed, not blanked.
-- **An explicit `placeholder`,** which still wins, and is where a MEANINGFUL empty state lives:
+- **An explicit `placeholder` that names a STATE OF THE RECORD** — not a hint about the field.
   Order Entry's Rejection Rule reads "No projection", because blank there is a state of the order
   and not an unanswered field. The same shape kept "Pick a Style first" on the Combo picker while
   blanking its other branch.
+
+  **THIS CLAUSE WAS NARROWED ON 2026-08-19, AND THE NARROWING IS THE POINT.** It used to read
+  "an explicit `placeholder` still wins" — a general escape hatch, which is how 352 of them
+  survived a sweep whose whole subject was that an empty control says nothing. `placeholder`
+  is not an exemption; **the two states above are the exemption**, and they are exhaustive
+  until the client names a third. Everything else goes, including the ones that read as
+  helpful: `"Why is this order being amended?"` restates a label, `"1"` shows a value the
+  operator may mistake for a default, `"(auto)"` describes a field that is already `readOnly`
+  and therefore already unreachable.
+
+  A survivor carries a `// placeholder-blank: exempt -- <reason>` comment naming which state
+  it reports. Checked by `python scripts/audit_layout.py . --check placeholder-blank`.
 
 The picker's noun is not lost either — it still names the panel, the search box
 ("Search customers…"), the add button and every toast, all places where nothing else says it.
@@ -513,8 +525,15 @@ Pick by **fields per row**, not by row count — a row runs out of width past ~5
 | **1** | records flow **across** the row and wrap | `across` |
 | ≤ 3 | dynamic add/remove rows | `inlineCards` |
 | 2 – 5 | inline editable table | default |
-| 6 – 8 | collapsible / stacked card per row | `forceCards` |
+| 6 – 8 | stacked rows, **one frame, hairline dividers** | `forceCards flatRows` |
 | > 8 | stop inlining — open a row editor | — |
+
+**`forceCards` NEVER TRAVELS ALONE (client 2026-08-19).** It stacks the row, which is
+right, *and* draws a bordered box around each one, which the client rejected: a section
+holding six lines drew seven frames. `flatRows` keeps the stack and the per-row band —
+the row's identity and the ✕ that Ctrl+Del drives — and drops only the box and its 10px
+of padding, so a hairline says where a row ends. See the `raagam-screen-layout` skill,
+"The operator's five" rule 4, for why `listRows` is not the answer here.
 
 **A ONE-CONTROL RECORD GOES ACROSS, NOT DOWN.** A size, a coordinate — the other three
 layouts are all one-record-per-line by construction, and for a list of two-character values
@@ -585,6 +604,42 @@ exists — if a comment cites it, that comment predates the pager.
 
 Still legitimately capped, because none of them is a form: dropdown and picker panels, the
 notifications popover, and overlays sized against the **viewport** (`max-h-[80vh]`).
+
+### A grid says its name once, and says nothing when it is empty (client 2026-08-19)
+
+Two bands the operator asked to have back, and they are the same mistake at two moments.
+
+**The caption repeats the section.** `ChildGrid`'s `label` draws a band above the columns —
+and the grid is already inside a `DetailSection` or a `FullScreenSection` whose title names
+it, with the rail saying it a third time. 42 grids across 33 files pass one. **Omit `label`
+whenever the surrounding section names the grid**, which is nearly always; the band
+disappears with it, and `addLabel` is independent so the "+ Add row" button survives.
+
+This was already the prop's documented advice ("OPTIONAL — omit it when the surrounding
+`DetailSection` already names the grid") and 42 call sites did it anyway, which is the usual
+lesson: **advice in a prop comment is not a rule**, because nobody reads a comment on a prop
+they are not passing. The section below makes it checkable.
+
+Two captions genuinely earn their band: a `flushRows` grid, where `label` renders *inside*
+the single band it is allowed and is the only thing naming the control while it is empty;
+and a grid that does NOT sit in a section of its own (two grids side by side in one section
+need to say which is which).
+
+**The empty state explains what the operator can see.** "No sizes in the Sizes master yet",
+"Nothing to choose from" — a sentence of prose where a grid has no rows. It is the same
+finding as §3's "an unfilled field shows NOTHING" one level up: emptiness is legible, and
+announcing it costs a band and a line to scan past. It is also usually *false comfort* — the
+grid seeds one blank row (rule 4b), so a genuinely empty grid is a rarer state than the
+sentence implies.
+
+So: no prose empty state on a grid. **The one exception is an empty state that reports a
+CAUSE the operator can act on** and could not otherwise deduce — "No sizes in the Sizes
+master yet" points at a different screen, and stays. "Nothing to choose from" points at
+nothing and goes. The test is the same one §3 applies to a placeholder: does it name a state
+of the data, or describe the box it is sitting in?
+
+Checked by `python scripts/audit_layout.py . --check grid-caption`. Opt out per line with a
+`// grid-caption: exempt -- <reason>` comment.
 
 ---
 

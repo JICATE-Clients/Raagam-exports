@@ -191,7 +191,6 @@ export function RfqDetail({
               columns={lineColumns}
               rows={rfq.lines}
               getKey={(r) => r.id}
-              empty="No lines."
             />
           )}
         </CardBody>
@@ -280,7 +279,6 @@ export function RfqDetail({
                   <Input
                     type="number"
                     min="0"
-                    placeholder="e.g. 14"
                     value={quoteForm.lead_days}
                     onChange={(e) =>
                       setQuoteForm({ ...quoteForm, lead_days: e.target.value })

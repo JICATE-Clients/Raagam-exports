@@ -179,7 +179,6 @@ export function NewShipmentForm({ buyers, currencies, orders }: Props) {
                 <Label htmlFor="ns-dest-port">Destination port</Label>
                 <Input
                   id="ns-dest-port"
-                  placeholder="e.g. Hamburg"
                   value={destinationPort}
                   onChange={(e) => setDestinationPort(e.target.value)}
                 />
@@ -189,7 +188,6 @@ export function NewShipmentForm({ buyers, currencies, orders }: Props) {
                 <Label htmlFor="ns-dest-country">Destination country</Label>
                 <Input
                   id="ns-dest-country"
-                  placeholder="e.g. Germany"
                   value={destinationCountry}
                   onChange={(e) => setDestinationCountry(e.target.value)}
                 />
@@ -202,7 +200,6 @@ export function NewShipmentForm({ buyers, currencies, orders }: Props) {
                 <Label htmlFor="ns-vessel">Vessel</Label>
                 <Input
                   id="ns-vessel"
-                  placeholder="Vessel name"
                   value={vessel}
                   onChange={(e) => setVessel(e.target.value)}
                 />
@@ -212,7 +209,6 @@ export function NewShipmentForm({ buyers, currencies, orders }: Props) {
                 <Label htmlFor="ns-voyage">Voyage no.</Label>
                 <Input
                   id="ns-voyage"
-                  placeholder="e.g. 001W"
                   value={voyageNo}
                   onChange={(e) => setVoyageNo(e.target.value)}
                 />

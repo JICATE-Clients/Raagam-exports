@@ -114,7 +114,7 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
 
   const submitted = rows.filter((r) => r.status === "submitted");
   const Table = ({ data }: { data: RateAmendmentWithRefs[] }) => (
-    <DataTable columns={withCreatedColumns(columns, data)} rows={data} getKey={(r) => r.id} empty="Nothing here." />
+    <DataTable columns={withCreatedColumns(columns, data)} rows={data} getKey={(r) => r.id} />
   );
 
   return (

@@ -344,7 +344,6 @@ export function NewPoForm({
               <Label htmlFor="po-payment-terms">Payment Terms</Label>
               <Input
                 id="po-payment-terms"
-                placeholder="e.g. 30 days net"
                 value={paymentTerms}
                 onChange={(e) => setPaymentTerms(e.target.value)}
               />
@@ -399,7 +398,7 @@ export function NewPoForm({
                   });
                 }}
               >
-                <option value="">General stock</option>
+                <option value=""></option>
                 {orders.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.order_number ?? "(no SC No)"}
@@ -437,7 +436,7 @@ export function NewPoForm({
             {/* ↓/↑ walk a column across PO lines — gridKeyNav, see
                 components/masters/child-grid.tsx. Highest-traffic data-entry
                 screen in the app. */}
-            <div className="space-y-2" data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
+            <div className="space-y-2" data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
               {lines.map((line, idx) => {
                 const verdict = ceiling
                   ? judgeLine(ceiling, {
@@ -539,6 +538,7 @@ export function NewPoForm({
               variant="ghost"
               size="sm"
               className="mt-2"
+              data-row-add
               onClick={addLine}
             >
               + Add line

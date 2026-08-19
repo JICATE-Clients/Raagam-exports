@@ -132,7 +132,6 @@ function LineDashboardTab({
         columns={columns}
         rows={rows}
         getKey={(r, i) => `${r.line_id ?? "none"}-${r.stage}-${i}`}
-        empty="No output recorded for today."
       />
     </div>
   );
@@ -437,7 +436,7 @@ function RecordOutputTab({
                   required
                 >
                   {ordersForPicker.length === 0 && (
-                    <option value="">No active orders</option>
+                    <option value=""></option>
                   )}
                   {ordersForPicker.map((o) => (
                     <option key={o.id} value={o.id}>
@@ -495,7 +494,6 @@ function RecordOutputTab({
                 <Label htmlFor="pe-color">Colour</Label>
                 <Input
                   id="pe-color"
-                  placeholder="e.g. Navy"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
                 />
@@ -505,7 +503,6 @@ function RecordOutputTab({
                 <Label htmlFor="pe-size">Size</Label>
                 <Input
                   id="pe-size"
-                  placeholder="e.g. M"
                   value={size}
                   onChange={(e) => setSize(e.target.value)}
                 />

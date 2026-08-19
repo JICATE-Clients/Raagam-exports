@@ -595,6 +595,7 @@ export function ProcessMasterScreen({
               label="Sub Categories"
               pageSize={10}
               forceCards
+              flatRows
               rows={subs}
               onAdd={addSub}
               onRemove={(s) => removeSub(s.key)}
@@ -613,19 +614,19 @@ export function ProcessMasterScreen({
                 {
                   header: "Sub Category",
                   cell: (s) => (
-                    <Input uppercase value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} placeholder="Sub Category" className="text-base md:text-sm" />
+                    <Input uppercase value={s.sub_category} onChange={(e) => setSubAt(s.key, { sub_category: e.target.value })} className="text-base md:text-sm" />
                   ),
                 },
                 {
                   header: "Short Description",
                   cell: (s) => (
-                    <Input uppercase value={s.short_description} onChange={(e) => setSubAt(s.key, { short_description: e.target.value })} placeholder="Short Description" className="text-base md:text-sm" />
+                    <Input uppercase value={s.short_description} onChange={(e) => setSubAt(s.key, { short_description: e.target.value })} className="text-base md:text-sm" />
                   ),
                 },
                 {
                   header: "HSN Code",
                   cell: (s) => (
-                    <Input uppercase value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} placeholder="HSN Code" className="text-base md:text-sm" />
+                    <Input uppercase value={s.hsn_code} onChange={(e) => setSubAt(s.key, { hsn_code: e.target.value })} className="text-base md:text-sm" />
                   ),
                 },
               ]}

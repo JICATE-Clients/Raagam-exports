@@ -327,22 +327,22 @@ export function StyleProcessSheet({
       <div className="mb-4 rounded-md border bg-muted/30 p-3">
         <FieldGrid>
           <Field label="Style Ref No" size="md">
-            <Input readOnly value={header.styleRefNo} placeholder="—" className="h-8" />
+            <Input readOnly value={header.styleRefNo} className="h-8" />
           </Field>
           <Field label="Article No" size="md">
-            <Input readOnly value={header.articleNo} placeholder="—" className="h-8" />
+            <Input readOnly value={header.articleNo} className="h-8" />
           </Field>
           <Field label="Style No" size="md">
-            <Input readOnly value={header.styleNo} placeholder="—" className="h-8" />
+            <Input readOnly value={header.styleNo} className="h-8" />
           </Field>
           <Field label="Style Description" size="md">
-            <Input readOnly value={header.styleDescription} placeholder="—" className="h-8" />
+            <Input readOnly value={header.styleDescription} className="h-8" />
           </Field>
           <Field label="Order Unit" size="md">
-            <Input readOnly value={header.orderUnit} placeholder="—" className="h-8" />
+            <Input readOnly value={header.orderUnit} className="h-8" />
           </Field>
           <Field label="PO Qty" size="md">
-            <Input readOnly value={header.poQty} placeholder="—" className="h-8 text-right" />
+            <Input readOnly value={header.poQty} className="h-8 text-right" />
           </Field>
         </FieldGrid>
       </div>

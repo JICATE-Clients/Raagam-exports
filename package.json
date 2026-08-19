@@ -19,7 +19,10 @@
     "check:budget-totals": "npx --yes tsx scripts/check-budget-totals.mts",
     "check:style-rules": "node --experimental-strip-types scripts/check-style-rules.mts",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
+    "check:approval-tree": "npx --yes tsx scripts/check-approval-tree.mts",
+    "check:composition-match": "npx --yes tsx scripts/check-composition-match.mts",
     "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",
+    "sweep:placeholders": "python scripts/sweep_placeholders.py .",
     "lint": "eslint"
   },
   "dependencies": {

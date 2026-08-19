@@ -343,7 +343,8 @@ export function PrepareCostSheetClient({
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Line Items
                   </span>
-                  <Button type="button" variant="subtle" size="sm" onClick={addItem}>
+                  <Button type="button" variant="subtle" size="sm" data-row-add
+              onClick={addItem}>
                     + Add line
                   </Button>
                 </div>
@@ -361,7 +362,7 @@ export function PrepareCostSheetClient({
                     </thead>
                     {/* ↓/↑ walk a column across cost lines — gridKeyNav, see
                         components/masters/child-grid.tsx. */}
-                    <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addItem)}>
+                    <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
                       {lineItems.map((item, i) => {
                         const amount =
                           (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_cost) || 0);
@@ -377,7 +378,7 @@ export function PrepareCostSheetClient({
                               </Select>
                             </td>
                             <td className="px-2 py-1.5">
-                              <Input value={item.description} onChange={(e) => updateItem(i, "description", e.target.value)} placeholder="e.g. Main fabric" className="h-8 text-xs" />
+                              <Input value={item.description} onChange={(e) => updateItem(i, "description", e.target.value)} className="h-8 text-xs" />
                             </td>
                             <td className="px-2 py-1.5">
                               <Input type="number" min="0" step="0.001" value={item.quantity} onChange={(e) => updateItem(i, "quantity", e.target.value)} className="h-8 text-right text-xs" />
