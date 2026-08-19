@@ -978,6 +978,27 @@ export function AmendmentScreen({
     Object.entries(r).some(
       ([k, v]) => k !== "key" && k !== "section" && v !== "" && v != null,
     );
+  /**
+   * HAS THE OPERATOR ACTUALLY TOUCHED THIS ORDER? — the other half of `dirty`,
+   * and the reason three of 2026-08-19's bug reports were about code that was
+   * already correct and already deployed.
+   *
+   * `dirty` feeds `useUnsavedGuard`, which holds off the silent PWA auto-reload
+   * so a deploy cannot destroy half-typed work. It was `tabsHaveRows` alone —
+   * true whenever ANY of nine collections holds a filled row, i.e. true the
+   * instant a real order LOADS. So on this screen the guard never lifted, the
+   * new build never reached the tab, and the client kept testing yesterday's
+   * bundle while reporting fixes as broken. The comment below already worried
+   * about pinning the guard on permanently and picked the signal that does it.
+   *
+   * `touched` is set from a capture listener on the editor root, so it needs no
+   * plumbing through the ~40 setters and cannot drift from them. It errs
+   * DELIBERATELY toward protection: a click anywhere in the editor counts, not
+   * just a keystroke, because a picker commits on click and a row is removed by
+   * one. Over-protecting costs a stale tab until reload; under-protecting costs
+   * the operator's typing, and those are not symmetrical.
+   */
+  const [touched, setTouched] = useState(false);
   const tabsHaveRows = [
     styles,
     dyeings,
@@ -3796,7 +3817,11 @@ export function AmendmentScreen({
    *  list now, rendered only under a mode that prices by colour, so the cell no
    *  longer has to be drawn disabled to hold a column open in a shared header. */
   const priceColourCell = (r: PriceDetailRow) => (
+    /* Same as the size cell below, and for the same reason — in Colour-wise mode
+       the colour is the identity and the price is the value. Marking one and not
+       the other would move the complaint rather than answer it. */
     <Select
+      data-focus-optional
       value={r.combo}
       onChange={(e) =>
         setPriceDetails((xs) =>
@@ -3819,7 +3844,26 @@ export function AmendmentScreen({
    *  master: a rate for a size this style is not made in prices nothing, and
    *  could never be matched to a quantity. */
   const priceSizeCell = (r: PriceDetailRow) => (
+      /**
+       * OFF THE TYPING PATH, STILL REACHABLE (client 2026-08-19: "every time the
+       * focus is moving to the fetched size field also, but we won't change the
+       * size field — we are going to enter price only; tab and enter should move
+       * only to the VALUE fields, not the variable fields").
+       *
+       * This column is the row's IDENTITY, not its data: the sizes are fetched
+       * from the style and the colours from the order, and the operator is here
+       * to type prices against them. Tab stopping on each one doubles the
+       * keystrokes for a seven-size style and stops on a value nobody is editing.
+       *
+       * `data-focus-optional` is exactly this case and is already in the
+       * contract: Tab and Enter step OVER it while ↑↓←→ and the mouse still land
+       * on it, so a size that genuinely needs changing is one arrow key away.
+       * That is why this is not `readOnly` or `tabIndex={-1}` — those would take
+       * the field off every key and out of the document's focus order, and the
+       * cell is legitimately editable, just not on the default path.
+       */
     <Select
+      data-focus-optional
       value={r.size_id ?? ""}
       onChange={(e) =>
         setPriceDetails((xs) =>
@@ -8775,7 +8819,14 @@ export function AmendmentScreen({
     // app/(app)/layout.tsx, which is a flex item of a `h-screen` column. Leave
     // this as `space-y-4` and the editor sizes to its content instead, stranding
     // the footer above a strip of empty page.
-    <div className="flex h-full flex-col gap-4">
+    <div
+      className="flex h-full flex-col gap-4"
+      /* ONE LISTENER RATHER THAN ~40 SETTERS — see `touched`. Capture phase so a
+         control that stops propagation (the pickers do) still counts, and
+         `onInput` as well as `onClick` so typing registers without a click. */
+      onInputCapture={() => setTouched(true)}
+      onClickCapture={() => setTouched(true)}
+    >
       <PageHeader
         title={
           amending
@@ -8872,10 +8923,13 @@ export function AmendmentScreen({
         // record, and a second identity band would announce it twice.
         onClose={() => setMode("list")}
         modeLabel={null}
-        // The same signal `tabsHaveRows` computes for the discard prompt — real
-        // rows the operator would lose — rather than `mode === "edit"`, which is
-        // always true here and would pin the reload guard on permanently.
-        dirty={tabsHaveRows}
+        /* ROWS *AND* A TOUCH. `tabsHaveRows` alone is true the moment a real
+           order loads, which pinned the guard on for the whole session and kept
+           deploys out of the tab (see `touched`). The discard prompt still asks
+           on rows alone — losing typed work and losing a loaded order are
+           different questions, and only the reload one needs to know whether the
+           operator has actually been editing. */
+        dirty={tabsHaveRows && touched}
         sections={sections}
         /**
          * Same footer contract as the Associates / Materials masters —

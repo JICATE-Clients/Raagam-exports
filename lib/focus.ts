@@ -1128,9 +1128,45 @@ export function landOnAddedRow(trigger: HTMLElement): void {
   if (!scope) return;
   const fieldsNow = () => focusablesIn(scope).filter(isFieldLike);
   const before = new Set(fieldsNow());
-  window.setTimeout(() => {
+  /**
+   * RETRY, AND NEVER STRAND THE CURSOR (client 2026-08-19, screenshot 2387:
+   * "after enter … if I press tab no field is active — I used the mouse to point
+   * the first field, after that tab worked").
+   *
+   * One 30ms shot was a race this grid loses. Adding a structure on the Combos
+   * overlay re-renders a row that carries its own nested components grid, and in
+   * dev that commit can land well past 30ms — so `fresh` came back empty, the
+   * function gave up FOREVER, and the row the operator asked for had nobody
+   * standing in it.
+   *
+   * Worse than doing nothing: the add button is frequently replaced in the same
+   * commit, and removing the focused node drops focus to `<body>` in Chrome
+   * WITHOUT firing blur. So the cursor was nowhere, and the next Tab — starting
+   * from nothing — went to the first field of the surface. That is the same
+   * "Tab jumps back to the first field" this session has already chased twice,
+   * arriving through a third door.
+   *
+   * So: keep looking for a few frames, and if nothing ever appears, put the
+   * cursor back on the trigger when it still exists. A declined add (`addSize`
+   * refusing while the last row is blank) legitimately produces no field, and
+   * leaving focus on the button is right there too — the refusal stays visible
+   * and the operator is still standing on the control they pressed.
+   */
+  const RETRIES = [30, 60, 120, 240];
+  const attempt = (i: number) => {
     const fresh = fieldsNow().filter((el) => !before.has(el));
-    if (!fresh.length) return;
+    if (!fresh.length) {
+      if (i + 1 < RETRIES.length) {
+        window.setTimeout(() => attempt(i + 1), RETRIES[i + 1] - RETRIES[i]);
+        return;
+      }
+      // Nothing appeared at all. Only rescue a cursor that has actually been
+      // lost — if the operator has moved on, leave them alone.
+      if (document.activeElement === document.body && trigger.isConnected) {
+        focusField(trigger);
+      }
+      return;
+    }
     /**
      * THE FIRST NEW FIELD IN DOM ORDER, which is the top-left of whatever just
      * appeared.
@@ -1150,7 +1186,8 @@ export function landOnAddedRow(trigger: HTMLElement): void {
      * wrong field every single time.
      */
     focusField(fresh[0]);
-  }, 30);
+  };
+  window.setTimeout(() => attempt(0), RETRIES[0]);
 }
 
 /**
