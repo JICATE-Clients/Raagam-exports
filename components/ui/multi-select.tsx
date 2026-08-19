@@ -204,6 +204,46 @@ export function MultiSelect({
   }, [open]);
 
   /**
+   * CLOSE WHEN THE CURSOR LEAVES — the keyboard's half of the rule above
+   * (client 2026-08-19: "after choosing size, if I move to the next field the
+   * size dropdown should close automatically").
+   *
+   * Closing on pointerdown-outside covers the MOUSE and nothing else, so an
+   * operator who picked their sizes and pressed Tab left a full-height panel
+   * hanging over the form while the caret blinked in Description behind it.
+   * That is also what the contract already asks of any list: "Tab / Shift+Tab —
+   * in an open list: close without choosing, then move."
+   *
+   * `focusout` ON THE ROOT, not a Tab handler on the trigger, because leaving is
+   * leaving however it happens: Tab and Shift+Tab, an arrow off the edge of the
+   * section, the blocked-Save reveal jumping to another field, the duplicate
+   * catch-up pulling the cursor back. One listener answers all of them; a Tab
+   * handler would answer one and leave the rest.
+   *
+   * `relatedTarget` inside the root means focus moved WITHIN the control — the
+   * trigger to a checkbox row, a row to the "+ Add" — which must not close it.
+   * A null `relatedTarget` (focus going nowhere) does close, which is right: a
+   * panel with no cursor anywhere near it is exactly the one in the screenshot.
+   *
+   * Deliberately NOT preventing Tab. The skill is explicit that a list must
+   * close without committing and let the key travel; claiming it here would trap
+   * the operator in the field they just finished with.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const onFocusOut = (e: FocusEvent) => {
+      const to = e.relatedTarget;
+      if (to instanceof Node && root.contains(to)) return;
+      setOpen(false);
+      setQuery("");
+    };
+    root.addEventListener("focusout", onFocusOut);
+    return () => root.removeEventListener("focusout", onFocusOut);
+  }, [open]);
+
+  /**
    * OFFER "+ Add" ONLY FOR A NAME THAT IS NOT ALREADY A ROW.
    *
    * A candidate that already exists is one the master's unique constraint is
