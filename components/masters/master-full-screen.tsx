@@ -54,6 +54,31 @@ export type FullScreenSection = {
   /** Completion dot on the rail ("has data"). */
   done?: boolean;
   /**
+   * NOTHING TO TYPE IN HERE RIGHT NOW — the Tab / Enter hand-off passes OVER
+   * this section instead of landing in it (client 2026-08-19).
+   *
+   * For a section that is switched off rather than empty: Pack type(s) with Pack
+   * off renders one sentence and a "Turn Pack on" button, so tabbing into it put
+   * the cursor somewhere it could not type and `land()` fell back to the rail.
+   *
+   * DECLARE IT ON THE SAME OBJECT THAT RENDERS THE EMPTY CONTENT. Where a
+   * section is chosen by a ternary — as Pack type(s) is — put `skipTab: true`
+   * inside the OFF branch, so the flag and the fieldless panel are one object
+   * and cannot drift apart. A flag computed separately from the content it
+   * describes is a flag that will one day describe the wrong thing.
+   *
+   * It is about the TYPING PATH only. The rail still lists the section, the
+   * mouse and the rail's arrow keys still reach it, and the button inside still
+   * works — which is the point, since that button is what switches the section
+   * back on.
+   *
+   * Do NOT use it to hide a section that merely looks empty: a grid with no rows
+   * yet still has a "+ Add" the operator is meant to reach, and a section with
+   * read-only fields is still somewhere they may want to read. This is for a
+   * section with no focusable field at all.
+   */
+  skipTab?: boolean;
+  /**
    * BLOCKING problems in this section — a red count on the rail, replacing the
    * `done` dot, and where `goToSection(key, "problem")` steers.
    *
@@ -119,7 +144,17 @@ export type FullScreenSection = {
  * than read off the DOM. A blank mandatory field on an inactive section has no
  * node, so it carries no `data-required-empty` for a query to find.
  */
-type Landing = "first" | "last" | "problem" | { fieldId: string };
+/**
+ * `"rail"` means DO NOT MOVE THE CURSOR — the rail already has it.
+ *
+ * Every other landing pulls focus into the section that just opened, which is
+ * right when the switch came from a field (Tab/Enter/an arrow off the edge) and
+ * wrong when it came from the rail itself: arrowing down the rail would land in
+ * the fields on the first press, and the operator could never reach the third
+ * section (client 2026-08-19, "I can't move section to section using the arrow
+ * key ... left side sections and inside page new section both").
+ */
+type Landing = "first" | "last" | "problem" | "rail" | { fieldId: string };
 
 export type MasterFullScreenHandle = {
   /**
@@ -309,6 +344,16 @@ export function MasterFullScreen({
   const land = useCallback(() => {
     const landing = landingRef.current;
     landingRef.current = "first";
+    /**
+     * THE RAIL KEEPS THE CURSOR. A section opened by arrowing the rail must not
+     * pull focus into the fields, or the second arrow press happens in the form
+     * and the operator can never reach the third section — see `Landing`.
+     *
+     * Returning before the fallback matters as much as before the targeted
+     * landings: the fallback focuses the rail button for the ACTIVE section,
+     * which would fight the button the operator is standing on mid-move.
+     */
+    if (landing === "rail") return;
     const pane = contentRef.current;
     let moved = false;
 
@@ -392,7 +437,35 @@ export function MasterFullScreen({
    */
   const onContentEdge = useCallback((dir: 1 | -1) => {
     const { sections: list, section: current } = navRef.current;
-    const next = list.findIndex((s) => s.key === current) + dir;
+    /**
+     * SKIP A SECTION THERE IS NOTHING TO TYPE IN (client 2026-08-19,
+     * screenshot 2365: "the pack type is on — if user click the tab navigation
+     * will move to the section; if not it will directly move to the next
+     * section").
+     *
+     * Pack type(s) is the case. With Pack off it renders one sentence and a
+     * "Turn Pack on" button — no fields at all — so Tab handed the operator into
+     * a section where the cursor had nowhere to go and `land()` fell back to the
+     * rail button. A stop on the typing path that cannot be typed in is not a
+     * stop, it is a stall.
+     *
+     * WHY THE SECTION DECLARES IT rather than the shell measuring: only ONE
+     * section is mounted at a time, so the destination does not exist in the DOM
+     * until after it has been switched to. Measuring would mean switching,
+     * rendering the empty panel, discovering it is empty and switching again —
+     * a visible flicker through a section the operator never asked for.
+     *
+     * A `while`, not an `if`: two switched-off sections in a row must not need
+     * two Tabs to cross. Bounded by the list, so an all-skipped tail simply runs
+     * off the end and declines, exactly as before — Tab wraps and Enter saves.
+     *
+     * ONLY THE TYPING PATH IS AFFECTED. The rail still lists the section, the
+     * mouse and the rail's own arrow keys still reach it, and its button still
+     * works when they get there — which matters, because that button is how the
+     * section switches itself back on.
+     */
+    let next = list.findIndex((s) => s.key === current) + dir;
+    while (next >= 0 && next < list.length && list[next].skipTab) next += dir;
     // Off the end of the last section: decline. Tab wraps to the section's first
     // field as it would on any other surface, and Enter saves.
     if (next < 0 || next >= list.length) return false;
@@ -523,6 +596,22 @@ export function MasterFullScreen({
     else return;
     e.preventDefault();
     focusField(items[next]);
+    /**
+     * AND OPEN IT. Moving the highlight without switching the panel is what the
+     * client read as "the arrow key doesn't move me to the next section": the
+     * rail looked like it had moved and the form behind it had not.
+     *
+     * `landingRef = "rail"` is what makes repeated arrows work — without it
+     * `land()` drags the cursor into the new section 60ms later and the SECOND
+     * arrow press is happening in the fields, not on the rail. Enter and Space
+     * still activate natively (the rail row is a button), so nothing is lost for
+     * an operator who expects to confirm.
+     */
+    const key = items[next].dataset.sectionKey;
+    if (key && key !== navRef.current.section) {
+      landingRef.current = "rail";
+      setSection(key);
+    }
   }
 
   if (!open) return null;

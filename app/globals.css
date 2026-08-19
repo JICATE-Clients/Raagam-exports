@@ -14,6 +14,35 @@
   --foreground: #16181d; /* primary text */
   --muted-foreground: #5b6472; /* secondary text */
   --border: #e3e6ea;
+  /* THE LINE BETWEEN TWO RECORDS, and it must outrank the lines INSIDE one
+   * (client 2026-08-19, screenshot 2379: "no more clearly separation line, all
+   * the lines look same kind, so can't tell the next section").
+   *
+   * A child grid separated one record from the next with `border-border` — the
+   * SAME token and the same 1px as every <Input>'s edge — so a record boundary
+   * was drawn in identical ink to a text box's outline and the eye had nothing
+   * to parse. That grid had three grouping cues a day earlier (a card per row, a
+   * summary band, this hairline); `flatRows` removed the card at the client's
+   * request and the band went with it, leaving the weakest of the three doing
+   * the whole job alone.
+   *
+   * Not a fill. `--row-active` was removed app-wide on 2026-08-18 ("no more that
+   * grey state in anywhere"), so zebra striping and tinted rows are closed —
+   * deliberately. Contrast and space are what is left, and space does most of
+   * the work (see the grid's `py-3`).
+   *
+   * STRONGER MEANS MORE CONTRAST AGAINST THE SURFACE, NOT DARKER — which flips
+   * between themes. Light mode goes darker than --border; dark mode goes
+   * LIGHTER. Writing it as "darker" is how a divider ends up invisible in the
+   * dark theme. */
+  /* #cbd2da WAS TRIED FIRST AND THE CLIENT COULD NOT SEE IT (2026-08-19: "make
+   * the border section more dark, because it's still not visible — that
+   * highlighter is a huge minus point in UI"). It sat only ~4 steps off
+   * --border, which is the whole failure this token exists to fix: a separator
+   * that is merely a LITTLE stronger than field chrome still reads as field
+   * chrome. Do not soften it back toward --border; if it ever looks heavy the
+   * answer is more SPACE around it, not less contrast in it. */
+  --border-strong: #9aa4b2;
   --ring: #4f46e5;
   /* `--row-active`, the tint of the row the keyboard was inside, is GONE
    * (client 2026-08-18: "remove it from application everywhere, no more that
@@ -113,6 +142,9 @@
   --foreground: #e7e9ee;
   --muted-foreground: #9aa4b2;
   --border: #262b34;
+  /* Lighter than --border, not darker — see the light-mode note. Raised with
+   * the light value so the two themes stay equally legible. */
+  --border-strong: #4d5666;
   --ring: #6366f1;
   /* A tint is a shade in the dark. Not --primary-soft (#1e1b4b, indigo 950):
    * that is a FILL behind indigo icons, and under 14px of --foreground it
@@ -161,6 +193,7 @@
   --color-foreground: var(--foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-ring: var(--ring);
 
   --color-primary: var(--primary);

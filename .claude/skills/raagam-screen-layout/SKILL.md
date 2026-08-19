@@ -1,6 +1,6 @@
 ---
 name: raagam-screen-layout
-description: "Raagam ERP's screen layout contract — which surface a screen uses (the list shell, a Sheet, or the section-rail editor mounted as an overlay or as a page route), the operator's five standing rules for a converted screen (its own name as the first rail row, no problem badge, an overlay that covers the app chrome, grids that wrap instead of scrolling sideways, everything on the keyboard contract), the one field width every field takes, line items as ChildGrid rather than a hand-rolled table, and the Cancel / Save as Draft / Save footer whose canSave is DERIVED rather than hand-assembled. This skill should be used when building or changing any screen under app/(app), when choosing between Sheet and MasterFullScreen, when a record needs sections or tabs, when wiring Save or a status/workflow bar, when a list screen needs its toolbar and row actions, and whenever a screen is about to write its own grid-cols-*, col-span-* or <table>. Keys and focus are raagam-keyboard-contract's; pickers and icon fields are raagam-masters-picker-wiring's; reports are raagam-report-data's."
+description: "Raagam ERP's screen layout contract — which surface a screen uses (the list shell, a Sheet, or the section-rail editor mounted as an overlay or as a page route), the operator's five standing rules for a converted screen (its own name as the first rail row, no problem badge, an overlay that covers the app chrome, grids that wrap instead of scrolling sideways and do it in ONE frame rather than a box per row, everything on the keyboard contract), the de-clutter rule that blanks field placeholders and drops a grid's caption band and prose empty state, the one field width every field takes, line items as ChildGrid rather than a hand-rolled table, and the Cancel / Save as Draft / Save footer whose canSave is DERIVED rather than hand-assembled. This skill should be used when building or changing any screen under app/(app), when choosing between Sheet and MasterFullScreen, when a record needs sections or tabs, when wiring Save or a status/workflow bar, when a list screen needs its toolbar and row actions, and whenever a screen is about to write its own grid-cols-*, col-span-* or <table>. Keys and focus are raagam-keyboard-contract's; pickers and icon fields are raagam-masters-picker-wiring's; reports are raagam-report-data's."
 ---
 
 # Raagam screen layout
@@ -100,18 +100,36 @@ An overlay mount changes two things a converter must not miss:
   dirtiness, never on `mode === "edit"` — that pins the silent PWA auto-update off for as
   long as the operator sits on the screen.
 
-**4. A GRID WRAPS; IT NEVER SCROLLS SIDEWAYS.** LAYOUT.md §6's "no scroll-in-a-box" on
-the horizontal axis. A row of more than ~6 columns cannot fit 1180px minus the 228px
-rail, and the responsive table answers that with a scrollbar: the operator fills the
-first cell, then drags a bar to reach the last one with the first scrolled out of sight.
+**4. A GRID WRAPS; IT NEVER SCROLLS SIDEWAYS — IN ONE FRAME.** LAYOUT.md §6's
+"no scroll-in-a-box" on the horizontal axis. A row of more than ~6 columns cannot fit
+1180px minus the 228px rail, and the responsive table answers that with a scrollbar: the
+operator fills the first cell, then drags a bar to reach the last one with the first
+scrolled out of sight.
 
-The shape, and it is the same three props every time:
+**THE SECOND HALF OF THAT SENTENCE ARRIVED ON 2026-08-19 AND IS THE CLIENT'S**: the
+wrapping was right, the FRAMING was not. `forceCards` answers "don't scroll" by giving
+every row its own bordered box, so a section holding six lines drew seven frames — the
+section's, then one per row — and the operator reported the screen as a stack of boxes
+rather than a table. **One frame per grid, rows divided by a hairline inside it.**
+
+That is `flatRows`, and it is **paired with `forceCards`, never substituted for it**:
+`flatRows` is a cards-mode modifier, so on its own it is a silent no-op and the boxes
+stay. This is the whole trap — the prop reads like a mode and behaves like a flag.
+
+Why `flatRows` and not the true table the phrase "table layout" suggests: the per-row
+band carries the row's identity (`rowSummary`) **and its ✕, which is the `data-row-remove`
+node Ctrl+Del drives**. `listRows` drops that band and makes the screen hand-roll one —
+~20 lines of chrome per screen, and a Ctrl+Del target that each screen can forget. The
+band is the cheapest thing on the row and the only one the keyboard contract needs.
+
+The shape, and it is the same four props every time:
 
 ```tsx
 <ChildGrid<Row>
   columns={columns}          // still the ONE declaration
   rows={rows}
   forceCards                 // drop the table
+  flatRows                   // ...and drop the per-row BOX — one frame, hairline rows
   renderMobileRow={(row, i) => (
     <FieldGrid>
       {columns.map((c, ci) => (
@@ -130,8 +148,52 @@ leaves the card and the header disagreeing. `Field` supplies the label the `<th>
 to AND the `RequiredScope` that cards mode applies per column only when it renders the
 columns itself, so `required` must be forwarded or the cell's hold is silently lost.
 
-Below ~6 columns a table still fits and still reads better; this rule is about the ones
-that do not.
+Below ~6 columns a table still fits and still reads better; the wrapping half of this
+rule is about the ones that do not. **The one-frame half has no exception** — a table
+mode grid already draws a single frame, so "one frame per grid" is true of every grid
+either way, and a `forceCards` without `flatRows` is now the only way to break it.
+
+Checked by `python scripts/audit_layout.py . --check grid-single-frame`, which fires on
+a `forceCards` that declares no `flatRows` and no `listRows`. Opt out per line with a
+`// grid-single-frame: exempt -- <reason>` comment; a row that genuinely draws its own
+summary header wants `listRows` and passes without one.
+
+**Any new `ChildGrid` check must read its props through `_component_open_tag`, never
+`_jsx_open_tag`.** All 30 call sites are written `<ChildGrid<StyleRow> …`, and the plain
+scanner ends the tag at the `>` closing the generic — so the tag carries no props and the
+check reports a clean pass. That is not hypothetical: the first cut of these two checks
+returned 0 and 3 against files carrying 18 `forceCards` and 42 `label`.
+
+**4a. A BOUNDARY BETWEEN RECORDS OUTRANKS THE BOUNDARIES INSIDE ONE.** Once a grid has
+one frame and no box per row, the only thing saying "a new record starts here" is a rule
+and some space — and both were being drawn at exactly the weight of field chrome. The
+divider was `border-border`, the SAME token and the same 1px as every `<Input>`'s edge,
+and the gap between two records was 16px against the 8px between a record's own fields.
+The operator could not tell one structure from the next (client 2026-08-19, screenshot
+2379: "all the lines look same kind, so can't tell the next section").
+
+`ChildGrid` owns both halves for `flatRows` / `listRows`, so no screen sets them:
+
+- **`border-t-2 border-border-strong`** — WEIGHT and COLOUR, and it took two attempts to
+  learn that colour alone is not enough. A 1px rule at `#cbd2da` shipped first and the
+  client still could not see it: **every field edge on the screen is also 1px, so a 1px
+  line reads as chrome whatever its shade.** Two pixels is a different KIND of line, which
+  is what "a new record starts here" has to be. The token is `#9aa4b2` light / `#4d5666`
+  dark (app/globals.css). "Stronger" means MORE CONTRAST AGAINST THE SURFACE, not darker —
+  light mode goes darker than `--border`, dark mode goes LIGHTER; call it "darker" and the
+  divider disappears in the dark theme. If it ever looks heavy, the answer is more SPACE
+  around it, never less contrast in it.
+- **`py-3`, not `py-2`** — 24px between records against 8px within. Proximity groups more
+  reliably than any line and costs no ink, which matters because the two obvious cues are
+  both closed: a **fill** is out (the row tint was removed app-wide on 2026-08-18, "no more
+  that grey state in anywhere") and a **box per row** is out (rule 4 above).
+
+**A TABLE AND AN `inlineCards` ROW ARE DELIBERATELY LEFT ALONE.** The rule scales with how
+much vertical space one record occupies: a record that is ONE LINE under a shared header is
+already grouped by its columns, and strengthening every line there just makes a dense table
+noisy. A record that is a panel of fields — and often a nested grid beneath it — is the
+case that needs a real boundary. Apply this where a record is tall, not everywhere a line
+exists.
 
 **4b. A GRID OPENS WITH ONE BLANK ROW.** Never the empty state — a header, a line of
 prose and an "+ Add row" button. Entering the first line must cost no click.
@@ -168,6 +230,31 @@ that hand-rolls a `<table>` or a `<div><Label/><Input/></div>` inherits none of 
 So rule 5 is a CHECK on rules 1–4 rather than a separate task: if a converted screen
 still needs a keyboard fix of its own, something above it was not actually converted.
 Never answer a keyboard complaint on one screen — see `raagam-keyboard-contract`.
+
+## The screen says nothing it does not need to (STANDING, 2026-08-19)
+
+The de-clutter pass that removed `SectionBody` hints (51 sites) and rejected a `—` in an
+empty field reached the fields and stopped. It now covers the three bands left, all on
+the same test: **does this text name a state of the DATA, or describe the box it sits in?**
+The second kind goes.
+
+| Text | Rule | Survivor |
+|---|---|---|
+| `placeholder=` on any field | Blank it | Only a state of the record — `"No projection"`, `"Pick a Style first"`; `All` on a filter facet |
+| `ChildGrid label=` (the caption band) | Omit it — the section names the grid | A `flushRows` grid, or two grids sharing one section |
+| A grid's prose empty state | Delete it | One naming a CAUSE elsewhere — "No sizes in the Sizes master yet" |
+
+**`placeholder` is not an escape hatch, and used to be one.** LAYOUT.md §3 said "an
+explicit `placeholder` still wins", which is how 352 survived a sweep whose subject was
+that an empty control says nothing. The two survivors above are exhaustive until the
+client names a third — so `"Why is this order being amended?"` (restates its label),
+`"1"` (reads as a default) and `"(auto)"` (on a field that is already `readOnly`) all go.
+
+Reasoning and the exemption comments: `LAYOUT.md` §3 and §6. Checked by
+`--check placeholder-blank` and `--check grid-caption`.
+
+**Do NOT sweep `PageHeader description` by analogy.** 375 sites, asked and DECLINED by
+the client on 2026-08-17. A rule about a field's box does not reach a page's subtitle.
 
 ## Five rules that are decisions
 

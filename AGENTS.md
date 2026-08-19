@@ -48,8 +48,31 @@ The actions that left the Tab path each keep a key, and the shortcuts sheet says
 - **Delete a grid row** — **Ctrl+Del** on any cell (`gridKeyNav`). It drives the row's own
   ✕ with `.click()`, found by `[data-row-remove]` or an `aria-label` starting "Remove", so
   the 22 hand-rolled grids get it without being edited.
-- **Add a grid row** — Enter on the last row, or the "+ Add" button. **Either way the
-  cursor lands in the new row** (`landOnAddedRow`, one document listener). Only the
+- **Add a grid row** — **Enter or Tab off the last row LANDS ON the "+ Add" button, and a
+  second Enter is what adds** (client 2026-08-19: "enter key automatically creating the new
+  section … instead need to move to that add button, then on that button need to create").
+  **This reverses two of the rules above and does so deliberately.** Enter used to add the
+  row outright, and the "+ Add" button was deliberately kept OFF the Tab path — so reaching
+  the last field and pressing Enter conjured a new block the operator had not asked for,
+  and there was no key that reached the button at all. A row now costs two deliberate keys
+  instead of one automatic one: an operator entering ten sizes presses Enter twice per
+  size, and in exchange nothing is created by a keystroke aimed at moving. Do not
+  "optimise" it back without asking.
+  The button is a Tab stop via `isRowAdd` (`lib/focus.ts`), which is deliberately NOT
+  folded into `isFieldLike` — that predicate means "a value can be typed here" and is read
+  by the arrows, `focusFirstField`, `ROW_FIELDS` and both cursor holds; a button joining it
+  would put ↑↓←→ on the button and make it holdable. Enter ON the button needs no code:
+  `enterAdvances` stands down on anything that is not an input/select/trigger, so the
+  browser's native click fires. **`gridKeyNav` no longer takes an `addRow` callback** — 18
+  call sites were passing a function that could never run again; the decline-and-bubble it
+  carried is now `ownAddControl` returning null (a grid with no reachable "+ Add" declines
+  the key so it reaches the parent grid or Save).
+  **Every grid that can grow must mark its button `data-row-add`** — the marker used to be
+  needed only for a nested grid, and is now what Enter steers by. The eleven hand-rolled
+  grids were swept on 2026-08-19; three of them (Attendance, GRN) legitimately cannot grow
+  and pass nothing.
+- **Either way the cursor lands in the new row** (`landOnAddedRow`, one document
+  listener). Only the
   keyboard half was ever built: the button added the row and kept the caret on itself, and
   because a "+ Add" is the LAST node of its section, the next Tab wrapped, hit the content
   edge and handed over to the NEXT SECTION — the row the operator had just asked for was

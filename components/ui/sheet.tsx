@@ -49,6 +49,7 @@ export function Sheet({
   zIndexBase = 90,
   fullScreen = true,
   size = "lg",
+  fullBleed = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -71,6 +72,31 @@ export function Sheet({
   /** "lg" = full-screen entity editor; "sm" = centred max-w-md dialog
    *  (nested pickers / small config dialogs). */
   size?: "sm" | "lg";
+  /**
+   * DROP THE 1180px READING WIDTH and let the content use the whole pane
+   * (client 2026-08-18, on Combos ▸ Structure Details: "make this screen full
+   * width instead of those left right gap").
+   *
+   * OPT-IN, because the cap is not an accident. 1180px is LAYOUT.md §1 and the
+   * signed-off mockups, and it is what keeps a two-column entity form readable
+   * instead of stretching a Name field across 1900px. Every other full-screen
+   * Sheet still gets it.
+   *
+   * What earns the exception here is the SHAPE OF THE CONTENT. Structure Details
+   * is a WIDE GRID — six columns per structure (Structure, Composition, Gsm,
+   * Tolerance, Gsm Range, Fabric Type) with a components grid nested under each
+   * — not prose and not a form column. Capping a grid at a reading width does
+   * not make it readable, it just squeezes six pickers and leaves ~220px of
+   * white down each side of the screen the operator is trying to fill in.
+   *
+   * BOTH WRAPPERS MOVE TOGETHER. The footer carries the same `max-w-[1180px]`
+   * so that Save/Done line up with the form's right edge; widening one alone
+   * would leave the buttons floating short of the content they belong to.
+   *
+   * The pane's own `px-4 md:px-8` stays either way — full width is not the same
+   * as touching the glass, and 32px is what keeps the first field off the edge.
+   */
+  fullBleed?: boolean;
 }) {
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
@@ -336,7 +362,18 @@ export function Sheet({
                   doc/ui/New Material Fabric - Organized Layout.html; at max-w-5xl
                   (1024px) it was already above SectionGrid's 896px 2-up threshold,
                   but the mockup's two ~560px columns need the extra 156px. */}
-              <div className="@container/editor mx-auto w-full max-w-[1180px]">{children}</div>
+              {/* `fullBleed` drops the cap — see the prop. `@container/editor`
+                  stays either way: it is the DENSITY container, and its
+                  `@2xl/editor:` threshold is 672px, so a wider pane is still
+                  compact. */}
+              <div
+                className={cn(
+                  "@container/editor mx-auto w-full",
+                  fullBleed ? "max-w-none" : "max-w-[1180px]",
+                )}
+              >
+                {children}
+              </div>
               {/* THE ACTION BAR MEETS THE FORM.
                   It used to be a SIBLING of this scroll pane, and the pane is
                   `flex-1` — so it stretched to the whole viewport whatever the
@@ -369,7 +406,18 @@ export function Sheet({
                 >
                   {/* same cap as the content above, so Save/Cancel stay aligned with
                       the right edge of the form rather than the viewport. */}
-                  <div ref={footerRef} className="mx-auto flex w-full max-w-[1180px] items-center justify-end gap-2">{footer}</div>
+                  {/* Same cap as the content above, and it has to move WITH it —
+                      a footer left at 1180px puts Done short of the form's right
+                      edge. See the `fullBleed` prop. */}
+                  <div
+                    ref={footerRef}
+                    className={cn(
+                      "mx-auto flex w-full items-center justify-end gap-2",
+                      fullBleed ? "max-w-none" : "max-w-[1180px]",
+                    )}
+                  >
+                    {footer}
+                  </div>
                 </div>
               )}
             </div>

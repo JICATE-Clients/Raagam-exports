@@ -20,6 +20,14 @@
 # a scratch build output that was NOT ignored and so showed up as 31 untracked
 # files in `git status`, one `git add -A` away from being committed (2026-08-14)
 /.next-fold/
+# `npm run build` writes here via NEXT_DIST_DIR so a verification build never
+# lands on the running dev server's .next. It was NOT ignored, and that is worse
+# than the .next-fold case above: globals.css is a bare `@import "tailwindcss"`,
+# so Tailwind v4 auto-detects content by scanning the project MINUS .gitignore.
+# 1.5 GB of build output therefore became candidate source, PostCSS blew its
+# worker deadline, and Turbopack died with a bare "unexpected Turbopack error"
+# naming only app/globals.css (2026-08-18).
+/.next-build/
 /out/
 
 # serwist / PWA service worker (generated at build)
@@ -96,3 +104,7 @@ __pycache__/
 
 # MSYS/Git-Bash crash dumps, written into the repo root where the shell was
 *.stackdump
+
+# The dev server log this session redirects `next dev` stdout into — the panic
+# chain lives only there, and .next/dev/logs/ just echoes the useless one-liner.
+/.next-dev.log
