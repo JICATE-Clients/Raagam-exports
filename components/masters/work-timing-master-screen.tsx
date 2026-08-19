@@ -295,7 +295,7 @@ export function WorkTimingMasterScreen({
           <div className="overflow-hidden rounded-lg border border-border">
             <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3.5 py-2.5">
               <h3 className="text-[13px] font-bold text-foreground">Shifts</h3>
-              <Button type="button" variant="outline" size="sm" onClick={addLine}>
+              <Button type="button" variant="outline" size="sm" data-row-add onClick={addLine}>
                 + Add shift
               </Button>
             </div>
@@ -303,7 +303,7 @@ export function WorkTimingMasterScreen({
               {lines.length === 0 && <p className="text-xs text-muted-foreground">No shifts yet.</p>}
               {/* No inner scroll — see ChildGrid's `pageSize` note. (`maxBodyHeight`
                   no longer exists; the pager replaced it.) */}
-              <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)} className="space-y-3">
+              <div data-grid-body onKeyDown={(e) => gridKeyNav(e)} className="space-y-3">
               {lines.map((l, i) => (
                 <div data-grid-row data-row-box key={l.key} className="space-y-2 rounded-md border border-border p-2.5">
                   <div className="flex items-center justify-between">

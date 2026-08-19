@@ -34,6 +34,20 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# The hint-text rules live in their own module because BOTH this checker and
+# scripts/sweep_placeholders.py have to apply the same definition of "clutter".
+# The sweep already imports this file for its file-walking helpers, so the rules
+# cannot live here without making a cycle. See scripts/hint_rules.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hint_rules import (            # noqa: E402
+    KEEP_BY_DEFAULT,
+    SEARCH_TEXT,
+    classify_hint,
+    governing_label,
+    hint_attr_span,
+    is_jsx_attribute,
+)
+
 SKIP_DIRS = {
     "node_modules", ".next", ".git", "dist", "build", "out",
     "coverage", "public", ".claude", "supabase",
@@ -1946,6 +1960,266 @@ def check_grid_required_mobile(path: Path, code: str, slug: str):
     )
 
 
+# ---------------------------------------------------------------------------
+# The 2026-08-19 de-clutter rules: ONE frame per grid, and no text that merely
+# describes the box it is sitting in. LAYOUT.md §3 and §6.
+
+def _tag_prop_offset(tag: str, name: str) -> int | None:
+    """Offset of a TOP-LEVEL prop `name` in an opening tag, or None.
+
+    A plain `name=` search over the tag text is wrong the moment a render prop
+    is involved: `renderMobileRow={(row, i) => <Field label={c.header} .../>}`
+    puts `label=` INSIDE the tag string, at brace depth 1, belonging to a
+    different component. `grid-caption` reported two such grids as passing a
+    caption when they pass none — and would equally have missed a real one had
+    the nested match been the only hit.
+
+    So: depth 0 only, and not inside a string.
+    """
+    depth = 0
+    quote = None
+    i = 0
+    while i < len(tag):
+        c = tag[i]
+        if quote:
+            if c == quote:
+                quote = None
+        elif c in "\"'`":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        elif depth == 0 and tag.startswith(name, i):
+            before = tag[i - 1] if i else " "
+            after = tag[i + len(name):]
+            if not (before.isalnum() or before == "_") and after.lstrip().startswith("="):
+                return i
+        i += 1
+    return None
+
+
+def _component_tag_start(code: str, start: int, name: str) -> int:
+    """Index where the opening tag's PROPS begin — after `<Name` and any generic."""
+    i = start + 1 + len(name)
+    while i < len(code) and code[i].isspace():
+        i += 1
+    if i < len(code) and code[i] == "<":
+        depth = 0
+        while i < len(code):
+            if code[i] == "<":
+                depth += 1
+            elif code[i] == ">":
+                depth -= 1
+                if depth == 0:
+                    i += 1
+                    break
+            i += 1
+    return i
+
+
+def _component_open_tag(code: str, start: int, name: str) -> str:
+    """The opening tag at `start`, SKIPPING a TypeScript generic argument.
+
+    `<ChildGrid<StyleRow> forceCards ... />` is not an occasional shape here --
+    it is every one of the 30 call sites in the repo. `_jsx_open_tag` ends a tag
+    at the first `>` outside braces, which is the one closing `<StyleRow>`, so
+    the "tag" comes back as `<ChildGrid<StyleRow>` carrying no props at all.
+
+    The first cut of `grid-single-frame` and `grid-caption` did exactly that and
+    reported 0 and 3 findings against files grep proves carry 18 `forceCards`
+    and 42 `label`. A prop check that never sees a prop passes silently and
+    reads as compliance -- so this helper exists to make the tag real, and any
+    new ChildGrid check must route through it rather than `_jsx_open_tag`.
+    """
+    return _jsx_open_tag(code, _component_tag_start(code, start, name))
+
+
+CHILD_GRID_OPEN = re.compile(r"<ChildGrid\b")
+LABEL_ATTR = re.compile(r"\blabel\s*=")
+
+SINGLE_FRAME_EXEMPT = re.compile(r"grid-single-frame:\s*exempt\s*--")
+
+
+def check_grid_single_frame(path: Path, code: str, slug: str):
+    """`forceCards` never travels alone (LAYOUT.md §6, client 2026-08-19).
+
+    `forceCards` answers "a wide row must not scroll sideways" by stacking the
+    row -- and, incidentally, by drawing a bordered box around each one. So a
+    section holding six lines drew SEVEN frames: its own, then one per row. The
+    client reported the screen as a stack of boxes rather than a table.
+
+    `flatRows` keeps the stack and keeps the per-row band -- the row's identity
+    and the ✕ that carries `data-row-remove` for Ctrl+Del -- and drops only the
+    border and its 10px of padding, leaving a hairline to say where a row ends.
+
+    `listRows` passes too. There the row draws its own header, summary and all,
+    which is a deliberate choice for an accordion row rather than a forgotten
+    prop -- and the screen has visibly taken over the band's job.
+
+    Table mode needs nothing: it already draws a single frame.
+    """
+    if slug in PRIMITIVES:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in SINGLE_FRAME_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+    for m in CHILD_GRID_OPEN.finditer(code):
+        tag = _component_open_tag(code, m.start(), "ChildGrid")
+        if "forceCards" not in tag:
+            continue
+        if "flatRows" in tag or "listRows" in tag:
+            continue
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        yield Finding(
+            "grid-single-frame", path, line,
+            "`forceCards` with no `flatRows` draws a bordered box per row, so "
+            "the section's frame and every row's frame stack. Add `flatRows` "
+            "for one frame with hairline rows, or a "
+            "`grid-single-frame: exempt -- <reason>` comment",
+        )
+
+
+GRID_CAPTION_EXEMPT = re.compile(r"grid-caption:\s*exempt\s*--")
+EMPTY_LABEL_ATTR = re.compile(r"\bemptyLabel\s*=")
+
+
+def check_grid_caption(path: Path, code: str, slug: str):
+    """A grid says its name once, and says nothing when empty (LAYOUT.md §6).
+
+    Two bands, one mistake at two moments.
+
+    The CAPTION (`label`) draws a band above the columns while the surrounding
+    `DetailSection` / `FullScreenSection` already names the grid and the rail
+    says it a third time. `ChildGrid`'s own prop comment has advised omitting it
+    since 2026-08-05 and 42 call sites passed one anyway -- which is the lesson
+    this check exists for: advice on a prop nobody is passing is never read.
+
+    A `flushRows` grid is exempt by construction: it is allowed exactly one
+    band, and `label` renders INSIDE it, naming the control while the grid is
+    empty. Flagging it would push a screen into hand-rolling the band back.
+
+    The EMPTY STATE (`emptyLabel`, and prose beside it) explains what the
+    operator can already see. It survives only when it names a CAUSE they can
+    act on and could not deduce -- "No sizes in the Sizes master yet" points at
+    another screen; "Nothing to choose from" points at nothing.
+    """
+    if slug in PRIMITIVES or "components/ui/" in slug:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in GRID_CAPTION_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+
+    for m in CHILD_GRID_OPEN.finditer(code):
+        tag = _component_open_tag(code, m.start(), "ChildGrid")
+        off = _tag_prop_offset(tag, "label")
+        if off is None or "flushRows" in tag:
+            continue
+        # Report at the `label` prop, not the tag start: that is where a reader
+        # looks, and it is where an exemption comment naturally goes. The tag
+        # begins AFTER the generic, so its start is recovered rather than
+        # assumed to be `m.start()`.
+        line = line_of(code, _component_tag_start(code, m.start(), "ChildGrid") + off)
+        if exempt_above(exempt, commentish, line):
+            continue
+        yield Finding(
+            "grid-caption", path, line,
+            "this grid passes `label`, but the section around it already names "
+            "the grid -- the caption costs a band and repeats the rail. Drop "
+            "`label` (the Add button is independent), or add a "
+            "`grid-caption: exempt -- <reason>` comment",
+        )
+
+    for m in EMPTY_LABEL_ATTR.finditer(code):
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        yield Finding(
+            "grid-caption", path, line,
+            "a prose empty state describes what the operator can see. Keep it "
+            "only when it names a CAUSE elsewhere (\"No sizes in the Sizes "
+            "master yet\"); otherwise drop it, or add a "
+            "`grid-caption: exempt -- <reason>` comment",
+        )
+
+
+PLACEHOLDER_ATTR = re.compile(r"\bplaceholder\s*=")
+PLACEHOLDER_EXEMPT = re.compile(r"placeholder-blank:\s*exempt\s*--")
+
+# These DEFAULT the empty state or forward a caller's prop through; they are
+# the declaration, not a call site. Blanking them is how the rule is delivered.
+PLACEHOLDER_OWNERS = {
+    "components/ui/input.tsx",
+    "components/ui/textarea.tsx",
+    "components/ui/select.tsx",
+    "components/ui/data-picker.tsx",
+    "components/ui/combobox.tsx",
+    "components/ui/multi-select.tsx",
+    "components/ui/field.tsx",
+    "components/masters/child-grid.tsx",
+}
+
+
+def check_placeholder_blank(path: Path, code: str, slug: str):
+    """An unfilled field shows NOTHING -- and that reaches `placeholder` too.
+
+    LAYOUT.md §3 blanked the pickers' and selects' default empty state on
+    2026-08-17, then exempted "an explicit `placeholder`, which still wins".
+    That clause was a general escape hatch, and 352 placeholders survived a
+    sweep whose whole subject was that an empty control says nothing. It was
+    narrowed on 2026-08-19: the exemption is the two STATES, not the prop.
+
+    A placeholder survives when it names a state of the RECORD -- "No
+    projection" on Rejection Rule, "Pick a Style first" on the Combo picker,
+    `All` on a filter facet. It goes when it describes the box: "Why is this
+    order being amended?" restates the label above it, "1" reads as a default
+    the operator did not set, and "(auto)" annotates a field that is already
+    `readOnly` and therefore already out of the Tab path.
+    """
+    if slug in PLACEHOLDER_OWNERS or slug in PRIMITIVES:
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        raw = ""
+    exempt = {line_of(raw, m.start()) for m in PLACEHOLDER_EXEMPT.finditer(raw)}
+    commentish = comment_only_lines(raw, code)
+    for m in PLACEHOLDER_ATTR.finditer(code):
+        line = line_of(code, m.start())
+        if exempt_above(exempt, commentish, line):
+            continue
+        # ONLY FLAG WHAT THE SWEEP WOULD ACTUALLY REMOVE. A check that also
+        # reports every deliberate keeper cannot be read as a gate -- it stood at
+        # 236 findings, all of them decided, which is the same "0 findings means
+        # nothing" failure one step along. Buckets D (names a state) and E (a
+        # computed value) are the keepers; see the shared rule-set above.
+        if not is_jsx_attribute(code, m.start()):
+            continue                      # a component declaring its own prop
+        try:
+            _, _, src, dyn = hint_attr_span(code, m.start())
+        except ValueError:
+            continue
+        if not dyn and SEARCH_TEXT.match(src):
+            continue                      # a search box keeps its words
+        bucket, _reason = classify_hint(src, governing_label(code, m.start()), dyn)
+        if bucket in KEEP_BY_DEFAULT:
+            continue
+        yield Finding(
+            "placeholder-blank", path, line,
+            "a placeholder that describes the field repeats the label above it. "
+            "Blank it, or -- if it names a STATE of the record -- keep it with a "
+            "`placeholder-blank: exempt -- <reason>` comment",
+        )
+
+
 CHECKS = {
     "grid-required-mobile": check_grid_required_mobile,
     "cascade-filter": check_cascade_filter,
@@ -1968,6 +2242,9 @@ CHECKS = {
     "row-actions": check_row_actions,
     "stored-select": check_stored_select,
     "picker-perms": check_picker_perms,
+    "grid-single-frame": check_grid_single_frame,
+    "grid-caption": check_grid_caption,
+    "placeholder-blank": check_placeholder_blank,
 }
 
 

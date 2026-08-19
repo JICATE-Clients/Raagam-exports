@@ -842,7 +842,6 @@ export function CategoryMasterScreen({
                         <Input
                           value={r.name}
                           uppercase
-                          placeholder="e.g. LIGHTS"
                           onChange={(e) => setSubAt(r.key, { name: e.target.value })}
                         />
                       ),

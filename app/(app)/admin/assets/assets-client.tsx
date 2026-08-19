@@ -194,7 +194,7 @@ export function AssetsClient({ rows, locations, items, canCreate }: Props) {
                       <Input id="as-name" value={name} onChange={(e) => setName(e.target.value)} required />
                     )}
                   </div>
-                  <div><Label htmlFor="as-cat">Category</Label><Input id="as-cat" placeholder="e.g. Machinery" value={category} onChange={(e) => setCategory(e.target.value)} /></div>
+                  <div><Label htmlFor="as-cat">Category</Label><Input id="as-cat" value={category} onChange={(e) => setCategory(e.target.value)} /></div>
                   <div><Label htmlFor="as-group">Group</Label><Input id="as-group" value={group} onChange={(e) => setGroup(e.target.value)} /></div>
                   <div>
                     <Label htmlFor="as-loc">Location</Label>

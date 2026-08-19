@@ -292,7 +292,6 @@ export function ApproveAmendmentScreen({ rows, canDecide }: Props) {
         columns={withCreatedColumns(columns, rows)}
         rows={filtered}
         getKey={(r) => r.id}
-        empty="No amendments awaiting approval."
         selectable={canDecide}
         selectedKeys={selected}
         onToggle={toggle}

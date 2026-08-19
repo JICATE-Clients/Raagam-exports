@@ -120,7 +120,6 @@ export default async function JournalEntryPage({
             columns={lineColumns}
             rows={entry.lines}
             getKey={(r) => r.id}
-            empty="No lines on this entry."
           />
         </CardBody>
       </Card>

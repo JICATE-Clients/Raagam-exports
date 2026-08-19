@@ -312,7 +312,7 @@ export function GrnNewForm({ openPoLines, vendors, locations }: Props) {
                 </thead>
                 {/* Row markers give ↓/↑ Excel-style column-wise movement across
                     lines — see gridKeyNav in components/masters/child-grid.tsx. */}
-                <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, () => {})}>
+                <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
                   {draftLines.map((l) => (
                     <tr
                       key={l.tempId}

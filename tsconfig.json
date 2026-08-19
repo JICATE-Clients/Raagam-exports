@@ -39,7 +39,11 @@
     ".next-verify/types/**/*.ts",
     ".next-verify/dev/types/**/*.ts",
     ".next-fold/types/**/*.ts",
-    ".next-fold/dev/types/**/*.ts"
+    ".next-fold/dev/types/**/*.ts",
+    ".next-build/types/**/*.ts",
+    ".next-build/dev/types/**/*.ts",
+    ".next-build2/types/**/*.ts",
+    ".next-build2/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -55,6 +59,8 @@
     "scripts/check-module-groups.mts",
     "scripts/check-style-rules.mts",
     "scripts/check-picker-identity.mts",
+    "scripts/check-composition-match.mts",
+    "scripts/check-approval-tree.mts",
     "scripts/mine-name-vocabularies.mts",
     "scripts/vocab-sources/**/*.mts"
   ]

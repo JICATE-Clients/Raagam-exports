@@ -245,7 +245,7 @@ export function SqDetailsClient({ rows, rules }: { rows: SqDetailRow[]; rules: G
                 value={form.rejection_rule_id}
                 onChange={(e) => setForm({ ...form, rejection_rule_id: e.target.value })}
               >
-                <option value="">Enter % manually</option>
+                <option value=""></option>
                 {rules
                   // Disabled rows are not offered, but the one this document
                   // already holds survives — AGENTS.md "Disabled rows".

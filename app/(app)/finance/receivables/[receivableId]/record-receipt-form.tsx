@@ -128,7 +128,6 @@ export function RecordReceiptForm({
                 step="0.0001"
                 min="0"
                 required
-                placeholder="e.g. 106.50"
                 value={exchangeRate}
                 onChange={(e) => setExchangeRate(e.target.value)}
               />

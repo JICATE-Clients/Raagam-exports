@@ -167,7 +167,6 @@ export function NewReceivableForm({ buyers, shipments, currencies }: Props) {
                 <Label htmlFor="nr-invoice-no">Invoice no.</Label>
                 <Input
                   id="nr-invoice-no"
-                  placeholder="e.g. INV-2024-001"
                   value={invoiceNo}
                   onChange={(e) => setInvoiceNo(e.target.value)}
                 />
@@ -229,7 +228,6 @@ export function NewReceivableForm({ buyers, shipments, currencies }: Props) {
                   type="number"
                   step="0.0001"
                   min="0"
-                  placeholder="e.g. 106.50"
                   value={exchangeRate}
                   onChange={(e) => setExchangeRate(e.target.value)}
                 />

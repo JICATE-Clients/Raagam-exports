@@ -284,7 +284,7 @@ type FlatStructure = {
   combo: string | null;
   structure_id: string | null;
   fabric_type: string | null;
-  fabric_item_id: string | null;
+  composition_id: string | null;
   gsm: number | null;
   gsm_tolerance: number | null;
   item_sub_type: string | null;
@@ -299,7 +299,7 @@ function flattenStructures(combos: ComboRow[]): FlatStructure[] {
         combo: c.combo,
         structure_id: st.structure_id,
         fabric_type: st.fabric_type,
-        fabric_item_id: st.fabric_item_id,
+        composition_id: st.composition_id,
         gsm: st.gsm,
         gsm_tolerance: st.gsm_tolerance,
         item_sub_type: st.item_sub_type,
@@ -312,20 +312,22 @@ function flattenStructures(combos: ComboRow[]): FlatStructure[] {
 const COMBO_STRUCTURES: TabSpec<FlatStructure> = {
   tab: "comboStructures",
   label: "Combos — Structures",
-  // The structure is part of the KEY, not a field: changing which fabric a row
-  // names is a different fabric, not an edited one — the same reading a
+  // The structure is part of the KEY, not a field: changing which structure a
+  // row names is a different structure, not an edited one — the same reading a
   // recoloured dyeing gets. What remains as fields are the things that can
-  // genuinely change ABOUT a given fabric on a given combo: its GSM, its
-  // tolerance, and which fabric material states its composition.
+  // genuinely change ABOUT a given structure on a given combo: its GSM, its
+  // tolerance, and which composition it is made of.
   key: (r) => `${norm(r.style_ref_no)}|${norm(r.combo)}|${r.structure_id ?? ""}`,
   rowLabel: (r) =>
     [r.style_ref_no?.trim() || "(no style)", r.combo?.trim()].filter(Boolean).join(" · "),
   fields: [
     { field: "fabric_type", label: "Type" },
-    // STILL LABELLED "Composition" though the column now names a fabric (0430):
-    // the operator changed the composition — the fabric is how it is said. A diff
-    // reads to the person who signed the amendment, not to the schema.
-    { field: "fabric_item_id", label: "Composition" },
+    // The label has read "Composition" throughout, across all three columns
+    // this field has had (0408 `composition_id` → 0430 `fabric_item_id` → 0434
+    // `composition_id` again). That is the point of a diff: it reads to the
+    // person who signed the amendment, and to them the thing that changed is
+    // the composition, whatever the schema called it that month.
+    { field: "composition_id", label: "Composition" },
     { field: "gsm", label: "GSM" },
     { field: "gsm_tolerance", label: "Tolerance" },
     { field: "item_sub_type", label: "Fabric Type" },
@@ -371,11 +373,37 @@ const PRICES: TabSpec<PriceRow> = {
   ],
 };
 
+/**
+ * Approval Qty (0413 · 0435).
+ *
+ * KEYED ON style + combo + SIZE, and the widening is a fix, not bookkeeping.
+ * The key was `style_ref_no` alone, from when the tab held one row per style.
+ * 0413 split it by colour and 0435 by size, so a style now carries dozens of
+ * rows — and under the old key every one of them landed in the same bucket.
+ * The failure is the one the Quantities spec below already describes in full:
+ * rows collapse, and a change to RED / 4 YEARS is reported as an edit of
+ * WHITE's line. It reads as a real, specific change to a row nobody touched,
+ * on a document someone signs.
+ *
+ * `qty` IS DELIBERATELY NOT A FIELD. It is derived from the Quantities
+ * assortment tree since 0435, so a quantity change is already reported against
+ * the tab where it was actually made; listing it here as well would print the
+ * same edit twice under two headings. `approval_qty` is the only number this
+ * tab owns.
+ */
 const APPROVAL_QTYS: TabSpec<QtyRow> = {
   tab: "approvalQtys",
   label: "Approval Qty",
-  key: (r) => norm(r.style_ref_no),
-  rowLabel: styleName,
+  key: (r) => `${norm(r.style_ref_no)}|${norm(r.combo)}|${r.size_id ?? ""}`,
+  /* The COLOUR joins the label, the size does not — the same split `PRICES`
+     above makes, and for the same reason. `diff.ts` takes no database, so a
+     size could only be printed as its raw uuid, which identifies the row to
+     nobody reading the amendment. The key still separates the rows, so the
+     count and the buckets are right; what a size-level reader gets is "RED,
+     Approval Qty 0 → 5" without which size. Fixing that means resolving size
+     names before the diff, which is a change to every id-valued column on this
+     document, not to this one spec. */
+  rowLabel: (r) => [styleName(r), r.combo?.trim()].filter(Boolean).join(" · "),
   fields: [{ field: "approval_qty", label: "Approval Qty" }],
 };
 

@@ -109,7 +109,7 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
                   </div>
                   <div>
                     <Label htmlFor="mr-dept">Department</Label>
-                    <Input id="mr-dept" placeholder="e.g. Sewing" value={department} onChange={(e) => setDepartment(e.target.value)} required />
+                    <Input id="mr-dept" value={department} onChange={(e) => setDepartment(e.target.value)} required />
                   </div>
                   <div>
                     <Label htmlFor="mr-date">Required date</Label>

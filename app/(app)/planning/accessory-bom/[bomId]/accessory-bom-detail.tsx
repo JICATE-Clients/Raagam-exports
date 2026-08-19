@@ -673,7 +673,6 @@ function ConsumptionsTab({
                 columns={sizeColumns}
                 rows={cons.sizes}
                 getKey={(r) => r.id}
-                empty="No sizes."
               />
 
               {addSizeFor === cons.id && (
@@ -1056,7 +1055,6 @@ function ProcessesTab({
                 columns={stageColumns}
                 rows={proc.stages}
                 getKey={(r) => r.id}
-                empty="No stages."
               />
 
               {editStageId &&

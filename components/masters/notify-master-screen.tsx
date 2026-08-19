@@ -862,6 +862,7 @@ export function NotifyMasterScreen({
               onRemove={(c) => removeContact(c.key)}
               addLabel="+ Add contact"
               forceCards
+              flatRows
               pageSize={4}
               // `forceCards` + `renderMobileRow` mean these never render; they
               // are the fallback if this grid is ever switched back to a table.

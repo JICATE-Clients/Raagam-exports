@@ -257,7 +257,7 @@ export function GstRatesSection({ gstRates }: { gstRates: GstRate[] }) {
       <Card>
         <CardBody>
           <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[180px] flex-1"><Label htmlFor="gs-name">Name</Label><Input id="gs-name" placeholder="e.g. GST 5%" value={name} onChange={(e) => setName(e.target.value)} required /></div>
+            <div className="min-w-[180px] flex-1"><Label htmlFor="gs-name">Name</Label><Input id="gs-name" value={name} onChange={(e) => setName(e.target.value)} required /></div>
             <div className="w-28"><Label htmlFor="gs-rate">Rate %</Label><Input id="gs-rate" type="number" min="0" max="100" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} /></div>
             <div className="w-32"><Label htmlFor="gs-hsn">HSN code</Label><Input id="gs-hsn" value={hsn} onChange={(e) => setHsn(e.target.value)} /></div>
             <Button type="submit" variant="primary" size="sm" disabled={isPending}>{editId ? "Update" : "Add"}</Button>

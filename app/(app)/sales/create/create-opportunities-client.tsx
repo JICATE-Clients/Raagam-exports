@@ -114,7 +114,6 @@ export function CreateOpportunitiesClient({
             id="season"
             value={season}
             onChange={(e) => setSeason(e.target.value)}
-            placeholder="e.g. SS26"
           />
         </div>
         {canCreate && (

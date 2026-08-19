@@ -145,7 +145,7 @@ export function BankJournalsClient({ journals, currencies, canCreate, canDelete 
             <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <Label htmlFor="bj-bank">Bank</Label>
-                <Input id="bj-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. HDFC Current A/C" />
+                <Input id="bj-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} />
               </div>
               <div>
                 <Label htmlFor="bj-type">Type</Label>

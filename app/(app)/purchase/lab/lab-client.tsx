@@ -222,7 +222,7 @@ export function LabClient(props: Props) {
                   </div>
                   <div>
                     <Label htmlFor="s-param">Parameter</Label>
-                    <Input id="s-param" placeholder="e.g. GSM, pH, colourfastness" value={sParam} onChange={(e) => setSParam(e.target.value)} />
+                    <Input id="s-param" value={sParam} onChange={(e) => setSParam(e.target.value)} />
                   </div>
                   <div>
                     <Label htmlFor="s-method">Method</Label>

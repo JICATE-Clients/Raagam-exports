@@ -445,7 +445,6 @@ function LineForm({
           <Label htmlFor={`lf-desc-${lineId ?? "new"}`}>Description</Label>
           <Input
             id={`lf-desc-${lineId ?? "new"}`}
-            placeholder="e.g. Knitted cotton t-shirt / Navy / M"
             value={form.description}
             onChange={(e) => setField("description", e.target.value)}
             required
@@ -456,7 +455,6 @@ function LineForm({
           <Label htmlFor={`lf-hsn-${lineId ?? "new"}`}>HSN code</Label>
           <Input
             id={`lf-hsn-${lineId ?? "new"}`}
-            placeholder="e.g. 6109"
             value={form.hsn_code}
             onChange={(e) => setField("hsn_code", e.target.value)}
           />
@@ -501,7 +499,6 @@ function LineForm({
             id={`lf-ctn-${lineId ?? "new"}`}
             type="number"
             min="0"
-            placeholder="—"
             value={form.cartons}
             onChange={(e) => setField("cartons", e.target.value)}
           />
@@ -514,7 +511,6 @@ function LineForm({
             type="number"
             min="0"
             step="0.01"
-            placeholder="—"
             value={form.net_weight}
             onChange={(e) => setField("net_weight", e.target.value)}
           />
@@ -527,7 +523,6 @@ function LineForm({
             type="number"
             min="0"
             step="0.01"
-            placeholder="—"
             value={form.gross_weight}
             onChange={(e) => setField("gross_weight", e.target.value)}
           />

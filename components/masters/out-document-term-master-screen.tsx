@@ -438,6 +438,7 @@ export function OutDocumentTermMasterScreen({
             label="Description"
             pageSize={10}
             forceCards
+            flatRows
             rows={lines}
             onAdd={addLine}
             onRemove={(l) => removeLine(l.key)}
@@ -446,7 +447,7 @@ export function OutDocumentTermMasterScreen({
               {
                 header: "Description",
                 cell: (l) => (
-                  <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, e.target.value)} placeholder="Description" className="text-base md:text-sm" />
+                  <Input uppercase value={l.description} onChange={(e) => setLineAt(l.key, e.target.value)} className="text-base md:text-sm" />
                 ),
               },
             ]}

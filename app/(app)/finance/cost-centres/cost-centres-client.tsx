@@ -172,7 +172,7 @@ export function CostCentresClient({
               </div>
               <div className="min-w-40 flex-1">
                 <Label htmlFor="g-name" className="mb-0.5">Group name *</Label>
-                <Input id="g-name" value={gName} onChange={(e) => setGName(e.target.value)} placeholder="e.g. Production" required />
+                <Input id="g-name" value={gName} onChange={(e) => setGName(e.target.value)} required />
               </div>
               <Button type="submit" size="sm" disabled={isPending || !gName.trim()}>
                 Add
@@ -217,7 +217,7 @@ export function CostCentresClient({
               </div>
               <div className="min-w-32 flex-1">
                 <Label htmlFor="c-name" className="mb-0.5">Centre name *</Label>
-                <Input id="c-name" value={cName} onChange={(e) => setCName(e.target.value)} placeholder="e.g. Cutting" required />
+                <Input id="c-name" value={cName} onChange={(e) => setCName(e.target.value)} required />
               </div>
               <div>
                 <Label htmlFor="c-group" className="mb-0.5">Group</Label>

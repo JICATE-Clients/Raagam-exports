@@ -155,7 +155,7 @@ export function OtherEntriesClient({ entries, currencies, canCreate, canDelete }
               </div>
               <div>
                 <Label htmlFor="oe-cat">Category</Label>
-                <Input id="oe-cat" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Bank charges" />
+                <Input id="oe-cat" value={category} onChange={(e) => setCategory(e.target.value)} />
               </div>
               <div>
                 <Label htmlFor="oe-desc">Description *</Label>

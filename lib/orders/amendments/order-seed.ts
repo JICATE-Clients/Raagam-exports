@@ -1,7 +1,13 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { styleKey } from "./style-key";
-import { asItemSubType } from "./combo-rules";
+import {
+  asItemSubType,
+  compositionForStructure,
+  type CompositionBlend,
+  type FabricBlend,
+  type MixingShare,
+} from "./combo-rules";
 import type {
   AmendmentStyle,
   AmendmentDyeing,
@@ -415,6 +421,8 @@ export async function seedAmendmentFromOrder(
     { data: garmentRows },
     { data: componentMasterRows },
     { data: itemClassRows },
+    { data: mixingRows },
+    { data: compositionRows },
   ] = await Promise.all([
     s.from("categories").select("id, name"),
     // `category_id` RIDES ALONG for the fabric resolution below — and this is
@@ -422,6 +430,13 @@ export async function seedAmendmentFromOrder(
     s.from("items").select("id, name, item_class_id, category_id"),
     s.from("components").select("id, short_name"),
     s.from("config_lookups").select("id, code").eq("kind", "item_class"),
+    // The two halves of the composition fetch (0434). Flat selects, no embed:
+    // `material_mixings` holds TWO FKs to `items`, so an unqualified embed is
+    // ambiguous and fails the WHOLE query — the trap `getFabricRows` spells its
+    // constraint names out to avoid. Joined in JS below against the `items` rows
+    // already fetched above, which is where each yarn's category is.
+    s.from("material_mixings").select("item_id, component_item_id, blend_pct"),
+    s.from("compositions").select("id, inactive, lines:composition_lines(category_id, mixing_pct)"),
   ]);
 
   const garIds = new Set(
@@ -431,8 +446,9 @@ export async function seedAmendmentFromOrder(
   );
   const categoryByName = indexByName((categoryRows ?? []) as { id: string; name: string | null }[]);
   /**
-   * THE FABRICS, BY THE CATEGORY THEY SIT IN (0430) — the seeder's half of
-   * "Composition is fetched, not typed".
+   * THE FABRICS, BY THE CATEGORY THEY SIT IN — the seeder's half of "Composition
+   * is fetched, not typed" (0430, and still true after 0434 moved the ANSWER
+   * back to the `compositions` master).
    *
    * This replaced a `compositionByName` index over the `compositions` master,
    * which resolved `order_fabrics.composition` — a free-text phrase like
@@ -443,11 +459,16 @@ export async function seedAmendmentFromOrder(
    * `service.ts`.
    *
    * MATCHED BY CATEGORY, NOT BY NAME, and only when the answer is unambiguous —
-   * the identical rule the screen applies when the operator picks a Structure
-   * (`fabricsFor` / `pickComboStructure`). A category with two fabrics in it has
-   * no single right answer, so the seed leaves the field blank and the operator
-   * picks: "a blank picker is a visible prompt, a dropped row is silent data
-   * loss", and inventing one of two fabrics is neither.
+   * and the rule itself is now `compositionForStructure()` in `combo-rules.ts`,
+   * the SAME function `pickComboStructure` calls on the screen. That is the whole
+   * reason it lives in a pure file: a seeded amendment and a hand-picked one must
+   * reach the same composition, and two copies of a rule stay identical exactly
+   * until one of them is improved.
+   *
+   * A category with two fabrics in it has no single right answer, so the seed
+   * leaves the field blank and the operator picks: "a blank picker is a visible
+   * prompt, a dropped row is silent data loss", and inventing one of two fabrics
+   * is neither.
    */
   // `fabricClassIds`, NOT `fabricIds` — that name is taken, two hundred lines up,
   // by the ids of the legacy `order_fabrics` ROWS this seed reads. Two different
@@ -458,22 +479,49 @@ export async function seedAmendmentFromOrder(
       .filter((c) => (c.code ?? "").toUpperCase() === "FABRIC")
       .map((c) => c.id),
   );
-  const fabricsByCategory = new Map<string, string[]>();
-  for (const i of (garmentRows ?? []) as {
+  // Every item's category, so a mixing line's YARN can be reduced to the unit a
+  // composition speaks in. `garmentRows` is already every item, so this is a
+  // re-index rather than another query.
+  const categoryOfItem = new Map<string, string | null>(
+    ((garmentRows ?? []) as { id: string; category_id: string | null }[]).map((i) => [
+      i.id,
+      i.category_id,
+    ]),
+  );
+  const mixingByFabric = new Map<string, MixingShare[]>();
+  for (const m of (mixingRows ?? []) as {
+    item_id: string;
+    component_item_id: string | null;
+    blend_pct: number | null;
+  }[]) {
+    const list = mixingByFabric.get(m.item_id) ?? [];
+    list.push({
+      category_id: m.component_item_id ? categoryOfItem.get(m.component_item_id) ?? null : null,
+      pct: m.blend_pct == null ? null : Number(m.blend_pct),
+    });
+    mixingByFabric.set(m.item_id, list);
+  }
+  const fabricBlends: FabricBlend[] = ((garmentRows ?? []) as {
     id: string;
     item_class_id: string | null;
     category_id: string | null;
-  }[]) {
-    if (!i.item_class_id || !fabricClassIds.has(i.item_class_id) || !i.category_id) continue;
-    const list = fabricsByCategory.get(i.category_id) ?? [];
-    list.push(i.id);
-    fabricsByCategory.set(i.category_id, list);
-  }
-  const soleFabricIn = (categoryId: string | null) => {
-    if (!categoryId) return null;
-    const list = fabricsByCategory.get(categoryId) ?? [];
-    return list.length === 1 ? list[0] : null;
-  };
+  }[])
+    .filter((i) => i.item_class_id && fabricClassIds.has(i.item_class_id) && i.category_id)
+    .map((i) => ({ id: i.id, category_id: i.category_id, mixing: mixingByFabric.get(i.id) ?? [] }));
+  const compositionBlends: CompositionBlend[] = (
+    (compositionRows ?? []) as {
+      id: string;
+      inactive: boolean | null;
+      lines: { category_id: string | null; mixing_pct: number }[] | null;
+    }[]
+  ).map((c) => ({
+    id: c.id,
+    inactive: c.inactive ?? false,
+    lines: (c.lines ?? []).map((l) => ({
+      category_id: l.category_id,
+      mixing_pct: Number(l.mixing_pct),
+    })),
+  }));
   // A COORDINATE IS A GARMENT (0396), so the list is scoped to item class GAR
   // here rather than matched against every item in the database — an item named
   // "PIECES" in some other class would otherwise resolve and be wrong.
@@ -715,12 +763,13 @@ export async function seedAmendmentFromOrder(
      * fabric the order really carries must not vanish from the amendment because
      * its name is spelled differently in the masters.
      *
-     * COMPOSITION IS NO LONGER RESOLVED AT ALL, because it is no longer a value:
-     * the row names the FABRIC and the composition is read off it (0430). The
-     * legacy column holds a phrase, not a reference, so what carries over is the
-     * structure — and the fabric follows from it when that category holds exactly
-     * one. `f.composition` is deliberately left unread: matching a phrase against
-     * a fabric's name would resolve by coincidence or not at all.
+     * COMPOSITION IS DERIVED, NOT COPIED: what carries over is the structure, and
+     * the composition follows from it through the fabric when that category holds
+     * exactly one (0430 · 0434). `f.composition` is deliberately left unread —
+     * the legacy column holds a PHRASE like "100% BCI COTTON", not a reference,
+     * and matching a phrase against a master's names would resolve by coincidence
+     * or not at all. That reasoning is untouched by the answer moving back to the
+     * `compositions` master.
      *
      * `fabric_type` and `item_sub_type` are NOT resolved at all: both columns
      * carry the same CHECK on both sides (0329 and 0408 share the vocabulary
@@ -730,8 +779,10 @@ export async function seedAmendmentFromOrder(
       sno: parent.structures.length + 1,
       structure_id: categoryByName.get((f.structure_name ?? "").trim().toUpperCase()) ?? null,
       fabric_type: f.fabric_type ?? null,
-      fabric_item_id: soleFabricIn(
+      composition_id: compositionForStructure(
         categoryByName.get((f.structure_name ?? "").trim().toUpperCase()) ?? null,
+        fabricBlends,
+        compositionBlends,
       ),
       gsm: f.gsm ?? null,
       gsm_tolerance: f.gsm_tolerance ?? null,
@@ -803,6 +854,12 @@ export async function seedAmendmentFromOrder(
       ...label,
       combo: null,
       combo_description: null,
+      /* NO SIZE EITHER (0435). `order_pack_ratios` is per STYLE, so the seed
+         knows neither the colour split nor the size split. The row carries the
+         style total until the operator enters the Quantities assortment, at
+         which point the tab derives its own rows and this one shows as a
+         legacy line rather than disappearing. */
+      size_id: null,
       qty: Number(p.order_qty ?? 0),
       approval_qty: 0,
     });

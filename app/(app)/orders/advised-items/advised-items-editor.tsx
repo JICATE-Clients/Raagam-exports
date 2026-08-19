@@ -222,7 +222,6 @@ export function AdvisedItemsEditor({
                     uppercase
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g. Main label"
                     required
                   />
                 </Field>
@@ -232,7 +231,6 @@ export function AdvisedItemsEditor({
                     uppercase
                     value={attribute}
                     onChange={(e) => setAttribute(e.target.value)}
-                    placeholder="e.g. woven, red"
                   />
                 </Field>
                 <Field label="Quantity" size="sm" htmlFor="ai-qty">

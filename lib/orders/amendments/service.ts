@@ -14,6 +14,8 @@ import type { ProcessOption } from "./style-processes";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
 import type { GarmentOrderAmendment } from "./types";
 import type { Deactivatable } from "@/lib/masters/inactive";
+import type { MixingShare } from "./combo-rules";
+import { listCompositionsForPicker, type CompositionPickerRow } from "@/lib/masters/composition-service";
 import { withCreators } from "@/lib/created-by";
 
 /** A row normalized to {id, code, name} for a RecordPicker. */
@@ -44,7 +46,16 @@ export type ConsigneeRow = PickerRow & { customer_id: string | null };
  * the extra key lives on the SCREEN, which is where the picked Structure is.
  * `name` is already the composition — see `getFabricRows`.
  */
-export type FabricRow = PickerRow & { category_id: string | null };
+export type FabricRow = PickerRow & {
+  category_id: string | null;
+  /**
+   * The fabric's blend, reduced to what `compositionForStructure()` matches on
+   * (0434). The type is imported from `combo-rules.ts` rather than restated
+   * here on purpose: the feeder and the rule then fail to COMPILE if they ever
+   * drift, instead of silently agreeing on nothing at runtime.
+   */
+  mixing: MixingShare[];
+};
 
 /**
  * An order row for the SCNo picker. Carries the order's buyer / currency /
@@ -587,11 +598,21 @@ export type AmendmentFormData = {
    */
   categories: Category[];
   /**
-   * THE FABRICS a combo structure may name, and their `name` IS THE COMPOSITION
-   * (0430). Replaced `compositions`, which pointed this field at a master the
-   * order could not fetch from — see `getFabricRows`.
+   * THE FABRICS behind a structure. No longer an option list of its own (0434):
+   * nothing picks a fabric on this screen any more. It is the DERIVATION'S
+   * INPUT — `compositionForStructure()` reads `category_id` to find the
+   * structure's sole fabric and `mixing` to read its blend.
    */
   fabrics: FabricRow[];
+  /**
+   * THE COMPOSITION MASTER (0434) — what the Composition cell picks from, and
+   * what the derivation matches against. The whole active list, deliberately
+   * NOT narrowed by the picked Structure: a composition is a property of the
+   * fabric, not of the category, so narrowing would need the same derivation
+   * and would offer at most the row it had already pre-selected — which is the
+   * dead end ("Pick a Structure first") this replaced.
+   */
+  compositions: CompositionPickerRow[];
   /** A COORDINATE IS A GARMENT (0396) — `items` of class GAR. */
   coordinates: PickerRow[];
   /** The `components` master (0228/0396), not the empty lookup kind. */
@@ -644,27 +665,46 @@ async function getComponentPickerRows(): Promise<PickerRow[]> {
 }
 
 /**
- * THE FABRICS a combo structure can name — `items` of class FABRIC, LABELLED BY
- * THEIR COMPOSITION (client 2026-08-17, screenshot 2324).
+ * THE FABRICS BEHIND A STRUCTURE — `items` of class FABRIC.
  *
- * This replaced `getCompositionRows()`, and both halves of that replacement are
- * the point:
+ * NOT AN OPTION LIST ANY MORE (0434). Nothing on this screen picks a fabric;
+ * the Composition cell reads the `compositions` master again. What this feeds
+ * is the DERIVATION: `compositionForStructure()` uses `category_id` to find a
+ * structure's sole fabric and `mixing` to read its blend, and that is how 0430's
+ * "fetch it from the previous tab automatically" survives the source changing.
  *
- * WHY NOT THE `compositions` MASTER. 0408 pointed this field at it, so the value
- * could only ever be typed in by hand from a master with one test row in it —
- * there is nothing upstream to fetch it FROM, because what the order knows is
- * the Structure (a fabric category) and a category declares no composition. A
- * Fabric material does, and must: `material_mixings` is mandatory on the Material
- * master ("A Fabric is DEFINED by what it is made of"). So the row names the
- * fabric and the composition is derived from it (0430).
+ * WHY THE MASTER CAME BACK, since this header used to argue the opposite. 0430
+ * made two charges and both have been answered:
  *
- * AND WHY THAT MASTER'S PICKER WAS EMPTY ANYWAY — `select(... "blocked" ...)` on
- * a table whose flag column is spelled `inactive` (0299 renamed it). PostgREST
- * fails the WHOLE query on an unknown column, the `const { data } =` swallowed
- * the error, and `data ?? []` turned it into "No composition found." — a picker
- * that looked merely unpopulated, which is the exact shape `getStyleRows` below
- * carries an `if (error) throw` to prevent. THAT is why this one throws too: the
- * same defect here would now say so instead of emptying the field.
+ *   1. "there is nothing upstream to fetch it FROM" — because what the order
+ *      knows is the Structure (a fabric category) and a category declares no
+ *      composition. True, and answered not by ignoring it but by going one hop
+ *      further: a Fabric MUST declare `material_mixings` ("A Fabric is DEFINED
+ *      by what it is made of"), each mixing line names a yarn, and every yarn
+ *      carries a CATEGORY — which is the unit `composition_lines` stores. So
+ *      the blend reduces to the master's own vocabulary and the fetch is real.
+ *   2. "that master's picker was empty anyway" — `select(... "blocked" ...)` on
+ *      a table whose flag column is spelled `inactive` (0299 renamed it).
+ *      PostgREST fails the WHOLE query on an unknown column, the
+ *      `const { data } =` swallowed the error, and `data ?? []` turned it into
+ *      "No composition found." That was a BUG, not a property of the master,
+ *      and it is fixed (composition-actions.ts, composition-service.ts).
+ *
+ * The third thing that changed is the master itself: its `name` is now composed
+ * from its own Mixing grid, so a row reads `COTTON 95%, ELASTANE 5%` instead of
+ * the opaque `Test Composition` that made 0408's picker look unwired.
+ *
+ * THIS ONE STILL THROWS, for the reason charge 2 records: the same defect here
+ * would say so instead of silently emptying the field. That is the shape
+ * `getStyleRows` below carries an `if (error) throw` to prevent.
+ *
+ * THE LABEL IS STILL THE MIXTURE, and it is still read by a human — the folded
+ * row summary and any future fabric picker. Note it renders the same idea in a
+ * DIFFERENT format from the master (`95% COTTON / 5% ELASTANE` here,
+ * `COTTON 95%, ELASTANE 5%` via `mixingList`). Unifying them is worth doing and
+ * is deliberately not bundled here, because it would also change the Fabric
+ * label on Fabric BOM. **The match never reads either string** — ids and
+ * numbers only, so the two formats cannot make it wrong.
  *
  * THE LABEL IS THE MIXTURE, NOT THE MATERIAL'S NAME (operator, 2026-08-12, and
  * unchanged by the source moving). The legacy cell reads "100% BCI CO…" — the
@@ -713,7 +753,7 @@ async function getFabricRows(): Promise<FabricRow[]> {
         // trusted: both names verified against pg_constraint, not guessed.
         "mixings:material_mixings!material_mixings_item_id_fkey(" +
         "sno, blend_pct, description, " +
-        "yarn:items!material_mixings_component_item_id_fkey(name))",
+        "yarn:items!material_mixings_component_item_id_fkey(name, category_id))",
     )
     .order("name");
   if (error) throw new Error(`Could not load fabrics for the Structure picker: ${error.message}`);
@@ -731,7 +771,7 @@ async function getFabricRows(): Promise<FabricRow[]> {
             sno: number;
             blend_pct: number | null;
             description: string | null;
-            yarn: { name: string | null } | null;
+            yarn: { name: string | null; category_id: string | null } | null;
           }[]
         | null;
     }[]
@@ -747,12 +787,24 @@ async function getFabricRows(): Promise<FabricRow[]> {
         .filter((m) => m.fibre)
         .map((m) => (m.pct == null ? m.fibre : `${pct(Number(m.pct))}% ${m.fibre}`))
         .join(" / ");
+      // The same lines the label is built from, in the shape the RULE reads:
+      // the yarn's CATEGORY, not its name. A composition speaks in categories
+      // (COTTON) and a fabric's mixing in yarn items (30'S COTTON COMBED), so
+      // the two are comparable only after this hop — which is also why the
+      // match is on ids and never on the label above.
+      const mixing: MixingShare[] = [...(i.mixings ?? [])]
+        .sort((a, b) => a.sno - b.sno)
+        .map((m) => ({
+          category_id: m.yarn?.category_id ?? null,
+          pct: m.blend_pct == null ? null : Number(m.blend_pct),
+        }));
       return {
         id: i.id,
         code: i.code,
         name: mixture || i.name || "(unnamed fabric)",
         category_id: i.category_id,
         is_active: i.is_active,
+        mixing,
       };
     });
 }
@@ -849,6 +901,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     ports,
     categories,
     fabrics,
+    compositions,
     coordinates,
     componentRows,
     processes,
@@ -870,6 +923,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     getPortRows(),
     listCategories(),
     getFabricRows(),
+    listCompositionsForPicker(),
     getCoordinateRows(),
     getComponentPickerRows(),
     getProcessRows(),
@@ -895,6 +949,7 @@ export async function getAmendmentFormData(): Promise<AmendmentFormData> {
     ports,
     categories,
     fabrics,
+    compositions,
     coordinates,
     componentRows,
     processes,

@@ -336,7 +336,6 @@ function QuantitiesTab({ ppm }: { ppm: PpmDetail }) {
           columns={qtyColumns}
           rows={ppm.quantities}
           getKey={(r) => r.id}
-          empty="No quantities recorded."
         />
       </CardBody>
     </Card>

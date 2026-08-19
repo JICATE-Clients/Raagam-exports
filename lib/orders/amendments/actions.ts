@@ -221,7 +221,7 @@ function structureFilled(r: AmendmentInput["combos"][number]["structures"][numbe
   return (
     r.structure_id ||
     r.fabric_type ||
-    r.fabric_item_id ||
+    r.composition_id ||
     r.gsm ||
     r.gsm_tolerance ||
     r.item_sub_type ||
@@ -282,9 +282,11 @@ function normalizePriceDetails(data: AmendmentInput) {
  * filter that only looked at `approval_qty` would silently discard exactly the
  * rows the Projection and Excess columns are computed from.
  *
- * De-duplicated on (style, combo) to match 0413's unique index, which the screen
- * already prevents via `usedIds` — this is for `lib/data-io`, which writes past
- * the screen and would otherwise hit a 23505 the operator cannot act on.
+ * De-duplicated on (style, combo, size) to match `uq_goa_approval_qty_combo_size`
+ * (0413, widened by 0435) — this is for `lib/data-io`, which writes past the
+ * screen and would otherwise hit a 23505 the operator cannot act on. The screen
+ * cannot produce a duplicate at all since 0435: its rows are DERIVED from the
+ * Quantities assortment tree rather than added by hand.
  */
 function normalizeApprovalQtys(data: AmendmentInput) {
   const seen = new Set<string>();
@@ -296,6 +298,7 @@ function normalizeApprovalQtys(data: AmendmentInput) {
       combo: clean(r.combo),
       combo_description: clean(r.combo_description),
       qty: Number(r.qty) || 0,
+      size_id: r.size_id ?? null,
       approval_qty: Number(r.approval_qty) || 0,
     }))
     .filter(
@@ -303,7 +306,18 @@ function normalizeApprovalQtys(data: AmendmentInput) {
         r.style_ref_no || r.style || r.article_no || r.combo || r.qty || r.approval_qty,
     )
     .filter((r) => {
-      const k = JSON.stringify([styleKey(r.style_ref_no), (r.combo ?? "").toUpperCase()]);
+      /* THE SIZE IS PART OF THE KEY (0435), and leaving it out is not a near
+         miss — it is the whole feature deleted. The tab now carries one row per
+         style + combo + SIZE, so a key of (style, combo) alone reduces nine
+         sizes of RED to one row and silently discards eight approval
+         quantities. Matches `uq_goa_approval_qty_combo_size`, which is also
+         NULLS NOT DISTINCT, so a null size collides with a null size exactly as
+         it does here. */
+      const k = JSON.stringify([
+        styleKey(r.style_ref_no),
+        (r.combo ?? "").toUpperCase(),
+        r.size_id ?? "",
+      ]);
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
@@ -396,11 +410,32 @@ function normalizeQuantities(data: AmendmentInput) {
     .map((r, i) => ({ ...r, sno: i + 1 }));
 }
 
-/** Does this assortment line say anything at all? */
+/**
+ * Does this assortment line say anything at all?
+ *
+ * EVERY TYPEABLE CELL COUNTS, and the two added on 2026-08-19 are the point:
+ * this test used to read `combo || no_of_cartons || a named size`, which is
+ * three of the line's five inputs. A line where the operator had typed ONLY an
+ * inner count (0432) or ONLY a style ref (0433) answered "blank" and was
+ * dropped on save — silently, because dropping a blank line is the ordinary
+ * thing this function is for. A completeness test that enumerates the columns
+ * has to be extended with the columns; there is no clever shortcut, so the
+ * check is written out and this comment says why.
+ *
+ * `inners_per_carton` is tested against its DEFAULT rather than for truthiness:
+ * the Zod input fills a blank box with 1, so `Number(...) || 0` would read
+ * every untouched line as answered and keep them all alive.
+ */
 function assortLineFilled(l: AmendmentInput["quantities"][number]["assort_lines"][number]) {
   // A size cell counts only when it NAMES a size — an untouched grid is a row
   // of zeroes against nothing, and would otherwise keep every blank line alive.
-  return clean(l.combo) || l.no_of_cartons || l.sizes.some((z) => z.size_id);
+  return (
+    clean(l.style_ref_no) ||
+    clean(l.combo) ||
+    l.no_of_cartons ||
+    Number(l.inners_per_carton) > 1 ||
+    l.sizes.some((z) => z.size_id)
+  );
 }
 
 /** Replace every child grid wholesale for a given amendment id. */
@@ -530,8 +565,15 @@ async function writeAssortTree(
       lineRows.push({
         quantity_id: quantityId,
         sno,
+        // NULL, not "", when the line names no style (0433) — that is the row
+        // saying it inherits the destination's style, and `clean` already
+        // returns null for a blank so the two states cannot blur.
+        style_ref_no: clean(l.style_ref_no),
         combo: clean(l.combo),
         no_of_cartons: Number(l.no_of_cartons) || 0,
+        // `|| 1`, never `|| 0` — see the Zod input's note (0432). A multiplier
+        // that falls back to zero empties the order rather than failing.
+        inners_per_carton: Number(l.inners_per_carton) || 1,
       });
     }
   });
@@ -644,7 +686,7 @@ async function writeComboTree(
         sno,
         structure_id: st.structure_id,
         fabric_type: clean(st.fabric_type),
-        fabric_item_id: st.fabric_item_id,
+        composition_id: st.composition_id,
         gsm: st.gsm,
         gsm_tolerance: st.gsm_tolerance,
         item_sub_type: clean(st.item_sub_type),

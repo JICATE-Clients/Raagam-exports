@@ -156,6 +156,99 @@ export type BomLineInput = {
   decimals: number | null;
 };
 
+/**
+ * One panel's share of a line (0436) — the Combination sheet's row, as much of
+ * it as the requirement needs.
+ *
+ * `label` is the caller's, because THIS MODULE IS NAME-BLIND and a refusal has
+ * to name the panel it is about. Everything else here resolves ids to names in
+ * the screen, so passing the one string a refusal needs is cheaper than teaching
+ * the engine the components master.
+ */
+export type BomLineComponent = {
+  component_id: string;
+  /** NULL means the line's own Item Color (0436). */
+  item_color_id: string | null;
+  no_of_items: number | null;
+  per_pieces: number | null;
+  label?: string | null;
+};
+
+/**
+ * A LINE'S PANELS, COLLAPSED ONTO THE THING YOU ACTUALLY BUY.
+ *
+ * You do not buy sleeve-thread and front-thread; you buy thread — so panels of
+ * the SAME colour sum into one rate and vanish. You do buy white thread and navy
+ * thread separately, so each distinct colour survives as its own split and
+ * becomes its own requirement row. That boundary is 0436's whole design, and it
+ * is why a component never reaches `material_bom_amendment_requirements` while a
+ * colour now does.
+ *
+ * The summed rate is expressed as items per ONE piece, so a split can be handed
+ * straight to `requirementFor` with `per_pieces: 1`. Two front/2-per and
+ * sleeve/1-per-2 become 2 + 0.5 = 2.5 per garment, which is the number a cone is
+ * bought against — the panels are how it was ARRIVED at, not how it is ordered.
+ *
+ * AN EMPTY ARRAY IS NOT A REFUSAL, and callers must not treat it as one: a line
+ * with no panels is the ordinary line, and its own ratio applies. 0436 is opt-in
+ * per line precisely so that stays true.
+ */
+export type ColourSplit = {
+  /** NULL means the line's own Item Color — resolved by the caller, which is
+   *  also the only layer that can name a colour. */
+  item_color_id: string | null;
+  /** Which panels fed this rate. For the screen's summary; never arithmetic. */
+  component_ids: string[];
+  /** The panels' rates SUMMED, over one piece. */
+  no_of_items: number;
+  per_pieces: 1;
+};
+
+export function colourSplits(
+  lineColourId: string | null,
+  components: readonly BomLineComponent[],
+): ColourSplit[] | Refusal {
+  if (components.length === 0) return [];
+
+  // Insertion-ordered, so the sheet's row order is the requirement's row order.
+  // A Map keyed by the resolved colour is what merges two panels of one colour.
+  const byColour = new Map<string, ColourSplit>();
+
+  for (const c of components) {
+    const items = num(c.no_of_items);
+    const pieces = num(c.per_pieces);
+    const who = (c.label ?? "").trim() || "A panel";
+
+    // The same two guards `requirementFor` applies to a line, applied one level
+    // down — because a bad panel would otherwise be summed into a rate that
+    // looks entirely reasonable, and the refusal would name the LINE. `x / 0` is
+    // Infinity in JS rather than a throw, which is how it would escape.
+    if (items == null || items < 0) {
+      return { refused: `${who}: enter how many are used` };
+    }
+    if (pieces == null || pieces <= 0) {
+      return { refused: `${who}: pieces must be more than 0` };
+    }
+
+    const colour = c.item_color_id ?? lineColourId ?? null;
+    const key = colour ?? "";
+    const at = byColour.get(key);
+    if (at) {
+      at.no_of_items += items / pieces;
+      at.component_ids.push(c.component_id);
+    } else {
+      byColour.set(key, {
+        item_color_id: colour,
+        component_ids: [c.component_id],
+        no_of_items: items / pieces,
+        per_pieces: 1,
+      });
+    }
+  }
+
+  return [...byColour.values()];
+}
+
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const comboKey = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
 

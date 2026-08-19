@@ -90,7 +90,6 @@ export function GstinCell({
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        placeholder="—"
         aria-label={label}
         className="h-8 w-full font-mono text-base md:text-sm"
       />

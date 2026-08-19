@@ -339,7 +339,6 @@ function ProcessTab({
                 columns={compColumns}
                 rows={proc.components}
                 getKey={(r) => r.id}
-                empty="No components."
               />
 
               {/* Add component form */}
@@ -428,7 +427,6 @@ function ProcessTab({
                       columns={placeColumns}
                       rows={comp.placements}
                       getKey={(r) => r.id}
-                      empty="No placements."
                     />
 
                     {addPlaceFor === comp.id && (

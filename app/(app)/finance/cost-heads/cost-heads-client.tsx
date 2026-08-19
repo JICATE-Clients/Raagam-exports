@@ -164,7 +164,7 @@ export function CostHeadsClient({
             >
               <div className="min-w-32 flex-1">
                 <Label htmlFor="h-name" className="mb-0.5">Head name *</Label>
-                <Input id="h-name" value={hName} onChange={(e) => setHName(e.target.value)} placeholder="e.g. Direct Labour" required />
+                <Input id="h-name" value={hName} onChange={(e) => setHName(e.target.value)} required />
               </div>
               <div>
                 <Label htmlFor="h-cat" className="mb-0.5">Category</Label>
@@ -202,7 +202,7 @@ export function CostHeadsClient({
             >
               <div className="min-w-32 flex-1">
                 <Label htmlFor="i-name" className="mb-0.5">Item name *</Label>
-                <Input id="i-name" value={iName} onChange={(e) => setIName(e.target.value)} placeholder="e.g. Overtime wages" required />
+                <Input id="i-name" value={iName} onChange={(e) => setIName(e.target.value)} required />
               </div>
               <div>
                 <Label htmlFor="i-head" className="mb-0.5">Cost head</Label>

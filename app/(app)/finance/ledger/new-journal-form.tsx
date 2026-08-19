@@ -182,7 +182,7 @@ export function NewJournalForm({
             {/* ↓/↑ walk a column across journal lines — gridKeyNav, see
                 components/masters/child-grid.tsx. The debit/credit column walk
                 is exactly what down-arrow is for in daily finance entry. */}
-            <div className="space-y-1.5" data-grid-body onKeyDown={(e) => gridKeyNav(e, addLine)}>
+            <div className="space-y-1.5" data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
               {lines.map((line, idx) => (
                 <div
                   key={idx}
@@ -239,6 +239,7 @@ export function NewJournalForm({
               variant="ghost"
               size="sm"
               className="mt-2"
+              data-row-add
               onClick={addLine}
             >
               + Add line

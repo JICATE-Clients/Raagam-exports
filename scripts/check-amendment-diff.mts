@@ -443,7 +443,7 @@ check(
 const comboRow = (
   ref: string,
   combo: string,
-  structures: { structure_id: string; gsm?: number | null; fabric_item_id?: string | null }[] = [],
+  structures: { structure_id: string; gsm?: number | null; composition_id?: string | null }[] = [],
 ) => ({
   sno: 1,
   style_ref_no: ref,
@@ -455,7 +455,7 @@ const comboRow = (
     sno: i + 1,
     structure_id: st.structure_id,
     fabric_type: null,
-    fabric_item_id: st.fabric_item_id ?? null,
+    composition_id: st.composition_id ?? null,
     gsm: st.gsm ?? null,
     gsm_tolerance: null,
     item_sub_type: null,
@@ -531,25 +531,144 @@ check(
   ["Combos — Structures · TSH-001 · WHITE: GSM 200 → 180"],
 );
 
-// COMPOSITION IS STILL CALLED COMPOSITION (0430). The column stopped being an
-// FK to the `compositions` master and became the FABRIC that declares the blend,
-// which is a change of source, not of subject — the amendment document is read
-// by the person who signed the order, and to them the composition changed.
+// COMPOSITION IS STILL CALLED COMPOSITION, through three columns now: an FK to
+// the `compositions` master (0408), the FABRIC that declares the blend (0430),
+// and the master again (0434). Every one of those was a change of SOURCE, not
+// of subject — the amendment document is read by the person who signed the
+// order, and to them the composition changed.
 //
 // ASSERTS THE LABEL, not the count: a rename that forgot `diff.ts` would still
 // produce exactly one row here, and a bucket keyed on the wrong field still
 // produces one. Verified by breaking it first — relabelled "Fabric" the vector
-// fails on the text, and with `fabric_item_id` dropped from `fields` it fails
+// fails on the text, and with `composition_id` dropped from `fields` it fails
 // with nothing reported at all.
 check(
-  "changing which fabric states the composition reads as Composition",
+  "changing the composition a structure is made of reads as Composition",
   summarise(
     diffAmendment(
-      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, fabric_item_id: "fab-a" }])] }),
-      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, fabric_item_id: "fab-b" }])] }),
+      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, composition_id: "cmp-a" }])] }),
+      seed({ combos: [comboRow("TSH-001", "WHITE", [{ structure_id: SJ, composition_id: "cmp-b" }])] }),
     ),
   ),
-  ["Combos — Structures · TSH-001 · WHITE: Composition fab-a → fab-b"],
+  ["Combos — Structures · TSH-001 · WHITE: Composition cmp-a → cmp-b"],
+);
+
+// APPROVAL QTY IS KEYED ON style + combo + SIZE (0413 · 0435), and this vector
+// exists because the key was WRONG for two migrations without anything noticing.
+// It was `style_ref_no` alone, from when the tab held one row per style; 0413
+// split it by colour and 0435 by size, so a style now carries dozens of rows and
+// every one of them landed in the same bucket.
+//
+// A COUNT VECTOR WOULD NOT HAVE CAUGHT IT — one changed row still reports one
+// row under the broken key. What it reports is the WRONG row: an edit to RED
+// shows up as a change to WHITE's line, on a document someone signs. So this
+// asserts who got NAMED and what the number went from, not how many rows came
+// back. Verified by breaking the key first: with `key: (r) => norm(r.style_ref_no)`
+// the two changes below collapse into one line reading "0 → 7".
+const approval = (
+  style: string,
+  combo: string | null,
+  size_id: string | null,
+  approval_qty: number,
+) => ({
+  sno: 1,
+  style_ref_no: style,
+  style,
+  article_no: "ART-1",
+  combo,
+  combo_description: combo,
+  size_id,
+  qty: 100,
+  approval_qty,
+});
+
+check(
+  "two colours of one style are two approval rows, not one",
+  summarise(
+    diffAmendment(
+      seed({
+        approvalQtys: [
+          approval("TSH-001", "WHITE", "size-2y", 0),
+          approval("TSH-001", "RED", "size-2y", 0),
+        ],
+      }),
+      seed({
+        approvalQtys: [
+          approval("TSH-001", "WHITE", "size-2y", 5),
+          approval("TSH-001", "RED", "size-2y", 7),
+        ],
+      }),
+    ),
+  ),
+  [
+    "Approval Qty · TSH-001 · WHITE: Approval Qty 0 → 5",
+    "Approval Qty · TSH-001 · RED: Approval Qty 0 → 7",
+  ],
+);
+
+// THE ONE THAT ACTUALLY TESTS THE KEY, and the two above do not — which is
+// worth stating, because they look like they do.
+//
+// `bucket` groups by key and then pairs rows WITHIN a bucket BY POSITION. So
+// while the row order is identical, a style-only key still lines WHITE up with
+// WHITE and RED with RED, and every edit is reported correctly. Proved by
+// reverting the key to `norm(r.style_ref_no)`: the two vectors above still pass.
+//
+// The key earns its place the moment the rows SHIFT. Drop WHITE and the merged
+// bucket pairs the surviving RED against WHITE's old row — so an untouched RED
+// is reported as an edit (5 → 7) AND as removed, and the colour that actually
+// went is never named. That is the Quantities spec's failure verbatim: "the
+// second row looks like an edit of the first".
+check(
+  "dropping a colour names THAT colour and leaves the other alone",
+  summarise(
+    diffAmendment(
+      seed({
+        approvalQtys: [
+          approval("TSH-001", "WHITE", "size-2y", 5),
+          approval("TSH-001", "RED", "size-2y", 7),
+        ],
+      }),
+      seed({ approvalQtys: [approval("TSH-001", "RED", "size-2y", 7)] }),
+    ),
+  ),
+  ["Approval Qty · TSH-001 · WHITE: removed"],
+);
+
+// The same shape one level down: the SIZE has to split rows too, or dropping
+// one size of a colour reads as an edit to the size beside it.
+check(
+  "dropping one size of a colour names that size's row, not its neighbour",
+  summarise(
+    diffAmendment(
+      seed({
+        approvalQtys: [
+          approval("TSH-001", "RED", "size-2y", 5),
+          approval("TSH-001", "RED", "size-14y", 9),
+        ],
+      }),
+      seed({ approvalQtys: [approval("TSH-001", "RED", "size-14y", 9)] }),
+    ),
+  ),
+  ["Approval Qty · TSH-001 · RED: removed"],
+);
+
+// `qty` IS DERIVED SINCE 0435 and deliberately not a diffed field: the change
+// belongs to the Quantities tab, and reporting it here as well would print one
+// edit twice under two headings.
+check(
+  "a derived quantity change is NOT reported on this tab",
+  summarise(
+    diffAmendment(
+      seed({ approvalQtys: [approval("TSH-001", "RED", "size-2y", 5)] }),
+      seed({
+        approvalQtys: [
+          { ...approval("TSH-001", "RED", "size-2y", 5), qty: 250 },
+        ],
+      }),
+    ),
+  ),
+  [],
 );
 
 // THE ONE THAT NEEDS THE COMBO IN THE STRUCTURE KEY. The same fabric on two

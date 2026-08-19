@@ -1,47 +1,32 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import {
-  getMbaFormData,
-  listBomCopySources,
-  listMaterialBomAmendments,
-  listMaterialBomTasks,
-} from "@/lib/orders/material-bom-amendment/service";
-import { MbaMasterScreen } from "./mba-master-screen";
+import { redirect } from "next/navigation";
 
 /**
- * Orders ▸ Material BOM — step 3 of the six-step garment order flow.
+ * RENAMED TO `/orders/material-bom` (client 2026-08-19: "the routing also is
+ * wrong — the Material BOM, this one is new, not an amendment").
  *
- * TWO LISTS, and the distinction is the point of the screen. `tasks` is one row
- * per confirmed garment ORDER, marked Pending / Draft / Updated / Recalculate:
- * it is the merchandiser's work queue, and an order with no BOM has to appear in
- * it or "Pending" could never be shown for the case it describes. `boms` is the
- * documents themselves, so clicking a queue row can open the one that exists.
+ * The screen creates a material BOM for a confirmed order. It never was an
+ * amendment screen: it has one door, and the revision case is handled in place
+ * by `bomStatus`'s `recalculate` state rather than by a second route. The word
+ * came from the underlying table, `material_bom_amendments` (0265), which took
+ * its name from the legacy RP-Software screen — so the URL was naming the
+ * storage rather than the work.
+ *
+ * A REDIRECT, NEVER A DELETION. That is the standing rule for a screen that
+ * loses its URL: every bookmark and deep link still has to land somewhere. The
+ * pairing is asserted rather than trusted — `REDIRECTED` in
+ * `scripts/check-module-groups.mts` names this route AND its target, and the
+ * check fails if either this page or the `redirect(...)` below goes missing.
+ *
+ * ONLY THE ROUTE MOVED. `lib/orders/material-bom-amendment/` and the
+ * `material_bom_amendments` table keep their names: renaming those is an import
+ * sweep and a migration with nothing user-visible at the end of it, and the
+ * comments in `bom-status.ts` and `bom-order-basis.ts` already point at the
+ * folder by name. The client's report was about the URL.
+ *
+ * No `requirePermission` here — the target page runs the Orders view gate
+ * itself, and refusing on the way out would deny an operator who is allowed to
+ * see the screen they are being sent to.
  */
-export default async function MaterialBomPage() {
-  await requirePermission("orders", "view");
-
-  const [tasks, boms, copySources, data, canCreate, canEdit, canDelete, mCreate, mEdit] =
-    await Promise.all([
-      listMaterialBomTasks(),
-      listMaterialBomAmendments(),
-      listBomCopySources(),
-      getMbaFormData(),
-      can("orders", "create"),
-      can("orders", "edit"),
-      can("orders", "delete"),
-      can("masters", "create"),
-      can("masters", "edit"),
-    ]);
-
-  // No wrapper and no PageHeader here — the screen renders its own, and the
-  // editor is an overlay that covers the whole viewport.
-  return (
-    <MbaMasterScreen
-      tasks={tasks}
-      boms={boms}
-      copySources={copySources}
-      data={data}
-      perms={{ canCreate, canEdit, canDelete }}
-      masterPerms={{ canCreate: mCreate, canEdit: mEdit }}
-    />
-  );
+export default function MaterialBomAmendmentRedirectPage() {
+  redirect("/orders/material-bom");
 }

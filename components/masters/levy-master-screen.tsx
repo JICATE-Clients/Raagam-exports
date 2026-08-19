@@ -747,7 +747,6 @@ export function LevyMasterScreen({
                 <Label>Annexure No</Label>
                 <Input
                   uppercase
-                  placeholder="e.g. I"
                   value={form.annexure_no}
                   onChange={(e) => set({ annexure_no: e.target.value })}
                   className="text-base md:text-sm"

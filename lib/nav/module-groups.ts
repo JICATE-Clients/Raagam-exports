@@ -365,11 +365,17 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // unlike the Garment Order, where the two doors exist because one
           // MINTS A NEW `sales_orders` ROW and the other must not.
           //
-          // THE ROUTE STILL SAYS `material-bom-amendment` and is next. It is
-          // four references (this line, the count-map key, one `revalidatePath`,
-          // one doc heading), not the fifteen 188ff5b moved — held only because
-          // renaming the folder would `git mv` files another session has open.
-          { href: "/orders/material-bom-amendment", label: "Material BOM", description: "Plan every sewing and packing accessory a confirmed order needs, and how much of each" },
+          // THE ROUTE WAS RENAMED ON 2026-08-19 (client: "the routing also is
+          // wrong — the Material BOM, this one is new, not an amendment"). It
+          // had said `material-bom-amendment` since 0265, after the TABLE rather
+          // than after the work: the screen has one door and no amend mode, and
+          // the revision case is `bomStatus`'s `recalculate` state in place.
+          //
+          // The old URL answers as a `redirect()` and is declared in `REDIRECTED`
+          // in scripts/check-module-groups.mts, which asserts the pair. The lib
+          // folder and the `material_bom_amendments` table keep their names —
+          // an import sweep and a migration with nothing user-visible at the end.
+          { href: "/orders/material-bom", label: "Material BOM", description: "Plan every sewing and packing accessory a confirmed order needs, and how much of each" },
           // GARMENT PROCESS PLAN WAS STEP 4 AND IS NOT A STEP (client
           // 2026-08-17, second pass: "only 7 are needed").
           //

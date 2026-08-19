@@ -44,7 +44,9 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // changes them, and the register behind them is one table.
   "/orders/garment-orders": "garment_order_amendments",
   "/orders/amendments": "garment_order_amendments",
-  "/orders/material-bom-amendment": "material_bom_amendments",
+  // The route was renamed on 2026-08-19; the TABLE was not (see the redirect
+  // page at the old path for why the two differ).
+  "/orders/material-bom": "material_bom_amendments",
   // The DOCUMENT the screen creates, not the orders it selects from — the rule
   // above, and it matters here because the card's screen opens on a queue of
   // garment ORDERS. "Fabric BOM: 412" meaning "there are 412 orders" is worse

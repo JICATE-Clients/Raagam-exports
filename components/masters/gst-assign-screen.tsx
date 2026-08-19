@@ -250,7 +250,7 @@ export function GstAssignScreen({
       className="h-8 w-36 text-base md:text-sm"
       aria-label={`GST Type for ${r.name}`}
     >
-      <option value="">Not set</option>
+      <option value=""></option>
       {GST_REG_STATUSES.map((g) => (
         <option key={g} value={g}>
           {g}

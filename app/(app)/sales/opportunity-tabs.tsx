@@ -285,7 +285,6 @@ function StylesTab({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
-                  placeholder="e.g. Core Polo"
                 />
               </div>
               <div>
@@ -294,7 +293,6 @@ function StylesTab({
                   id="st-code"
                   value={styleCode}
                   onChange={(e) => setStyleCode(e.target.value)}
-                  placeholder="e.g. PLO-001"
                 />
               </div>
               <div>
@@ -348,7 +346,6 @@ function StylesTab({
                   id="st-comp"
                   value={composition}
                   onChange={(e) => setComposition(e.target.value)}
-                  placeholder="e.g. 100% Cotton"
                 />
               </div>
               <div>
@@ -441,14 +438,14 @@ function StylesTab({
                     the exact failure material-attribute-master-screen hit.
                     `ownDescendants` in child-grid.tsx scopes by nearest marker,
                     so the inner list stays out of the outer axis. */}
-                <div data-grid-body onKeyDown={(e) => gridKeyNav(e, addCombo)}>
+                <div data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
                 {combos.map((c, ci) => (
                   <div key={ci} data-grid-row data-row-box className="mb-3 rounded border border-border p-3 space-y-2">
                     <div className="flex gap-2 items-end">
-                      <div className="flex-1"><Label>Combo</Label><Input value={c.combo} onChange={(e) => updateCombo(ci, "combo", e.target.value)} placeholder="e.g. Red/Blue" /></div>
+                      <div className="flex-1"><Label>Combo</Label><Input value={c.combo} onChange={(e) => updateCombo(ci, "combo", e.target.value)} /></div>
                       <div className="w-28"><Label>Order Qty</Label><Input type="number" value={c.order_qty} onChange={(e) => updateCombo(ci, "order_qty", e.target.value)} /></div>
                       <div className="w-28"><Label>Exp Qty</Label><Input type="number" value={c.expected_order_qty} onChange={(e) => updateCombo(ci, "expected_order_qty", e.target.value)} /></div>
-                      <Button type="button" variant="ghost" size="sm" className="text-red-600" onClick={() => removeCombo(ci)}>Remove</Button>
+                      <Button type="button" variant="ghost" size="sm" data-row-remove aria-label="Remove combo" className="text-red-600" onClick={() => removeCombo(ci)}>Remove</Button>
                     </div>
                     <div className="ml-4">
                       <div className="flex items-center justify-between mb-1">
@@ -461,7 +458,7 @@ function StylesTab({
                         <Button type="button" variant="ghost" size="sm" data-row-add onClick={() => addComboSize(ci)}>+ Size</Button>
                       </div>
                       {/* Inner grid — own markers, so ↓/↑ walk the SIZES. */}
-                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e, () => addComboSize(ci))}>
+                      <div data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
                       {c.sizes.map((s, si) => (
                         <div key={si} data-grid-row className="flex gap-2 items-center mb-1">
                           <Input className="w-24 text-xs" value={s.garment_size} onChange={(e) => updateComboSize(ci, si, "garment_size", e.target.value)} placeholder="Size" />
@@ -833,7 +830,7 @@ function CostSheetsTab({
                       </tr>
                     </thead>
                     {/* ↓/↑ walk a column across cost line items — gridKeyNav. */}
-                    <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e, addItem)}>
+                    <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
                       {lineItems.map((item, i) => {
                         const qty = parseFloat(item.quantity) || 0;
                         const uc = parseFloat(item.unit_cost) || 0;
@@ -861,7 +858,6 @@ function CostSheetsTab({
                                 onChange={(e) =>
                                   updateItem(i, "description", e.target.value)
                                 }
-                                placeholder="e.g. Main fabric"
                                 className="h-8 text-xs"
                                 required
                               />
@@ -1448,7 +1444,6 @@ function SamplesTab({
                   id="sm-courier"
                   value={courierRef}
                   onChange={(e) => setCourierRef(e.target.value)}
-                  placeholder="e.g. DHL-12345"
                 />
               </div>
               <div className="sm:col-span-2">

@@ -171,7 +171,7 @@ export function ExportCategoriesClient({
             <form onSubmit={handleSave} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="ec-name">Name *</Label>
-                <Input id="ec-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Knitted garments" required />
+                <Input id="ec-name" value={name} onChange={(e) => setName(e.target.value)} required />
               </div>
               <div>
                 <Label htmlFor="ec-desc">Description</Label>

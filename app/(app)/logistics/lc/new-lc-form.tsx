@@ -96,7 +96,7 @@ export function NewLcForm({ buyers, currencies }: Props) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <Label htmlFor="lc-no">LC number</Label>
-                <Input id="lc-no" value={lcNumber} onChange={(e) => setLcNumber(e.target.value)} placeholder="e.g. LC0012345" />
+                <Input id="lc-no" value={lcNumber} onChange={(e) => setLcNumber(e.target.value)} />
               </div>
               <div>
                 <Label htmlFor="lc-buyer">Buyer</Label>
@@ -111,7 +111,7 @@ export function NewLcForm({ buyers, currencies }: Props) {
               </div>
               <div>
                 <Label htmlFor="lc-bank">Issuing bank</Label>
-                <Input id="lc-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. HSBC London" />
+                <Input id="lc-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} />
               </div>
               <div>
                 <Label htmlFor="lc-amt">Amount</Label>

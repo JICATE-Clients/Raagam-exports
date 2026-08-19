@@ -155,7 +155,6 @@ export function PpmCompletionDetail({
               <div className="space-y-2">
                 <Textarea
                   rows={4}
-                  placeholder="Enter notes..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                 />

@@ -184,7 +184,7 @@ function FabricRatesTab({ fabricRates, costSheetId, opportunityId, currency, can
           <Button size="sm" disabled={isPending} onClick={addRow}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
-      <DataTable columns={columns} rows={fabricRates} getKey={(r) => r.id} empty="No fabric rates defined." />
+      <DataTable columns={columns} rows={fabricRates} getKey={(r) => r.id} />
     </div>
   );
 }
@@ -264,7 +264,7 @@ function OtherExpensesTab({ expenses, costSheetId, opportunityId, currency, canE
           <Button size="sm" disabled={isPending} onClick={addRow}>{isPending ? "Adding…" : "Add"}</Button>
         </div>
       )}
-      <DataTable columns={columns} rows={expenses} getKey={(r) => r.id} empty="No other expenses added." />
+      <DataTable columns={columns} rows={expenses} getKey={(r) => r.id} />
       {expenses.length > 0 && <div className="flex justify-end text-sm font-semibold">Total: {fmtMoney(total, currency)}</div>}
     </div>
   );
@@ -287,7 +287,7 @@ function BudgetSummaryTab({ budgets, currency }: { budgets: IocBudget[]; currenc
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-foreground">Budget Summary</h3>
-      <DataTable columns={columns} rows={budgets} getKey={(r) => r.id} empty="No budget entries." />
+      <DataTable columns={columns} rows={budgets} getKey={(r) => r.id} />
     </div>
   );
 }

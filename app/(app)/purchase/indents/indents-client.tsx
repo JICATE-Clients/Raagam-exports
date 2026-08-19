@@ -95,7 +95,7 @@ export function IndentsClient({ rows, orders, canCreate }: Props) {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
                     <Label htmlFor="in-dept">Department</Label>
-                    <Input id="in-dept" placeholder="e.g. Cutting" value={department} onChange={(e) => setDepartment(e.target.value)} required />
+                    <Input id="in-dept" value={department} onChange={(e) => setDepartment(e.target.value)} required />
                   </div>
                   <div>
                     <Label htmlFor="in-order">Sales order (optional)</Label>

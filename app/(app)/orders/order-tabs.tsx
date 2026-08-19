@@ -213,7 +213,6 @@ function LineItemsTab({
               <Input
                 id="li-colour"
                 uppercase
-                placeholder="e.g. Navy"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
               />
@@ -222,7 +221,6 @@ function LineItemsTab({
               <Input
                 id="li-size"
                 uppercase
-                placeholder="e.g. M"
                 value={size}
                 onChange={(e) => setSize(e.target.value)}
               />
@@ -797,7 +795,7 @@ function CoordColorsTab({ orderId }: { orderId: string }) {
                 and Tab left a blank Coordinate freely while the Add button below
                 it stayed disabled with nothing saying why. */}
             <Field label="Coordinate" required size="sm" htmlFor="cc-coordinate">
-              <Input id="cc-coordinate" uppercase value={f.coordinate} onChange={(e) => setF({ ...f, coordinate: e.target.value })} placeholder="e.g. Sleeve" />
+              <Input id="cc-coordinate" uppercase value={f.coordinate} onChange={(e) => setF({ ...f, coordinate: e.target.value })} />
             </Field>
             <Field label="Color" size="sm" htmlFor="cc-color">
               <Input id="cc-color" uppercase value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} />

@@ -237,7 +237,6 @@ export function GarmentQuickCreateSheet({
             uppercase
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. TOP"
             className="text-base md:text-sm"
             {...dupFieldProps(dupError, "gqc-name")}
           />

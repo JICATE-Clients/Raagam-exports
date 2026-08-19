@@ -125,7 +125,6 @@ export default async function ProcessOrderDetailPage({
             columns={lineColumns}
             rows={order.lines}
             getKey={(r) => r.id}
-            empty="No line items."
           />
         </CardBody>
       </Card>

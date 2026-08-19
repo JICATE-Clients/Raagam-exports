@@ -98,7 +98,7 @@ export default async function AdjustmentsPage() {
       <Card>
         <CardHeader><CardTitle>Recent Adjustments</CardTitle></CardHeader>
         <CardBody>
-          <DataTable columns={withCreatedColumns(columns, adjustments)} rows={adjustments} getKey={(r) => r.id} empty="No adjustments recorded." />
+          <DataTable columns={withCreatedColumns(columns, adjustments)} rows={adjustments} getKey={(r) => r.id} />
         </CardBody>
       </Card>
     </div>

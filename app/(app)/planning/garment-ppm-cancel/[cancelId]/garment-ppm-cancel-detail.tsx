@@ -226,7 +226,6 @@ function StylesTab({
           columns={styleColumns}
           rows={cancel.styles}
           getKey={(r) => r.id}
-          empty="No styles recorded."
         />
 
         {/* Inline form panel */}
@@ -343,7 +342,7 @@ function StylesTab({
               {style.combos.length > 0 && (
                 <div>
                   <p className="mb-1 text-xs text-muted-foreground">Combos</p>
-                  <DataTable columns={comboColumns} rows={style.combos} getKey={(r) => r.id} empty="No combos." />
+                  <DataTable columns={comboColumns} rows={style.combos} getKey={(r) => r.id} />
                 </div>
               )}
             </div>
