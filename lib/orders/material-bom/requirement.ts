@@ -40,7 +40,6 @@
  * same call `styleRate` makes for a priced style with no quantity behind it.
  */
 
-import { productionTarget, type ApprovalLine } from "@/lib/orders/amendments/approval-qty";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
