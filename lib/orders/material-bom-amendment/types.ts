@@ -66,6 +66,7 @@ export const PROCESS_STATUS_OPTIONS = [
  *  `REQUIREMENT_BASES`, which the CHECK constraint and the engine share. */
 export const REQUIREMENT_BASIS_LABELS: Record<(typeof REQUIREMENT_BASES)[number], string> = {
   order: "Order Number",
+  style: "Style-wise",
   colour: "Color-wise",
   size: "Size-wise",
   combination: "Combination (Color + Size)",
@@ -125,6 +126,11 @@ export interface MbaItem {
    * Color-wise. A value pins a CONTRAST colour across every exploded row.
    */
   item_color_id: string | null;
+  /** The GARMENT size this line is for (0441) — `config_lookups` kind=size,
+   *  the rows Quantities and Approval Qty key on. NULL is a real state:
+   *  "every size", which is what an order-, style- or colour-wise line means.
+   *  NOT `size` below, which is the MATERIAL's own measurement and free text. */
+  garment_size_id: string | null;
   /** Free CAPS text: WOVEN 2-FOLD, NYLON #5. */
   specification: string | null;
   /** The MATERIAL's size (50MM X 20MM), NOT the garment size a size-wise line
@@ -324,6 +330,7 @@ export const mbaItemInput = z
     item_id: uuidN,
     attribute_id: uuidN,
     item_color_id: uuidN,
+    garment_size_id: uuidN,
     // CAPS in the SCHEMA, not the action: `lib/data-io` parses imports with this
     // same schema and writes straight to Postgres, so an action-level
     // `.toUpperCase()` misses every spreadsheet import (AGENTS.md, "CAPITALS").

@@ -75,7 +75,25 @@ import type { RejectionTier } from "@/lib/masters/rejection-rule";
  * the size label printed in the garment's own colour. It is the only basis whose
  * row identifies a single SKU.
  */
-export const REQUIREMENT_BASES = ["order", "colour", "size", "combination"] as const;
+/*
+ * FIVE BASES, AND THE ORDER OF THIS TUPLE IS THE SCREEN'S ORDER.
+ *
+ * `style` added 2026-08-20 (client: "yes add style wise"), to match the Prices
+ * tab's four modes — Style-wise / Color-wise / Size-wise / Color+Size — which is
+ * the tab the Material BOM's Attribute is being made to read like.
+ *
+ * It sits after `order` because the list reads OUTWARD-IN: the whole order, then
+ * a style, then a colour of that style, then a size of that colour, then both.
+ * Each basis is a finer cut of the one before it, and a Select that reads in
+ * that order tells the operator what it is choosing between.
+ */
+export const REQUIREMENT_BASES = [
+  "order",
+  "style",
+  "colour",
+  "size",
+  "combination",
+] as const;
 export type RequirementBasis = (typeof REQUIREMENT_BASES)[number];
 
 /** What the screen prints when a figure cannot be produced. Never an empty
@@ -435,6 +453,33 @@ export function productionSlices(
         size_id: null,
       },
     ];
+  }
+
+  /*
+   * STYLE-WISE SPLITS BEFORE THE COLOUR CHECKS, and that placement is the point.
+   *
+   * A style total is the sum of its approval rows — it does not need the Combos
+   * tab and the Approval Qty tab to name the same colourways, so it must not be
+   * refused when they disagree. Putting this branch below would inherit three
+   * refusals that have nothing to do with it, and a BOM planned per style would
+   * stop over a colour rename it never reads.
+   *
+   * Keyed on the style alone; `combo` and `size_id` stay null because a
+   * style-wise line is bought once for the style whatever colour it is made in.
+   */
+  if (basis === "style") {
+    const byStyle = new Map<string, number>();
+    for (const t of targets) byStyle.set(t.style, (byStyle.get(t.style) ?? 0) + t.qty);
+    return [...byStyle].map(([style, qty]) => ({
+      key: style,
+      // A blank ref is a real state — the Styles tab's Ref No is free text — and
+      // it must be NAMED rather than shown as an empty row.
+      label: style || "(no style ref)",
+      qty,
+      style_ref_no: style || null,
+      combo: null,
+      size_id: null,
+    }));
   }
 
   // Both remaining bases split by colour, so both need the two tabs to agree.

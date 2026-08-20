@@ -139,6 +139,12 @@ type ItemRow = {
    *  LINE MEANS "matches the garment" — the ordinary case, and the reason the
    *  operator chose Color-wise at all (0419). */
   item_color_id: string | null;
+  /** The GARMENT size this line is for (0441) — `config_lookups` kind=size,
+   *  the rows Quantities and Approval Qty key on. NULL is a real state:
+   *  "every size", which is what an order-, style- or colour-wise line means.
+   *  NOT `size`, which is the MATERIAL's own measurement (24 LIGNE) and is
+   *  free text. A button is 24 ligne on every garment size it is sewn to. */
+  garment_size_id: string | null;
   specification: string;
   size: string;
   requirement_basis: string;
@@ -237,6 +243,7 @@ const blankItem = (key: string): ItemRow => ({
   item_id: null,
   attribute_id: null,
   item_color_id: null,
+  garment_size_id: null,
   specification: "",
   size: "",
   requirement_basis: "",
@@ -423,32 +430,85 @@ function Step({ label, faded = false }: { label: string; faded?: boolean }) {
  * EVERY RUN SUMS TO 32 — 4+4+8+4+4+8 · eight 4s · eight 4s. Change one size and
  * its run must still make 32, or the last field on it drops to a second line.
  */
+/*
+ * RUN 1 IS THE WHOLE LINE IDENTITY — nine fields (client 2026-08-20: "move the
+ * purchase consumption combination to the first row", then "that supplier and
+ * vendor also into the same first row").
+ *
+ * THIS OVERRIDES "THE 22 FIELDS KEEP THEIR LEGACY ORDER", stated above and
+ * restated on 08-19. A later instruction wins, and it is worth naming the rule
+ * that was set aside rather than leaving two notes to contradict each other.
+ *
+ * NINE FIELDS DO NOT FIT AT `md`. Eight `md` is exactly 32, so a ninth has to
+ * come out of the others — and it comes out by what each field HOLDS, never by
+ * shaving whatever is last: a Uom is a three-letter code, Combination is a
+ * short word, and Material and Vendor are names that need the room. 300px for
+ * Material and 100px for Combination is the size scale used for its purpose.
+ *
+ * AND THE SUMS WERE ALREADY WRONG BEFORE THIS. The note above says "EVERY RUN
+ * SUMS TO 32", and the table under it did not: run 2 held SEVEN 4s (28, four
+ * short) and run 3 held NINE (36, four over). 36 on a 32-track is the exact
+ * failure that note warns about — Purchase Pack was dropping onto a line of its
+ * own. The comment was right and the data had drifted from it.
+ *
+ * RUN 2 IS THE DYNAMIC GROUP, and that is why its four fields are wide.
+ * Style / Item Color / Size / Specification are not four static answers — they
+ * are what the Attribute explodes the line into (client 2026-08-20: "style is
+ * not a static field"). They keep the width because they are about to hold a
+ * LIST, not a value.
+ *
+ * `full` HERE IS 12 OF 32, NOT THE WHOLE ROW. On the house 12-track `full` means
+ * "stands alone — a grid or a textarea", and that reading does NOT carry over:
+ * this track has 32 columns, so the same token is 12/32 and shares its line with
+ * three other fields. Worth saying, because the name says otherwise.
+ *
+ *   run 1  4+3+6+4+3+3+2+3+4   = 32
+ *   run 2  4+8+4+8+8          = 32
+ *   run 3  4+4+2+4+4+4+2+4+4   = 32
+ */
 const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
   [
     { header: "Category", size: "md", weight: "key" },
-    { header: "Type", size: "md", weight: "quiet" },
-    { header: "Material", size: "xl", weight: "key" },
+    { header: "Type", size: "sm", weight: "quiet" },
+    { header: "Material", size: "lg", weight: "key" },
     { header: "Attribute", size: "md", weight: "key" },
-    { header: "Supply Type", size: "md", weight: "plain" },
-    { header: "Vendor", size: "xl", weight: "plain" },
+    { header: "Purchase Uom", size: "sm", weight: "auto" },
+    { header: "Consumption Uom", size: "sm", weight: "auto" },
+    { header: "Combination", size: "xs", weight: "quiet" },
+    { header: "Supply Type", size: "sm", weight: "plain" },
+    { header: "Vendor", size: "md", weight: "plain" },
   ],
   [
-    { header: "Purchase Uom", size: "md", weight: "auto" },
-    { header: "Consumption Uom", size: "md", weight: "auto" },
-    { header: "Combination", size: "md", weight: "quiet" },
-    { header: "Item Color", size: "md", weight: "quiet" },
-    { header: "Size", size: "md", weight: "quiet" },
+    /* STYLE LEADS, AT `md` (client 2026-08-20: "move that style price as first
+       field take it mid which is dynamic").
+
+       It leads because it is the OUTERMOST axis: a style has colours, a colour
+       has sizes. Reading Style → Item Color → Size left to right is the same
+       nesting the Prices tab reads in, which is the tab this group is being
+       made to match.
+
+       `md` and not `xl` because a style REF is 14 characters — the width goes to
+       the three columns that hold the exploded values, and Size takes the most
+       of it because a size list is the longest of the three and size-wise is the
+       case the client named twice. */
     { header: "Style", size: "md", weight: "plain" },
-    { header: "Specification", size: "md", weight: "quiet" },
+    { header: "Item Color", size: "xl", weight: "quiet" },
+    /* THE AXIS COLUMN, beside the colour it pairs with on a Combination line.
+       `Size` after it is the MATERIAL's measurement — two meanings, two columns,
+       and they sit apart on purpose so neither reads as the other. */
+    { header: "Garment Size", size: "md", weight: "quiet" },
+    { header: "Size", size: "xl", weight: "quiet" },
+    { header: "Specification", size: "xl", weight: "quiet" },
   ],
   [
     { header: "No. of Items", size: "md", weight: "key" },
     { header: "Per Pieces", size: "md", weight: "key" },
-    { header: "Excess %", size: "md", weight: "plain" },
+    // Two or three characters — "5", "12". `xs` is what that is.
+    { header: "Excess %", size: "xs", weight: "plain" },
     { header: "Calculated Qty", size: "md", weight: "calc" },
     { header: "Excess Calculated Qty", size: "md", weight: "calc" },
     { header: "MOQ", size: "md", weight: "plain" },
-    { header: "Round To", size: "md", weight: "plain" },
+    { header: "Round To", size: "xs", weight: "plain" },
     { header: "Final Quantity", size: "md", weight: "final" },
     { header: "Purchase Pack", size: "md", weight: "plain" },
   ],
@@ -648,6 +708,79 @@ export function MbaMasterScreen({
     [data.lookups],
   );
 
+  /**
+   * ITEM COLOR OFFERS THE COLOURS THIS ORDER DECLARES — wired the way the Prices
+   * tab wires its Combo cell (client 2026-08-20: "item color is from same how we
+   * listing color in price tab wire here also").
+   *
+   * The cell already MEANT this. Its own note says "same list as the garment's
+   * colours, so matching is expressible" — and it then offered the entire
+   * `fabric_color` master, ~every colour the business has ever bought. Matching
+   * was expressible and unhelped: the operator had to know which of them this
+   * order was actually made in.
+   *
+   * NARROWED BY THE LINE'S STYLE TOO, because a combo belongs to a style on the
+   * Combos tab. That is the cascading-picker rule with the narrowing at the layer
+   * that knows the parent, and it is the same shape the Prices tab's
+   * `comboOptionsForStyle` uses one screen over.
+   *
+   * MATCHED ON THE NAME, and that is the join this can have. A combo is a NAME on
+   * the Combos tab ("GREY MELANGE") while this column is a `fabric_color` uuid,
+   * so the two meet through the label. Upper-cased on both sides for the reason
+   * `styleKey` exists: rows saved before the CAPITALS rule are not upper-cased.
+   *
+   * EMPTY FALLS BACK TO THE WHOLE MASTER, deliberately — the same call the Prices
+   * tab makes and for the same reason: an order whose Combos tab is not filled in
+   * yet would otherwise have an unusable cell, and this list is a CONVENIENCE,
+   * not an approval. It is not the nominated-vendor case, where offering
+   * everything was the data-integrity hole itself.
+   */
+  /**
+   * THE SIZES THIS ORDER CARRIES, in the order the order states them.
+   *
+   * `orderProd.sizeNames` is the id -> label map the requirement already builds,
+   * and `assortSizes` is where a size actually appears on this order — so a size
+   * the master knows and this order does not never reaches the cell. Deduped by
+   * id, because a size appears once per (style, combo) in the assort tree.
+   */
+  const orderSizeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { id: string; name: string }[] = [];
+    for (const r of orderProd?.assortSizes ?? []) {
+      const id = r.size_id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, name: orderProd?.sizeNames?.[id] ?? id });
+    }
+    return out;
+  }, [orderProd]);
+
+  const orderColourOptions = (styleRef: string, held: string | null) => {
+    const wanted = new Set(
+      (orderProd?.combos ?? [])
+        .filter(
+          (c) =>
+            !styleRef.trim() ||
+            (c.style_ref_no ?? "").trim().toUpperCase() ===
+              styleRef.trim().toUpperCase(),
+        )
+        .map((c) => (c.combo ?? "").trim().toUpperCase())
+        .filter(Boolean),
+    );
+    if (wanted.size === 0) return itemColours;
+    const narrowed = itemColours.filter((l) =>
+      wanted.has((l.name ?? "").trim().toUpperCase()),
+    );
+    // A HELD VALUE ALWAYS SURVIVES — the standing rule. A colour a saved line
+    // already names must keep resolving even if the order no longer declares it,
+    // or a filled cell renders empty and blanks its FK on the next save.
+    if (held && !narrowed.some((l) => l.id === held)) {
+      const row = itemColours.find((l) => l.id === held);
+      if (row) return [...narrowed, row];
+    }
+    return narrowed.length ? narrowed : itemColours;
+  };
+
   const selectedOrder = useMemo(
     () => data.orders.find((o) => o.id === form.garment_order_id) ?? null,
     [data.orders, form.garment_order_id],
@@ -748,6 +881,7 @@ export function MbaMasterScreen({
         item_id: c.item_id,
         attribute_id: c.attribute_id,
         item_color_id: c.item_color_id,
+        garment_size_id: c.garment_size_id,
         specification: c.specification ?? "",
         size: c.size ?? "",
         requirement_basis: c.requirement_basis ?? "",
@@ -832,6 +966,7 @@ export function MbaMasterScreen({
           item_id: c.item_id ?? null,
           attribute_id: c.attribute_id ?? null,
           item_color_id: c.item_color_id ?? null,
+          garment_size_id: c.garment_size_id ?? null,
           specification: c.specification ?? "",
           size: c.size ?? "",
           requirement_basis: c.requirement_basis ?? "",
@@ -891,6 +1026,7 @@ export function MbaMasterScreen({
         item_id: c.item_id,
         attribute_id: c.attribute_id,
         item_color_id: c.item_color_id,
+        garment_size_id: c.garment_size_id,
         specification: c.specification || null,
         size: c.size || null,
         requirement_basis: (c.requirement_basis || null) as RequirementBasis | null,
@@ -1685,14 +1821,14 @@ export function MbaMasterScreen({
     {
       header: "Item Color",
       className: "min-w-[150px]",
-      // Same list as the garment's colours, so matching is expressible. The
-      // placeholder is doing real work: on a Color-wise line an EMPTY cell means
-      // "takes the garment's colour", which is a decision, not a gap.
+      // THE ORDER'S OWN COLOURS — see `orderColourOptions`, which is this cell
+      // wired the way the Prices tab wires its Combo. An EMPTY cell still means
+      // "takes the garment's colour", which is a decision rather than a gap.
       cell: (r) => (
         <LookupDialogPicker
           kind="fabric_color"
           label="Item Color"
-          options={itemColours}
+          options={orderColourOptions(r.style_ref_no, r.item_color_id)}
           value={r.item_color_id}
           onChange={(id) => updItem(r.key, { item_color_id: id })}
           canCreate={masterPerms.canCreate}
@@ -1714,6 +1850,40 @@ export function MbaMasterScreen({
           onChange={(e) => updItem(r.key, { size: e.target.value })}
           className="h-8"
         />
+      ),
+    },
+    {
+      /**
+       * THE GARMENT SIZE THIS LINE IS FOR (0441) — the axis column, and the one
+       * the explosion fills.
+       *
+       * NOT the "Size" column above it, which is the MATERIAL's measurement (24
+       * LIGNE) and stays on every line whatever the Attribute is: a button is 24
+       * ligne on every garment size it is sewn to. Two meanings, two columns —
+       * the note on `size` says the collision is what to avoid.
+       *
+       * Offered from the order's OWN sizes, resolved through `orderProd`, so it
+       * cannot name a size the order does not carry.
+       */
+      header: "Garment Size",
+      className: "min-w-[120px]",
+      cell: (r) => (
+        <Select
+          value={r.garment_size_id ?? ""}
+          onChange={(e) =>
+            updItem(r.key, { garment_size_id: e.target.value || null })
+          }
+          className="h-8"
+        >
+          {/* BLANK IS A REAL ANSWER — "every size", which is what an order-,
+              style- or colour-wise line means. */}
+          <option value=""></option>
+          {orderSizeOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </Select>
       ),
     },
     {

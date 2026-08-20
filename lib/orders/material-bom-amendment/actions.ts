@@ -566,6 +566,7 @@ export async function copyMaterialBomFrom(
     // The trim's identity IS the recipe — a copied Main Label line is the same
     // woven 50mm black label. Only order-specific values are dropped.
     item_color_id: (c.item_color_id as string) ?? null,
+    garment_size_id: (c.garment_size_id as string) ?? null,
     specification: (c.specification as string) ?? null,
     size: (c.size as string) ?? null,
     requirement_basis: (c.requirement_basis as RequirementBasis) ?? null,
