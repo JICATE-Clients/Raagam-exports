@@ -21,6 +21,7 @@
 import {
   assortLineRef,
   declaredStyleRef,
+  defaultSingleStylePack,
   inheritedStyleFor,
   sizesForOverlay,
   sizesOfRef,
@@ -223,6 +224,32 @@ check(
   ),
   ["S", "M"],
 );
+
+// ---------------------------------------------------------------------------
+// 6. Which toggle a destination opens on (screenshot 2422)
+// ---------------------------------------------------------------------------
+
+// One declared style cannot be packed several ways, and the Multiple branch
+// seeds no lines — so it opens with size columns, a TOTAL of 0 and nothing to
+// type into. That is the whole defect: not a wrong number, an unusable screen.
+check("one declared style opens on Single", defaultSingleStylePack([TEE]), true);
+check("two declared styles stay on Multiple", defaultSingleStylePack([TEE, POLO]), false);
+check("no declared style stays on Multiple", defaultSingleStylePack([]), false);
+// A style row the operator has added and not yet named is not a declared style,
+// so it must not tip a one-style order into Multiple mid-typing.
+check(
+  "a half-typed style row does not count as a second style",
+  defaultSingleStylePack([TEE, BLANK]),
+  true,
+);
+// The payload's column is NULLABLE, so the load path can hand us a null ref.
+// It is a blank by another route and must be treated as one.
+check(
+  "a null style reference is not a declared style either",
+  defaultSingleStylePack([TEE, { style_ref_no: null }]),
+  true,
+);
+check("null refs alone declare nothing", soleStyleRef([{ style_ref_no: null }]), "");
 
 console.log(
   failed === 0 ? "\nOK — every assortment style vector holds." : `\n${failed} FAILED`,
