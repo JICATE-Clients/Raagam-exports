@@ -53,8 +53,15 @@ export const ORDER_SELECT =
   "styles:garment_order_amendment_styles(style_ref_no), " +
   "approval_qtys:garment_order_amendment_approval_qtys(style_ref_no,combo,qty,approval_qty), " +
   "combos:garment_order_amendment_combos(style_ref_no,combo), " +
-  "quantities:garment_order_amendment_quantities(style_ref_no, " +
-  "assort_lines:garment_order_amendment_assort_lines(combo,no_of_cartons, " +
+  // `assortment_type` and `inners_per_carton` are both here for one reason: the
+  // pieces a size row represents depend on the ASSORTMENT MODE, and without the
+  // type there is no mode. The embed is disambiguated by FK name because
+  // `garment_order_amendment_quantities` has several `config_lookups` columns
+  // (warehouse, discharge port, country, consignee) and PostgREST cannot guess
+  // which one `config_lookups` means.
+  "quantities:garment_order_amendment_quantities(style_ref_no,assortment_type_id, " +
+  "assortment_type:config_lookups!garment_order_amendment_quantities_assortment_type_id_fkey(code,name), " +
+  "assort_lines:garment_order_amendment_assort_lines(combo,no_of_cartons,inners_per_carton, " +
   "sizes:garment_order_amendment_assort_line_sizes(size_id,qty)))";
 
 export type OrderRow = {
@@ -75,10 +82,13 @@ export type OrderRow = {
   quantities:
     | {
         style_ref_no: string | null;
+        assortment_type_id: string | null;
+        assortment_type: { code: string | null; name: string | null } | null;
         assort_lines:
           | {
               combo: string | null;
               no_of_cartons: number | null;
+              inners_per_carton: number | null;
               sizes: { size_id: string | null; qty: number | null }[] | null;
             }[]
           | null;
@@ -107,16 +117,55 @@ export function orderProductionInput(
   tiersById: Map<string, RejectionTier[]>,
   sizeNames?: Readonly<Record<string, string>>,
 ): OrderProductionInput {
-  const assortSizes = (row.quantities ?? []).flatMap((q) =>
-    (q.assort_lines ?? []).flatMap((l) =>
-      (l.sizes ?? []).map((z) => ({
+  /**
+   * THE ASSORTMENT MODE DECIDES WHAT A SIZE CELL MEANS, and reading it wrong
+   * silently zeroes the whole order (found 2026-08-20).
+   *
+   * `amendment-screen.tsx` states the rule as `lineQtyOf`:
+   *
+   *     solid  -> the size cells ARE the pieces          (no carton count)
+   *     assort -> cartons x inners x the size's RATIO
+   *
+   * This flattener multiplied by `no_of_cartons` UNCONDITIONALLY, which is two
+   * bugs in one expression:
+   *
+   *   1. On a SOLID/SOLID pack there is no carton count — it is unknowable, so
+   *      the column is 0 — and 0 x every size is 0. Every Material BOM line on
+   *      such an order refused with "Size break-up has no quantities for WHITE"
+   *      while the break-up was sitting there, entered, summing to exactly the
+   *      approval quantity. The order was right; this read it wrong.
+   *   2. On an ASSORT pack it dropped `inners_per_carton` entirely, which
+   *      under-counts by that factor. Invisible on this order because inners is
+   *      1, and wrong the moment it is not.
+   *
+   * MODE OFF THE DECLARED TYPE, never inferred from `no_of_cartons` being 0. A
+   * zero carton count is also what an assort pack looks like before anybody has
+   * typed one, and guessing would silently switch arithmetic underneath a
+   * half-filled row. Same reading `assortModeOf` makes: the lookup's `code`
+   * when it has one, its NAME only as the fallback for rows that predate 0400.
+   */
+  const modeOf = (q: NonNullable<OrderRow["quantities"]>[number]): "solid" | "assort" => {
+    const code = q.assortment_type?.code ?? null;
+    if (code) return code === "solid_solid" ? "solid" : "assort";
+    return /assort\s*size/i.test(q.assortment_type?.name ?? "") ? "assort" : "solid";
+  };
+
+  const assortSizes = (row.quantities ?? []).flatMap((q) => {
+    const mode = modeOf(q);
+    return (q.assort_lines ?? []).flatMap((l) => {
+      // Extracted so the two branches cannot drift into reading the row
+      // differently — the multiplier is the ONLY thing the mode changes.
+      const cartons = Number(l.no_of_cartons) || 0;
+      const inners = Number(l.inners_per_carton) || 0;
+      const factor = mode === "solid" ? 1 : cartons * inners;
+      return (l.sizes ?? []).map((z) => ({
         style_ref_no: q.style_ref_no,
         combo: l.combo,
         size_id: z.size_id,
-        qty: (Number(l.no_of_cartons) || 0) * (Number(z.qty) || 0),
-      })),
-    ),
-  );
+        qty: factor * (Number(z.qty) || 0),
+      }));
+    });
+  });
 
   return {
     excessPct: Number(row.excess_pct) || 0,

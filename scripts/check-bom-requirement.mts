@@ -315,19 +315,90 @@ const threeWay = order({
 // make the three totals legitimately differ and this invariant would be testing
 // arithmetic instead of the slicing.
 const byOrder = totalOf(required("order", threeWay, line()));
+const byStyle = totalOf(required("style", threeWay, line()));
 const byColour = totalOf(required("colour", threeWay, line()));
 const bySize = totalOf(required("size", threeWay, line()));
 const byCombo = totalOf(required("combination", threeWay, line()));
 
 check(
-  "order / colour / size / combination totals all agree",
-  [byOrder, byColour, bySize, byCombo],
-  [byOrder, byOrder, byOrder, byOrder],
+  "order / style / colour / size / combination totals all agree",
+  [byOrder, byStyle, byColour, bySize, byCombo],
+  [byOrder, byOrder, byOrder, byOrder, byOrder],
 );
 check("and the figure is 2 x (301 + 199)", byOrder, 1000);
 refute("not 2 x 525 — that is excess taken once on the summed quantity", byOrder, 1050);
 
+// ---------------------------------------------------------------------------
+// 4b. THE STYLE BASIS (0440)
+//
+// `threeWay` above is ONE style, so it proves the invariant and nothing about
+// the split. This order carries two, with a colour under each, so a style slice
+// has to gather its own colours and no others.
+// ---------------------------------------------------------------------------
+
+const styleAxis = order({
+  approvals: [
+    approval(300, "WHITE", S1),
+    approval(200, "NAVY", S1),
+    approval(150, "WHITE", S2),
+  ],
+  combos: [combo("WHITE", S1), combo("NAVY", S1), combo("WHITE", S2)],
+});
+
+check(
+  "a style slice sums the colours under THAT style",
+  (productionSlices("style", styleAxis) as ProductionSlice[]).map((s) => [s.label, s.qty]),
+  [[S1, 500], [S2, 150]],
+);
 // A count vector passes against a broken bucket key — assert who got NAMED.
+check(
+  "style slices are labelled with the style refs",
+  (productionSlices("style", styleAxis) as ProductionSlice[]).map((s) => s.label),
+  [S1, S2],
+);
+refute(
+  "not one slice — that would be `order` wearing the style basis' name",
+  (productionSlices("style", styleAxis) as ProductionSlice[]).length,
+  1,
+);
+// A style-wise line is bought once for the style whatever colour it is made in,
+// so the colour must NOT survive into the slice. If it did, two colourways of
+// one style would each buy the woven label that carries that style's art.
+check(
+  "a style slice carries no combo",
+  (productionSlices("style", styleAxis) as ProductionSlice[]).every((s) => s.combo === null),
+  true,
+);
+check(
+  "and no size",
+  (productionSlices("style", styleAxis) as ProductionSlice[]).every((s) => s.size_id === null),
+  true,
+);
+check(
+  "the style totals still sum to the whole order",
+  (productionSlices("style", styleAxis) as ProductionSlice[]).reduce((a, s) => a + s.qty, 0),
+  650,
+);
+
+// THE PLACEMENT VECTOR, and the reason the branch sits above the colour checks.
+// A style total reads Approval Qty alone, so a Combos tab that has drifted out
+// of step must not refuse it — `colour` legitimately refuses here and `style`
+// must not, or a BOM planned per style stops over a colour rename it never reads.
+const comboDrift = order({
+  approvals: [approval(300, "WHITE", S1), approval(200, "NAVY", S1)],
+  combos: [combo("WHITE", S1)], // NAVY quantified but no longer declared
+});
+check(
+  "style-wise survives a Combos/Approval disagreement",
+  (productionSlices("style", comboDrift) as ProductionSlice[]).map((s) => s.qty),
+  [500],
+);
+check(
+  "and colour-wise still refuses it",
+  isRefusal(productionSlices("colour", comboDrift)),
+  true,
+);
+
 check(
   "colour slices are labelled with the combo names",
   (productionSlices("colour", threeWay) as ProductionSlice[]).map((s) => s.label),

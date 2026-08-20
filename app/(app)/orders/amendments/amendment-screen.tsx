@@ -4932,6 +4932,60 @@ export function AmendmentScreen({
      style now lives on the assortment LINE — see `assortLineRef`. */
 
 
+  /**
+   * OPEN THE ASSORTMENT WITH ITS LINES ALREADY THERE (client 2026-08-20,
+   * screenshots 2432 and 2433).
+   *
+   * It opened as a header, a TOTAL of 0 and nothing else: the operator had to
+   * press "+ Add assortment" before there was a single box to type a quantity
+   * into, and then pick the style and colour by hand — facts the order had
+   * already stated on the Style(s) and Combos tabs. 2433 is the screen they
+   * wanted; 2432 is the one they got.
+   *
+   * ONE LINE PER DECLARED COLOUR, and that is the whole seed. On a Solid Colour
+   * / Solid Size pack the break-up IS a row per colour, so the seeded grid is
+   * not a guess about what the operator wants — it is the shape the order
+   * already has, waiting for its numbers.
+   *
+   * SEEDED ONLY WHEN THERE IS NOTHING THERE. A destination with lines is a
+   * record the operator has worked on; re-seeding it would resurrect colours
+   * they had deliberately deleted.
+   *
+   * NO COLOURS DECLARED → ONE BLANK LINE, still carrying the style. Better than
+   * nothing to type into, which is the defect being fixed.
+   *
+   * WHY IT USES THE SAME RESOLVERS AS "+ Add": `inheritedStyleFor` for the
+   * style and `comboOptionsForStyle` for the colours. Seeding through a second
+   * path is how the button and the open would start disagreeing about what a
+   * new line carries.
+   *
+   * IT DOES MARK THE RECORD DIRTY, and that is accepted rather than hidden:
+   * opening this overlay is intent to work on the destination, and every seeded
+   * line is one the operator would otherwise have created by hand. A line left
+   * with no quantities still saves — `assortLineFilled` counts a style or a
+   * colour as content — which is exactly what pressing "+ Add" and stopping has
+   * always done. Deliberately not changed here: that test is stated twice, once
+   * on the keystroke and once on the save, and the two must move together.
+   */
+  const openAssort = (qtyKey: string) => {
+    setAssortQtyKey(qtyKey);
+    const q = quantities.find((x) => x.key === qtyKey);
+    if (!q || q.assort_lines.length) return;
+
+    const inherited = inheritedStyleFor(q);
+    mutAssort(qtyKey, () =>
+      AssortStyle.seedAssortLines(inherited, comboOptionsForStyle(inherited)).map(
+        (l) => ({
+          ...l,
+          key: newKey(),
+          no_of_cartons: "",
+          inners_per_carton: "",
+          sizes: [] as AssortLineRow["sizes"],
+        }),
+      ),
+    );
+  };
+
   const addAssortLine = (qtyKey: string) => {
     const q = quantities.find((x) => x.key === qtyKey);
     const last = q?.assort_lines[q.assort_lines.length - 1];
@@ -5978,7 +6032,7 @@ export function AmendmentScreen({
               aria-disabled={blocked || undefined}
               aria-label={blocked ? `Details — ${why}` : "Details"}
               className={blocked ? "cursor-not-allowed opacity-50" : undefined}
-              onClick={blocked ? undefined : () => setAssortQtyKey(r.key)}
+              onClick={blocked ? undefined : () => openAssort(r.key)}
             >
               {/* No count — see the Process button. */}
               Details
@@ -6016,6 +6070,7 @@ export function AmendmentScreen({
   const approvalQtyColumns: ChildGridColumn<ApprovalQtyRow>[] = [
     {
       header: "Size",
+      width: "6rem",
       // BARE TEXT, like every other derived cell here — see `derivedCell`. The
       // old note said a box kept it "looking like the row beside it", and that
       // was the problem rather than the point: what the row needed was for its
@@ -6033,12 +6088,14 @@ export function AmendmentScreen({
       /* DERIVED FROM THE QUANTITIES TAB (0435) — this was the typed cell, and
          the client's whole point was that the order had already stated it. */
       header: "Qty",
+      width: "6rem",
       align: "right",
       cell: (r) => derivedCell(qtyOf(r)),
       total: { kind: "sum", of: qtyOf },
     },
     {
       header: `Excess (${excessPct || 0}%)`,
+      width: "7.5rem",
       align: "right",
       /* PER SIZE, and that is a number, not a placement: Excess rounds UP, so
          rounding each size and summing is not the same as rounding the combo's
@@ -6053,6 +6110,7 @@ export function AmendmentScreen({
     },
     {
       header: "Approval Qty",
+      width: "9rem",
       align: "right",
       // THE ONLY TYPED NUMBER ON THE TAB: pieces for buyer testing and office
       // records, which nothing derives. Entered at SIZE level and nowhere else
@@ -6090,6 +6148,7 @@ export function AmendmentScreen({
        * the one answer a rejection rule never intends. The title says which.
        */
       header: "Rejection",
+      width: "7rem",
       align: "right",
       cell: (r) => {
         const n = projectionOf(r);
@@ -6120,6 +6179,7 @@ export function AmendmentScreen({
     },
     {
       header: "Total Production",
+      width: "9rem",
       align: "right",
       // The one derived figure that is the ANSWER rather than a term, so it is
       // the one in full-strength ink. Everything else on the row is muted.
@@ -9002,6 +9062,41 @@ export function AmendmentScreen({
                       columns={approvalQtyColumns}
                       rows={approvalRowsOf(st, c)}
                       inlineCards
+                      /**
+                       * COMPACT (client 2026-08-20: "rethink compacted, reduce
+                       * the cell gap and field gap").
+                       *
+                       * TWO GAPS, TWO CAUSES, and they need different props.
+                       *
+                       * ACROSS — every column was `flex-1`, because none declared
+                       * a `width`, so six cells split the whole pane and two
+                       * figures sat a hand's width apart. The note above the
+                       * columns explains why they were all dropped: with every
+                       * width declared, `hugsContent` puts `w-fit` on the card
+                       * wrapper and the grid stopped half-way across the pane
+                       * (operator 2026-08-12, 12:26).
+                       *
+                       * `fill` IS THE ESCAPE THAT NOTE DID NOT USE —
+                       * `hugsContent` is `!fill && columns.every(c => c.width)`,
+                       * so widths and full width are not the either/or it was
+                       * read as. The columns are now sized to their figures and
+                       * the slack falls to the right of them, which is what
+                       * "reduce the field gap" means.
+                       *
+                       * DOWN — `inlineCards` draws each row as a bordered card
+                       * (`rounded-md border p-1.5`) with `space-y-1.5` between,
+                       * so six sizes cost six boxes. `flushRows` drops the inset
+                       * and the gap and separates rows by a rule instead.
+                       *
+                       * Opting into `flushRows` for its DENSITY, not for the
+                       * alignment its doc describes: it exists so a grid can line
+                       * its first control up with a `Field` beside it, and this
+                       * grid has no neighbour. The mechanical effect is the one
+                       * wanted, and saying which half is being used keeps the
+                       * next reader from "fixing" an alignment nothing needs.
+                       */
+                      fill
+                      flushRows
                       hideAdd
                       hideRemove
                       totalsLabel="Production target"

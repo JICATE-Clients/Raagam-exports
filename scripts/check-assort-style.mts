@@ -22,6 +22,7 @@ import {
   assortLineRef,
   declaredStyleRef,
   defaultSingleStylePack,
+  seedAssortLines,
   inheritedStyleFor,
   sizesForOverlay,
   sizesOfRef,
@@ -250,6 +251,42 @@ check(
   true,
 );
 check("null refs alone declare nothing", soleStyleRef([{ style_ref_no: null }]), "");
+
+// ---------------------------------------------------------------------------
+// 7. What an empty assortment opens with (screenshots 2432 / 2433)
+// ---------------------------------------------------------------------------
+
+check(
+  "one line per declared colour, each carrying the style",
+  seedAssortLines("STL/26-27/0002", ["WHITE", "RED", "GREY MELANGE"]),
+  [
+    { style_ref_no: "STL/26-27/0002", combo: "WHITE" },
+    { style_ref_no: "STL/26-27/0002", combo: "RED" },
+    { style_ref_no: "STL/26-27/0002", combo: "GREY MELANGE" },
+  ],
+);
+// The Combos tab's order, not alphabetical — same rule the size columns follow.
+refute(
+  "…in the Combos tab's order, not sorted",
+  seedAssortLines("S1", ["WHITE", "RED"]).map((l) => l.combo),
+  ["RED", "WHITE"],
+);
+check(
+  "no colours declared still gives one line to type into",
+  seedAssortLines("STL/26-27/0002", []),
+  [{ style_ref_no: "STL/26-27/0002", combo: "" }],
+);
+refute(
+  "…never nothing, which is the defect being fixed",
+  seedAssortLines("STL/26-27/0002", []),
+  [],
+);
+// THE SEED SAYS WHICH ROWS EXIST, NEVER HOW MUCH IS IN THEM.
+check(
+  "no quantity is invented",
+  Object.keys(seedAssortLines("S1", ["WHITE"])[0]).sort(),
+  ["combo", "style_ref_no"],
+);
 
 console.log(
   failed === 0 ? "\nOK — every assortment style vector holds." : `\n${failed} FAILED`,

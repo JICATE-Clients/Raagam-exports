@@ -176,6 +176,37 @@ export function assortLineRef(
   return l.style_ref_no || inheritedStyleFor(styles, q);
 }
 
+/** One assortment line, as the overlay seeds it. Keys and size cells are the
+ *  screen's to add. */
+export type SeededAssortLine = { style_ref_no: string; combo: string };
+
+/**
+ * WHAT AN EMPTY ASSORTMENT OPENS WITH (client 2026-08-20, screenshots 2432/2433).
+ *
+ * It opened as a header, a TOTAL of 0 and nothing else — "+ Add assortment" had
+ * to be pressed before a single box existed to type a quantity into, and then
+ * the style and colour picked by hand, both of them facts the order had already
+ * stated on its Style(s) and Combos tabs.
+ *
+ * ONE LINE PER DECLARED COLOUR. On a Solid Colour / Solid Size pack the break-up
+ * IS a row per colour, so this is not a guess about what the operator wants — it
+ * is the shape the order already has, waiting for its numbers. Colours keep the
+ * order the Combos tab lists them in, for the same reason the size columns do.
+ *
+ * NO COLOURS DECLARED → ONE BLANK LINE, still carrying the style. Better than
+ * nothing to type into, which is the defect being fixed.
+ *
+ * NO QUANTITIES ARE INVENTED. Every seeded line is empty of cartons, inners and
+ * sizes; the seed says WHICH rows exist, never how much is in them.
+ */
+export function seedAssortLines(
+  styleRef: string,
+  combos: readonly string[],
+): SeededAssortLine[] {
+  if (!combos.length) return [{ style_ref_no: styleRef, combo: "" }];
+  return combos.map((combo) => ({ style_ref_no: styleRef, combo }));
+}
+
 /**
  * THE OVERLAY'S SIZE COLUMNS — one style's sizes, or the union of several.
  *
