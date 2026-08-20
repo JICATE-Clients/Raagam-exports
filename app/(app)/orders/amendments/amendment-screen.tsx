@@ -115,6 +115,7 @@ import type {
 // and this is a client component. Same function either way; 0407's note in
 // `style-key.ts` says why it was split out rather than copied.
 import { styleKey } from "@/lib/orders/amendments/style-key";
+import * as AssortStyle from "@/lib/orders/amendments/assort-style";
 import {
   PACK_TYPE_OPTIONS,
   PRICE_TYPE_OPTIONS,
@@ -4535,18 +4536,16 @@ export function AmendmentScreen({
    * style line at all — an empty list is the ordinary answer here, not an edge
    * case, and the overlay says so rather than rendering a grid with no columns.
    */
+  /* THIN WRAPPERS OVER `lib/orders/amendments/assort-style.ts`. The rules moved
+     out of this component on 2026-08-20 so a vector could reach them: the same
+     defect — an assortment overlay with NO SIZE COLUMNS — was reported twice in
+     two days (screenshots 2418 and 2419) and cleared `tsc`, the build and every
+     audit both times, because a destination's free-text Ref No and a style's
+     reference are both `string`. `scripts/check-assort-style.mts` covers them
+     now; the casts are safe because `SizeRow` and `StyleRow` are structural
+     supersets of the module's own shapes. */
   const sizesOfRef = (ref: string): SizeRow[] =>
-    // A BLANK REF NAMES NO STYLE, said explicitly rather than left to the join.
-    // `styleKey("")` is `""`, so a destination that names nothing would match a
-    // Styles Details row whose own Ref No is still blank — the row the operator
-    // has just added and not yet filled in — and borrow its sizes. Same guard
-    // `styleNameForRef` already makes for the same reason.
-    !ref.trim()
-      ? []
-      : (styles.find((x) => styleKey(x.style_ref_no) === styleKey(ref))?.sizes ?? []);
-
-  const sizesOfQuantity = (q: QuantityRow): SizeRow[] =>
-    sizesOfRef(q.style_ref_no);
+    AssortStyle.sizesOfRef(styles, ref) as SizeRow[];
 
   /**
    * WHICH STYLE ONE LINE PACKS — the Single / Multiple switch, resolved (0433).
@@ -4568,13 +4567,8 @@ export function AmendmentScreen({
      declared ~900 lines further down: reading it here is a temporal-dead-zone
      error, not a style preference. Same dedupe, same normalisation — this is the
      source both read. */
-  const declaredStyleRefs = Array.from(
-    new Set(
-      styles.map((s) => s.style_ref_no.trim().toUpperCase()).filter(Boolean),
-    ),
-  );
-  const soleStyleRef =
-    declaredStyleRefs.length === 1 ? declaredStyleRefs[0] : "";
+  const declaredStyleRefs = AssortStyle.declaredStyleRefs(styles);
+  const soleStyleRef = AssortStyle.soleStyleRef(styles);
 
   /**
    * THE REF NO, BUT ONLY WHEN IT REALLY NAMES A DECLARED STYLE.
@@ -4589,10 +4583,8 @@ export function AmendmentScreen({
    * never reach a style field again. Only a ref that IS one of the order's
    * styles is treated as one.
    */
-  const declaredStyleRef = (text: string): string => {
-    const t = (text ?? "").trim().toUpperCase();
-    return t && declaredStyleRefs.includes(t) ? t : "";
-  };
+  const declaredStyleRef = (text: string): string =>
+    AssortStyle.declaredStyleRef(styles, text);
 
   /**
    * WHAT A DESTINATION'S ASSORTMENT LINE INHERITS, in order of how specific the
@@ -4607,7 +4599,7 @@ export function AmendmentScreen({
    *      default that saves as if it were an answer.
    */
   const inheritedStyleFor = (q: QuantityRow): string =>
-    declaredStyleRef(q.style_ref_no) || soleStyleRef;
+    AssortStyle.inheritedStyleFor(styles, q);
 
   /**
    * WHICH STYLE A LINE PACKS — and it is NOT the destination's "Ref No".
@@ -4634,7 +4626,7 @@ export function AmendmentScreen({
    * order's sole style rather than to the destination's reference.
    */
   const assortLineRef = (q: QuantityRow, l: AssortLineRow): string =>
-    l.style_ref_no || inheritedStyleFor(q);
+    AssortStyle.assortLineRef(styles, q, l);
 
   /**
    * THE OVERLAY'S SIZE COLUMNS — one style's sizes, or the union of several.
@@ -4652,21 +4644,12 @@ export function AmendmentScreen({
    * A size is identified by `size_id`, never by its label — two styles naming
    * "3" mean the same `config_lookups` row and must share one column.
    */
-  const sizesForOverlay = (q: QuantityRow): SizeRow[] => {
-    if (q.is_single_style_pack) return sizesOfQuantity(q);
-    const seen = new Set<string>();
-    const out: SizeRow[] = [];
-    const take = (ref: string) => {
-      for (const z of sizesOfRef(ref)) {
-        if (!z.size_id || seen.has(z.size_id)) continue;
-        seen.add(z.size_id);
-        out.push(z);
-      }
-    };
-    take(q.style_ref_no);
-    for (const l of q.assort_lines) take(l.style_ref_no);
-    return out;
-  };
+  /* THE FIX FOR SCREENSHOT 2419. Both branches used to resolve from the RAW
+     `q.style_ref_no` — free text, `12` on that order — which names no style, so
+     the column set came back empty and no break-up could be typed. They now go
+     through `inheritedStyleFor` like every other consumer. See the module. */
+  const sizesForOverlay = (q: QuantityRow): SizeRow[] =>
+    AssortStyle.sizesForOverlay(styles, q) as SizeRow[];
 
   /** Does the style THIS line packs carry this size? — the cell-level lock. */
   const lineHasSize = (

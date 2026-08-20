@@ -64,6 +64,7 @@
     "scripts/check-composition-match.mts",
     "scripts/check-colour-by-type.mts",
     "scripts/check-approval-tree.mts",
+    "scripts/check-assort-style.mts",
     "scripts/mine-name-vocabularies.mts",
     "scripts/vocab-sources/**/*.mts"
   ]
