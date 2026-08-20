@@ -25,6 +25,7 @@
     "check:composition-match": "npx --yes tsx scripts/check-composition-match.mts",
     "check:colour-by-type": "npx --yes tsx scripts/check-colour-by-type.mts",
     "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",
+    "check:assort-style": "npx --yes tsx scripts/check-assort-style.mts",
     "check:size-order": "node --experimental-strip-types scripts/check-size-order.mts",
     "sweep:placeholders": "python scripts/sweep_placeholders.py .",
     "lint": "eslint"

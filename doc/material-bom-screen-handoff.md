@@ -136,3 +136,30 @@ Open questions before anyone builds it:
 
 **This reverses a decision the client made two days ago** (the two-pane was picked from three
 treatments). Worth flagging to them as a change of direction rather than a tweak.
+
+---
+
+## 5. Raised for the requirement session, 2026-08-20
+
+**An orphaned doc comment at `amendment-screen.tsx` ~4551.** It reads *"WHICH
+STYLE ONE LINE PACKS — the Single / Multiple switch, resolved (0433). The one
+place the switch is read, so the columns, the combo list, the size locks and the
+validation cannot each reach a different answer. On a Single Style pack the
+line's own `style_ref_no` is deliberately IGNORED"* — and is followed immediately
+by a second doc comment and then `declaredStyleRefs`. The function it described
+is gone.
+
+The nearest surviving function is `assortLineRef`, and it does **not** read
+`is_single_style_pack`. If the comment's rule still holds, a Single Style pack
+whose line carries a stale `style_ref_no` from a spell under the other setting
+will resolve to that stale style rather than to the destination's. Not touched
+here — it is your area and possibly mid-refactor.
+
+**Also note `lib/orders/amendments/assort-style.ts` now exists.** The style and
+size resolution for the assortment overlay moved out of the component so
+`npm run check:assort-style` could reach it; the component keeps thin wrappers.
+The same defect (an overlay with no size columns) was reported twice in two days
+through a clean build, because a destination's free-text Ref No and a style's
+reference are both `string`. If you change how a destination resolves its style,
+change it there and the vectors will tell you what you moved.
+
