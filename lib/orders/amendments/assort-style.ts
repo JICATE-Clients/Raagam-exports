@@ -37,6 +37,15 @@
 
 import { styleKey } from "@/lib/orders/amendments/style-key";
 
+/**
+ * ANYTHING THAT CARRIES A STYLE REFERENCE — a mapped row or the raw payload.
+ *
+ * `null` is admitted because the payload's column is nullable, and it is treated
+ * exactly as a blank: a style with no reference is not a declared style. That is
+ * the same rule a half-typed row gets, arrived at from the database side.
+ */
+export type StyleRefLike = { style_ref_no: string | null };
+
 /** A style's size, as the Style(s) section lists it. Order IS the data (0407). */
 export type AssortSize = { size_id: string | null };
 
@@ -55,19 +64,28 @@ export type AssortQuantity = {
    */
   style_ref_no: string;
   is_single_style_pack: boolean;
-  assort_lines: readonly { style_ref_no: string }[];
+  assort_lines: readonly StyleRefLike[];
 };
 
-/** Every style reference the order actually declares, normalised and deduped. */
-export function declaredStyleRefs(styles: readonly AssortStyle[]): string[] {
+/**
+ * Every style reference the order actually declares, normalised and deduped.
+ *
+ * TAKES ONLY WHAT IT READS. The three functions below it need a reference and
+ * nothing else, so they do not ask for `sizes` — which lets the load path call
+ * `defaultSingleStylePack` on the RAW payload styles, before they have been
+ * mapped into rows that carry their size lists.
+ */
+export function declaredStyleRefs(
+  styles: readonly StyleRefLike[],
+): string[] {
   return Array.from(
-    new Set(styles.map((s) => s.style_ref_no.trim().toUpperCase()).filter(Boolean)),
+    new Set(styles.map((s) => (s.style_ref_no ?? "").trim().toUpperCase()).filter(Boolean)),
   );
 }
 
 /** The order's only style, when it declares exactly one — the value a
  *  destination inherits when it names nothing usable itself. */
-export function soleStyleRef(styles: readonly AssortStyle[]): string {
+export function soleStyleRef(styles: readonly StyleRefLike[]): string {
   const refs = declaredStyleRefs(styles);
   return refs.length === 1 ? refs[0] : "";
 }
@@ -81,7 +99,10 @@ export function soleStyleRef(styles: readonly AssortStyle[]): string {
  * 2026-08-17, so on real orders it very often still holds a genuine style ref,
  * and those must keep working.
  */
-export function declaredStyleRef(styles: readonly AssortStyle[], text: string): string {
+export function declaredStyleRef(
+  styles: readonly StyleRefLike[],
+  text: string,
+): string {
   const t = (text ?? "").trim().toUpperCase();
   return t && declaredStyleRefs(styles).includes(t) ? t : "";
 }
@@ -98,10 +119,33 @@ export function declaredStyleRef(styles: readonly AssortStyle[], text: string): 
  *      default that saves as if it were an answer.
  */
 export function inheritedStyleFor(
-  styles: readonly AssortStyle[],
+  styles: readonly StyleRefLike[],
   q: Pick<AssortQuantity, "style_ref_no">,
 ): string {
   return declaredStyleRef(styles, q.style_ref_no) || soleStyleRef(styles);
+}
+
+/**
+ * SINGLE OR MULTIPLE STYLE? — the toggle a destination opens on.
+ *
+ * An order that declares ONE style cannot pack several, so Multiple is not a
+ * choice there, it is a dead end: that branch seeds no lines, so the overlay
+ * opens with size columns, a TOTAL of 0 and nothing to type into (client,
+ * screenshot 2422).
+ *
+ * The flag defaulted to `false` in two places — a new destination, and any
+ * record saved before 0433 added the column, where it reads NULL. Both landed on
+ * Multiple. Deriving it instead is safe in both directions: with one declared
+ * style Single is the only reading that can be right, and with several the old
+ * `false` is preserved, because there is genuinely no way to tell which the
+ * destination packs.
+ *
+ * A STORED `true`/`false` ALWAYS WINS. This answers only the absence of one.
+ */
+export function defaultSingleStylePack(
+  styles: readonly StyleRefLike[],
+): boolean {
+  return soleStyleRef(styles) !== "";
 }
 
 /**
@@ -123,10 +167,12 @@ export function sizesOfRef(
 /** Which style ONE assortment line packs. A line that names its own style wins;
  *  otherwise it takes the destination's inherited one. */
 export function assortLineRef(
-  styles: readonly AssortStyle[],
+  styles: readonly StyleRefLike[],
   q: Pick<AssortQuantity, "style_ref_no">,
-  l: { style_ref_no: string },
+  l: StyleRefLike,
 ): string {
+  // `||`, not `??`: a line whose own ref is blank OR null inherits. Both mean
+  // "this line does not name a style of its own".
   return l.style_ref_no || inheritedStyleFor(styles, q);
 }
 

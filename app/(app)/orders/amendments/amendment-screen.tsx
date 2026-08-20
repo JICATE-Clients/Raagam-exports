@@ -631,7 +631,17 @@ function toRows(src: SeededAmendmentChildren, newKey: () => string) {
       pack: txt(x.pack),
       is_ratio_wise_pack: x.is_ratio_wise_pack ?? false,
       ratio_for: txt(x.ratio_for),
-      is_single_style_pack: x.is_single_style_pack ?? false,
+      /* `?? defaultSingleStylePack`, NOT `?? false` (client 2026-08-20,
+         screenshot 2422). A record saved before 0433 added the column reads
+         NULL here, and `false` landed every one of them on Multiple Style —
+         whose branch seeds no lines, so the overlay opened with size columns, a
+         TOTAL of 0 and nothing to type into.
+         Safe in both directions: with ONE declared style, Single is the only
+         reading that can be right; with several, the old `false` is preserved,
+         because there is genuinely no way to tell which the destination packs.
+         A STORED true/false still wins — this answers only its absence. */
+      is_single_style_pack:
+        x.is_single_style_pack ?? AssortStyle.defaultSingleStylePack(src.styles),
       master_carton_name: txt(x.master_carton_name),
       inner_carton_name: txt(x.inner_carton_name),
       pack_description: txt(x.pack_description),
@@ -924,7 +934,10 @@ export function AmendmentScreen({
     pack: "",
     is_ratio_wise_pack: false,
     ratio_for: "",
-    is_single_style_pack: false,
+    /* Derived, not `false` — see the load path above. Read at CALL time, so
+       `styles` is initialised by then: this factory runs from a click handler
+       and from an effect, never from a `useState` initialiser. */
+    is_single_style_pack: AssortStyle.defaultSingleStylePack(styles),
     master_carton_name: "",
     inner_carton_name: "",
     pack_description: "",
