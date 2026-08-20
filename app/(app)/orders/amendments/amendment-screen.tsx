@@ -27,7 +27,33 @@ import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Sheet } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
-import type { StyleProcessRow } from "@/lib/orders/amendments/style-processes";
+import {
+  styleProcessRowStarted,
+  type ComponentOption,
+  type StyleProcessRow,
+} from "@/lib/orders/amendments/style-processes";
+/**
+ * STYLE(S) ▸ PROCESS RESTORED (client 2026-08-20).
+ *
+ * It was withdrawn on 2026-08-17 "as these details are covered elsewhere", and
+ * elsewhere was Order Setup ▸ Garment Process Plan. **That justification expired
+ * the same day**: 08-17b took Garment Process Plan out of the flow ("only 7 are
+ * needed"), so panel-wise printing, embroidery and wash had no entry point
+ * inside order entry at all. The client's own account of the architecture is
+ * that capturing them HERE is what let the setup collapse from nine steps to
+ * six — the popup is not a duplicate of the planning screen, it is the reason
+ * that screen stopped being a step.
+ *
+ * NOTHING HAD TO BE REBUILT, and that is down to the withdrawal being written
+ * properly: the sheet was left in `components/orders/`, and `StyleRow.processes`,
+ * its `toRows` mapping and the `style_processes` payload were all kept
+ * round-tripping rather than dropped. Only the column, the pointer and the mount
+ * came back.
+ */
+import {
+  StyleProcessSheet,
+  type StyleProcessHeader,
+} from "@/components/orders/style-process-sheet";
 import {
   excessQty,
   projectionQty,
@@ -1518,6 +1544,42 @@ export function AmendmentScreen({
     for (const s of data.styles) m.set(s.id, s);
     return m;
   }, [data.styles]);
+
+  /**
+   * WHICH STYLE(S) LINE HAS ITS PROCESS SHEET OPEN — keyed by the ROW, never by
+   * the style.
+   *
+   * The same reason `detailComboKey` and `assortFor` are: two lines may name the
+   * same style, and a pointer holding the style would open both their sheets at
+   * once and write one list into two rows.
+   */
+  const [processForKey, setProcessForKey] = useState<string | null>(null);
+  const processStyle = styles.find((r) => r.key === processForKey) ?? null;
+
+  /**
+   * THIS STYLE'S OWN PARTS, for the Process sheet's Component cell (0421).
+   *
+   * Scoped HERE and not in the sheet, per the cascading-picker rule the sheet's
+   * own prop doc states: this layer knows which style the line names, and
+   * `garment_style_components` is the only thing that knows which parts that
+   * style declares. A sheet handed the whole components master would offer a
+   * collar on a style that has none.
+   *
+   * Falls back to the full master when the style declares nothing — the same
+   * empty-means-unscoped call `scopedComponents` makes for the combo grid. A
+   * style whose components have not been entered yet must not silently offer an
+   * empty list, which reads as "this garment has no panels".
+   */
+  const styleComponentOptions = (r: StyleRow): ComponentOption[] => {
+    const declared = new Set(
+      ((r.style_id ? styleById.get(r.style_id)?.components : null) ?? [])
+        .map((c) => c.component_id)
+        .filter(Boolean) as string[],
+    );
+    return declared.size
+      ? data.componentRows.filter((o) => declared.has(o.id))
+      : data.componentRows;
+  };
 
   /**
    * The Style(s) TAB'S ROWS as picker items — not the style master.
@@ -3196,15 +3258,65 @@ export function AmendmentScreen({
         />
       ),
     },
-    /* THE `Process` COLUMN WITHDRAWN (client 2026-08-17) — see the note where
-       its sheet was mounted, at the foot of this file, for what stayed behind
-       and why the row data must keep round-tripping.
-
-       THE ROW IS FOUR FIELDS NOW, not five: Style · Order Unit · PO Qty ·
-       Description, all `xs` (2 of 12), with Sizes still `full` on its own line
-       below. The arithmetic the layout note records is unchanged in the only
-       way that matters — the cells occupy 8 of the 12 columns instead of 10, so
-       Sizes still cannot share their line and still wraps beneath them. */
+    {
+      header: "Process",
+      /**
+       * THE LEGACY [Click] THAT OPENS THE PROCESS SCREEN — restored 2026-08-20.
+       *
+       * Where the embellishments are defined: a COMPONENT process is work on a
+       * cut panel before it is stitched (printing the Front Body, embroidering a
+       * Sleeve), a GARMENT process is a treatment on the made-up garment (a
+       * bio-wash). `ProcessKind` is those two; the master's `for_components` /
+       * `for_garments` flags are what narrow each list, inside the sheet.
+       *
+       * GATED, AND THE GATE IS THE CLIENT'S: enabled once the row names a style
+       * AND carries a PO qty. Both halves say something real — with no style
+       * there are no components to map a panel process onto, and a line with no
+       * quantity is not yet an order for anything. Same shape as the Assort
+       * gate two grids down, which restored the other legacy [Click].
+       *
+       * THE COUNT IS WHAT MAKES THE LIST VISIBLE FROM OUTSIDE — a style carrying
+       * three processes otherwise looks exactly like one carrying none, which is
+       * the argument the Details button already records.
+       *
+       * `styleProcessRowStarted` and not `.length`: the sheet's grid seeds a
+       * blank row, and counting that would put "1" on every style anyone had
+       * merely opened.
+       */
+      cell: (r) => {
+        const named = !!(r.style_id || r.style_ref_no.trim());
+        const qty = (Number(r.po_qty) || 0) > 0;
+        const started = r.processes.filter(styleProcessRowStarted).length;
+        return (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            disabled={!named || !qty}
+            /* NAMES THE FIELD THAT TURNS IT ON rather than greying out in
+               silence — the rule the Assort gate states. A disabled control with
+               no reason is a dead end the operator has to guess their way out
+               of. */
+            title={
+              !named
+                ? "Name a style on this row first"
+                : !qty
+                  ? "Enter the PO Qty first"
+                  : undefined
+            }
+            onClick={() => setProcessForKey(r.key)}
+          >
+            {started ? `${started} process${started === 1 ? "" : "es"}` : "Click"}
+          </Button>
+        );
+      },
+    },
+    /* THE ROW IS FIVE FIELDS AGAIN: Style · Order Unit · PO Qty · Description ·
+       Process, with Sizes still `full` on its own line below. The withdrawal
+       note recorded the arithmetic both ways — five cells occupy 10 of the 12
+       columns and four occupy 8 — and in the only way that matters it is
+       unchanged: Sizes still cannot share their line and still wraps beneath. */
   ];
 
   /**
@@ -9957,26 +10069,73 @@ export function AmendmentScreen({
       </Sheet>
 
       {/**
-        * STYLE(S) ▸ PROCESS WITHDRAWN (client 2026-08-17): "remove Processed as
-        * Trim and the Garment Process child entry section entirely, as these
-        * details are covered elsewhere." Elsewhere is Order Setup ▸ Garment
-        * Process Plan, which is a step of its own since 2026-08-14.
+        * STYLE(S) ▸ PROCESS — WITHDRAWN 2026-08-17, RESTORED 2026-08-20.
         *
-        * WHAT WENT: the `Process` column on the Style(s) row, the sheet it
-        * opened (`StyleProcessSheet`, 0411) and the `processFor` pointer.
+        * The withdrawal read: "remove Processed as Trim and the Garment Process
+        * child entry section entirely, as these details are covered elsewhere."
+        * Elsewhere was Order Setup ▸ Garment Process Plan, a step since 08-14.
         *
-        * WHAT STAYED, and this is the half that keeps stored work alive:
-        * `StyleRow.processes`, the `toRows` mapping that loads it and the
-        * `style_processes` array in the save payload. `writeChildren` deletes
-        * and re-inserts every child grid wholesale, so a list dropped from the
-        * payload is not merely hidden — it is DELETED from every order already
-        * carrying one, on the next save of that order, silently. The rows now
-        * round-trip untouched: loaded, held, written back exactly as they came.
+        * **THAT ELSEWHERE STOPPED BEING A STEP LATER THE SAME DAY** — 08-17b,
+        * "only 7 are needed" (`lib/nav/module-groups.ts`). The screen survives at
+        * `/orders/garment-processes` with a row under Order Execution, but
+        * nothing inside ORDER ENTRY asked for panel-wise printing, embroidery or
+        * wash any more. A withdrawal justified by a destination outlived its
+        * destination, which is why this is a restoration rather than a reversal.
         *
-        * The sheet component itself is left in `components/orders/` — it is a
-        * shared primitive and not this lane's to remove, and nothing else has
-        * to change for this screen to stop opening it.
+        * THE TWO ARE NOT DUPLICATES. This defines what the order needs, at the
+        * moment the style is entered; `/orders/garment-processes` selects an
+        * accepted order and plans the out-processing of it. Entry and execution.
+        *
+        * RESTORING COST ALMOST NOTHING BECAUSE THE WITHDRAWAL WAS WRITTEN
+        * PROPERLY — and that is the lesson worth keeping. It left the sheet in
+        * `components/orders/`, and it kept `StyleRow.processes`, the `toRows`
+        * mapping and the `style_processes` payload round-tripping rather than
+        * dropping them: `writeChildren` deletes and re-inserts every child grid
+        * wholesale, so a list dropped from the payload is not hidden, it is
+        * DELETED from every order already carrying one on that order's next
+        * save, silently. Because none of that was thrown away, every process
+        * entered before 08-17 is still in the database and reappears here.
         */}
+      {processStyle && (
+        <StyleProcessSheet
+          open
+          onClose={() => setProcessForKey(null)}
+          styleLabel={
+            processStyle.style_ref_no.trim() ||
+            (processStyle.style_id
+              ? (styleById.get(processStyle.style_id)?.name ?? "")
+              : "") ||
+            "this style"
+          }
+          header={
+            {
+              styleRefNo: processStyle.style_ref_no,
+              articleNo: processStyle.article_no,
+              /* `unitTextOf`, the SAME helper the row's own Unit cell reads —
+                 the header must not be a second answer to "what does this line
+                 say", which is exactly what the sheet's own header doc warns
+                 about. Note it resolves from the style's `unit_kind`, not from
+                 `order_unit_id`: that FK is still seeded but is no longer what
+                 the column displays. */
+              orderUnit: unitTextOf(processStyle),
+              styleNo: processStyle.style_id
+                ? (styleById.get(processStyle.style_id)?.name ?? "")
+                : "",
+              styleDescription: processStyle.style_description,
+              poQty: processStyle.po_qty,
+            } satisfies StyleProcessHeader
+          }
+          rows={processStyle.processes}
+          onChange={(next) => updateStyle(processStyle.key, { processes: next })}
+          processes={data.processes}
+          components={styleComponentOptions(processStyle)}
+          newKey={newKey}
+          /* No `readOnly`: this editor is only reached through an action already
+             gated on `perms.canEdit`, and the sibling sub-sheets (Assortments,
+             Structure Details) pass none for the same reason. Threading a flag
+             that is always false would read as a mode this screen does not have. */
+        />
+      )}
     </div>
   );
 }

@@ -41,7 +41,7 @@ import { useMemo } from "react";
 import { Sheet } from "@/components/ui/sheet";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
@@ -173,6 +173,17 @@ export function StyleProcessSheet({
     },
     {
       header: "Process",
+      /* WIDTH DECLARED, like Type and Component beside it. Process and Details
+         were the only two columns without one, so at full bleed they absorbed
+         every pixel the fixed columns did not take — ~430px each to hold "BIT
+         PRINTING".
+
+         Declaring all four is also what makes the GRID hug its content instead
+         of stretching: `ChildGrid` hugs when every column states a width, which
+         is the compact row being asked for rather than a table ruled across
+         1600px. 16rem fits a process name; the `Truncated` treatment inside the
+         picker covers the rare longer one. */
+      width: "16rem",
       cell: (r) => (
         <RecordPicker
           label=""
@@ -248,6 +259,10 @@ export function StyleProcessSheet({
        * no remark is a complete answer, and the normalizer keeps it.
        */
       header: "Details",
+      /* The widest of the four because it is the only free-text cell — artwork
+         and design notes — but bounded like the rest, or it takes the whole
+         remainder on its own. See the note on Process. */
+      width: "20rem",
       cell: (r) => (
         <Input
           value={r.details}
@@ -282,6 +297,21 @@ export function StyleProcessSheet({
        * into something unreadable.
        */
       size="lg"
+      /**
+       * THE WHOLE PANE, not the 1180px reading width (client 2026-08-20:
+       * "make full width screen").
+       *
+       * The same call the Structure Details and Assortments overlays already
+       * made, and the third surface to make it — so the three sub-sheets of this
+       * editor now open the same way instead of one of them insetting itself.
+       *
+       * `size="lg"` STAYS AND IS NOT REDUNDANT. It is the sheet's WIDTH CLASS,
+       * and the note above records what it costs to get wrong: at `sm` the
+       * `ChildGrid` inside fell back to stacked cards and dropped its column
+       * headers. `fullBleed` removes the reading-width INSET; the two answer
+       * different questions and this surface needs both answered.
+       */
+      fullBleed
       title={styleLabel ? `Process — ${styleLabel}` : "Process"}
       /* STILL NO SAVE OF ITS OWN — the rows are part of the amendment and are
          written by the amendment's Save, so a Save here would imply they commit
@@ -311,40 +341,52 @@ export function StyleProcessSheet({
         * per-screen opt-out — the same reason the Order Unit cell on the parent
         * grid is readOnly, recorded there at length.
         */}
-      {/* `FieldGrid`, NOT a hand-rolled `grid-cols-2`.
-          `Field`'s sizes are `@lg/section:col-span-*` against the 12-col
-          `FIELD_TRACK`, so outside that track the spans resolve against nothing
-          and every field silently falls back to full width — which is what the
-          first version of this block did. `--check field-track` is the check
-          that caught it, and it is the whole reason the rule "a screen composes
-          primitives; it does not draw" exists.
+      {/* `FieldRow`, NOT `FieldGrid` (client 2026-08-20: "but fields size look
+          too large, make it compact").
 
-          `md` is `col-span-4`, so six fields lay out THREE ACROSS in two rows —
-          which is also exactly how the legacy Process Details header reads
-          (Style Ref No · Article No · Order Unit / Style No · Style Description
-          · PO Qty). Getting off the hand-rolled track and matching the
-          reference turned out to be the same edit. */}
+          THIS IS THE COST OF `fullBleed`, PAID PROPERLY. These were `size="md"`
+          — `col-span-4` of a twelve-column track — which was right at the old
+          1180px reading width and became six ~470px boxes the moment the sheet
+          took the whole pane. A SPAN IS A FRACTION OF WHATEVER IT IS GIVEN, so
+          widening the container widened every field with it, and `Order Unit`
+          got a quarter of a metre to hold "PCS".
+
+          Narrowing the CONTROL inside a fractional cell does not help and is the
+          trap `FieldRow`'s own doc records: the cell stays its old width and the
+          value floats in dead space, so the surplus reads as a HOLE rather than
+          as room. "Nothing short of leaving the fractional track can make a row
+          genuinely compact."
+
+          So each field takes the width its data needs and the row ends where its
+          content ends. The sums-to-12 rule is not being broken — it is a
+          statement about a fractional track, and a content-width row has no
+          twelfths to leave over.
+
+          The widths are the data's: a ref and a style name are `term` (176px), a
+          description is `name` (288px), a unit is `code` (144px) and a quantity
+          is `num` (72px). Still six fields and still the legacy header's six
+          facts; only the ruler changed. */}
       <div className="mb-4 rounded-md border bg-muted/30 p-3">
-        <FieldGrid>
-          <Field label="Style Ref No" size="md">
+        <FieldRow>
+          <Field label="Style Ref No" w="term">
             <Input readOnly value={header.styleRefNo} className="h-8" />
           </Field>
-          <Field label="Article No" size="md">
+          <Field label="Article No" w="term">
             <Input readOnly value={header.articleNo} className="h-8" />
           </Field>
-          <Field label="Style No" size="md">
+          <Field label="Style No" w="term">
             <Input readOnly value={header.styleNo} className="h-8" />
           </Field>
-          <Field label="Style Description" size="md">
+          <Field label="Style Description" w="name">
             <Input readOnly value={header.styleDescription} className="h-8" />
           </Field>
-          <Field label="Order Unit" size="md">
+          <Field label="Order Unit" w="code">
             <Input readOnly value={header.orderUnit} className="h-8" />
           </Field>
-          <Field label="PO Qty" size="md">
+          <Field label="PO Qty" w="num">
             <Input readOnly value={header.poQty} className="h-8 text-right" />
           </Field>
-        </FieldGrid>
+        </FieldRow>
       </div>
 
       <ChildGrid<StyleProcessRow>
