@@ -167,6 +167,9 @@ export interface MbaItem {
    *  "(Color + Size)" qualifier as the only thing distinguishing the two. */
   combination: string | null;
   moq: number | null;
+  /** Round the post-MOQ figure UP to the next multiple of this (0437).
+   *  NULL = no rounding asked for, which is every row before 0437. */
+  round_to: number | null;
   /** The NUMERATOR — how many are used. Renamed from `quantity_nos` by 0418. */
   no_of_items: number | null;
   /** The DIVISOR — how many garments they cover. */
@@ -337,6 +340,7 @@ export const mbaItemInput = z
     uom_conversion_id: uuidN,
     combination: nullableText,
     moq: numN,
+    round_to: numN,
     no_of_items: numN,
     per_pieces: numN,
     excess_pct: z.coerce.number().min(0).max(100).nullable().default(0),

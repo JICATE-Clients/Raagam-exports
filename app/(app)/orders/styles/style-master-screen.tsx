@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { isInactive } from "@/lib/masters/inactive";
+import { sizeFamily, sortBySize } from "@/lib/masters/size-order";
 import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { capsName } from "@/lib/validation/formats";
 import { Field, FieldGrid } from "@/components/ui/field";
@@ -348,7 +349,25 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   /** The three machine classes. No longer a PICKER — it is what the Type cell
    *  DISPLAYS, resolved from the category the operator picked. */
   const structureOpts = fabricStructureOpts;
-  const sizeOpts = useMemo(() => lookups.filter((l) => l.kind === "size"), [lookups]);
+  /**
+   * SIZES IN THE ORDER A GARMENT PERSON READS THEM (client screenshot 2392,
+   * 2026-08-19: the list arrived as `L, M, S, TEST, XL, XS, XXL, XXS`).
+   *
+   * The master is a flat `config_lookups` kind with a name and no ordinal, so
+   * `listConfigLookups` can only order it alphabetically — which is a correct
+   * sort by the wrong key, and therefore the kind of wrong that reads as right.
+   * `naturalSizeOrder` (`lib/masters/size-order.ts`) is the one place that
+   * decides this, proved by `npm run check:size-order`.
+   *
+   * This is the FALLBACK order. Once a size carries a Size Group the group's
+   * stored `sort_order` wins and this stops being consulted for grouped sizes —
+   * see the header of `size-order.ts` for why an ordinal cannot live on the size
+   * itself.
+   */
+  const sizeOpts = useMemo(
+    () => sortBySize(lookups.filter((l) => l.kind === "size"), (l) => l.name),
+    [lookups],
+  );
 
   // ---- the Components tab reads the Coordinates tab --------------------------
 
@@ -1854,6 +1873,47 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                    and a wrapping line of them is exactly what the extra width is
                    good for. */
                 triggerClassName="max-w-[280px]"
+                /* THE LIST IS NOT THE TRIGGER (client screenshot 2392,
+                   2026-08-19: "we need a lot of sizes, it will take too much
+                   scrolling").
+
+                   The 280px above is the TRIGGER's width and the client asked
+                   for it — but the panel was `w-full` of the same wrapper, so
+                   one number was answering two questions and the list inherited
+                   a cap chosen for a box that shows "8 selected". At 280px a
+                   list can only ever be one column, which is ~250px of dropdown
+                   spent rendering "XL" and eight rows visible at a time.
+
+                   40rem, RAISED FROM 34 (client 2026-08-20, on being shown the
+                   density figures). At 34rem the grid drew 7-10 sizes a line;
+                   40rem takes it to 9-13, which is the whole size range of a
+                   style visible without scrolling at all.
+
+                   It is capped against the viewport by the primitive
+                   (`max-w-[calc(100vw-2rem)]`), so this cannot push the page
+                   sideways on a small screen — it overlays, the way a popup
+                   should, rather than widening the layout under it. */
+                panelClassName="w-[40rem]"
+                /* Sizes are 2-5 characters, which is the whole case for the
+                   wrapping tick grid: ~40 visible at once instead of 8, and
+                   ↑/↓ move a row while ←/→ move a cell. */
+                gridded
+                /* BANDS, DERIVED FROM THE NAMES (client 2026-08-19: "minimum 50
+                   size will user add like yr, m, xs").
+
+                   At fifty-plus sizes one label stops meaning one thing — `M` is
+                   Medium AND `3M` is three months — and a flat list has nothing
+                   to tell them apart however well it is sorted.
+
+                   Derived rather than read from Size Groups because there is ONE
+                   size group in this database: shipping only the declared
+                   version would ship a grouping feature that groups nothing
+                   until someone spends a day on data entry. The family is
+                   already in the name, so this works on day one. A declared
+                   group, when there is one, overrides it — see the header of
+                   `size-order.ts` for the case derivation genuinely cannot
+                   cover. */
+                groupBy={(o) => sizeFamily(o.label)}
                 /* FRAMED, to match the Components table across the row (client
                    2026-08-18: "add one table frame for this size, because it
                    looks floating now").

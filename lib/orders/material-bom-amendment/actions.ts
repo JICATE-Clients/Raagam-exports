@@ -76,6 +76,10 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
       uom_conversion_id: c.uom_conversion_id ?? null,
       combination: clean(c.combination),
       moq: c.moq ?? null,
+      // 0437. Named here for the reason the comment on `component_id`
+      // above records: this literal is the whole write, so a column left
+      // out of it dies at the server boundary without a type error.
+      round_to: c.round_to ?? null,
       no_of_items: c.no_of_items ?? null,
       per_pieces: c.per_pieces ?? null,
       excess_pct: c.excess_pct ?? 0,
@@ -584,6 +588,12 @@ export async function copyMaterialBomFrom(
     // panel row at a style the target order has never heard of.
     components: [],
     moq: numOrNull(c.moq),
+    // TRAVELS WITH THE RECIPE (0437). A rounding step is a property of how this
+    // material is BOUGHT — a gross of buttons is a gross whichever order needs
+    // them — so it belongs with `moq` and the ratio rather than with the
+    // quantities, which recompute. This literal is the second place a new column
+    // goes missing without a type error; the first is `normalizeItems`.
+    round_to: numOrNull(c.round_to),
     no_of_items: numOrNull(c.no_of_items),
     per_pieces: numOrNull(c.per_pieces),
     excess_pct: numOrNull(c.excess_pct) ?? 0,

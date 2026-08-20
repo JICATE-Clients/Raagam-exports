@@ -8,11 +8,13 @@
  * Attribute that decides how the requirement SPLITS — one bulk figure for the
  * order, one row per colour, or one row per size.
  *
- * "SKU Quantity" is the production target: order qty + excess + approval pieces
- * + rejection allowance. That already exists as `productionTarget()` in
- * `../amendments/approval-qty.ts` and is NEVER recomputed here. A second excess
- * calculation is how two screens start reporting different quantities for one
- * order — `doc/orders-six-step.md` says so explicitly about this very step.
+ * "SKU Quantity" WAS the production target — order qty + excess + approval
+ * pieces + rejection allowance — and since 2026-08-20 it is the ENTERED order
+ * quantity alone. The client's instruction; see `targetsOf` below for what it
+ * costs and how to put it back. `productionTarget()` in
+ * `../amendments/approval-qty.ts` is untouched and still drives the Approval Qty
+ * tab, so the two are now deliberately different numbers rather than accidentally
+ * different ones.
  *
  * Client-safe (no `server-only`) for the reason `approval-qty.ts` and
  * `order-value.ts` are: the figures recalculate as the operator types, so they
@@ -38,7 +40,6 @@
  * same call `styleRate` makes for a priced style with no quantity behind it.
  */
 
-import { productionTarget, type ApprovalLine } from "@/lib/orders/amendments/approval-qty";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
@@ -139,8 +140,26 @@ export type OrderProductionInput = {
   approvals: readonly ApprovalRow[];
   combos: readonly ComboRow[];
   assortSizes: readonly AssortSizeRow[];
-  /** Resolves a size id to what the operator calls it. */
-  sizeName?: (id: string) => string;
+  /**
+   * What the operator calls each size, keyed by id.
+   *
+   * A MAP AND NOT A FUNCTION, and that is a hard requirement rather than a
+   * preference. This whole object is the return value of a SERVER ACTION
+   * (`loadOrderProduction`), so React has to serialize it across the
+   * server→client boundary — and a function cannot cross:
+   *
+   *     Functions cannot be passed directly to Client Components unless you
+   *     explicitly expose it by marking it with "use server".
+   *
+   * It was `(id: string) => string`, a closure over a `Map` built in
+   * `sizeNameFn()`, and the screen threw the moment an order was picked. Nothing
+   * caught it earlier because `tsc` and the `check:*` scripts are both blind to
+   * that boundary — the same gap AGENTS.md records under "Build is the gate".
+   *
+   * Optional still: a caller with no size lookup labels a slice by its uuid,
+   * which is legible to nobody but is not wrong.
+   */
+  sizeNames?: Readonly<Record<string, string>>;
 };
 
 /** A BOM line, as much of it as the requirement needs. */
@@ -313,6 +332,45 @@ export function apportion(total: number, weights: readonly number[]): number[] {
 type Target = { style: string; combo: string; qty: number };
 
 /** Every approval line resolved to a production target, or the first refusal. */
+/**
+ * THE QUANTITY THE MATERIAL BOM PLANS AGAINST — the entered one, and nothing
+ * added to it.
+ *
+ * ## THIS REVERSES 0418, DELIBERATELY, AND IT IS EASY TO PUT BACK
+ *
+ * Until 2026-08-20 this multiplied `productionTarget()` — order qty + the
+ * buyer's excess + approval pieces + the rejection allowance. That is the
+ * client's own "SKU Quantity", it is what `doc/orders-six-step.md` describes,
+ * and it is the figure the whole rejection-rule feature was built to feed.
+ *
+ * The client asked for it to follow the ENTERED quantity only (2026-08-20,
+ * repeated after the trade-off was put to them). The trigger was an order
+ * carrying 5,000 PO against 5,552 target: 252 of excess and 300 of approval
+ * pieces, of which the 300 was almost certainly a "fill down" entered per size
+ * rather than per order. **The instruction stands whatever the cause**, and this
+ * is the one place it has to change — the screen and the server action both
+ * come through here, so they cannot disagree.
+ *
+ * ## WHAT THIS COSTS, AND WHY IT IS ALL IN ONE FUNCTION
+ *
+ *  - **Trims are now bought for the pieces ordered, not the pieces cut.** An
+ *    order that makes 5,552 garments to ship 5,000 will be 552 buttons short.
+ *    That gap is exactly what the excess and the rejection rule existed to
+ *    close, so the client is choosing to close it some other way — the material
+ *    Excess % on each BOM line is now the ONLY buffer left, and it is per line
+ *    and typed by hand.
+ *  - **Stored requirements move.** Every saved BOM recomputes smaller on its
+ *    next save, and `basisFingerprint` below hashes the same quantity this
+ *    returns, so existing documents flag `Recalculate` rather than drifting
+ *    silently. That is the intended behaviour of the hash, not a side effect.
+ *  - **The PO ceiling drops with it** (`lib/purchase/bom-ceiling.ts`), which
+ *    tightens a control rather than loosening one — the safe direction.
+ *
+ * Restoring it is one call: swap the line below back to `productionTarget(...)`
+ * and put the rejection-gap refusal back with it. `approval-qty.ts` is untouched
+ * and the Approval Qty tab still computes and shows the full target, so nothing
+ * had to be deleted to do this.
+ */
 function targetsOf(order: OrderProductionInput): Target[] | Refusal {
   if (order.approvals.length === 0) {
     return { refused: "No production quantity yet — fill Approval Qty on the order" };
@@ -320,22 +378,14 @@ function targetsOf(order: OrderProductionInput): Target[] | Refusal {
 
   const out: Target[] = [];
   for (const a of order.approvals) {
-    const line: ApprovalLine = {
+    // THE ENTERED QUANTITY, VERBATIM. No excess, no approval pieces, no
+    // rejection allowance — see the header. `approval_qty` is still read from
+    // the row by the Approval Qty tab; it simply no longer reaches a material.
+    out.push({
+      style: styleKey(a.style_ref_no),
+      combo: comboKey(a.combo),
       qty: num(a.qty) ?? 0,
-      approvalQty: num(a.approval_qty) ?? 0,
-    };
-    const t = productionTarget(
-      line,
-      num(order.excessPct) ?? 0,
-      order.tiers,
-      order.rejectionRuleChosen,
-    );
-    if (t.qty == null) {
-      return {
-        refused: `Rejection rule has no tier for ${line.qty} pieces — fix the rule or clear it on the order`,
-      };
-    }
-    out.push({ style: styleKey(a.style_ref_no), combo: comboKey(a.combo), qty: t.qty });
+    });
   }
 
   // Rows exist but every one is blank. Distinct from "no rows at all", and it is
@@ -465,7 +515,7 @@ export function productionSlices(
       sizes.map(([, q]) => q),
     );
     sizes.forEach(([sizeId], i) => {
-      const name = order.sizeName?.(sizeId) ?? sizeId;
+      const name = order.sizeNames?.[sizeId] ?? sizeId;
       matrix.push({
         key: `${pairKey(t.style, t.combo)}${SEP}${sizeId}`,
         label: multiStyle ? `${labelFor(t)} · ${name}` : `${t.combo || "(blank)"} · ${name}`,
@@ -493,7 +543,7 @@ export function productionSlices(
     const prev = bySizeAcrossCombos.get(id);
     bySizeAcrossCombos.set(id, {
       qty: (prev?.qty ?? 0) + m.qty,
-      label: order.sizeName?.(id) ?? id,
+      label: order.sizeNames?.[id] ?? id,
     });
   }
 
@@ -522,7 +572,11 @@ export function productionSlices(
  * inside `slice.qty`; applying a second percentage to the pieces would compound
  * two buffers invisibly. The UI labels this column "Wastage %" for that reason.
  */
-export function requirementFor(line: BomLineInput, slice: ProductionSlice): number | Refusal {
+function sliceRequirement(
+  line: BomLineInput,
+  slice: ProductionSlice,
+  applied: number,
+): number | Refusal {
   const items = num(line.no_of_items);
   const pieces = num(line.per_pieces);
   const wastage = num(line.excess_pct) ?? 0;
@@ -535,13 +589,46 @@ export function requirementFor(line: BomLineInput, slice: ProductionSlice): numb
   // the UI as an ordinary-looking number — `conversionFactor`'s stated reason.
   if (pieces == null || pieces <= 0) return { refused: "Pieces must be more than 0" };
 
+  // VALIDATED EVEN WHERE IT IS NOT APPLIED. `baseRequirementFor` passes
+  // `applied = 0`, but a Wastage of 150 still has to refuse there — two columns
+  // side by side, one answering and one refusing the same row, reads as the
+  // BEFORE figure being fine and only the AFTER one being broken.
   if (wastage < 0 || wastage > 100) return { refused: "Wastage must be between 0 and 100" };
 
   const qty = num(slice.qty) ?? 0;
   return ceilToPrecision(
-    ((qty * items) / pieces) * (1 + wastage / 100),
+    ((qty * items) / pieces) * (1 + applied / 100),
     uomPrecision(line.decimals),
   );
+}
+
+export function requirementFor(line: BomLineInput, slice: ProductionSlice): number | Refusal {
+  return sliceRequirement(line, slice, num(line.excess_pct) ?? 0);
+}
+
+/**
+ * The same slice BEFORE the line's Wastage % (client 2026-08-20: "two fields not
+ * one — excess will user give, and calculated is based on no of pcs and no of
+ * item, with or without excess value").
+ *
+ * ## WHY THIS IS COMPUTED AND NOT DIVIDED BACK OUT
+ *
+ * Wastage is a plain multiplier, so `excessCalcQty / (1 + w/100)` looks like it
+ * would do — and it is wrong for the reason every figure in this file is
+ * ceilinged: `requirementFor` rounds UP to the unit's precision, so the division
+ * un-rounds a number that was deliberately rounded and lands just under the
+ * honest figure. On a 3-decimal unit with 3% wastage that is the difference
+ * between 1,236 and 1,235.922. The BEFORE figure has to be ceilinged from its
+ * own multiplication, which is what this does.
+ *
+ * It refuses in exactly the cases `requirementFor` refuses, including on a
+ * Wastage it does not itself use — see the guard.
+ */
+export function baseRequirementFor(
+  line: BomLineInput,
+  slice: ProductionSlice,
+): number | Refusal {
+  return sliceRequirement(line, slice, 0);
 }
 
 /**
@@ -572,6 +659,147 @@ export function moqRollup(
   if (m == null || m <= 0) return { total, afterMoq: total };
   if (!unitKnown) return { refused: "Set a purchase unit before an MOQ can be applied" };
   return { total, afterMoq: Math.max(total, m) };
+}
+
+/**
+ * Round a quantity UP to the next multiple of a step (0437).
+ *
+ * The client's case: an excess-calculated figure lands on 567 and nobody orders
+ * 567 of anything, so the operator names a step — 50, 144 for a gross, 12 for a
+ * dozen — and the figure becomes orderable.
+ *
+ * ## UP, never to nearest, and that is the same decision made everywhere here
+ *
+ * `rejectionFor` records it once and everything follows: *"shipping 59 when 60
+ * were needed is precisely the failure this rule exists to prevent. The cost of
+ * the other direction is at most one garment."* Rounding 567 DOWN to 550 buys
+ * short on a number that is already the floor's requirement.
+ *
+ * ## A STEP OF 0 IS NOT A STEP, AND NULL IS NOT AN ERROR
+ *
+ * NULL / absent means the operator has not asked for rounding — the ordinary
+ * case, and the state every row predating 0437 is in — so the value passes
+ * through unchanged. A step that is present but <= 0 is a half-typed box, and
+ * `Math.ceil(x / 0)` is Infinity in JS rather than a throw, so it would escape
+ * into the purchase figure as an ordinary-looking number. `conversionFactor`
+ * guards the same trap for the same reason. It passes through too: a box being
+ * typed into is not a refusal, and the operator is one keystroke from a step.
+ *
+ * ## THE `toFixed(6)` IS LOAD-BEARING, exactly as it is in `ceilToPrecision`
+ *
+ * `600 / 50` is 11.999999999999998 in binary floating point for enough
+ * (value, step) pairs to matter, and `Math.ceil` of that is 12 — which returns
+ * 600 correctly. But `1.2 / 0.1` is 11.999999999999998 and ceils to 12, giving
+ * 1.2000000000000002 back. Fixing the quotient to six places before the ceil is
+ * what makes an already-round figure stay itself instead of gaining a step. The
+ * comment in `ceilToPrecision` records the identical trap ("without it 150
+ * becomes 150.01") and this is the second place it bites.
+ */
+export function roundUpTo(value: number, step: number | null | undefined): number {
+  const v = num(value);
+  if (v == null) return value;
+  const s = num(step);
+  if (s == null || s <= 0) return v;
+  return Number((Math.ceil(Number((v / s).toFixed(6))) * s).toFixed(6));
+}
+
+/**
+ * The whole tail of a line's quantity chain, in the ONE order the client chose.
+ *
+ *     Excess Calculated Qty  ->  MOQ  ->  Round To  ->  Final Quantity
+ *
+ * ## MOQ FIRST. THEY DO NOT COMMUTE AND THE GAP IS NOT SMALL
+ *
+ * A line needing 100 with an MOQ of 550 and a Round To of 500:
+ *
+ *     MOQ then Round  ->  max(100, 550) = 550  ->  ceil to 500s  = 1000
+ *     Round then MOQ  ->  ceil to 500s  =  500  ->  max(500, 550) =  550
+ *
+ * Nearly double, on a rule that reads the same either way in English. The
+ * client chose MOQ first (2026-08-19), and the reason survives the example:
+ * the supplier's minimum is a fact about what may be bought at all, and Round
+ * To is how the operator makes that figure orderable. Round first and the
+ * Final Quantity stops being a multiple of the step the operator named
+ * whenever the MOQ is the binding number — which defeats the column.
+ *
+ * ## EVERY STEP IS EXPOSED, because the operator is being asked to trust it
+ *
+ * This returns the intermediate figures rather than just the answer. The grid
+ * shows Excess Calculated Qty and Final Quantity in separate columns with MOQ
+ * and Round To typed between them, so a number that jumped from 567 to 1000 has
+ * its two reasons visible on the same row. A single "Calculated Qty" cell that
+ * silently absorbed both is what this replaces.
+ *
+ * ## REFUSES, NEVER RETURNS 0 — the rule this whole module is written to
+ *
+ * A refusal carries the SENTENCE the screen prints. 0 reads as "none needed",
+ * the one answer a material requirement never intends, and this figure is the
+ * one a purchase order is written from.
+ */
+export type LineQuantity = {
+  /**
+   * Σ of every slice BEFORE the line's Wastage % (`baseRequirementFor`) — the
+   * "Calculated Qty" column (client 2026-08-20).
+   *
+   * EQUAL TO `excessCalcQty` WHEN THERE IS NO WASTAGE, and that is the honest
+   * answer rather than a reason to hide the column: the operator is being shown
+   * what the order needs and what the buffer added, and "nothing" is a real
+   * value for the second. `baseQuantities` omitted means the caller did not ask
+   * for the split, and it falls back to the same figure for the same reason.
+   */
+  calcQty: number;
+  /** Σ of every slice, with the line's Wastage % already inside (`requirementFor`). */
+  excessCalcQty: number;
+  /** After the supplier's minimum. Equal to `excessCalcQty` when no MOQ applies. */
+  afterMoq: number;
+  /** After the operator's rounding step. THE figure a PO is written from. */
+  finalQty: number;
+};
+
+export function lineQuantity(
+  sliceQuantities: readonly (number | null)[],
+  moq: number | null,
+  roundTo: number | null,
+  unitKnown: boolean,
+  /**
+   * The same slices from `baseRequirementFor`. OPTIONAL so the three existing
+   * call sites — the stored write among them — keep working unchanged while the
+   * screen opts in; a required parameter here would have been a change to the
+   * server action for a column only the grid draws.
+   *
+   * NOT PUT THROUGH `moqRollup`: an MOQ and a rounding step describe what may be
+   * BOUGHT, and this figure is what the order CONSUMES. Rolling it up would make
+   * the first column jump to 550 because of a supplier minimum, which is exactly
+   * the conflation the four separate columns exist to undo.
+   */
+  baseQuantities?: readonly (number | null)[],
+): LineQuantity | Refusal {
+  const roll = moqRollup(sliceQuantities, moq, unitKnown);
+  if (isRefusal(roll)) return roll;
+
+  // A ROUNDING STEP NEEDS A UNIT for the same reason an MOQ does. "Round to
+  // 144" against a line with no purchase or consumption unit is 144 of nothing
+  // — the blank-supply-type shape the nominated-vendor rule refuses, and the
+  // shape `moqRollup` refuses one line above. Only asked when a step is really
+  // present: a line with no rounding is not made to answer for a unit it does
+  // not need.
+  const step = num(roundTo);
+  if (step != null && step > 0 && !unitKnown) {
+    return { refused: "Set a purchase unit before a rounding step can be applied" };
+  }
+
+  // Σ of the known base slices. A slice that REFUSED contributes nothing here
+  // just as it does in `moqRollup` — and the refusal itself has already been
+  // reported by `moqRollup` above if it refused every slice, so this cannot
+  // quietly answer for a line the with-wastage column called unanswerable.
+  const base = (baseQuantities ?? []).filter((q): q is number => num(q) != null);
+
+  return {
+    calcQty: base.length ? base.reduce((a, b) => a + b, 0) : roll.total,
+    excessCalcQty: roll.total,
+    afterMoq: roll.afterMoq,
+    finalQty: roundUpTo(roll.afterMoq, step),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -609,16 +837,13 @@ export function moqRollup(
  * is a change rather than a silently equal hash.
  */
 export function basisFingerprint(order: OrderProductionInput): string {
+  // THE SAME QUANTITY `targetsOf` MULTIPLIES, and that identity is the whole
+  // contract: hash anything else and a document either flags Recalculate when
+  // nothing that matters moved, or stays quiet when something did. It followed
+  // `productionTarget` while the requirement did; it follows the entered
+  // quantity now that the requirement does (2026-08-20).
   const rows = order.approvals
-    .map((a) => {
-      const t = productionTarget(
-        { qty: num(a.qty) ?? 0, approvalQty: num(a.approval_qty) ?? 0 },
-        num(order.excessPct) ?? 0,
-        order.tiers,
-        order.rejectionRuleChosen,
-      );
-      return `${styleKey(a.style_ref_no)}|${comboKey(a.combo)}|${t.qty ?? "?"}`;
-    })
+    .map((a) => `${styleKey(a.style_ref_no)}|${comboKey(a.combo)}|${num(a.qty) ?? 0}`)
     .sort();
   return fnv1a64(rows.join("\n"));
 }

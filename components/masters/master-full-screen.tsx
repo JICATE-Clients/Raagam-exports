@@ -10,7 +10,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { X, type LucideIcon } from "lucide-react";
+import { ChevronLeft, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -186,6 +186,8 @@ export function MasterFullScreen({
   modeLabel,
   header,
   sections,
+  railCollapsed = false,
+  onExpandRail,
   initialSection,
   footer,
 }: {
@@ -248,6 +250,33 @@ export function MasterFullScreen({
     right?: ReactNode;
   };
   sections: FullScreenSection[];
+  /**
+   * Fold the section rail away and give its 228px to the content.
+   *
+   * FOR A SECTION THAT IS ITSELF A LIST PLUS AN EDITOR. Material BOM is the case
+   * (client 2026-08-20, screenshot 2402): its items are a list of lines beside
+   * the open line's fields, so with the rail up the operator met 228px of
+   * sections, then 330px of lines, and only then a field — two levels of
+   * navigation stacked in front of the work, on a document with 22 fields to
+   * fill.
+   *
+   * CONTROLLED BY THE CALLER, never by this component. Whether a record is "being
+   * worked on" is the screen's own state, and a surface that guessed would fold
+   * the rail on screens that have no second list to justify it.
+   *
+   * NOTHING IS UNREACHABLE WHILE IT IS FOLDED, which is the condition on doing
+   * this at all: the `<nav>` stays in the DOM (only its desktop grid column
+   * goes), the mobile chip strip is untouched, the rail's arrow keys still work,
+   * and `onExpandRail` below draws a visible way back. A section hidden with no
+   * route to it would be the "requiring a hidden field" failure one level up.
+   */
+  railCollapsed?: boolean;
+  /**
+   * Bring the rail back. Required in spirit by `railCollapsed`: without it the
+   * fold is a one-way door, and the operator has no way to reach another section
+   * except by leaving the record.
+   */
+  onExpandRail?: () => void;
   initialSection?: string;
   footer: {
     /** Left status text; e.g. "Unsaved changes". */
@@ -716,7 +745,20 @@ export function MasterFullScreen({
       )}
 
       {/* body: rail + content */}
-      <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[228px_1fr]">
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col md:grid",
+          /* THE RAIL STANDS DOWN WHILE ONE RECORD IS BEING WORKED ON (client
+             2026-08-20, screenshot 2402). Material BOM's items are themselves a
+             list-plus-editor, so with the rail up the operator faced 228px of
+             sections beside 330px of lines before reaching a single field —
+             two levels of navigation stacked in front of the work.
+             ONLY ON DESKTOP, and only the GRID COLUMN goes: the `<nav>` keeps
+             its place in the DOM (below) so the mobile chip strip, the arrow
+             keys and a screen reader all still reach the sections. */
+          railCollapsed ? "md:grid-cols-[1fr]" : "md:grid-cols-[228px_1fr]",
+        )}
+      >
         <nav
           ref={railRef}
           role="tablist"
@@ -729,7 +771,13 @@ export function MasterFullScreen({
           // rather than in the middle of data entry. Tab normally never needs it
           // at all now — Tab off a section's last field opens the next section.
           data-focus-region="header"
-          className="flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:flex-col md:overflow-visible md:border-b-0 md:border-r md:p-3"
+          className={cn(
+            "flex gap-1 overflow-x-auto border-b border-border bg-surface-muted p-2 md:flex-col md:overflow-visible md:border-b-0 md:border-r md:p-3",
+            /* `md:hidden`, NOT `hidden`: the horizontal chip strip below the
+               breakpoint is the only section nav a phone has, and collapsing is
+               a desktop answer to a desktop problem. */
+            railCollapsed && "md:hidden",
+          )}
         >
           <span className="hidden px-2 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground md:block">
             Sections
@@ -867,6 +915,22 @@ export function MasterFullScreen({
               active?.wide ? "max-w-[1720px]" : "max-w-[1440px]",
             )}
           >
+            {/* THE WAY BACK, and the rail is only allowed to fold because this
+                exists. It sits at the top of the content rather than floating,
+                so it is in the reading order and in the Tab cycle at the point
+                the rail would have been — the operator meets it exactly where
+                they would have met the sections. Desktop only: below the
+                breakpoint the chip strip never left. */}
+            {railCollapsed && onExpandRail && (
+              <button
+                type="button"
+                onClick={onExpandRail}
+                className="mb-3 hidden items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground md:inline-flex"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                Sections
+              </button>
+            )}
             {active?.content}
           </div>
         </div>

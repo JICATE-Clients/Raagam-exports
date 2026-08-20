@@ -95,13 +95,17 @@ export type OrderRow = {
  * reading one tree two ways is how two screens start disagreeing about an
  * order's size curve, so the expression is copied deliberately and named here.
  *
- * `sizeName` is supplied by the caller that has the lookups; without it a slice
+ * `sizeNames` is supplied by the caller that has the lookups; without it a slice
  * is labelled with its uuid, which is legible to nobody.
+ *
+ * A PLAIN MAP, NEVER A RESOLVER FUNCTION. The result of this crosses a server
+ * action boundary (`loadOrderProduction`), and React cannot serialize a
+ * function — see the note on `OrderProductionInput.sizeNames`.
  */
 export function orderProductionInput(
   row: OrderRow,
   tiersById: Map<string, RejectionTier[]>,
-  sizeName?: (id: string) => string,
+  sizeNames?: Readonly<Record<string, string>>,
 ): OrderProductionInput {
   const assortSizes = (row.quantities ?? []).flatMap((q) =>
     (q.assort_lines ?? []).flatMap((l) =>
@@ -132,7 +136,7 @@ export function orderProductionInput(
       combo: c.combo,
     })),
     assortSizes,
-    sizeName,
+    sizeNames,
   };
 }
 
@@ -158,14 +162,15 @@ export async function rejectionTiersById(): Promise<Map<string, RejectionTier[]>
   return out;
 }
 
-export async function sizeNameFn(): Promise<(id: string) => string> {
+export async function sizeNamesById(): Promise<Record<string, string>> {
   const s = await createClient();
   const { data } = await s
     .from("config_lookups")
     .select("id, name")
     .eq("kind", "size");
-  const byId = new Map((data ?? []).map((r) => [r.id as string, r.name as string]));
-  return (id: string) => byId.get(id) ?? id;
+  return Object.fromEntries(
+    (data ?? []).map((r) => [r.id as string, r.name as string]),
+  );
 }
 
 /**
@@ -180,13 +185,13 @@ export async function getOrderProduction(
   garmentOrderId: string,
 ): Promise<OrderProductionInput | null> {
   const s = await createClient();
-  const [tiers, sizeName, res] = await Promise.all([
+  const [tiers, sizeNames, res] = await Promise.all([
     rejectionTiersById(),
-    sizeNameFn(),
+    sizeNamesById(),
     s.from("garment_order_amendments").select(ORDER_SELECT).eq("id", garmentOrderId).maybeSingle(),
   ]);
   if (!res.data) return null;
-  return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeName);
+  return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeNames);
 }
 
 // ---------------------------------------------------------------------------

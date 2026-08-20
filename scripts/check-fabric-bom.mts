@@ -116,7 +116,7 @@ function order(over: Partial<OrderProductionInput> = {}): OrderProductionInput {
       assort(SZ_S, 1, "NAVY"),
       assort(SZ_M, 1, "NAVY"),
     ],
-    sizeName: (id) => SIZE_NAMES[id] ?? id,
+    sizeNames: SIZE_NAMES,
     ...over,
   };
 }
@@ -360,23 +360,41 @@ check(
 );
 
 // ---------------------------------------------------------------------------
-// 8. The order's Excess % is inside the target, and is applied ONCE
+// 8. The order's Excess % does NOT reach the fabric (client 2026-08-20)
+//
+// THIS SECTION ASSERTED THE OPPOSITE, and the reversal is why it is inverted
+// rather than deleted. It read "the order's Excess % is inside the target, and
+// is applied ONCE", and carried a refutation — "not as 600, which would be
+// reading the order qty raw" — written to catch an engine doing what this one
+// now does deliberately.
+//
+// Fabric BOM shares `productionSlices` with the material engine ON PURPOSE, so
+// that the two can never report different quantities for one order (see this
+// file's header). When the client moved the Material BOM onto the ENTERED order
+// quantity, that sharing carried fabric with it — and keeping fabric on the old
+// target would have meant splitting the one function built to stop them
+// disagreeing. A BOM is a BOM: both now plan the quantity entered.
+//
+// WHAT IT COSTS IS THE SAME ON BOTH SIDES. An order that cuts 5,552 to ship
+// 5,000 is short of cloth for 552 garments exactly as it is short of their
+// buttons. The line's own Wastage % is the only buffer left, and it is per line
+// and typed by hand. `targetsOf` in ../lib/orders/material-bom/requirement.ts
+// records how to put the target back; doing so restores this section too.
 // ---------------------------------------------------------------------------
 
 const withExcess = order({ excessPct: 10, approvals: [approval(600, "WHITE")], combos: [combo("WHITE")] });
 
-check("10% excess on 600 pieces is planned as 660", total("colour", WHITE, line(), withExcess), 165);
+check("600 entered is planned as 600, not 660", total("colour", WHITE, line(), withExcess), 150);
 refute(
-  "…not as 600, which would be reading the order qty raw",
+  "…not 165, which is the 10% excess the fabric stopped reading",
   total("colour", WHITE, line(), withExcess),
-  150,
+  165,
 );
-// Excess buffers the PIECES and wastage buffers the FABRIC. Both apply, neither
-// twice: 660 x 0.25 x 1.10.
+// Wastage buffers the FABRIC and is untouched by any of this: 600 x 0.25 x 1.10.
 check(
-  "excess and wastage compose without compounding either",
+  "the line's own Wastage % still applies, and is now the only buffer",
   total("colour", WHITE, line({ wastage_pct: 10 }), withExcess),
-  181.5,
+  165,
 );
 
 console.log(failed === 0 ? "\nOK — every fabric requirement vector holds." : `\n${failed} FAILED`);

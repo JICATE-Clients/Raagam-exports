@@ -868,6 +868,9 @@ export function ChildGrid<T extends { key: string }>({
   flatRows = false,
   rowSummary,
   foldRows = false,
+  masterDetail = false,
+  renderListItem,
+  onOpenRow,
   canFold,
   renderFoldedRow,
   seedRow = false,
@@ -1303,6 +1306,54 @@ export function ChildGrid<T extends { key: string }>({
    */
   foldRows?: boolean;
   /**
+   * THE FOLDED ROWS MOVE INTO A COLUMN BESIDE THE OPEN ONE, instead of stacking
+   * above and below it (client 2026-08-20, Material BOM).
+   *
+   * `foldRows` already answers "one row open at a time"; this answers "and where
+   * do the other nineteen go". Stacked, a twenty-line document puts the open row
+   * an unpredictable distance down the page and moves it every time a different
+   * one is opened. Beside, the list holds still, every line stays readable while
+   * one is being filled, and the operator can see how far through they are.
+   *
+   * OPT-IN, AND IT CHANGES NOTHING FOR ANYONE ELSE. Default off, so the seven
+   * existing `foldRows` callers keep stacking. It is `cards`-mode only — a table
+   * row cannot be a pane — and it needs `renderListItem` below.
+   *
+   * THE KEYBOARD IS UNTOUCHED, and that is the reason this lives here rather
+   * than being hand-rolled on the screen. The open row keeps its `data-grid-row`
+   * inside the same `data-grid-body`, so `gridKeyNav`, `tabAlongRow`, the
+   * required-holds and `data-row-remove` all still find it. A screen that built
+   * its own two-pane layout would lose every one of those — the exact failure
+   * AGENTS.md records for the ~22 hand-rolled grids.
+   */
+  masterDetail?: boolean;
+  /**
+   * What one line looks like in the master-detail list. Required by
+   * `masterDetail`; ignored without it.
+   *
+   * A SEPARATE RENDERER, AND IT HAS TO BE. The two obvious candidates both fail:
+   * `renderFoldedRow` may hold live CONTROLS (Material BOM's folded line carries
+   * its Material picker), and nesting those inside the list's own button is
+   * invalid markup that swallows the click; `rowSummary` is optional and the
+   * screen that asked for this passes none — its band was removed on 2026-08-19
+   * to reclaim the row's height.
+   *
+   * So this one is declared to be INERT: text, a status dot, a figure. Anything
+   * focusable in here is a second tab stop per line, on a surface whose whole
+   * point is that the fields live in the other pane.
+   */
+  renderListItem?: (row: T, index: number) => ReactNode;
+  /**
+   * Fires when the operator PICKS a line out of the master-detail list.
+   *
+   * Deliberately not "the open row changed": `openRowKey` also moves when a row
+   * is added or removed, and a screen reacting to those would be reacting to its
+   * own writes. This is the operator's own act of choosing one line to work on,
+   * which is the only thing a caller has a reason to know about — Material BOM
+   * folds the section rail away on it, to give the fields the width back.
+   */
+  onOpenRow?: (row: T, index: number) => void;
+  /**
    * Has this row enough identity to fold TO? Default: yes.
    *
    * A row with nothing filled in has no summary worth showing, and a folded
@@ -1433,6 +1484,10 @@ export function ChildGrid<T extends { key: string }>({
    */
   /** `across="compact"` is the same mode on a fixed track — see the prop. */
   const acrossCompact = across === "compact";
+
+  /** Master-detail, but only once a list of lines has something to list —
+   *  see the container below for why one row must not open a pane. */
+  const mdActive = masterDetail && rows.length > 1;
 
   const mode: "across" | "inline" | "cards" | "responsive" = across
     ? "across"
@@ -2088,9 +2143,74 @@ export function ChildGrid<T extends { key: string }>({
                 : narrow
                   ? "@md:hidden"
                   : "@lg:hidden"),
+            /* TWO PANES, AND ONLY ON A WIDE SURFACE. Below the breakpoint the
+               grid falls back to exactly what it does today — list above, open
+               row beneath — because a 268px column beside a form is a phone
+               showing two things badly. `space-y-0` undoes the stacking rhythm:
+               the panes are columns now, and the gap between them is a border. */
+            /* `rows.length > 1`: A LIST OF ONE IS NOT A LIST. On a new document
+               there is exactly one blank line, and the pane stood there 268px
+               wide holding the words "Not filled in" and half a screen of
+               nothing (client 2026-08-20, screenshot 2404: "while opening it is
+               still a mess"). The grid already draws this distinction one prop
+               along — `folded` carries `rows.length > 1` for the same reason,
+               "a single row never folds, there is no next item to move on to".
+               The pane appears with the second material and is never seen
+               before it earns its width. */
+            /* `gap-x-5`: THE BORDER IS NOT A GUTTER. With `gap-0` the detail
+               pane's first label started against the list's right edge, so the
+               two panes touched and the rule between them read as a seam in one
+               surface rather than as a space between two (client 2026-08-20,
+               "add gap between that separation left and right split screen").
+               20px after the border is what lets each pane have an edge. */
+            mdActive && "md:grid md:grid-cols-[268px_minmax(0,1fr)] md:gap-x-5 md:gap-y-0 md:space-y-0",
           )}
           onKeyDown={keyboardNav ? (e) => gridKeyNav(e) : undefined}
         >
+          {mdActive && renderListItem && (
+            /* THE LIST PANE. It renders EVERY row, including the open one —
+               which is highlighted rather than removed, because a list that
+               drops the line you are working on loses your place in it. */
+            <div
+              /* A GROUND OF ITS OWN, and this is what makes it read as a pane
+                 rather than as a stray vertical rule. Both halves were
+                 `bg-surface`, so the border between them was the only thing
+                 saying there were two of anything — and below the last line it
+                 ran on down an empty white column (client 2026-08-20, screenshot
+                 2406, "that separate item and table look not good"). Tinting the
+                 list is what turns that emptiness into the bottom of a pane. */
+              className="flex flex-col overflow-y-auto bg-surface-muted/60 border-border md:max-h-[560px] md:border-r">
+              {view.map((row, localI) => {
+                const i = offset + localI;
+                const isOpen =
+                  row.key === (openRowKey ?? rows[rows.length - 1]?.key ?? null);
+                return (
+                  <button
+                    key={row.key}
+                    type="button"
+                    /* NOT a Tab stop. Tab moves between FIELDS (AGENTS.md), and
+                       twenty list entries on the typing path would put nineteen
+                       stops between one field and the next. The mouse, the arrow
+                       keys and a screen reader all still reach it. */
+                    tabIndex={-1}
+                    aria-current={isOpen ? "true" : undefined}
+                    onClick={() => {
+                      setOpenRowKey(row.key);
+                      onOpenRow?.(row, i);
+                    }}
+                    className={cn(
+                      "w-full border-b border-l-[3px] border-b-border px-3 py-2 text-left transition-colors last:border-b-0",
+                      isOpen
+                        ? "border-l-primary bg-surface"
+                        : "border-l-transparent hover:bg-surface-muted",
+                    )}
+                  >
+                    {renderListItem(row, i)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {view.map((row, localI) => {
             const i = offset + localI;
             /**
@@ -2107,6 +2227,12 @@ export function ChildGrid<T extends { key: string }>({
               rows.length > 1 &&
               row.key !== (openRowKey ?? rows[rows.length - 1]?.key ?? null) &&
               (canFold ? canFold(row) : true);
+
+            /* THE FOLDED ROWS ARE THE LIST PANE ABOVE, so they do not render a
+               second time here. Returning null rather than filtering `view`
+               keeps `localI` — and so `i`, which the caller's cells index by —
+               pointing at the real position in the array. */
+            if (mdActive && folded) return null;
             /**
              * WHAT THE CARD'S HEADER BAND HAS TO SAY — and whether it has
              * anything at all (client 2026-08-17, screenshot 2332: "remove that
@@ -2194,7 +2320,14 @@ export function ChildGrid<T extends { key: string }>({
                    its shade, because every field edge on the screen is also 1px.
                    Two pixels is a different KIND of line, which is what "a new
                    record starts here" has to be. */
-                (listRows || flatRows) && localI > 0 && "border-t-2 border-border-strong",
+                /* `!masterDetail`: that rule separates one record from the
+                   NEXT one, and in the detail pane there is only ever one. Its
+                   `localI > 0` would draw a stray line above whichever row
+                   happened to be open. */
+                !mdActive &&
+                  (listRows || flatRows) &&
+                  localI > 0 &&
+                  "border-t-2 border-border-strong",
                 // Only when the ✕ floats: `relative` to hang it on, and room on
                 // the right so the last field's LABEL does not run under it. A
                 // banded card needs neither — its ✕ is in the flow.

@@ -239,7 +239,17 @@ async function getConversionRows(): Promise<MbaConversionRow[]> {
 async function getMaterialRows(): Promise<MaterialOption[]> {
   const s = await createClient();
   const [itemsRes, classRes] = await Promise.all([
-    s.from("items").select("id, code, name, is_active, item_class_id, category_id").order("name"),
+    s
+      .from("items")
+      // `has_alternate_uom`, `base_uom_id` and `purchase_uom_id` feed the
+      // narrowed Uom cells (client 2026-08-19) — see `MaterialOption`. A
+      // hand-written select that names a column the client then filters BY
+      // is the half AGENTS.md keeps recording as the silent one: the cell
+      // renders, the filter runs, and it matches nothing.
+      .select(
+        "id, code, name, is_active, item_class_id, category_id, has_alternate_uom, base_uom_id, purchase_uom_id",
+      )
+      .order("name"),
     s.from("config_lookups").select("id, code").eq("kind", "item_class"),
   ]);
 
@@ -254,6 +264,9 @@ async function getMaterialRows(): Promise<MaterialOption[]> {
     is_active: boolean;
     item_class_id: string | null;
     category_id: string | null;
+    has_alternate_uom: boolean | null;
+    base_uom_id: string | null;
+    purchase_uom_id: string | null;
   };
 
   return ((itemsRes.data ?? []) as ItemRowRaw[])
@@ -264,6 +277,9 @@ async function getMaterialRows(): Promise<MaterialOption[]> {
       inactive: isInactive(r),
       class_code: (r.item_class_id ? classCode.get(r.item_class_id) : null) ?? null,
       category_id: r.category_id ?? null,
+      has_alternate_uom: r.has_alternate_uom ?? false,
+      base_uom_id: r.base_uom_id ?? null,
+      purchase_uom_id: r.purchase_uom_id ?? null,
     }))
     .filter((r) => isAccessoryClass(r.class_code));
 }
