@@ -4,9 +4,8 @@ import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Calculator,
-  ChevronDown,
-  ChevronRight,
   ClipboardList,
+  TriangleAlert,
   Copy,
   Workflow,
 } from "lucide-react";
@@ -14,8 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
-import { DetailSection } from "@/components/masters/detail-section";
 import { Truncated } from "@/components/ui/truncated";
+import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
@@ -61,20 +60,23 @@ import {
   bomStatusTone,
   type BomStatus,
 } from "@/lib/orders/bom-status";
-import type { BomTaskRow, MbaFormData } from "@/lib/orders/material-bom-amendment/service";
+import { cn } from "@/lib/utils";
+import type { BomTaskRow, MbaFormData, UomRow } from "@/lib/orders/material-bom-amendment/service";
 import {
   isAccessoryClass,
   materialsForCategory,
 } from "@/lib/orders/material-bom-amendment/material-options";
 import {
   isRefusal,
-  moqRollup,
+  lineQuantity,
   productionSlices,
+  baseRequirementFor,
   requirementFor,
   REQUIREMENT_BASES,
   type OrderProductionInput,
   type RequirementBasis,
 } from "@/lib/orders/material-bom/requirement";
+import { processVerdict } from "@/lib/orders/material-bom/process-return";
 import {
   describeConversion,
   isUsableConversion,
@@ -163,6 +165,30 @@ type ItemRow = {
    *  has ever consulted this string. */
   combination: string;
   moq: string;
+  /* `alternate_uom_id` above is now CARRIED AND NEVER SHOWN (client
+     2026-08-19). Its cell came off the grid a second time — withdrawn as "UI
+     streamlining" on 08-17, restored on 08-19 with the rest of the legacy row,
+     and removed again in the same breath as the narrowing above, which is what
+     made it redundant rather than merely unused.
+
+     THE NARROWING IS WHY. Purchase Uom and Consumption Uom now offer the two
+     units a material actually declares, and those two ARE the alternate
+     arrangement — BUTTON is NOS consumed and GROSS bought. A third free picker
+     over the whole master could only ever name a unit the material has no
+     conversion for, which `requirement.ts` has no way to convert through: it
+     converts consumption -> purchase and has never consulted a third unit, so
+     the cell stored a value nothing could read. A dead control is worse than an
+     absent one.
+
+     CARRIED, NOT DROPPED. `writeChildren` deletes and reinserts every child
+     row, so a field the form stops holding is one the next save NULLS — the
+     0418 `attribute_id` pattern. It stays in `ItemRow`, in `mbaItemInput` and in
+     `normalizeItems`. */
+  /** Round the post-MOQ figure UP to the next multiple of this (0437). Blank =
+   *  the operator has not asked for rounding, which is every row before 0437 —
+   *  NOT zero, which would have to mean the same thing on a column whose whole
+   *  job is to be a step. */
+  round_to: string;
   /** The NUMERATOR. */
   no_of_items: string;
   /** The DIVISOR. Never defaulted to 1 — see 0418. */
@@ -224,6 +250,7 @@ const blankItem = (key: string): ItemRow => ({
   uom_conversion_id: null,
   combination: "",
   moq: "",
+  round_to: "",
   no_of_items: "",
   per_pieces: "",
   excess_pct: "",
@@ -245,108 +272,186 @@ const today = () => new Date().toISOString().slice(0, 10);
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
 
 /** A cell in one of the two bands below — which column, and how wide it sits. */
-type BandCell = { header: string; size: FieldSize };
 
 /**
- * THE ITEM LINE IS LEGACY'S OWN GRID ROW, COLUMN FOR COLUMN (client 2026-08-19,
- * screenshot 2362) — which is also the TAB ORDER, since Tab walks a row's fields
- * in DOM order (`tabFieldsIn`, see the keyboard contract).
+ * WHAT A FIELD IS FOR, expressed as how loudly it asks to be filled.
  *
- * IT SUPERSEDES THE SIX HEADERS OF 2026-08-17, and the two are the same intent
- * read from the same screen: identity first, detail after. What the six got
- * wrong is WHICH fields are identity — legacy leads with Type second and carries
- * Purchase Uom, Consumption Uom, Alternate Uom and Combination on the line,
- * where we had all five in the detail box. The client's report was that the
- * order "came out totally wrong", so the row is now taken from legacy rather
- * than summarised from it. `S No` is the one legacy column with no cell here:
- * `ChildGrid` draws the #N itself.
+ * THIS IS THE HALF THAT MAKES 22 FIELDS READABLE WITHOUT MOVING ONE. The client
+ * fixed the order (2026-08-19, legacy column-for-column) and then reported the
+ * result as too hard to use (2026-08-20). Reordering is the obvious tool and it
+ * is the one thing forbidden â€” but a field's WEIGHT is independent of where it
+ * sits, so hierarchy comes from weight instead. Four of the 22 end up loud and
+ * the rest recede; nothing changes position, and Tab still runs 1 to 22.
  *
- * ALL ELEVEN ON ONE ROW (client 2026-08-19), AT THREE WIDTHS.
+ * Applied through `Field`'s `className` with descendant variants rather than by
+ * editing the controls: a BOM line's cells are `RecordPicker`, `Input`,
+ * `LookupDialogPicker` and a `Select`, and giving four different components a
+ * "quiet" prop each would be four places for the scale to drift apart.
  *
- * They wrapped onto two rows of six and five, sized so each run summed to 12 on
- * the house track. The client asked for the single row legacy has, so the TRACK
- * widened instead of the fields — `FieldGrid cols={32}` below — the same move
- * `FIELD_TRACK_14` records for Style Details at seven.
- *
- * THE FIRST CUT MADE ALL ELEVEN EQUAL and the client came straight back: a Uom
- * cell holds "CONE" and was as wide as the Material picker, which was clipping
- * at "BUTTO…". So the sizes are weighted, and 32 is the number that lets the
- * three EXISTING sizes add up exactly — 4 x `xs` + 4 x `sm` + 3 x `md` = 8 + 12
- * + 12. Nothing here needed a new `FieldSize`.
- *
- * THE SUM IS THE CONSTRAINT. Change one cell's size and the total must still be
- * 32, or the eleventh field drops onto a second row; read `FIELD_TRACK_32`
- * before touching it.
+ *  - `key`   must be filled. Darker edge, bolder label; the `*` and the cursor
+ *            hold already come from `ChildGridColumn.required`, so this only
+ *            makes them visible at a glance rather than on inspection.
+ *  - `quiet` usually left blank. Dashed and unfilled so the eye skips it â€”
+ *            SOLID the moment it is hovered or holds a value, because "optional"
+ *            must never read as "disabled". It is a real field with a real
+ *            cursor; only its resting state is quieter.
+ *  - `auto`  the material declares it. No border at all: five of the seven
+ *            accessory materials in the live database name ONE unit, so there is
+ *            nothing to choose and a box would promise a choice that is not
+ *            there (see `uomOptionsFor`).
+ *  - `calc`  / `final` the system fills it. Tinted, never bordered, so nobody
+ *            tries to type into it. `final` is the figure a purchase order is
+ *            written from and is the loudest thing on the row.
  */
-const ITEM_LINE_BAND: readonly BandCell[] = [
-  // WIDE (`md`, ~178px) — the three long picker values. Category and Material
-  // carry a slashed spec ("BUTTON / PLASTIC / 2L / 2 HOLES") and Vendor a
-  // company name; these are the cells a reader actually has to read.
-  { header: "Category", size: "md" },
-  // MEDIUM (`sm`, ~130px) — a fixed option list, so the longest value is known
-  // and short: "To be advised", "Order Number", "Nominated".
-  { header: "Type", size: "sm" },
-  { header: "Material", size: "md" },
-  { header: "Attribute", size: "sm" },
-  { header: "Supply Type", size: "sm" },
-  { header: "Vendor", size: "md" },
-  // NARROW (`xs`, ~83px) — A THREE-LETTER CODE (client 2026-08-19): CONE, DZN,
-  // PCS. These were `xs` on a flat 22-track, which made them as wide as the
-  // Material picker beside them while never holding more than four characters.
-  { header: "Purchase Uom", size: "xs" },
-  { header: "Consumption Uom", size: "xs" },
-  { header: "Alternate Uom", size: "xs" },
-  { header: "Combination", size: "sm" },
-  { header: "MOQ", size: "xs" },
-];
+export type Weight = "key" | "quiet" | "auto" | "calc" | "final" | "plain";
+
+const WEIGHT_CLASS: Record<Weight, string | undefined> = {
+  plain: undefined,
+  key: "[&>label]:text-foreground [&>label]:font-semibold [&_input]:border-border-strong",
+  /* EVERY CONTROL IS THE SAME COLOUR (client 2026-08-20, screenshot 2410: "some
+     fields look white and some look grey, make it even as white").
+     `quiet` used to draw a dashed, transparent box and `auto` a filled grey one.
+     Read one at a time they each said something true; read as a ROW they made
+     five of the twenty-two look switched off next to fields that were not, and
+     the operator has no way to know that the difference is editorial rather
+     than functional. A genuinely disabled control is grey on this screen too
+     (Component before a style is picked), so a cosmetic grey was competing with
+     a real one.
+     THE SIGNAL SURVIVES IN THE LABEL. `quiet` keeps its 70% label, which costs
+     no colour and cannot be confused with a state. That is the whole of the
+     weight scale that touches a background now: the two COMPUTED cells, and
+     only while they hold a number. */
+  quiet: "[&>label]:opacity-70",
+  auto: "[&_input]:font-medium",
+  calc: "[&_input]:border-transparent",
+  final: "[&_input]:border-transparent",
+};
+
+type GroupCell = { header: string; size: FieldSize; weight: Weight };
 
 /**
- * THE DETAIL BAND — legacy's nested box (screenshot 2363), with our own four
- * fields leading it (client 2026-08-19).
+ * GRID DENSITY, and it is the difference between the mockup and the screen.
  *
- * Item Color, Size, Style and Component have no legacy column, and they go FIRST
- * because legacy's nested grid is itself one row per colour and per size: they
- * say which garment the line is for, which is what that box is about. Everything
- * after them is legacy's run unchanged — Spec, No of Items, No of Pcs, Allowance
- * %, Allowance Qty, Conv Item — under the names this screen gives them
- * (Allowance % is Excess %, Allowance Qty is Calculated Qty, Conv Item is
- * Purchase Pack).
+ * `Field` and the controls inside it default to a FULL-WIDTH FORM: a 36px input
+ * and a 13px label, which is right for a record with eight fields down a page
+ * and wrong for twenty-two beside a list of lines. The mockup the client chose
+ * ran at 26px, and the gap between it and what shipped was almost entirely this
+ * (client 2026-08-20: "in the artifact too good, doing directly you are
+ * missing").
  *
- * ALL TEN ON ONE ROW, ON THE SAME 32-COLUMN TRACK AS THE ITEM LINE (client
- * 2026-08-19). Sharing the track rather than inventing a third constant is the
- * point: the two bands then stand on ONE column grid, so the detail row reads as
- * a continuation of the line above it instead of a second, unrelated rhythm.
+ * `h-8` IS THE HOUSE COMPACT SIZE — AGENTS.md's own words, "`h-8` is already the
+ * compact size, which is why grid rows never showed this". Several cells in
+ * `itemColumns` already hard-code it; this puts every control on it, including
+ * the pickers, which reach for the form default instead.
  *
- * Ten fields sum to 32 with the three sizes that already exist:
- *
- *   3 x `xs` (~85px)  No. of Items, Per Pieces, Excess %              =  6
- *   2 x `sm` (~134px) Item Color, Size                                =  6
- *   5 x `md` (~182px) Style, Component, Specification, Calculated Qty,
- *                     Purchase Pack                                   = 20
- *                                                                       ---
- *                                                                        32
- *
- * THE `md` GROUP EARNS ITS WIDTH RATHER THAN TAKING IT. Component's empty state
- * reads "This style declares no parts", Purchase Pack's options read "Same as
- * consumption" / "1 Cone = 5000 M", and Calculated Qty prints a REFUSAL SENTENCE
- * where a number would go ("Pick an order") — three cells whose longest content
- * is prose, not a value. The numeric three are 3-4 digits and take the narrow
- * slot.
- *
- * THE SUM IS THE CONSTRAINT, same as the line band: change one size and the
- * total must still be 32, or the tenth field drops onto a second row.
+ * Applied as descendant variants rather than by editing four control components:
+ * a BOM cell is a `RecordPicker`, an `Input`, a `LookupDialogPicker` or a
+ * `Select`, and a "dense" prop on each would be four places for one decision.
  */
-const ITEM_DETAIL_BAND: readonly BandCell[] = [
-  { header: "Item Color", size: "sm" },
-  { header: "Size", size: "sm" },
-  { header: "Style", size: "md" },
-  { header: "Component", size: "md" },
-  { header: "Specification", size: "md" },
-  { header: "No. of Items", size: "xs" },
-  { header: "Per Pieces", size: "xs" },
-  { header: "Excess %", size: "xs" },
-  { header: "Calculated Qty", size: "md" },
-  { header: "Purchase Pack", size: "md" },
+const DENSE =
+  "[&>label]:text-[10.5px] [&_input]:h-8 [&_select]:h-8 [&_input]:text-[12.5px] [&_select]:text-[12.5px]";
+
+/** One figure in the quantity ribbon. */
+function Figure({ label, value, unit }: { label: string; value: number; unit: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium tabular-nums leading-tight text-foreground">
+        {fmtNumber(value)}
+        <span className="ml-1 text-[10px] font-normal text-muted-foreground">{unit}</span>
+      </span>
+    </div>
+  );
+}
+
+/** One operator between two figures. `faded` says it ran and changed nothing. */
+function Step({ label, faded = false }: { label: string; faded?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center px-3 leading-tight",
+        faded ? "text-muted-foreground opacity-50" : "text-primary",
+      )}
+    >
+      <span className="text-sm">&rarr;</span>
+      <span className={cn("whitespace-nowrap text-[9px]", !faded && "font-semibold")}>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * THE 22 FIELDS, IN THE CLIENT'S ORDER, CUT INTO THREE RUNS.
+ *
+ * NOT A REORDERING — a reading of the order that was already there. Every run is
+ * CONTIGUOUS in the sequence the client fixed, so no field moves and Tab still
+ * walks 1 to 22:
+ *
+ *    1-6    what the trim is, and who supplies it
+ *    7-14   what it is measured in, and which garments it is for
+ *   15-22   the numbers: the ratio, and the whole quantity chain
+ *
+ * ONE WIDTH, AND TWO EXCEPTIONS. Twenty of the twenty-two are `md` — 140px — and
+ * only Material and Vendor are wider, because a slashed spec
+ * ("BUTTON / PLASTIC / 2L / 2 HOLES") and a company name are the only values
+ * here that are genuinely long. Everything else lines up.
+ *
+ * THAT EVENNESS IS THE POINT (client 2026-08-20: "the field size also looks not
+ * even with other fields"). The previous cut ran from 70px to 280px, and the
+ * variation was reading as meaning that was not there — an operator cannot tell
+ * a field that is narrow because its VALUE is short from one that is narrow
+ * because the row ran out of columns.
+ *
+ * SIX / EIGHT / EIGHT IS WHAT MAKES ONE WIDTH POSSIBLE. A run fills its track, so
+ * the field width is 32 ÷ (fields on the row) — five fields forced 224px each and
+ * nine forced 105. Eight fields is exactly `md`, so two of the three runs are a
+ * plain row of eights and the third is six with the two long values doubled.
+ *
+ * THE COMPUTED CELLS ARE NUMBERS TOO. Excess Calculated Qty and Final Quantity
+ * were 210 and 280 on the reasoning that a colour-wise explosion can run to six
+ * figures; the client corrected that — these hold five digits at most, like the
+ * boxes beside them, so they take the same 140.
+ *
+ * THE THIRD RUN IS THE CLIENT'S OWN GROUPING, named as one section when they
+ * asked for these widths: No. of Items through Purchase Pack.
+ *
+ * THE TRACK IS 32, NOT THE HOUSE 12, and it needed no new constant:
+ * `FIELD_TRACK_32` already existed and was unused, and `FieldGrid` already
+ * accepts it. Twelve columns cap a row at SIX fields (`xs` is 2), so eight could
+ * not fit. 32 also brings `items-end`, which keeps controls on one baseline when
+ * "Excess Calculated Qty" wraps its label at 140px.
+ *
+ * EVERY RUN SUMS TO 32 — 4+4+8+4+4+8 · eight 4s · eight 4s. Change one size and
+ * its run must still make 32, or the last field on it drops to a second line.
+ */
+const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
+  [
+    { header: "Category", size: "md", weight: "key" },
+    { header: "Type", size: "md", weight: "quiet" },
+    { header: "Material", size: "xl", weight: "key" },
+    { header: "Attribute", size: "md", weight: "key" },
+    { header: "Supply Type", size: "md", weight: "plain" },
+    { header: "Vendor", size: "xl", weight: "plain" },
+  ],
+  [
+    { header: "Purchase Uom", size: "md", weight: "auto" },
+    { header: "Consumption Uom", size: "md", weight: "auto" },
+    { header: "Combination", size: "md", weight: "quiet" },
+    { header: "Item Color", size: "md", weight: "quiet" },
+    { header: "Size", size: "md", weight: "quiet" },
+    { header: "Style", size: "md", weight: "plain" },
+    { header: "Specification", size: "md", weight: "quiet" },
+  ],
+  [
+    { header: "No. of Items", size: "md", weight: "key" },
+    { header: "Per Pieces", size: "md", weight: "key" },
+    { header: "Excess %", size: "md", weight: "plain" },
+    { header: "Calculated Qty", size: "md", weight: "calc" },
+    { header: "Excess Calculated Qty", size: "md", weight: "calc" },
+    { header: "MOQ", size: "md", weight: "plain" },
+    { header: "Round To", size: "md", weight: "plain" },
+    { header: "Final Quantity", size: "md", weight: "final" },
+    { header: "Purchase Pack", size: "md", weight: "plain" },
+  ],
 ];
 
 export function MbaMasterScreen({
@@ -393,6 +498,18 @@ export function MbaMasterScreen({
     procs: ProcRow[];
     vendorsDropped: boolean;
   } | null>(null);
+
+  /**
+   * IS ONE MATERIAL BEING WORKED ON? — and so, should the section rail fold?
+   *
+   * Set when the operator PICKS a line out of the items list, cleared by the
+   * “Sections” button the shell draws in its place. It is deliberately not
+   * derived from “is any row open”: `ChildGrid` always has one open (an unset
+   * `openRowKey` resolves to the last row), so that reading would fold the rail
+   * the instant the screen loaded and the operator would never see the sections
+   * they had just navigated to.
+   */
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   const shellRef = useRef<MasterFullScreenHandle>(null);
   const keySeq = useRef(0);
@@ -644,6 +761,7 @@ export function MbaMasterScreen({
         uom_conversion_id: c.uom_conversion_id,
         combination: c.combination ?? "",
         moq: c.moq != null ? String(c.moq) : "",
+        round_to: c.round_to != null ? String(c.round_to) : "",
         no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
         per_pieces: c.per_pieces != null ? String(c.per_pieces) : "",
         excess_pct: c.excess_pct != null ? String(c.excess_pct) : "",
@@ -730,6 +848,7 @@ export function MbaMasterScreen({
           uom_conversion_id: c.uom_conversion_id ?? null,
           combination: c.combination ?? "",
           moq: c.moq != null ? String(c.moq) : "",
+          round_to: c.round_to != null ? String(c.round_to) : "",
           no_of_items: c.no_of_items != null ? String(c.no_of_items) : "",
           per_pieces: c.per_pieces != null ? String(c.per_pieces) : "",
           excess_pct: c.excess_pct != null ? String(c.excess_pct) : "",
@@ -785,6 +904,7 @@ export function MbaMasterScreen({
         uom_conversion_id: c.uom_conversion_id,
         combination: c.combination || null,
         moq: numOrNull(c.moq),
+        round_to: numOrNull(c.round_to),
         no_of_items: numOrNull(c.no_of_items),
         per_pieces: numOrNull(c.per_pieces),
         excess_pct: numOrNull(c.excess_pct) ?? 0,
@@ -860,41 +980,6 @@ export function MbaMasterScreen({
    * where the click lived. The card body IS the button, so keeping it would nest
    * one inside the other — the exact invalid markup that shaped this component.
    */
-  /**
-   * WHICH ITEM ROWS HAVE THEIR "DETAILS" BAND CLOSED (client 2026-08-17, the
-   * `⊟` on the legacy row).
-   *
-   * CLOSED IS THE EXCEPTION, so the set holds the closed keys and a row absent
-   * from it is open. A default of "closed" would hide two REQUIRED fields on
-   * every fresh row, which is the trap below.
-   *
-   * Keyed by the row's own key rather than its index — `mutItems` filters and
-   * re-adds, so an index would follow whichever row moved into that position.
-   */
-  const [detailClosed, setDetailClosed] = useState<Set<string>>(new Set());
-  const toggleDetail = (key: string) =>
-    setDetailClosed((xs) => {
-      const next = new Set(xs);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
-
-  /**
-   * MAY THIS ROW CLOSE ITS DETAILS BAND?
-   *
-   * Only once the two REQUIRED fields inside it are answered. `No. of Items` and
-   * `Per Pieces` live in the band, and AGENTS.md's "Mandatory fields" is explicit
-   * that **requiring a hidden field is a record that cannot be saved with nothing
-   * on screen to say why** — the operator would close the band, press Save, be
-   * refused, and have no visible cause.
-   *
-   * Same shape as `canFold` on the grid below ("a row with nothing filled in has
-   * no summary worth showing"), and refused OUT LOUD: the control stays in place
-   * and its tooltip says which field is missing, rather than disappearing.
-   */
-  const canCloseDetail = (r: ItemRow) =>
-    !!r.no_of_items.trim() && !!r.per_pieces.trim();
-
   /** False when the service does not select `created_at` — then the card shows
    *  no Created line at all, rather than a dangling date. `hasCreatedInfo` is the
    *  same guard `withCreatedColumns` applies to a table. */
@@ -946,6 +1031,180 @@ export function MbaMasterScreen({
     colourName(r.item_color_id) ??
     (r.requirement_basis === "colour" ? (slice.combo ?? "—") : "—");
 
+  /**
+   * THE UNITS ONE BOM LINE MAY NAME — the material's own, never the master list.
+   *
+   * Client, 2026-08-19: "purchase uom, consumption need to show the base unit
+   * from actually chosen unit only ... if that item have alternate uom can show
+   * in two as two value but restrict as full listing."
+   *
+   * These three cells offered all 8 rows of the `uoms` master for a material
+   * that declares ONE. Five of the seven accessory materials in the live
+   * database are NOS in every slot, so seven of eight options were not merely
+   * unhelpful — `toPurchaseQty` needs a conversion row to convert THROUGH, and
+   * a material with no alternate UOM has none, so a GROSS picked there is a
+   * value no arithmetic downstream can use.
+   *
+   * `has_alternate_uom` is the master's own flag and it makes this ONE rule
+   * rather than two: false points every slot at `base_uom_id` and forces
+   * `conversions` empty (`uomSlots`, `material-actions.ts`), so "base only" is
+   * not a narrow reading of that material, it IS that material.
+   *
+   * ## THE HELD VALUE ALWAYS SURVIVES, and this is not a nicety
+   *
+   * Same rule as "Disabled rows" and the same failure: a saved line whose unit
+   * falls out of the narrowed list renders as an EMPTY cell, and the next save
+   * writes that emptiness over a real FK. So `current` is always in the list,
+   * even when the material has since been re-declared around it.
+   *
+   * ## EMPTY, AND IT SAYS WHY — never a fall back to the full list
+   *
+   * No material chosen yet, or a material whose master carries no base unit
+   * (11 items are in that state today, none of them accessories): the cell
+   * offers nothing and its placeholder names the reason. Falling back to all 8
+   * would restore the bug for exactly the materials whose master is unfinished
+   * — the "empty-and-explain, never fall back" rule AGENTS.md states for the
+   * nominated-vendor list, which is the same shape one screen along.
+   */
+  const uomOptionsFor = (itemId: string | null, current: string | null): UomRow[] => {
+    const m = itemId ? data.items.find((x) => x.id === itemId) : null;
+    const allowed = new Set<string>();
+    if (m?.base_uom_id) allowed.add(m.base_uom_id);
+    if (m?.has_alternate_uom && m.purchase_uom_id) allowed.add(m.purchase_uom_id);
+    if (current) allowed.add(current);
+    return data.uoms.filter((u) => allowed.has(u.id));
+  };
+
+  /** Why a Uom cell is empty, in the cell itself. Order matters: "pick a
+   *  material" is actionable here, "its master has no base unit" is a trip to
+   *  another screen, and saying the second while the first is true sends the
+   *  operator to fix something that is not wrong. */
+  const uomEmptyWhy = (itemId: string | null): string | undefined => {
+    if (!itemId) return "Pick a material first";
+    const m = data.items.find((x) => x.id === itemId);
+    if (!m?.base_uom_id) return "This material declares no base unit";
+    return undefined;
+  };
+
+  /**
+   * BOTH DERIVED CELLS OF THE QUANTITY CHAIN, drawn once.
+   *
+   * SYSTEM-GENERATED AND IT LOOKS IT: a tinted read-only span rather than an
+   * input the operator will try to type into.
+   *
+   * THE REFUSAL IS THE RIBBON'S LINE, AND ONLY THE RIBBON'S (client 2026-08-20,
+   * screenshot 2402). Both cells used to print the sentence themselves, which
+   * was right while they were the only thing that could say it — and became
+   * "Choose how this material splits" THREE TIMES on one row the moment the
+   * ribbon arrived underneath, twice inside boxes too narrow to hold it.
+   *
+   * So the cells go quiet and the ribbon carries the words. A DASH IS STILL NOT
+   * A ZERO: it is muted, it is never `0`, and its `title` names the reason, so
+   * the distinction the old sentence protected survives — 0 would read as "none
+   * needed", the one answer a material requirement never intends. What changed
+   * is only WHERE the sentence is said, and it is said once, in full, in the
+   * one place with room for it.
+   */
+  const derivedQtyCell = (
+    t: LineTotal | undefined,
+    pick: (t: LineTotal) => number | null,
+    emphasis: boolean,
+  ) => {
+    if (!orderProd) {
+      return (
+        <span className="block rounded-sm bg-surface-muted px-2 py-1 text-right text-xs text-muted-foreground">
+          Pick an order
+        </span>
+      );
+    }
+    const value = t ? pick(t) : null;
+    if (!t || value == null) {
+      return (
+        /* WHITE WHILE IT HAS NOTHING TO SAY. A grey box here was a third
+           cosmetic grey on a row the client asked to even out, and it was the
+           one that read most like a disabled field. Tint is earned by a NUMBER
+           (the two branches below); with none, this is an ordinary empty cell
+           whose `title` names the reason and whose sentence is in the ribbon. */
+        <span
+          className="block rounded-sm border border-border px-2 py-1 text-right text-xs text-muted-foreground"
+          title={t?.refusal ?? undefined}
+        >
+          &mdash;
+        </span>
+      );
+    }
+    return (
+      <span
+        className={cn(
+          "block rounded-sm bg-info-soft px-2 py-1 text-right tabular-nums text-info",
+          emphasis ? "text-sm font-bold" : "text-sm font-semibold",
+        )}
+      >
+        {fmtNumber(value)}
+        <span className="ml-1 text-[10px] font-normal opacity-80">{t.uom}</span>
+      </span>
+    );
+  };
+
+  /**
+   * THE QUANTITY CHAIN, WRITTEN OUT UNDER THE ROW THAT PRODUCED IT.
+   *
+   * The four cells above it — Excess Calculated Qty, MOQ, Round To, Final
+   * Quantity — are the client's own sequence (0437) and they say WHAT each step
+   * holds. They cannot say what each step DID: a figure that went from 1,134 to
+   * 1,152 has two candidate reasons sitting beside it and no way to tell which
+   * one moved it, or whether both did.
+   *
+   * So the arithmetic gets a line of its own, reading left to right, naming each
+   * operator and dimming the ones that did not bite. An MOQ below the
+   * requirement is the ordinary case and it is shown as such — struck back to
+   * `opacity-50` rather than hidden, because a step that vanishes when it does
+   * nothing teaches the operator that it is sometimes absent.
+   *
+   * A REFUSAL REPLACES THE WHOLE RIBBON, never one cell of it. If the slices
+   * could not answer there is no chain to draw, and printing a sentence in one
+   * box beside three dashes reads as three zeroes the engine computed.
+   */
+  const qtyRibbon = (r: ItemRow, t: LineTotal | undefined) => {
+    if (!orderProd || !t) return null;
+    if (t.refusal) {
+      return (
+        <div className="mt-2 flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{t.refusal}</span>
+        </div>
+      );
+    }
+    if (t.excessCalc == null || t.final == null) return null;
+
+    const moq = numOrNull(r.moq);
+    const step = numOrNull(r.round_to);
+    const moqBit = moq != null && moq > 0;
+    const stepBit = step != null && step > 0 && t.final !== t.excessCalc;
+
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-2 rounded-md bg-surface-muted px-3 py-2">
+        <Figure label="Order needs" value={t.excessCalc} unit={t.uom} />
+        {moqBit && (
+          <Step
+            /* DIMMED, NOT DROPPED, when the order already needs more than the
+               supplier's minimum — see the header. */
+            faded={t.excessCalc >= (moq as number)}
+            label={`MOQ ${fmtNumber(moq as number)}${t.excessCalc >= (moq as number) ? " · not binding" : ""}`}
+          />
+        )}
+        {stepBit && <Step label={`round up to ${fmtNumber(step as number)}`} />}
+        <div className="ml-auto flex flex-col items-end rounded-md bg-accent-soft px-3 py-1">
+          <span className="text-[9px] uppercase tracking-wider text-accent/85">Final quantity</span>
+          <span className="text-lg font-semibold tabular-nums leading-tight text-accent">
+            {fmtNumber(t.final)}
+            <span className="ml-1 text-[10px] font-normal opacity-80">{t.uom}</span>
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   /** Pack sizes defined on a material, for that BOM line's pack picker. Empty
    *  means the material has no conversions — the ~90% bought in the unit they
    *  are consumed in, or one whose master hasn't been filled in yet. */
@@ -978,10 +1237,29 @@ export function MbaMasterScreen({
     purchaseUom: string;
   };
 
-  /** The grid's read-only Calculated Quantity: one line's requirement summed
-   *  across every slice it explodes into. It is also the figure MOQ is compared
-   *  against — a minimum is per ORDER, never per colour row. */
-  type LineTotal = { total: number | null; refusal: string | null; uom: string };
+  /**
+   * THE LINE'S QUANTITY CHAIN, all four steps, so the grid can show each one.
+   *
+   *     Excess Calculated Qty  ->  MOQ  ->  Round To  ->  Final Quantity
+   *
+   * `excessCalc` is one line's requirement summed across every slice it explodes
+   * into, with the line's own Excess % already inside it (`requirementFor`). It
+   * is also the figure MOQ is compared against — a minimum is per ORDER, never
+   * per colour row.
+   *
+   * TWO NUMBERS ARE RENDERED AND BOTH CAN REFUSE TOGETHER. A refusal belongs to
+   * the whole chain rather than to one cell: if the slices could not answer,
+   * neither Excess Calculated Qty nor Final Quantity has anything to say, and
+   * printing a sentence in one and a dash in the other would read as though the
+   * dash were a zero.
+   */
+  type LineTotal = {
+    calc: number | null;
+    excessCalc: number | null;
+    final: number | null;
+    refusal: string | null;
+    uom: string;
+  };
 
   const { reqRows, lineTotals } = useMemo((): {
     reqRows: ReqRow[];
@@ -1019,7 +1297,9 @@ export function MbaMasterScreen({
       if (!r.requirement_basis) {
         push({ refusal: "Choose how this material splits" });
         totals.set(r.key, {
-          total: null,
+          calc: null,
+          excessCalc: null,
+          final: null,
           refusal: "Choose how this material splits",
           uom: uomLabel,
         });
@@ -1029,7 +1309,13 @@ export function MbaMasterScreen({
       const slices = productionSlices(r.requirement_basis as RequirementBasis, orderProd);
       if (isRefusal(slices)) {
         push({ refusal: slices.refused });
-        totals.set(r.key, { total: null, refusal: slices.refused, uom: uomLabel });
+        totals.set(r.key, {
+          calc: null,
+          excessCalc: null,
+          final: null,
+          refusal: slices.refused,
+          uom: uomLabel,
+        });
         continue;
       }
 
@@ -1047,17 +1333,24 @@ export function MbaMasterScreen({
       // `order-value.ts` records for a half-priced style.
       let lineTotal: number | null = 0;
       let lineRefusal: string | null = null;
+      // THE SAME SLICES BEFORE THE LINE'S EXCESS % (client 2026-08-20: "two
+      // fields not one"). Accumulated in the same loop rather than a second
+      // pass, so the two columns can never be summed over different slice sets
+      // — which is how one column would come to disagree with the other about
+      // which colours the order has.
+      let baseTotal: number | null = 0;
 
       for (const slice of slices) {
-        const value = requirementFor(
-          {
-            no_of_items: numOrNull(r.no_of_items),
-            per_pieces: numOrNull(r.per_pieces),
-            excess_pct: numOrNull(r.excess_pct) ?? 0,
-            decimals: uomDecimals(r.consumption_uom_id),
-          },
-          slice,
-        );
+        const lineInput = {
+          no_of_items: numOrNull(r.no_of_items),
+          per_pieces: numOrNull(r.per_pieces),
+          excess_pct: numOrNull(r.excess_pct) ?? 0,
+          decimals: uomDecimals(r.consumption_uom_id),
+        };
+        const baseValue = baseRequirementFor(lineInput, slice);
+        if (isRefusal(baseValue)) baseTotal = null;
+        else if (baseTotal != null) baseTotal += baseValue;
+        const value = requirementFor(lineInput, slice);
         const refused = isRefusal(value);
         const qty = refused ? null : value;
         if (refused) {
@@ -1080,19 +1373,42 @@ export function MbaMasterScreen({
         });
       }
 
-      // MOQ is applied to the LINE, not to a slice. A colour explosion makes six
-      // rows for one material; an MOQ of 500 per row orders 3,000 of something
-      // the order needs 100 of.
-      const moq = numOrNull(r.moq);
+      // MOQ AND ROUND TO ARE APPLIED TO THE LINE, never to a slice. A colour
+      // explosion makes six rows for one material; an MOQ of 500 per row orders
+      // 3,000 of something the order needs 100 of, and six rows each rounded up
+      // to the next 500 buys the rounding error six times. `lineQuantity` owns
+      // the order the two run in — MOQ first, and 0437's header records the
+      // worked example where the two orders differ by nearly double.
       const unitKnown = !!r.purchase_uom_id || !!r.consumption_uom_id;
-      let shown = lineTotal;
-      let refusal = lineRefusal;
-      if (lineTotal != null && moq != null && moq > 0) {
-        const roll = moqRollup([lineTotal], moq, unitKnown);
-        if (isRefusal(roll)) refusal = roll.refused;
-        else shown = roll.afterMoq;
+      if (lineTotal == null) {
+        totals.set(r.key, {
+          calc: null,
+          excessCalc: null,
+          final: null,
+          refusal: lineRefusal,
+          uom: uomLabel,
+        });
+        continue;
       }
-      totals.set(r.key, { total: refusal ? null : shown, refusal, uom: uomLabel });
+      const chain = lineQuantity(
+        [lineTotal],
+        numOrNull(r.moq),
+        numOrNull(r.round_to),
+        unitKnown,
+        [baseTotal],
+      );
+      totals.set(
+        r.key,
+        isRefusal(chain)
+          ? { calc: null, excessCalc: null, final: null, refusal: chain.refused, uom: uomLabel }
+          : {
+              calc: chain.calcQty,
+              excessCalc: chain.excessCalcQty,
+              final: chain.finalQty,
+              refusal: null,
+              uom: uomLabel,
+            },
+      );
     }
     return { reqRows: out, lineTotals: totals };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1299,12 +1615,16 @@ export function MbaMasterScreen({
     {
       header: "Purchase Uom",
       className: "min-w-[130px]",
+      // NARROWED TO THE MATERIAL'S OWN UNITS (client 2026-08-19) — see
+      // `uomOptionsFor` for why the master list was wrong here and what the
+      // empty case says instead of falling back to it.
       cell: (r) => (
         <RecordPicker
           label="Purchase Uom"
-          items={data.uoms}
+          items={uomOptionsFor(r.item_id, r.purchase_uom_id)}
           value={r.purchase_uom_id}
           onChange={(id) => updItem(r.key, { purchase_uom_id: id })}
+          placeholder={uomEmptyWhy(r.item_id)}
           compact
         />
       ),
@@ -1315,37 +1635,10 @@ export function MbaMasterScreen({
       cell: (r) => (
         <RecordPicker
           label="Consumption Uom"
-          items={data.uoms}
+          items={uomOptionsFor(r.item_id, r.consumption_uom_id)}
           value={r.consumption_uom_id}
           onChange={(id) => updItem(r.key, { consumption_uom_id: id })}
-          compact
-        />
-      ),
-    },
-    {
-      header: "Alternate Uom",
-      className: "min-w-[130px]",
-      /**
-       * A THIRD UNIT BESIDE CONSUMPTION AND PURCHASE — legacy's own column
-       * (screenshot 2362). Withdrawn on 2026-08-17 as "UI streamlining" and BACK
-       * on 2026-08-19 with the rest of the legacy row order, the client having
-       * asked for the row column-for-column.
-       *
-       * It was cheap to restore for the same reason it was cheap to withdraw:
-       * the DB column, the stored values, `ItemRow.alternate_uom_id` and its
-       * place in `mbaItemInput` were all kept. `writeChildren` deletes and
-       * reinserts every child row, so a field the form stops holding is one the
-       * next save NULLS — which is why a withdrawal here is never a deletion.
-       *
-       * STILL DESCRIPTIVE. `requirement.ts` converts consumption -> purchase and
-       * has never consulted a third unit, so showing it changes no arithmetic.
-       */
-      cell: (r) => (
-        <RecordPicker
-          label="Alternate Uom"
-          items={data.uoms}
-          value={r.alternate_uom_id}
-          onChange={(id) => updItem(r.key, { alternate_uom_id: id })}
+          placeholder={uomEmptyWhy(r.item_id)}
           compact
         />
       ),
@@ -1429,15 +1722,49 @@ export function MbaMasterScreen({
       // Blank means every style on the order — the common case, which is why it
       // is not required.
       //
-      // THE UNIT RIDES UNDER IT (0423). "1 per piece" on a two-garment Set means
+      // THE UNIT RIDES WITH IT (0423). "1 per piece" on a two-garment Set means
       // something different from "1 per piece" on a single top, and `per_pieces`
       // is typed by the operator — so the fact is SHOWN and never computed with.
       // Turning it into arithmetic would silently double or halve a requirement
       // the operator thought they had entered.
+      //
+      // IT SITS ABOVE THE CONTROL, NOT UNDER IT, AND THAT IS A LAYOUT RULE RATHER
+      // THAN A PREFERENCE. The runs render on `FIELD_TRACK_32`, which carries
+      // `items-end` so that a wrapped LABEL cannot drop its control below the
+      // row. Bottom-aligning the cell means the LAST element in it is what lands
+      // on the shared baseline — so a note under the control put the note on the
+      // baseline and lifted the `<Select>` ~20px above every other field on the
+      // row. Picking a style visibly knocked the layout crooked (client
+      // 2026-08-20, screenshot 2414).
+      //
+      // Above the control it costs nothing: extra content grows the cell UPWARD
+      // from a fixed bottom edge, so the `<Select>` does not move when a style is
+      // chosen and the note appears in the gap under the label, qualifying it.
+      // **Anything added to a cell in this grid goes above the control.**
       cell: (r) => {
         const st = styleOf(r.style_ref_no);
         return (
           <div className="space-y-0.5">
+            {st?.unit_kind && (
+              /* "Set", not "Set (multi-garment)": the cell is 140px and the long
+                 form wrapped to two lines, which grew the cell upward far enough
+                 to shove the Style LABEL out of line with its neighbours — the
+                 same misalignment one element along. The full phrase is the
+                 title. */
+              <span
+                /* truncate-reveal: exempt -- a two-word fixed vocabulary, "Set"
+                   or "Piece", which cannot reach 140px; the `truncate` is belt
+                   and braces against a future third value, not a hidden value. */
+                className="block truncate text-[10.5px] leading-tight text-muted-foreground"
+                title={
+                  st.unit_kind.toUpperCase() === "SET"
+                    ? "A set — more than one garment"
+                    : "A single garment"
+                }
+              >
+                {st.unit_kind.toUpperCase() === "SET" ? "Set" : "Piece"}
+              </span>
+            )}
             <Select
               value={r.style_ref_no}
               onChange={(e) =>
@@ -1462,61 +1789,27 @@ export function MbaMasterScreen({
                 </option>
               ))}
             </Select>
-            {st?.unit_kind && (
-              <span className="block text-[11px] leading-tight text-muted-foreground">
-                {st.unit_kind.toUpperCase() === "SET" ? "Set (multi-garment)" : "Piece"}
-              </span>
-            )}
           </div>
         );
       },
     },
-    {
-      header: "Component",
-      className: "min-w-[140px]",
-      /**
-       * WHICH PANEL the material goes on (0423) — "interlining or specialized
-       * tapes are only required for specific parts of the garment" (client
-       * 2026-08-13).
-       *
-       * DESCRIPTIVE, and that is the client's own call over the alternative: it
-       * does not split the requirement, because one collar interlining is needed
-       * per garment whichever panel it is cut for. `requirement_basis` is
-       * untouched and the requirement table has no component column — 0423
-       * asserts that, since the decision is only safe while it holds.
-       *
-       * Empty-and-explain, twice over: a line on "All styles" has no panel list
-       * to offer, and a style that declares no components has none either. Both
-       * say which case it is rather than showing an empty dropdown, which reads
-       * as "the master is empty" — a different and more alarming thing.
-       */
-      cell: (r) => {
-        const opts = componentsOf(r.style_ref_no);
-        return (
-          <RecordPicker
-            label="Component"
-            items={opts}
-            value={r.component_id}
-            onChange={(id) => updItem(r.key, { component_id: id })}
-            disabled={!r.style_ref_no.trim() || opts.length === 0}
-            /* placeholder-blank: exempt -- ALL THREE BRANCHES ARE STATES, none
-               describes the box: no style picked yet, a style that declares no
-               parts (a cause on another screen), and blank-means-whole-garment,
-               which is what the record SAVES rather than a hint. De-dashed per
-               LAYOUT.md §3 — a meaningful default keeps its word and loses the
-               dashes, the way "— Material —" and "— Account —" did. */
-            placeholder={
-              !r.style_ref_no.trim()
-                ? "Pick a style first"
-                : opts.length === 0
-                  ? "This style declares no parts"
-                  : "Whole garment"
-            }
-            compact
-          />
-        );
-      },
-    },
+    /* THE COMPONENT CELL WAS HERE AND CAME OUT (client 2026-08-20, "remove
+       from only material bom is enough" — the Style Components tab keeps its
+       own, which is where a panel list belongs).
+
+       It was DESCRIPTIVE from the day it landed (0423): it never split the
+       requirement, because one collar interlining is needed per garment
+       whichever panel it is cut for. `requirement_basis` never read it and the
+       requirement table has no component column — 0423 asserts that — so
+       removing the cell changes no number anywhere in this module. That is the
+       whole reason this is a one-line removal rather than a migration.
+
+       CARRIED, NOT DROPPED: `component_id` stays in `ItemRow`, `mbaItemInput`
+       and `normalizeItems`, and `0423`'s column stays on the table. This screen
+       DELETES AND REINSERTS every child row on save, so a field the form stops
+       holding is a field the next save NULLS — the same trap `alternate_uom_id`
+       and `required_by` are written up for above. Stored panels survive, and a
+       restore is this block again. */
     {
       header: "Specification",
       className: "min-w-[140px]",
@@ -1595,36 +1888,79 @@ export function MbaMasterScreen({
       header: "Calculated Qty",
       align: "right",
       className: "min-w-[8rem]",
-      // SYSTEM-GENERATED, and it looks it: a tinted read-only cell rather than
-      // an input the operator will try to type into. It is the line's whole
-      // requirement — every slice summed, with MOQ applied — which is why it can
-      // differ from any single row on the Requirement tab.
-      //
-      // A REFUSAL PRINTS ITS SENTENCE. Never a dash and never 0: 0 reads as
-      // "none needed", the one answer a material requirement never intends.
-      cell: (r) => {
-        const t = lineTotals.get(r.key);
-        if (!orderProd) {
-          return (
-            <span className="block rounded-sm bg-surface-muted px-2 py-1 text-right text-xs text-muted-foreground">
-              Pick an order
-            </span>
-          );
-        }
-        if (!t || t.total == null) {
-          return (
-            <span className="block rounded-sm bg-surface-muted px-2 py-1 text-right text-xs text-muted-foreground">
-              {t?.refusal ?? "—"}
-            </span>
-          );
-        }
-        return (
-          <span className="block rounded-sm bg-info-soft px-2 py-1 text-right text-sm font-semibold tabular-nums text-info">
-            {fmtNumber(t.total)}
-            <span className="ml-1 text-[10px] font-normal opacity-80">{t.uom}</span>
-          </span>
-        );
-      },
+      /**
+       * WHAT THE ORDER CONSUMES, BEFORE THE BUFFER (client 2026-08-20: "two
+       * fields not one — excess will user give, and calculated is based on no of
+       * pcs and no of item, with or without excess value ... it need to show the
+       * count automatically").
+       *
+       * So the pair reads left to right as the operator's own sentence: No. of
+       * Items and Per Pieces make THIS number; Excess % turns it into the one
+       * beside it. Neither is typed.
+       *
+       * NOT THE OTHER COLUMN DIVIDED BY (1 + excess). Every figure here is
+       * ceilinged to the unit's precision, so dividing back out un-rounds a
+       * number that was deliberately rounded and lands just under the honest
+       * one — `baseRequirementFor` computes it from its own multiplication for
+       * that reason, and `check-bom-requirement.mts` has the vector where the
+       * two disagree.
+       *
+       * EQUAL TO THE NEXT CELL WHEN EXCESS % IS BLANK, which is most rows, and
+       * that is not a reason to hide it: the operator is being shown what the
+       * order needs and what the buffer added, and "nothing" is a real answer
+       * for the second.
+       */
+      cell: (r) => derivedQtyCell(lineTotals.get(r.key), (t) => t.calc, false),
+    },
+    {
+      header: "Excess Calculated Qty",
+      align: "right",
+      className: "min-w-[8rem]",
+      // THE FIRST OF TWO DERIVED CELLS, and it is what "Calculated Qty" used to
+      // be MINUS the MOQ (client 2026-08-19). The line's whole requirement —
+      // every slice summed, with the line's own Excess % inside it — BEFORE the
+      // supplier's minimum and the operator's rounding step get their hands on
+      // it. Splitting the old cell in two is the point: the operator can see
+      // what the order actually needs standing beside what will be bought.
+      cell: (r) => derivedQtyCell(lineTotals.get(r.key), (t) => t.excessCalc, false),
+    },
+    {
+      header: "Round To",
+      align: "right",
+      className: "min-w-[6rem]",
+      /**
+       * THE OPERATOR'S ROUNDING STEP (0437), not the answer itself.
+       *
+       * Client: "sometimes that excess field will show 567 kind of number value,
+       * that time user will use round to field for round the value." So the box
+       * takes 50, or 144 for a gross, or 12 for a dozen — and Final Quantity
+       * becomes the next multiple UP. A step rather than an override, because an
+       * override is a hand-typed number entering the figure a purchase order is
+       * written from with nothing checking it still covers the requirement.
+       *
+       * BLANK IS THE ORDINARY STATE and passes the figure through untouched. Not
+       * `required`, and never defaulted to 1 — the same call `per_pieces` makes
+       * one column along.
+       */
+      cell: (r) => (
+        <Input
+          type="number"
+          min="0"
+          step="0.001"
+          value={r.round_to}
+          onChange={(e) => updItem(r.key, { round_to: e.target.value })}
+          className="h-8 text-right"
+        />
+      ),
+    },
+    {
+      header: "Final Quantity",
+      align: "right",
+      className: "min-w-[8rem]",
+      // THE END OF THE CHAIN, and the figure a purchase order is written from.
+      // Emphasised over Excess Calculated Qty beside it — same tint, heavier
+      // weight — because when the two differ this is the one that gets ordered.
+      cell: (r) => derivedQtyCell(lineTotals.get(r.key), (t) => t.final, true),
     },
     {
       header: "Purchase Pack",
@@ -1657,6 +1993,33 @@ export function MbaMasterScreen({
       },
     },
   ];
+
+  /**
+   * WHAT EACH MATERIAL'S REQUIREMENT COMES TO, keyed by the material rather than
+   * by the item LINE — the same `byItem` roll-up `bomCeilingForOrder` builds
+   * server-side to cap a purchase order, and it has to be summed the same way.
+   *
+   * TWO LINES CAN NAME ONE MATERIAL (a thread used on the body and the collar
+   * is two rows with two ratios), so a process row asking "is my dyed thread
+   * enough?" has to be answered against BOTH. Reading one line's figure would
+   * report a job covered while the order is short by the other line's share.
+   *
+   * The WITH-WASTAGE figure, because that is what `required_qty` stores and what
+   * the PO ceiling checks against. The buffer is the money already spent to
+   * absorb exactly the processing loss this column is measuring.
+   *
+   * A line that REFUSED contributes nothing and leaves its material unanswerable
+   * — `processVerdict` then refuses too rather than comparing against a partial
+   * sum, which is the partial-explosion failure `requirement.ts` is written to
+   * prevent.
+   */
+  const requiredByItem = new Map<string, number>();
+  for (const it of items) {
+    if (!it.item_id) continue;
+    const t = lineTotals.get(it.key);
+    if (!t || t.excessCalc == null) continue;
+    requiredByItem.set(it.item_id, (requiredByItem.get(it.item_id) ?? 0) + t.excessCalc);
+  }
 
   const procColumns: ChildGridColumn<ProcRow>[] = [
     {
@@ -1736,15 +2099,61 @@ export function MbaMasterScreen({
     {
       header: "Balance",
       align: "right",
-      className: "min-w-[6rem]",
-      // DERIVED, never stored: two columns and their difference kept in three
-      // places is two chances for them to disagree.
+      className: "min-w-[8rem]",
+      /**
+       * DERIVED, never stored: two columns and their difference kept in three
+       * places is two chances for them to disagree.
+       *
+       * THE VERDICT ABOVE IT ANSWERS A DIFFERENT QUESTION, and the difference is
+       * the whole point (`lib/orders/material-bom/process-return.ts`). The
+       * balance says how much is still AT THE VENDOR. The line above says
+       * whether what came BACK still covers the order — measured against the
+       * requirement, never against what was sent.
+       *
+       * Send 1,000 to cover 940 and get 960 back and you are whole; send 1,000
+       * to cover 990 and get 960 back and you are short by 30. Identical
+       * balances, opposite verdicts. A `qty_in < qty_out` test calls both of
+       * them short, which raises an alarm on every ordinary dye job — dye loss
+       * is normal and expected — and an alarm that fires on healthy rows is one
+       * the operator learns to ignore.
+       *
+       * ABOVE THE CONTROL, per this file's own layout rule: the runs carry
+       * `items-end`, so anything added BELOW would land on the shared baseline
+       * and lift the cell out of line with its neighbours.
+       *
+       * IT NEVER BLOCKS. Nothing here withholds the material that did arrive —
+       * the shortfall is stated and left on screen, because the wastage buffer
+       * was bought to absorb exactly this.
+       */
       cell: (r) => {
         const out = numOrNull(r.qty_out);
-        const back = numOrNull(r.qty_in);
-        if (out == null) return <span className="text-xs text-muted-foreground">—</span>;
+        const verdict = r.item_id
+          ? processVerdict(
+              { qty_out: out, qty_in: numOrNull(r.qty_in), sent_on: null },
+              requiredByItem.get(r.item_id) ?? null,
+            )
+          : null;
+        const note =
+          verdict == null || (!isRefusal(verdict) && verdict.state === "planned")
+            ? null
+            : isRefusal(verdict)
+              ? { text: verdict.refused, tone: "text-muted-foreground" }
+              : verdict.state === "short"
+                ? { text: `Short ${fmtNumber(verdict.shortfall)}`, tone: "text-danger" }
+                : { text: "Covered", tone: "text-muted-foreground" };
         return (
-          <span className="tabular-nums text-sm">{fmtNumber(out - (back ?? 0))}</span>
+          <div className="space-y-0.5">
+            {note && (
+              <Truncated className={`block text-[10.5px] leading-tight ${note.tone}`}>
+                {note.text}
+              </Truncated>
+            )}
+            {out == null ? (
+              <span className="text-xs text-muted-foreground">—</span>
+            ) : (
+              <span className="tabular-nums text-sm">{fmtNumber(out - (numOrNull(r.qty_in) ?? 0))}</span>
+            )}
+          </div>
         );
       },
     },
@@ -1969,6 +2378,90 @@ export function MbaMasterScreen({
                ordinary. The fold itself is `ChildGrid`'s, so this says only what
                a closed line looks like; the grid draws the #N and the ✕ above it. */
             foldRows
+            /* THE OTHER NINETEEN LINES STAND BESIDE THE OPEN ONE (client
+               2026-08-20, chosen from three treatments). `foldRows` above
+               already opened one at a time; this decides where the rest go. A
+               BOM runs to twenty lines, and stacked they pushed the open one an
+               unpredictable distance down the page — and moved it again every
+               time a different line was opened. */
+            masterDetail
+            /* PICKING A LINE FOLDS THE RAIL (client 2026-08-20, screenshot
+               2402). This section is itself a list plus an editor, so the rail
+               and the item list were two levels of navigation stacked in front
+               of 22 fields. */
+            onOpenRow={() => setRailCollapsed(true)}
+            renderListItem={(row) => {
+              /* INERT BY CONTRACT — see `renderListItem` on the grid. Text, a
+                 dot and a figure; nothing focusable, because the fields live in
+                 the pane next door. */
+              const t = lineTotals.get(row.key);
+              const name = row.item_id ? itemName(row.item_id) : null;
+              const basis = row.requirement_basis
+                ? REQUIREMENT_BASIS_LABELS[row.requirement_basis as RequirementBasis]
+                : null;
+              const ratio =
+                row.no_of_items.trim() && row.per_pieces.trim()
+                  ? `${row.no_of_items.trim()} per ${row.per_pieces.trim()}`
+                  : null;
+              /* THREE STATES AND THE DOT SAYS WHICH. Amber is the one that
+                 matters: the line is started and cannot answer, which is
+                 invisible on a folded line that shows no figure. */
+              const state = !name ? "idle" : t?.refusal ? "warn" : "ok";
+              return (
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                      state === "ok" && "bg-success",
+                      state === "warn" && "bg-warning",
+                      state === "idle" && "bg-border-strong opacity-50",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <Truncated
+                      className={cn(
+                        "block text-[12.5px] leading-tight",
+                        name ? "font-medium text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {name ?? "Not filled in"}
+                    </Truncated>
+                    {(basis || ratio) && (
+                      <Truncated className="block text-[10px] leading-tight text-muted-foreground">
+                        {[basis, ratio].filter(Boolean).join(" · ")}
+                      </Truncated>
+                    )}
+                  </span>
+                  {/* THE FIGURE THE LINE PRODUCES, so twenty lines can be checked
+                      without opening one. A refusal says so in words rather than
+                      showing a dash, which would read as a zero. */}
+                  {/* THE FIGURE ON ITS OWN LINE UNDER THE UNIT, not squeezed
+                      beside a name it then collides with (client 2026-08-20,
+                      screenshot 2406: "5,607.52 —" ran straight into a truncated
+                      material). A right column of its own, and the unit sits
+                      BELOW rather than beside, so a six-figure quantity cannot
+                      push it out of the row. The dash the uom prints when no
+                      consumption unit is chosen is dropped here rather than
+                      shown: on a list row it reads as part of the number. */}
+                  <span className="shrink-0 text-right leading-tight">
+                    {t?.refusal ? (
+                      <span className="text-[10px] font-medium text-warning">Needs attention</span>
+                    ) : t?.final != null ? (
+                      <>
+                        <span className="block text-[12px] font-semibold tabular-nums text-accent">
+                          {fmtNumber(t.final)}
+                        </span>
+                        {t.uom && t.uom !== "—" && (
+                          <span className="block text-[9px] tracking-wide text-muted-foreground">
+                            {t.uom}
+                          </span>
+                        )}
+                      </>
+                    ) : null}
+                  </span>
+                </div>
+              );
+            }}
             /* EVERY LINE BUT THE ONE BEING WORKED ON FOLDS, BLANK OR NOT
                (client 2026-08-19: "much boxed area, can't recognise the working
                section").
@@ -2005,10 +2498,9 @@ export function MbaMasterScreen({
                THE SUMMARY TEXT THAT USED TO SIT BESIDE IT HAS MOVED to
                `rowSummary`, which draws it for open and folded rows alike. Two
                copies of one sentence is one copy too many. */
-            /* WHAT A FOLDED LINE SHOWS. The band above is empty by client
-               instruction, so this is the only place a closed material says who
-               it is — and it has to, or ten folded lines are ten identical
-               pickers.
+            /* WHAT A FOLDED LINE SHOWS. There is no band (see `rowSummary`
+               below), so this is the only place a closed material says who it is
+               — and it has to, or ten folded lines are ten identical pickers.
 
                ONE REAL FIELD IS MANDATORY, not a nicety: Tab lands on fields, so
                a folded row rendering none would be reachable by mouse alone, and
@@ -2056,169 +2548,135 @@ export function MbaMasterScreen({
               );
             }}
             renderMobileRow={(row, i) => {
-              /* THE IDENTITY LINE, THEN THE DETAIL — the legacy RP grammar
-                 (client 2026-08-17, screenshot 154738). Legacy leads each item
-                 with what the material IS and where it comes from, and puts the
-                 rest in a nested box beneath. Ten materials are then ten
-                 scannable lines instead of ten equal blocks.
-
-                 TWO THINGS FROM LEGACY ARE DELIBERATELY NOT COPIED:
-
-                 - Its line is 12 columns and carries a HORIZONTAL SCROLLBAR.
-                   The operator had that removed on 2026-08-10 ("the row wraps
-                   instead") and the layout skill makes it standing. So legacy's
-                   eleven fields sit on ONE row here too (client 2026-08-19) and
-                   pay for it in WIDTH — ~83px for a Uom code up to ~178px for a
-                   Material, on the 32-column track. The fields shrink, the row
-                   never moves sideways.
-                 - Its nested grid is TYPED, one row per colour and per size. We
-                   derive that: `Attribute` on the line picks the basis and
-                   `requirement.ts` explodes it onto the Requirement tab.
-                   Rebuilding the nested grid would trade a derivation for data
-                   entry and take the basis hash and the PO ceiling with it.
-
-                 Looked up BY HEADER, never by index: `itemColumns` is re-ordered
-                 and added to often — it was re-ordered wholesale on 2026-08-19 to
-                 match legacy — and an index list would quietly point at the wrong
-                 cells the next time it moved. A header named in NEITHER band
-                 still renders: it demotes to the end of the detail band rather
-                 than vanishing, which is what keeps a column added later from
-                 disappearing off a screen nobody thought to re-read. */
-              const resolve = (band: readonly BandCell[]) =>
-                band.flatMap((b) => {
+              /* SIX GROUPS, EACH SUMMING TO 12 — the client's own field order,
+                 laid out so it can be read (client 2026-08-20, "make it much ux
+                 friendly ... maintain the order of the fields").
+                 THE ORDER IS UNTOUCHED AND THAT IS THE WHOLE CONSTRAINT. What
+                 changed is that the 22 fields stop being one flat run of
+                 identical boxes. They already fall into six CONTIGUOUS runs that
+                 mean something — the trim, who supplies it, units, which
+                 garments, the ratio, what we buy — so those runs become the
+                 rows, and no field moves. Tab still walks 1 to 22 and still
+                 leaves at 22.
+                 THE GROUPS ARE UNLABELLED, deliberately (client 2026-08-19:
+                 "remove all the section title ... just main field label is
+                 enough, we need clean interface"). A hairline between runs is
+                 not a title; it is the only thing left marking the seam.
+                 EACH RUN SUMS TO 12 ON THE HOUSE TRACK, which is what let
+                 `FIELD_TRACK_32` and `FIELD_TRACK_40` go. Those existed to fit
+                 eleven and thirteen fields on ONE line, and paid for it in
+                 width: ~68px for a numeric cell, ~145px for a picker whose
+                 content is a slashed spec. At 12 columns in this pane a field
+                 is ~157-235px, which is LAYOUT.md's own figure rather than a
+                 third of it. The client reported the cramping (screenshot 2396);
+                 widening the track was treating the symptom.
+                 Looked up BY HEADER, never by index — `itemColumns` is
+                 re-ordered often, and a header named in NO group still renders,
+                 in its own run at the end, so a column added later cannot
+                 vanish off a screen nobody thought to re-read. */
+              const groups = FIELD_GROUPS.map((g) =>
+                g.flatMap((b) => {
                   const col = itemColumns.find((c) => c.header === b.header);
-                  return col ? [{ col, size: b.size }] : [];
-                });
-              const lineCols = resolve(ITEM_LINE_BAND);
-              const named = new Set([
-                ...ITEM_LINE_BAND.map((b) => b.header),
-                ...ITEM_DETAIL_BAND.map((b) => b.header),
-              ]);
-              const restCols = [
-                ...resolve(ITEM_DETAIL_BAND),
-                ...itemColumns
-                  .filter((c) => !named.has(c.header))
-                  .map((col) => ({ col, size: "xs" as FieldSize })),
-              ];
-              /* `required` MUST be forwarded as well as declared on the column:
-                 cards mode calls this instead of the `columns.map()` that wraps
-                 each cell in `RequiredScope`, so without it the header draws a
-                 `*` with no cursor hold behind it. Checked by
-                 `audit_layout.py --check grid-required-mobile`. */
-              /* `cols={32}` — the eleven-across track, see `ITEM_LINE_BAND`.
-                 It also carries `items-end`, which is what keeps the controls on
-                 one line when "Consumption Uom" wraps its label at 83px.
-
-                 The DETAILS band below is on the SAME track (client 2026-08-19,
-                 "can update this fields also in single row"), so the two rows
-                 stand on one column grid instead of two rhythms. */
-              const band = (cols: { col: ChildGridColumn<ItemRow>; size: FieldSize }[]) => (
-                <FieldGrid cols={32}>
-                  {cols.map(({ col, size }, ci) => (
-                    <Field key={ci} label={col.header} required={col.required} size={size}>
-                      {col.cell(row, i)}
-                    </Field>
-                  ))}
-                </FieldGrid>
+                  return col ? [{ col, size: b.size, weight: b.weight }] : [];
+                }),
               );
+              const named = new Set(FIELD_GROUPS.flat().map((b) => b.header));
+              const orphans = itemColumns
+                .filter((c) => !named.has(c.header))
+                .map((col) => ({ col, size: "sm" as FieldSize, weight: "plain" as Weight }));
+              const runs = orphans.length ? [...groups, orphans] : groups;
+              const t = lineTotals.get(row.key);
+
               return (
-                <div className="space-y-2">
-                  {/* NO HEADER LINE HERE ANY MORE — `rowSummary` on the grid
-                      below draws it, and that is what RECLAIMED 40px of the row.
-
-                      A hand-rolled line stood here for a few hours. It named the
-                      material correctly and cost the row a strip it could not
-                      pay for: with no `rowSummary`, `ChildGrid` floats the ✕ at
-                      `right-1 top-1` and reserves `pr-10` across the WHOLE row so
-                      the last field's label cannot run under it — so MOQ stopped
-                      62px short of the panel edge against a 10px inset on the
-                      left (client 2026-08-19, "this gap we utilize this also").
-                      Passing `rowSummary` puts the ✕ in the band's flow, which
-                      turns `cornerRemove` off, which takes the padding with it.
-
-                      The lesson is the layout skill's: the band is the primitive's
-                      to draw, and hand-rolling it is how a `data-row-remove`
-                      target — the node Ctrl+Del drives — gets forgotten. */}
-                  {band(lineCols)}
-                  {/* A BOXED, LABELLED BAND — not a hairline (client 2026-08-17,
-                      screenshot 2325: "why is there no update").
-
-                      The split was already live at that point and the field ORDER
-                      proved it, but the only thing marking it was a 1px
-                      `border-t`, which at this density reads exactly like the gap
-                      between two ordinary rows. So the change was real and
-                      invisible, which is the same as not having made it.
-
-                      Legacy marks the boundary with a BOX — its nested grid has
-                      its own frame and header band. `DetailSection` is that
-                      primitive here ("groups related fields under a small
-                      uppercase label"), so the structure is drawn by a component
-                      rather than by a border class this screen invents. `cols=12`
-                      makes it lay out on the same `FIELD_TRACK` the band above
-                      uses, so the two read as one grid split in two, not as two
-                      grids. */}
-                  {restCols.length > 0 &&
-                    (() => {
-                      const closed = detailClosed.has(row.key);
-                      const mayClose = canCloseDetail(row);
-                      const why = mayClose
-                        ? closed
-                          ? "Show details"
-                          : "Hide details"
-                        : "Fill No. of Items and Per Pieces before hiding these";
-                      return (
-                        <DetailSection
-                          label="Details"
-                          /* THE SAME 32-COLUMN TRACK THE ITEM LINE USES — see
-                             `ITEM_DETAIL_BAND`. Ten fields on one row, and the
-                             two bands share a column grid rather than each
-                             having its own. It brings `items-end` with it, which
-                             is what keeps these controls on one baseline when a
-                             label wraps. */
-                          cols={32}
-                          action={
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              /* OFF THE TAB PATH BY CONSTRUCTION — Tab lands on
-                                 fields only, and this is chrome, exactly like the
-                                 row's own ✕. It is mouse/pointer affordance for a
-                                 view state; nothing behind it is reachable ONLY
-                                 through it, because the band cannot close while it
-                                 still holds an unanswered required field. */
-                              title={why}
-                              aria-label={why}
-                              aria-expanded={!closed}
-                              disabled={!closed && !mayClose}
-                              onClick={() => toggleDetail(row.key)}
-                            >
-                              {closed ? (
-                                <ChevronRight className="h-4 w-4" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4" />
-                              )}
-                            </Button>
-                          }
-                        >
-                          {/* CLOSED RENDERS NOTHING, rather than hiding with CSS.
-                              A `hidden` field is still in the DOM, so Tab and the
-                              required-hold would both still visit it — the
-                              operator would be sent to a box they cannot see. */}
-                          {!closed &&
-                            restCols.map(({ col, size }, ci) => (
-                              <Field
-                                key={ci}
-                                label={col.header}
-                                required={col.required}
-                                size={size}
-                              >
-                                {col.cell(row, i)}
-                              </Field>
-                            ))}
-                        </DetailSection>
-                      );
-                    })()}
+                /* CAPPED, AND LEFT-ALIGNED AGAINST THE LIST. A run fills 12
+                   columns of whatever it is given, so the TRACK is what sets
+                   every field's width here — there is no per-field size to turn
+                   down, and no cap either.
+                   THE CAP IS GONE (client 2026-08-20, screenshot 2410: "use that
+                   extra right side"). It was 1120, then 840, and both were the
+                   wrong instrument: narrowing the region to shrink the fields
+                   also left the pane visibly unused on the right. Widening the
+                   TRACK shrinks the fields AND fills the pane — 32 columns over
+                   the full width is 35px each, so a field is 70 to 280px and the
+                   row ends where the pane ends. */
+                <div>
+                  {/* WHICH LINE AM I FILLING IN? — the pane had no answer
+                      (client 2026-08-20, screenshot 2406). The fields simply
+                      began, and with the list beside them showing two materials
+                      there was nothing tying the open one to its own name. The
+                      mockup led every pane with exactly this and it is the
+                      single largest thing that was missing.
+                      `pr-9` keeps the line clear of the ✕ `ChildGrid` floats
+                      into the card's top-right corner. */}
+                  <div className="mb-2 flex items-baseline gap-3 border-b border-border pb-1.5 pr-9">
+                    <Truncated className="min-w-0 text-[13px] font-semibold text-foreground">
+                      {row.item_id ? itemName(row.item_id) : "New material"}
+                    </Truncated>
+                    <span className="shrink-0 text-[10.5px] text-muted-foreground">
+                      Line {i + 1} of {items.length}
+                    </span>
+                    {/* The figure this line produces, where the eye already is.
+                        The ribbon below shows HOW it got there; this says WHAT
+                        it is, without scrolling to the end of the row. */}
+                    {t?.final != null && (
+                      <span className="ml-auto shrink-0 text-right">
+                        <span className="text-base font-semibold tabular-nums text-accent">
+                          {fmtNumber(t.final)}
+                        </span>{" "}
+                        <span className="text-[10px] tracking-wide text-muted-foreground">
+                          {t.uom}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  {runs.map((g, gi) => (
+                    <div
+                      key={gi}
+                      /* THE SEAM IS THE GAP FIRST AND THE LINE SECOND, and
+                         getting that round the wrong way is a mistake this very
+                         screen has already made once. On 2026-08-17 the item
+                         line and its detail band were split with a 1px
+                         `border-t` and the client reported no change at all
+                         (screenshot 2325, "why is there no update"): at this
+                         density a hairline reads exactly like the gap between
+                         two ordinary rows.
+                         `py-2` repeated it. A field row's own fields sit 8px
+                         apart (`FieldGrid`'s `gap-y-2`), so 8px of padding put
+                         24px BETWEEN runs against 16px WITHIN one — a ratio of
+                         1.5, which the eye does not read as a boundary, and 22
+                         fields went back to looking like one wall (client
+                         2026-08-20, screenshot 2404). `py-3` makes it 32 against
+                         16, and proximity does the grouping before any line is
+                         drawn. The hairline stays as confirmation, not as the
+                         whole signal.
+                         `border-border`, not `border-border-strong`: the strong
+                         token separates one MATERIAL from the next (`ChildGrid`
+                         draws it at 2px), and a run inside a record must read as
+                         quieter than that or the record stops being one thing. */
+                      className={cn("py-3", gi > 0 && "border-t border-border")}
+                    >
+                      <FieldGrid cols={32}>
+                        {g.map(({ col, size, weight }, ci) => (
+                          <Field
+                            key={ci}
+                            label={col.header}
+                            /* `required` MUST be forwarded as well as declared on
+                               the column: cards mode calls this function instead
+                               of the `columns.map()` that wraps each cell in
+                               `RequiredScope`, so without it the header draws a
+                               `*` with no cursor hold behind it. Checked by
+                               `audit_layout.py --check grid-required-mobile`. */
+                            required={col.required}
+                            size={size}
+                            className={cn(DENSE, WEIGHT_CLASS[weight])}
+                          >
+                            {col.cell(row, i)}
+                          </Field>
+                        ))}
+                      </FieldGrid>
+                    </div>
+                  ))}
+                  {qtyRibbon(row, t)}
                 </div>
               );
             }}
@@ -2242,35 +2700,37 @@ export function MbaMasterScreen({
              * blank ones included, so this is the only thing an unstarted line
              * gets to say for itself.
              */
-            /**
-             * THE BAND CARRIES THE REMOVE CONTROL AND NOTHING ELSE, and both
-             * halves of that are a client instruction from 2026-08-19.
-             *
-             * "no need to show the name in as section header" — so no name. The
-             * band still has to EXIST, because `ChildGrid` decides where the ✕
-             * goes by whether there is one: with no `rowSummary` it floats the
-             * button at `right-1 top-1` and reserves `pr-10` across EVERY row so
-             * the last field's label cannot run under it. That reservation is
-             * what stopped MOQ 62px short of the panel edge against a 10px inset
-             * on the left ("this gap we utilize this also"). A band puts the
-             * button in the flow and the padding goes.
-             *
-             * So the two asks pull opposite ways in their cheapest forms, and
-             * this is the shape that serves both: the row keeps its full width
-             * and spends a short strip on the control instead of a wide margin.
-             *
-             * IT MUST RETURN AN ELEMENT, NOT `null` OR `""` — `bandLine` is
-             * `!!summary`, so a falsy value puts the ✕ back in the corner and
-             * the padding back on the row. `aria-hidden` because there is
-             * nothing here to announce.
-             *
-             * WHAT A FOLDED LINE SAYS IS `renderFoldedRow`'s, not this. A folded
-             * row needs its summary and an open one does not, and `rowSummary`
-             * cannot tell them apart.
-             */
-            rowSummary={() => <span aria-hidden />}
+            /* NO `rowSummary`, SO NO BAND — and this is the second half of a
+               trade the client has now seen both sides of.
+
+               A row's remove control needs ~40px SOMEWHERE, and `ChildGrid`
+               offers exactly two places. In a band it costs 40px of HEIGHT on
+               every row (a 32px button line plus the row's gap) and no width; in
+               the corner it costs 40px of WIDTH (`pr-10`, reserved so the last
+               field cannot run under it) and no height.
+
+               The band went in on 2026-08-19 to reclaim the width beside MOQ,
+               and came out the same day: "how much excess between item header
+               title and table data". Both complaints are correct, and the
+               arithmetic is what settles it — 40px is 2.6% of a 1504px row and
+               36% of a ~110px one, and the vertical version repeats down the
+               document. Nine folded lines on a ten-material BOM were spending
+               360px on nine copies of an otherwise empty strip.
+
+               So the ✕ is back in the corner and MOQ gives up 40px again. Put
+               `rowSummary` back only if that width is worth more than the height,
+               and know that it buys the band whether or not it has anything to
+               say — `bandLine` is `!!summary`, not "is the summary worth a line". */
             seedRow
-            onAdd={() => mutItems((xs) => [...xs, blankItem(newKey())])}
+            onAdd={() => {
+              /* ADDING A LINE IS CHOOSING TO WORK ON IT — the cursor lands in the
+                 new row (`landOnAddedRow`), so the rail folds for the same
+                 reason it folds on picking one out of the list. Without this the
+                 sections stayed up through the whole of a new BOM, which is
+                 exactly when the fields need the width most (client 2026-08-20). */
+              setRailCollapsed(true);
+              mutItems((xs) => [...xs, blankItem(newKey())]);
+            }}
             onRemove={(r) => mutItems((xs) => xs.filter((x) => x.key !== r.key))}
             addLabel="+ Add material"
           />
@@ -2508,6 +2968,8 @@ export function MbaMasterScreen({
           ),
         }}
         sections={sections}
+        railCollapsed={railCollapsed}
+        onExpandRail={() => setRailCollapsed(false)}
         footer={{
           status: dirty ? "Unsaved changes" : editId ? "All changes saved" : "New material BOM",
           onCancel: () => setMode("list"),
@@ -2557,14 +3019,67 @@ function ProductionStrip({
   else if (error) body = <span className="text-danger">{error}</span>;
   else if (!order) body = <span className="text-muted-foreground">—</span>;
   else {
-    const total = order.approvals.reduce((a, r) => a + (Number(r.qty) || 0), 0);
+    /**
+     * THE SUM, NOT ITS INGREDIENTS.
+     *
+     * This strip used to read "PO 5,000 pcs · excess 5%", and every requirement
+     * on the screen below multiplied 5,552. An operator does that arithmetic in
+     * their head, gets 5,250, and the missing 302 has nowhere to come from
+     * (client 2026-08-20, screenshot 2417: "I didn't apply any excess and the
+     * quantity is also wrong — where is this wired?").
+     *
+     * The figure was never wrong. What was wrong is that the strip named two of
+     * the FOUR terms and then let a number built from all four appear 22 fields
+     * away. On that order it is 5,000 + 252 + 300: the excess is 5% ROUNDED UP
+     * PER LINE across fifteen lines, so it is 252 rather than a flat 250, and
+     * the 300 is approval and sample pieces, which the strip never mentioned at
+     * all.
+     *
+     * So every term that moved the number is named, and the total is stated. A
+     * term that contributed nothing is left out rather than printed as "+ 0" —
+     * on the ordinary order that is the rejection allowance, and a row of zeroes
+     * would bury the two terms that did something.
+     *
+     * COMPUTED WITH THE ENGINE, never re-derived here. `excessQty` and
+     * `projectionQty` are the same functions `productionTarget` calls for the
+     * rows, so a strip that agreed with the arithmetic today but drifted from it
+     * later is not expressible — which is the whole reason 0413 put them in one
+     * module.
+     */
+    const po = order.approvals.reduce((a, r) => a + (Number(r.qty) || 0), 0);
+    const exc = order.approvals.reduce(
+      (a, r) => a + excessQty(Number(r.qty) || 0, Number(order.excessPct) || 0),
+      0,
+    );
+    const appr = order.approvals.reduce((a, r) => a + (Number(r.approval_qty) || 0), 0);
+    const rej = order.approvals.reduce(
+      (a, r) => a + (projectionQty(Number(r.qty) || 0, order.tiers) ?? 0),
+      0,
+    );
+    const target = po + exc + appr + rej;
+
+    const term = (label: string, n: number) => (
+      <>
+        {" + "}
+        <span className="font-medium tabular-nums text-foreground">{fmtNumber(n)}</span>{" "}
+        {label}
+      </>
+    );
+
     body = (
       <span className="text-muted-foreground">
         {order.approvals.length} approval {order.approvals.length === 1 ? "line" : "lines"} ·{" "}
-        {order.combos.length} {order.combos.length === 1 ? "combo" : "combos"} · PO{" "}
-        <span className="font-medium tabular-nums text-foreground">{fmtNumber(total)}</span> pcs ·
-        excess {order.excessPct}%
-        {order.rejectionRuleChosen ? " · rejection rule applied" : " · no rejection rule"}
+        {order.combos.length} {order.combos.length === 1 ? "combo" : "combos"} ·{" "}
+        <span className="font-medium tabular-nums text-foreground">{fmtNumber(po)}</span> PO
+        {exc > 0 && term(`excess (${order.excessPct}%)`, exc)}
+        {appr > 0 && term("approval pcs", appr)}
+        {rej > 0 && term("rejection", rej)}
+        {" = "}
+        <span className="font-semibold tabular-nums text-foreground">{fmtNumber(target)}</span> pcs
+        {" to make"}
+        {/* Said only when it is NOT applied. With a rule chosen its contribution
+            is a term above, which says so better than a label can. */}
+        {!order.rejectionRuleChosen && " · no rejection rule"}
       </span>
     );
   }

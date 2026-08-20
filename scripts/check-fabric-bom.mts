@@ -116,7 +116,7 @@ function order(over: Partial<OrderProductionInput> = {}): OrderProductionInput {
       assort(SZ_S, 1, "NAVY"),
       assort(SZ_M, 1, "NAVY"),
     ],
-    sizeName: (id) => SIZE_NAMES[id] ?? id,
+    sizeNames: SIZE_NAMES,
     ...over,
   };
 }

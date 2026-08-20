@@ -50,6 +50,7 @@
     "scripts/check-amendment-diff.mts",
     "scripts/check-order-value.mts",
     "scripts/check-bom-requirement.mts",
+    "scripts/check-process-return.mts",
     "scripts/check-fabric-bom.mts",
     "scripts/check-fabric-plan.mts",
     "scripts/check-budget-totals.mts",
@@ -59,7 +60,9 @@
     "scripts/check-module-groups.mts",
     "scripts/check-style-rules.mts",
     "scripts/check-picker-identity.mts",
+    "scripts/check-size-order.mts",
     "scripts/check-composition-match.mts",
+    "scripts/check-colour-by-type.mts",
     "scripts/check-approval-tree.mts",
     "scripts/mine-name-vocabularies.mts",
     "scripts/vocab-sources/**/*.mts"

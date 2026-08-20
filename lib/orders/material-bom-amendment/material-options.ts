@@ -52,6 +52,38 @@ export type MaterialOption = {
   id: string;
   code: string | null;
   name: string;
+  /**
+   * THE UNITS THIS MATERIAL ACTUALLY DECLARES (client 2026-08-19).
+   *
+   * The BOM line's Purchase Uom and Consumption Uom used to offer the whole
+   * `uoms` master — 8 rows — for a material that declares ONE. Five of the
+   * seven accessory materials in the live database are NOS in every slot, and
+   * a picker offering GROSS for a label the master has no gross conversion for
+   * is a value nothing downstream can use: `toPurchaseQty` needs a conversion
+   * row, and there is none. The operator's word for it was "restrict as full
+   * listing".
+   *
+   * `has_alternate_uom` is the master's own flag for "bought in a different
+   * unit than it is consumed in" (0348) and it is what makes the two cases one
+   * rule rather than two:
+   *
+   *   false  ->  base only. `uomSlots` in `material-actions.ts` points all four
+   *              slots at `base_uom_id` and forces `conversions` empty, so ONE
+   *              unit is not a narrow reading of the master, it is the master.
+   *   true   ->  base + the declared purchase unit. BUTTON is NOS consumed and
+   *              GROSS bought (1 GROSS = 144 NOS); POLYESTER THREAD is MTR and
+   *              CONE. Two values, which is exactly what the client described.
+   *
+   * NULLS RIDE ALONG RATHER THAN BEING FILTERED. A material whose master has no
+   * base unit yet offers nothing here, and the cell says so — 11 items in the
+   * live database are in that state (none of them accessories today). Falling
+   * back to the full list for those would restore the bug for precisely the
+   * materials whose master is unfinished, which is the "empty-and-explain,
+   * never fall back" rule this file already applies to the category cascade.
+   */
+  has_alternate_uom: boolean;
+  base_uom_id: string | null;
+  purchase_uom_id: string | null;
   /** The item CLASS code — `SEW`, `PACK`. Null when the item declares none. */
   class_code: string | null;
   /**

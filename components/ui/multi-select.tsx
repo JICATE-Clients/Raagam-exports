@@ -43,6 +43,55 @@ import { cn } from "@/lib/utils";
 /** The synthetic "+ Add" row's id — never a real option id. */
 const CREATE_ID = "__multiselect_create__";
 
+/**
+ * THE WRAPPING TRACK FOR `gridded`, AND WHY IT IS 6.5rem RATHER THAN `GRID_COMPACT`.
+ *
+ * `child-grid.tsx` declares `GRID_COMPACT` at `repeat(auto-fill, 9rem)` and it was
+ * written for this very data — the Style master's size list, 2026-08-18, "nine
+ * sizes to a line where the fractional track fitted six". The obvious move is to
+ * import it, the way `GRID_FRAME` is imported above, so the two cannot drift.
+ *
+ * They should drift, because they are not the same measurement. A `GRID_COMPACT`
+ * cell holds a whole CONTROL — a picker with a chevron and room to read a master
+ * name. A cell here holds a checkbox and a two-to-five character label. At 9rem a
+ * popup needs ~46rem to fit five columns and most of every cell is empty; at
+ * 6.5rem five columns fit in 34rem with the labels still comfortable.
+ *
+ * So it is a sibling constant, stated beside its neighbour rather than derived
+ * from it, and this comment is the link between them. A literal for the same
+ * reason `GRID_COMPACT` and `FIELD_TRACK` are: Tailwind v4 scans source text, so
+ * `grid-cols-[repeat(auto-fill,${n})]` compiles to no CSS at all.
+ */
+const OPTION_GRID = "grid gap-x-1 gap-y-0.5";
+
+/**
+ * HOW WIDE A CELL HAS TO BE, IN CHARACTERS — clamped at both ends.
+ *
+ * The track used to be a fixed 6.5rem, which fitted four per row at 34rem and
+ * spent room for nine characters on rendering "XL" (client 2026-08-20: "we are
+ * listing 4 value per row, think compacted, maximum per what can we do").
+ *
+ * So the track is measured from the DATA instead. The label is `font-mono` in
+ * this layout precisely so `ch` is an exact unit rather than an estimate —
+ * that is the whole reason the two go together, and changing the label to a
+ * proportional face silently makes this arithmetic a guess.
+ *
+ * BOTH CLAMPS EARN THEIR PLACE:
+ *
+ *   - the FLOOR stops a vocabulary of "S M L" drawing cells too small to aim a
+ *     mouse at;
+ *   - the CEILING is the one that matters. Track width is set by the LONGEST
+ *     label, so a single "FREE SIZE" among 58 sizes would drag every cell out to
+ *     fit it and halve the density for everything else. Past six characters the
+ *     outlier truncates instead — which is safe here and nowhere else, because
+ *     `Truncated` already gives it a hover/press reveal and the full value is
+ *     also in the chip line below.
+ */
+const CELL_CH_MIN = 3;
+const CELL_CH_MAX = 6;
+/** Checkbox-free chip chrome: `px-2` either side plus the 1px borders. */
+const CELL_CHROME = "1.15rem";
+
 export type MultiSelectOption = {
   id: string;
   label: string;
@@ -68,6 +117,9 @@ export function MultiSelect({
   compact,
   className,
   triggerClassName,
+  panelClassName,
+  groupBy,
+  gridded,
   framed,
   onCreate,
 }: {
@@ -96,6 +148,55 @@ export function MultiSelect({
    * different measurements in one cell, which a span alone cannot express.
    */
   triggerClassName?: string;
+  /**
+   * WIDTH FOR THE POPUP, SEPARATELY FROM THE TRIGGER.
+   *
+   * The panel is `w-full` of the trigger's wrapper, which welds the two together
+   * — so capping the trigger at the client's 280px (2026-08-18, "that size
+   * dropdown field size needs an update, it's too length") also capped the LIST
+   * at 280px, and a 280px list can only ever be one column. One measurement was
+   * doing two jobs, and the job it was chosen for was the trigger's.
+   *
+   * They are genuinely different questions: the trigger shows a summary ("8
+   * selected") and wants to be small; the list shows the whole vocabulary and
+   * wants to be wide. Omit and nothing changes — the panel keeps tracking the
+   * trigger, so the existing behaviour is the default rather than a thing every
+   * call site now has to restate.
+   */
+  panelClassName?: string;
+  /**
+   * BAND THE LIST BY A FAMILY THE CALLER DERIVES.
+   *
+   * Returns a stable `key` and a readable `label` per option; options sharing a
+   * key are drawn under one heading, with an all/none control on it. Omit and
+   * the list is flat, exactly as before.
+   *
+   * THE PRIMITIVE KNOWS NOTHING ABOUT SIZES. It is handed a function, because
+   * "which family" is domain knowledge — `sizeFamily` in `lib/masters/
+   * size-order.ts` for this screen, something else for the next one. Putting the
+   * derivation behind this prop is what keeps a general control from growing a
+   * garment vocabulary.
+   *
+   * BAND ORDER IS THE OPTION ORDER, not a sort of its own: the first option of a
+   * family fixes where that family sits. So a caller that has already sorted its
+   * options — which is the only way the bands can be internally ordered anyway —
+   * gets headings in the same order for free, and there is no second rule to
+   * drift from the first.
+   */
+  groupBy?: (option: MultiSelectOption) => { key: string; label: string };
+  /**
+   * LAY THE OPTIONS OUT AS A WRAPPING GRID instead of one per line.
+   *
+   * For a vocabulary of SHORT values — sizes, counts, gauges — where a column per
+   * option spends a quarter of a metre of dropdown rendering "XL" and shows eight
+   * rows at a time. Off by default: a list of master NAMES needs the full line,
+   * and wrapping those into 6.5rem cells would truncate every one of them.
+   *
+   * The arrows change with the layout, which is the part that has to be right:
+   * ←/→ move one cell and ↑/↓ move one ROW. That is the axis `ChildGrid` already
+   * declares for a wrapping grid, not a new rule — see `onTriggerKeyDown`.
+   */
+  gridded?: boolean;
   /**
    * Draw the SAME frame a `ChildGrid` draws, for the case where this control
    * stands beside one.
@@ -131,6 +232,7 @@ export function MultiSelect({
   const listId = `${id}-list`;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -258,11 +360,105 @@ export function MultiSelect({
     typed !== "" &&
     !all.some((o) => o.label.trim().toLowerCase() === typed.toLowerCase());
 
-  /** What ↑/↓ walk and Enter picks — the options, then the create row if shown. */
+  /**
+   * The bands, in the order the options arrive — see the `groupBy` note. One
+   * band with a null heading when the caller supplies no `groupBy`, so the
+   * render path below has no second shape to maintain.
+   */
+  const bands = useMemo(() => {
+    if (!groupBy) return [{ key: "", label: null as string | null, rows: filtered }];
+    const out: { key: string; label: string | null; rows: MultiSelectOption[] }[] = [];
+    const byKey = new Map<string, (typeof out)[number]>();
+    for (const o of filtered) {
+      const g = groupBy(o);
+      let band = byKey.get(g.key);
+      if (!band) {
+        band = { key: g.key, label: g.label, rows: [] };
+        byKey.set(g.key, band);
+        out.push(band);
+      }
+      band.rows.push(o);
+    }
+    return out;
+  }, [filtered, groupBy]);
+
+  /**
+   * What ↑/↓ walk and Enter picks — the options IN BAND ORDER, then the create
+   * row if shown.
+   *
+   * Derived from `bands` rather than from `filtered`, and that is load-bearing
+   * once banding is on: the cursor walks what the eye sees. Reading `filtered`
+   * here would make ↓ jump between bands in a different order than the headings
+   * are drawn, which is the same class of bug as the arrows and Tab disagreeing
+   * inside a grid row.
+   */
   const navIds = useMemo(
-    () => [...filtered.map((o) => o.id), ...(offerCreate ? [CREATE_ID] : [])],
-    [filtered, offerCreate],
+    () => [
+      ...bands.flatMap((b) => b.rows.map((o) => o.id)),
+      ...(offerCreate ? [CREATE_ID] : []),
+    ],
+    [bands, offerCreate],
   );
+
+  /**
+   * The track, sized to the widest label actually on screen.
+   *
+   * `minmax(…, 1fr)` rather than a fixed width: `auto-fill` decides HOW MANY
+   * cells fit at the minimum, then `1fr` shares the slack between them, so the
+   * grid is both as dense as the data allows and flush on the right instead of
+   * ragged. A fixed track leaves the remainder as a gap at the end of every row.
+   *
+   * Measured over `filtered`, so narrowing the search tightens the grid with it.
+   */
+  const cellTrack = useMemo(() => {
+    const widest = filtered.reduce((n, o) => Math.max(n, o.label.trim().length), 0);
+    const ch = Math.min(CELL_CH_MAX, Math.max(CELL_CH_MIN, widest));
+    return `repeat(auto-fill, minmax(calc(${ch}ch + ${CELL_CHROME}), 1fr))`;
+  }, [filtered]);
+
+  /**
+   * WHERE A RANGE STARTS — the last option the operator deliberately ticked.
+   *
+   * A style runs "2Y through 14Y", and saying that by ticking thirteen boxes is
+   * the work this removes (client 2026-08-19, "minimum 50 size"). Shift+click or
+   * Shift+arrow fills everything between the anchor and the target.
+   *
+   * It only ever ADDS. A range that toggled would turn a second shift-click into
+   * a partial erase of what the first one just selected, which is unpredictable
+   * in a wrapping grid where "between" is not visually obvious. Adding is
+   * always undoable one tick at a time; the ✕ on each chip and Clear are both
+   * still there.
+   */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+
+  const openList = () => {
+    if (disabled) return;
+    setOpen(true);
+    setHighlight((h) => h ?? navIds[0] ?? null);
+  };
+
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
+
+  const toggle = (optId: string) => {
+    onChange(chosen.has(optId) ? values.filter((v) => v !== optId) : [...values, optId]);
+  };
+
+  /** Everything between the anchor and `id`, in the list's own order, ticked on. */
+  const selectRangeTo = (id: string) => {
+    const a = navIds.indexOf(anchorId ?? "");
+    const b = navIds.indexOf(id);
+    if (a === -1 || b === -1) {
+      toggle(id);
+      setAnchorId(id);
+      return;
+    }
+    const span = navIds.slice(Math.min(a, b), Math.max(a, b) + 1);
+    const add = span.filter((x) => x !== CREATE_ID && !chosen.has(x));
+    if (add.length) onChange([...values, ...add]);
+  };
 
   const create = async () => {
     if (!onCreate || creating || !typed) return;
@@ -282,26 +478,48 @@ export function MultiSelect({
     setHighlight(res.id);
   };
 
-  const openList = () => {
-    if (disabled) return;
-    setOpen(true);
-    setHighlight((h) => h ?? navIds[0] ?? null);
+  /**
+   * HOW MANY CELLS THE TRACK ACTUALLY DREW.
+   *
+   * Read off the RENDERED grid rather than computed from the panel's width: the
+   * track is `auto-fill`, so the browser has already solved for the column count
+   * against the real box, including the scrollbar and whatever the panel's own
+   * padding turned out to be. `gridTemplateColumns` resolves to a list of pixel
+   * tracks ("104px 104px 104px"), so counting them is exact.
+   *
+   * Recomputing it per keystroke rather than caching it in state is deliberate —
+   * the count changes with the viewport, and a stale one sends ↓ to the wrong
+   * row, which is the kind of bug that only shows up on somebody else's screen.
+   */
+  const columnCount = () => {
+    const grid = listRef.current;
+    if (!grid) return 1;
+    const tracks = getComputedStyle(grid).gridTemplateColumns.trim();
+    // "none" is what a non-grid <ul> reports, so the one-per-line layout falls
+    // out of this as a 1-column grid without a branch of its own.
+    if (!tracks || tracks === "none") return 1;
+    return Math.max(1, tracks.split(/\s+/).length);
   };
 
-  const close = () => {
-    setOpen(false);
-    setQuery("");
-  };
-
-  const toggle = (optId: string) => {
-    onChange(chosen.has(optId) ? values.filter((v) => v !== optId) : [...values, optId]);
-  };
-
-  const step = (dir: 1 | -1) => {
+  /**
+   * Move the highlight by `delta` positions through `navIds`.
+   *
+   * A single linear walk serves both layouts because a wrapping grid IS a linear
+   * list read in rows: ±1 is one cell, ±`columnCount()` is one row. Clamping
+   * rather than wrapping means ↓ on the last row stays put instead of jumping to
+   * the top — the same thing a child grid does, and the reason is the same, that
+   * a silent wrap reads as the key having done nothing.
+   */
+  const step = (delta: number, extend = false) => {
     if (!navIds.length) return;
     const i = navIds.indexOf(highlight ?? "");
-    const next = i === -1 ? (dir === 1 ? 0 : navIds.length - 1) : i + dir;
-    setHighlight(navIds[Math.max(0, Math.min(navIds.length - 1, next))]);
+    const next = i === -1 ? (delta > 0 ? 0 : navIds.length - 1) : i + delta;
+    const landed = navIds[Math.max(0, Math.min(navIds.length - 1, next))];
+    setHighlight(landed);
+    // Shift+arrow SELECTS as it moves. Done here rather than in each arrow
+    // branch so ←/→ and ↑/↓ cannot end up with different range behaviour — the
+    // same reason the four keys share one `step` at all.
+    if (extend && anchorId && landed && landed !== CREATE_ID) selectRangeTo(landed);
   };
 
   const onTriggerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -310,13 +528,27 @@ export function MultiSelect({
       // reason a hold on this field is still satisfiable (`keyFills`).
       e.preventDefault();
       if (!open) openList();
-      else step(1);
+      else step(gridded ? columnCount() : 1, e.shiftKey);
       return;
     }
     if (!open) return;
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      step(-1);
+      step(gridded ? -columnCount() : -1, e.shiftKey);
+      return;
+    }
+    /**
+     * ←/→ WALK THE ROW, AND ONLY IN A GRID.
+     *
+     * Claimed here rather than left to bubble because in a wrapping layout the
+     * cell to the right is a different option, not a different field — the same
+     * exception `child-grid.tsx` takes for a grid row. In the one-per-line
+     * layout there is nothing to the side, so the keys are deliberately NOT
+     * claimed and the app's spatial arrow nav keeps them.
+     */
+    if (gridded && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+      e.preventDefault();
+      step(e.key === "ArrowRight" ? 1 : -1, e.shiftKey);
       return;
     }
     if (e.key === "Enter" || e.key === " ") {
@@ -327,7 +559,14 @@ export function MultiSelect({
       e.preventDefault();
       e.stopPropagation();
       if (highlight === CREATE_ID) void create();
-      else toggle(highlight);
+      else if (e.shiftKey && anchorId) selectRangeTo(highlight);
+      else {
+        toggle(highlight);
+        // A plain tick MOVES the anchor; a range extension does not. That is
+        // what lets Shift+↓ keep growing one selection instead of restarting it
+        // from wherever the highlight last stopped.
+        setAnchorId(highlight);
+      }
       return;
     }
     if (e.key === "Escape") {
@@ -405,92 +644,271 @@ export function MultiSelect({
           className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
         />
         {open && (
-          <ul
-            id={listId}
-            role="listbox"
-            aria-multiselectable
-            className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-surface py-1 shadow-lg"
-          >
-            {filtered.length === 0 && !offerCreate && (
-              <li className="px-3 py-2 text-sm text-muted-foreground">
-                {options.length ? "No match" : emptyLabel}
-              </li>
+          /* THE PANEL IS A BOX AROUND THE LIST, not the list itself.
+             The footer has to sit OUTSIDE the scroll region — a bulk action that
+             scrolls away with the options is one the operator has to hunt for at
+             exactly the moment they have stopped looking at the list. */
+          <div
+            className={cn(
+              "absolute z-50 mt-1 w-full max-w-[calc(100vw-2rem)] rounded-md border border-border bg-surface shadow-lg",
+              panelClassName,
             )}
-            {filtered.map((o) => {
-              const on = chosen.has(o.id);
-              return (
-                <li key={o.id}>
+          >
+            <ul
+              id={listId}
+              ref={listRef}
+              role="listbox"
+              aria-multiselectable
+              // Inline, not a class: the track is computed from the data, and a
+              // Tailwind arbitrary value cannot be — v4 scans source text, so
+              // `grid-cols-[repeat(auto-fill,${n})]` compiles to no CSS at all.
+              // That constraint is what made the old track a fixed literal in
+              // the first place; the style attribute simply sidesteps it.
+              style={gridded ? { gridTemplateColumns: cellTrack } : undefined}
+              className={cn(
+                "overflow-auto py-1",
+                gridded
+                  ? // The `<ul>` IS the grid — a <div> between <ul> and <li> is
+                    // invalid, and `columnCount()` reads the resolved track off
+                    // this element directly.
+                    //
+                    // `font-mono` HAS TO BE HERE, not only on the label. The `ch`
+                    // in `cellTrack` resolves against the font of the element the
+                    // style sits on — this <ul> — so with a proportional font
+                    // here the track would be computed in one font's characters
+                    // and filled with another's. The cells inherit it, which is
+                    // also what makes every label line up.
+                    // `text-[13px]` for the same reason as `font-mono`: `ch` is
+                    // relative to the font SIZE as well as the family, so the
+                    // track and the labels have to be computed at one size. The
+                    // cells restate it rather than relying on inheritance, but
+                    // it is this declaration the arithmetic reads.
+                    cn(OPTION_GRID, "max-h-[min(60vh,19rem)] px-2 font-mono text-[13px]")
+                  : "max-h-64",
+              )}
+            >
+              {filtered.length === 0 && !offerCreate && (
+                <li className="col-span-full px-3 py-2 font-sans text-sm text-muted-foreground">
+                  {/* `font-sans`: a sentence, not a token — the grid sets
+                      `font-mono` on the <ul> for the `ch` arithmetic. */}
+                  {options.length ? "No match" : emptyLabel}
+                </li>
+              )}
+              {bands.flatMap((band) => [
+                /* THE HEADING. `role="presentation"` because it is not an option
+                   — a listbox whose children are all options is what a screen
+                   reader expects, and a heading announced as a choice would be a
+                   choice that cannot be made.
+
+                   `col-span-full` is what makes a band start a new grid row; the
+                   partial row it leaves behind is correct, not a gap to close.
+
+                   The all/none button is `tabIndex={-1}`, like every other
+                   control inside this panel: Tab lands on FIELDS, and the panel
+                   is reached through its trigger. */
+                band.label !== null ? (
+                  <li
+                    key={`band:${band.key}`}
+                    role="presentation"
+                    className="col-span-full flex items-center gap-2 px-1.5 pb-1 pt-2.5 first:pt-1"
+                  >
+                    <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {band.label}
+                    </span>
+                    <span aria-hidden className="h-px flex-1 bg-border" />
+                    {(() => {
+                      const ids = band.rows.map((o) => o.id);
+                      const allOn = ids.every((x) => chosen.has(x));
+                      return (
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label={`${allOn ? "Clear" : "Select"} all ${band.label}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            onChange(
+                              allOn
+                                ? values.filter((v) => !ids.includes(v))
+                                : [...values, ...ids.filter((x) => !chosen.has(x))],
+                            );
+                          }}
+                          className="text-[10px] font-medium uppercase tracking-[0.08em] text-primary underline underline-offset-2"
+                        >
+                          {allOn ? "none" : "all"}
+                        </button>
+                      );
+                    })()}
+                  </li>
+                ) : null,
+                ...band.rows.map((o) => {
+                const on = chosen.has(o.id);
+                return (
+                  <li key={o.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={on}
+                      tabIndex={-1}
+                      // A cell has no room for the "(inactive)" tag the full-width
+                      // row carries, so in a grid the fact moves to the accessible
+                      // name and to the dimming below. It is never DROPPED: an
+                      // inactive option only ever appears here because the record
+                      // already holds it, and saying so is the point.
+                      aria-label={gridded && o.inactive ? `${o.label} (inactive)` : undefined}
+                      // mousedown, not click: the trigger keeps focus, so the
+                      // operator can carry straight on with the keyboard.
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        // Shift+click takes everything between the last tick and
+                        // this one — the mouse half of Shift+arrow.
+                        if (e.shiftKey && anchorId) {
+                          selectRangeTo(o.id);
+                        } else {
+                          toggle(o.id);
+                          setAnchorId(o.id);
+                        }
+                        setHighlight(o.id);
+                      }}
+                      onMouseEnter={() => setHighlight(o.id)}
+                      className={cn(
+                        "flex w-full items-center text-left",
+                        gridded
+                          ? /* A CHIP, NOT A CHECKBOX AND A LABEL.
+                               The square cost 22px — 16px box plus its gap — in a
+                               cell that only ever holds two to six characters,
+                               which is over a fifth of the cell spent restating
+                               what the fill colour already says. Dropping it is
+                               the single biggest density win available, and the
+                               affordance survives three ways: the fill, the
+                               `aria-selected` this button already carries, and
+                               the chip line under the field.
+
+                               `justify-center` because a chip reads as a token,
+                               not as a row; ragged left edges across a wrapping
+                               grid of 2-6 character labels look like a fault. */
+                            cn(
+                              "justify-center rounded border px-2 py-1 text-[13px] font-mono tabular-nums",
+                              on
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border bg-surface",
+                            )
+                          : "gap-2 px-3 py-1.5 text-sm",
+                        // The highlight must still read ON a filled chip, so it
+                        // is a ring rather than a background swap.
+                        highlight === o.id
+                          ? gridded
+                            ? "ring-2 ring-ring"
+                            : "bg-surface-muted"
+                          : "",
+                        gridded && o.inactive ? "opacity-60" : "",
+                      )}
+                    >
+                      {!gridded && (
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                            on
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border",
+                          )}
+                        >
+                          {on && <Check className="h-3 w-3" />}
+                        </span>
+                      )}
+                      {/* `touch={false}`: this row commits on mousedown, so a
+                          press-and-hold would reveal the value AND pick it. */}
+                      <Truncated touch={false}>{o.label}</Truncated>
+                      {o.inactive && !gridded && (
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                          (inactive)
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+                }),
+              ])}
+              {offerCreate && (
+                <li className="col-span-full">
                   <button
                     type="button"
                     role="option"
-                    aria-selected={on}
+                    aria-selected={false}
                     tabIndex={-1}
-                    // mousedown, not click: the trigger keeps focus, so the
-                    // operator can carry straight on with the keyboard.
+                    disabled={creating}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      toggle(o.id);
-                      setHighlight(o.id);
+                      void create();
                     }}
-                    onMouseEnter={() => setHighlight(o.id)}
+                    onMouseEnter={() => setHighlight(CREATE_ID)}
                     className={cn(
-                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
-                      highlight === o.id ? "bg-surface-muted" : "",
+                      // `font-sans` because the grid above sets `font-mono` on
+                      // the <ul> for the `ch` arithmetic, and this row is a
+                      // sentence ("Add “XXXL”"), not a token.
+                      "flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left font-sans text-sm font-medium text-primary",
+                      highlight === CREATE_ID ? "bg-surface-muted" : "",
+                      creating ? "opacity-60" : "",
                     )}
                   >
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                        on ? "border-primary bg-primary text-primary-foreground" : "border-border",
-                      )}
-                    >
-                      {on && <Check className="h-3 w-3" />}
+                    <Plus aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                    {/* truncate-reveal: exempt -- this echoes what the operator
+                        is typing THIS MOMENT, and the full text is in the box
+                        directly above it. A press-and-hold bubble would also
+                        reveal and CREATE in one gesture, since this row commits
+                        on mousedown. */}
+                    <span className="truncate">
+                      {creating ? "Adding…" : `Add “${typed}”`}
                     </span>
-                    {/* `touch={false}`: this row commits on mousedown, so a
-                        press-and-hold would reveal the value AND pick it. */}
-                    <Truncated touch={false}>{o.label}</Truncated>
-                    {o.inactive && (
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                        (inactive)
-                      </span>
-                    )}
                   </button>
                 </li>
-              );
-            })}
-            {offerCreate && (
-              <li>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={false}
-                  tabIndex={-1}
-                  disabled={creating}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    void create();
-                  }}
-                  onMouseEnter={() => setHighlight(CREATE_ID)}
-                  className={cn(
-                    "flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-sm font-medium text-primary",
-                    highlight === CREATE_ID ? "bg-surface-muted" : "",
-                    creating ? "opacity-60" : "",
-                  )}
-                >
-                  <Plus aria-hidden className="h-3.5 w-3.5 shrink-0" />
-                  {/* truncate-reveal: exempt -- this echoes what the operator
-                      is typing THIS MOMENT, and the full text is in the box
-                      directly above it. A press-and-hold bubble would also
-                      reveal and CREATE in one gesture, since this row commits
-                      on mousedown. */}
-                  <span className="truncate">
-                    {creating ? "Adding…" : `Add “${typed}”`}
-                  </span>
-                </button>
-              </li>
+              )}
+            </ul>
+
+            {/* BULK ACTIONS, ONLY WHERE THE LIST IS LONG ENOUGH TO NEED THEM.
+                Gated on `gridded` because that prop already means "a big
+                vocabulary of short values" — which is exactly and only the case
+                where ticking one at a time is the wrong shape of work.
+
+                "Tick all SHOWN" respects the search, deliberately: an operator who
+                has narrowed to what they want and then asks for all of it means
+                all of THAT. A button that ignored the filter would be a different,
+                much more destructive button wearing the same label. */}
+            {gridded && (
+              <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-1.5">
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {picked.length} selected
+                </span>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    disabled={filtered.length === 0}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      const add = filtered.map((o) => o.id).filter((id) => !chosen.has(id));
+                      if (add.length) onChange([...values, ...add]);
+                    }}
+                    className="text-xs font-medium text-primary disabled:text-muted-foreground"
+                  >
+                    Tick all shown
+                  </button>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    disabled={picked.length === 0}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange([]);
+                    }}
+                    className="text-xs font-medium text-primary disabled:text-muted-foreground"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
             )}
-          </ul>
+          </div>
         )}
       </div>
 

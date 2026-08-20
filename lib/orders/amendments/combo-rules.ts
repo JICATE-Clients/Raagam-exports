@@ -161,28 +161,119 @@ export function asItemSubType(v: string | null | undefined): ItemSubType | null 
 
 /**
  * WHICH AESTHETIC FIELD A COMPONENT FILLS, decided by its structure's Fabric
- * Type (client 2026-08-12). One function, because the two cells must agree:
- * if both answered "yes" the operator would be asked to specify a colour AND a
- * print for one fabric, and if both answered "no" the row could not be
- * described at all.
+ * Type (client 2026-08-12). One pair, because the two cells must agree: if both
+ * answered "yes" the operator would be asked for a colour AND a print on one
+ * fabric, and if both answered "no" the row could not be described at all.
  *
- *   solid     → a dyed colour, from the order's declared dyeing rows
- *   printed   → an all-over print, from the order's declared prints
- *   melange   → neither: the colour comes from the purchased yarn
- *   yarn_dyed → neither: it is coloured before knitting
- *   (blank)   → neither, and this is the branch that matters. A rule phrased as
- *               "restrict only when melange" leaks through every state that is
- *               not melange — how the nominated-vendor rule broke twice.
+ *   solid | melange | yarn_dyed → a colour, from the matching half of the
+ *                                order's declared palette (`colourSourceFor`)
+ *   printed                     → an all-over print, from the declared prints
+ *   (blank)                     → neither, and this is the branch that matters.
+ *                                A rule phrased as "restrict only when melange"
+ *                                leaks through every state that is not melange
+ *                                — how the nominated-vendor rule broke twice.
  *
  * NEITHER IS A HARD BLOCK. These decide which list is OFFERED; the colour cell
  * still accepts free text, because an order part-way through entry must stay
  * fillable. Guided, never caged — the same line `keyFills` draws.
  */
-export function takesDyedColour(itemSubType: string | null | undefined): boolean {
-  return itemSubType === "solid";
-}
 export function takesAllOverPrint(itemSubType: string | null | undefined): boolean {
   return itemSubType === "printed";
+}
+
+/**
+ * WHICH DECLARED COLOURS A FABRIC MAY TAKE — client 2026-08-20:
+ * "the color print tab we will list the color which is which type yarn dyed or
+ * melange … if i choose solid, solid color only filtered list, and then melange
+ * is choosed melange color only need to list."
+ *
+ * THIS REPLACES `takesDyedColour`, WHICH ANSWERED THE WRONG QUESTION. It gave a
+ * colour list to `solid` alone, reasoning that a melange takes its colour from
+ * the purchased yarn and a yarn-dyed fabric is coloured before knitting, so
+ * neither is DYED to a declared colour. Every word of that is true and it does
+ * not decide this field: the cell asks WHAT COLOUR THIS CLOTH IS, not how it got
+ * that way. The reasoning is preserved here so a later reader does not restore
+ * the old gate by citing it — it is superseded by a client decision, not by an
+ * argument.
+ *
+ * Both halves of the old rule were live defects on real data (catalog,
+ * 2026-08-20): the order's palette holds six `Dyed` colours and one `Melange`,
+ * so a Solid fabric was offered GREY MELANGE, and a Melange fabric was offered
+ * nothing while GREY MELANGE sat declared on the very tab this reads.
+ *
+ * The tag has always been there. `DYE_TYPE_OPTIONS` (types.ts) gives a yarn
+ * dyeing row `Y/D` | `Melange` and a fabric one `Dyed` | `Melange`; Structure
+ * Details simply never read it.
+ *
+ * MELANGE READS BOTH GRIDS. "Melange" is offered on the yarn list and the fabric
+ * list alike, and which one an operator happened to use is not a distinction the
+ * colour itself carries — narrowing it to one section would produce a false
+ * empty the moment somebody entered it on the other.
+ *
+ * `null` means "this fabric does not take a declared colour at all", which is
+ * printed (it takes a print) and blank (it takes nothing until answered). That
+ * is what keeps the invariant with `takesAllOverPrint` above: exactly one of the
+ * two cells can ever claim a row, and neither claims an unanswered one.
+ */
+export type ColourSource = {
+  /** `dye_type` values on a Color/Print row that may answer this fabric. */
+  types: readonly string[];
+  /** Which dyeing grid those rows may sit in. */
+  sections: readonly ("yarn" | "fabric")[];
+};
+
+export function colourSourceFor(
+  itemSubType: string | null | undefined,
+): ColourSource | null {
+  if (itemSubType === "solid") return { types: ["Dyed"], sections: ["fabric"] };
+  if (itemSubType === "yarn_dyed") return { types: ["Y/D"], sections: ["yarn"] };
+  if (itemSubType === "melange")
+    return { types: ["Melange"], sections: ["yarn", "fabric"] };
+  return null;
+}
+
+/** One Color/Print dyeing row, as the colour filter reads it. */
+export type DeclaredColour = {
+  section: string;
+  dye_type: string;
+  color_name: string;
+};
+
+/**
+ * The colours this order declared that a fabric of this type may be given.
+ *
+ * DEDUPED BY NAME, because melange reads two grids and the same colour may be
+ * declared on both — and because the cell stores `color_name`, so two rows
+ * naming one colour are one option.
+ *
+ * AN UNRECOGNISED `dye_type` MATCHES NOTHING. The column was free TEXT until
+ * 2026-08-17, so a stored value need not be in either list. Excluding it is safe
+ * in a way it would not be on a picker: this cell is a Combobox over
+ * `color_name` — free text — so a colour that stops being OFFERED is still
+ * displayed, still saved, and still typeable. Nothing a row already holds is
+ * lost, which is the "Disabled rows" guarantee arrived at for free.
+ *
+ * NEVER FALLS BACK TO THE WHOLE PALETTE when the match is empty. That fallback
+ * is exactly what puts GREY MELANGE back on a solid fabric — the defect this
+ * function exists to remove. An order that has declared no yarn-dyed colour
+ * offers none, and the operator types one.
+ */
+export function declaredColoursFor(
+  rows: readonly DeclaredColour[],
+  itemSubType: string | null | undefined,
+): string[] {
+  const src = colourSourceFor(itemSubType);
+  if (!src) return [];
+  const norm = (v: string) => v.trim().toUpperCase();
+  const wantTypes = src.types.map(norm);
+  const out: string[] = [];
+  for (const r of rows) {
+    if (!src.sections.includes(r.section as "yarn" | "fabric")) continue;
+    if (!wantTypes.includes(norm(r.dye_type))) continue;
+    const name = norm(r.color_name);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 export const fabricTypeLabel = (v: string | null | undefined): string =>

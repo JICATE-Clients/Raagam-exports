@@ -10,6 +10,23 @@ import { normName } from "./name-dictionary";
 export interface SizeRow {
   id: string;
   size_name: string;
+  /**
+   * THE SIZE — `config_lookups` kind='size' (0438).
+   *
+   * The authority; `size_name` beside it is the echo the name-typing grid still
+   * writes. Before 0438 a group's sizes were bound to the Sizes master by
+   * NOTHING, and the two had already diverged — `XXXL` sat in a group with no
+   * master row to match, so a group naming it could not fill anything.
+   *
+   * NULLABLE, and the null means something specific: the typed name resolved to
+   * no master row. `trg_size_group_sizes_resolve_size_id` fills this in for every
+   * writer (the action, `lib/data-io`, hand-written SQL), but it deliberately
+   * does NOT create a missing master row — that would need `security definer` and
+   * would hand anyone who can edit a size group the right to write the Sizes
+   * master, which the app gates on `masters:create`. So an unrecognised name
+   * lands visible rather than silently privileged.
+   */
+  size_id: string | null;
   sort_order: number | null;
 }
 

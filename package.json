@@ -15,6 +15,7 @@
     "check:amendment-header": "node --experimental-strip-types scripts/check-amendment-header.mts",
     "check:order-value": "npx --yes tsx scripts/check-order-value.mts",
     "check:bom-requirement": "npx --yes tsx scripts/check-bom-requirement.mts",
+    "check:process-return": "npx --yes tsx scripts/check-process-return.mts",
     "check:fabric-bom": "npx --yes tsx scripts/check-fabric-bom.mts",
     "check:fabric-plan": "npx --yes tsx scripts/check-fabric-plan.mts",
     "check:budget-totals": "npx --yes tsx scripts/check-budget-totals.mts",
@@ -22,7 +23,9 @@
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "check:approval-tree": "npx --yes tsx scripts/check-approval-tree.mts",
     "check:composition-match": "npx --yes tsx scripts/check-composition-match.mts",
+    "check:colour-by-type": "npx --yes tsx scripts/check-colour-by-type.mts",
     "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",
+    "check:size-order": "node --experimental-strip-types scripts/check-size-order.mts",
     "sweep:placeholders": "python scripts/sweep_placeholders.py .",
     "lint": "eslint"
   },
