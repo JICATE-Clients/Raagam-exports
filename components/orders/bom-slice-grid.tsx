@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { gridKeyNav } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
 import { Truncated } from "@/components/ui/truncated";
-import { fmtNumber } from "@/lib/format";
+import { fmtQty } from "@/lib/uom/convert";
 import { cn } from "@/lib/utils";
 
 /**
@@ -146,6 +146,7 @@ export function BomSliceGrid({
   onFlag,
   renderColour,
   linePlaceholder,
+  decimals,
 }: {
   caption: ReactNode;
   axisHead: string;
@@ -158,6 +159,14 @@ export function BomSliceGrid({
   /** The line's own Item Color cell, wired for this row. Injected — see header. */
   renderColour: (rowKey: string) => ReactNode;
   linePlaceholder: { items: string; pieces: string; excess: string };
+  /**
+   * `decimal_places_allowed` of the line's CONSUMPTION unit — the same figure
+   * `ceilToPrecision` rounded these three columns by. Printing them through
+   * `fmtNumber` capped a six-decimal unit at three digits AND rounded to
+   * nearest, so the screen showed less than the stored requirement; see
+   * `fmtQty`. Optional, and `uomPrecision` floors an absent one at 2 decimals.
+   */
+  decimals?: number | null;
 }) {
   if (rows.length === 0) return null;
 
@@ -293,12 +302,12 @@ export function BomSliceGrid({
                   </div>
                   <div className="flex min-h-9 items-center justify-end border-l border-border px-2">
                     <span className="tabular-nums text-[12.5px] text-muted-foreground">
-                      {row.chosen ? fmtNumber(row.cell.calc) : "—"}
+                      {row.chosen ? fmtQty(row.cell.calc, decimals) : "—"}
                     </span>
                   </div>
                   <div className="flex min-h-9 items-center justify-end border-l border-border bg-info-soft/40 px-2">
                     <span className="tabular-nums text-[12.5px] font-medium text-info">
-                      {row.chosen ? fmtNumber(row.cell.needs) : "—"}
+                      {row.chosen ? fmtQty(row.cell.needs, decimals) : "—"}
                     </span>
                   </div>
                   {/* THE FIGURE A PURCHASE ORDER IS WRITTEN FROM, so it is the
@@ -306,7 +315,7 @@ export function BomSliceGrid({
                       Final Quantity carries. */}
                   <div className="flex min-h-9 items-center justify-end border-l border-border bg-accent-soft/50 px-2">
                     <span className="tabular-nums text-[12.5px] font-semibold text-accent">
-                      {row.chosen && row.cell.final != null ? fmtNumber(row.cell.final) : "—"}
+                      {row.chosen && row.cell.final != null ? fmtQty(row.cell.final, decimals) : "—"}
                     </span>
                   </div>
               </>
@@ -329,7 +338,7 @@ export function BomSliceGrid({
                       <span>{c.sizeLabel}</span>
                       {/* Above the box, not in it: it is what the typed figure is
                           judged against — `approval-qty-lines`' own rule. */}
-                      <span className="tabular-nums opacity-75">{fmtNumber(c.needs)}</span>
+                      <span className="tabular-nums opacity-75">{fmtQty(c.needs, decimals)}</span>
                     </div>
                     <div className="flex divide-x divide-border rounded border border-border">
                       <Input

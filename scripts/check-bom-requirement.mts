@@ -52,6 +52,7 @@ import {
   type RequirementBasis,
 } from "../lib/orders/material-bom/requirement.ts";
 import type { RejectionTier } from "../lib/masters/rejection-rule.ts";
+import { fmtQty } from "../lib/uom/convert.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -1170,6 +1171,123 @@ check(
   ),
   totalOf(required("order", threeWay, line())),
 );
+
+// ---------------------------------------------------------------------------
+// 14. The published test docket (2026-08-21)
+//
+// A roadmap asked for four vectors: the WHITE/NAVY targets, the 1:2:1 largest
+// remainder split, the 2,719.2 precision case and MOQ-before-Round. THREE OF THE
+// FOUR WERE ALREADY HERE and are deliberately not repeated - "600 / 7 rounds UP
+// to 85.72" with its two refutes covers the precision case including the
+// decimal_places trap, "the buyer's excess rounds per row" covers the target
+// arithmetic, and `lineQuantity([100], 550, 500, true)` in section 11 is
+// byte-identical to the MOQ-first ask. A suite that asserts one fact twice
+// reports two passes for one guarantee, which is how a gap hides behind a green
+// run.
+//
+// What follows is only the remainder.
+// ---------------------------------------------------------------------------
+
+/*
+ * THE EXACT-HALF DOUBLE TIE, which 2:3:5 and 1:1:1 above cannot reach.
+ *
+ * 650 across 1:2:1 is 162.5 / 325 / 162.5 - TWO fractions of exactly .5, and the
+ * rule rests on which of them takes the single leftover piece. 2:3:5 divides
+ * evenly and never produces a remainder at all; 1:1:1 produces three EQUAL
+ * fractions, where "ties go to the earlier index" and "ties go to the first
+ * index" are the same answer. Here they are not - the tie is between the FIRST
+ * and the THIRD - so an implementation breaking ties any other way lands on
+ * [162, 325, 163] and still sums to 650.
+ */
+check("1:2:1 over 650 - the leftover goes to the EARLIER tie", apportion(650, [150, 300, 150]), [
+  163, 325, 162,
+]);
+refute("...not ceil-per-share, which totals 651", apportion(650, [150, 300, 150]), [163, 325, 163]);
+refute("...not floor-and-drop, which totals 649", apportion(650, [150, 300, 150]), [162, 325, 162]);
+refute("...not the later tie", apportion(650, [150, 300, 150]), [162, 325, 163]);
+check(
+  "...and it sums to exactly the target, which is the point",
+  apportion(650, [150, 300, 150]).reduce((a, b) => a + b, 0),
+  650,
+);
+
+/*
+ * THE DOCKET'S FIXTURE END TO END. Each half of this is asserted somewhere above;
+ * what is NOT asserted anywhere is that they COMPOSE - two colourways, each
+ * carrying its own excess and approval pieces, folding to targets that then agree
+ * across every basis. The cross-basis invariant is the one this suite leans on
+ * hardest and the one a new basis is most likely to break.
+ */
+const docket = order({
+  excessPct: 5,
+  approvals: [approval(600, "WHITE", S1, 20), approval(400, "NAVY", S1, 20)],
+  combos: [combo("WHITE"), combo("NAVY")],
+  assortSizes: [
+    assort(SZ_S, 150, "WHITE"),
+    assort(SZ_M, 300, "WHITE"),
+    assort(SZ_L, 150, "WHITE"),
+    assort(SZ_S, 100, "NAVY"),
+    assort(SZ_M, 200, "NAVY"),
+    assort(SZ_L, 100, "NAVY"),
+  ],
+});
+
+check(
+  "docket: 600+30+20 and 400+20+20 resolve to 650 and 440",
+  (() => {
+    const sl = productionSlices("colour", docket);
+    return isRefusal(sl) ? sl.refused : sl.map((x) => [x.label, x.qty]);
+  })(),
+  [
+    ["WHITE", 650],
+    ["NAVY", 440],
+  ],
+);
+
+check(
+  "docket: the size split preserves each colourway's own curve",
+  (() => {
+    const sl = productionSlices("combination", docket);
+    return isRefusal(sl) ? sl.refused : sl.map((x) => [x.label, x.qty]);
+  })(),
+  [
+    ["WHITE · S", 163],
+    ["WHITE · M", 325],
+    ["WHITE · L", 162],
+    ["NAVY · S", 110],
+    ["NAVY · M", 220],
+    ["NAVY · L", 110],
+  ],
+);
+
+for (const basis of ["order", "style", "colour", "size", "combination"] as RequirementBasis[]) {
+  const sl = productionSlices(basis, docket);
+  check(
+    `docket: ${basis} totals 1,090 like every other basis`,
+    isRefusal(sl) ? sl.refused : sl.reduce((a, b) => a + b.qty, 0),
+    1090,
+  );
+}
+
+/*
+ * THE DISPLAY, which had no vector at all and is where the bug actually was
+ * (2026-08-21).
+ *
+ * `fmtNumber` is a bare `toLocaleString`: three fraction digits, rounded to
+ * NEAREST. The engine ceilings to the UNIT's precision precisely so a requirement
+ * is never understated, and the formatter handed that back at the last step - a
+ * six-decimal MTR requirement of 85.714286 printed as "85.714". Silent, because
+ * 85.714 is an ordinary-looking quantity. `fmtQty` reads the same
+ * `decimal_places_allowed` through the same `uomPrecision` clamp, so a figure can
+ * no longer be ceilinged to one precision and printed at another.
+ */
+check("fmtQty prints a 6-decimal unit in full", fmtQty(85.714286, 6), "85.714286");
+refute("...not fmtNumber's three digits", fmtQty(85.714286, 6), "85.714");
+check("fmtQty honours a 2-decimal unit", fmtQty(2719.2, 2), "2,719.2");
+check("a 0-dp unit still clamps to 2, never to a whole number", fmtQty(2719.2, 0), "2,719.2");
+check("no trailing zeroes on an exact figure", fmtQty(150, 3), "150");
+check("null is a dash, never a zero", fmtQty(null, 2), "—");
+refute("...and never the string zero", fmtQty(null, 2), "0");
 
 console.log(failed === 0 ? "\nAll BOM requirement vectors pass." : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
