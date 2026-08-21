@@ -162,24 +162,47 @@ export function fabricSlices(
   order: OrderProductionInput,
 ): ProductionSlice[] | Refusal {
   /*
-   * FABRIC IS PINNED TO THE ENTERED QUANTITY, EXPLICITLY (2026-08-21).
+   * FABRIC CARRIES THE FULL TARGET — REJECTION INCLUDED. THE QUESTION IS ANSWERED.
    *
-   * The Material BOM moved to `qty + excess + approval` on the client's
-   * instruction, which names *sewing and packing accessories* and draws a
-   * deliberate distinction with fabric planning: a garment rejected at panel
-   * stage has already consumed its fabric and has not yet consumed its trims.
+   * This block asked, from 2026-08-21 until now, "whether fabric should carry
+   * the full target, rejection included, is a live question raised with the
+   * client and not yet answered". It is answered: it should.
    *
-   * So fabric keeps the behaviour it has had since 2026-08-20 rather than
-   * inheriting a change made for a different material. Passing the rule here
-   * rather than leaving the default is the whole guard — `productionSlices`
-   * defaults to the MATERIAL rule, so silence would move fabric too.
+   *     fabric   = qty + excess + approval + REJECTION   ("full_target")
+   *     accessory = qty + excess + approval              ("po_excess_approval")
    *
-   * WHETHER FABRIC SHOULD CARRY THE FULL TARGET, rejection included, is a live
-   * question raised with the client and not yet answered. If it should, this is
-   * the one line that changes — and `check-fabric-bom.mts:387` ("600 entered is
-   * planned as 600, not 660") is the vector that will tell you it moved.
+   * ## THE DISTINCTION IS THE CLIENT'S AND IT CUTS BOTH WAYS
+   *
+   * A garment rejected during panel processing or printing has already consumed
+   * its FABRIC and has not yet consumed its trims. That is why the accessory
+   * rule excludes the buffer — buying it over-orders every hangtag and carton —
+   * and it is the same sentence, read from the other end, that says fabric must
+   * include it. Cloth for a garment that will be cut and thrown away still has
+   * to be bought.
+   *
+   * ## FABRIC AND MATERIAL NOW PLAN DIFFERENT QUANTITIES, BY DESIGN
+   *
+   * `productionSlices` was shared between the two so they could never report
+   * different numbers for one order. That premise has changed shape rather than
+   * broken: it is now ONE function with THREE declared rules, and the sharing
+   * still guarantees the thing that matters — one apportionment, one size curve,
+   * one set of refusals. What differs is the single quantity each rule starts
+   * from, stated at the call site where a reader can see which one applies.
+   *
+   * Passing the rule here rather than leaving the default remains the whole
+   * guard: `productionSlices` defaults to the MATERIAL rule, so silence would
+   * move fabric back.
+   *
+   * ## HOW FABRIC CAME TO BE ON THE ENTERED QUANTITY AT ALL
+   *
+   * Not by a decision about fabric. `check-fabric-bom.mts` records it: when the
+   * client moved the MATERIAL BOM onto the entered quantity, fabric shared this
+   * function and was carried along. Material moved back to `qty + excess +
+   * approval` on 2026-08-21; fabric never followed, and sat on a rule nobody had
+   * chosen for it. Reverting is one word here — `"entered_only"` is kept live
+   * in `BaseQuantityRule` for exactly that reason.
    */
-  const all = productionSlices(materialBasisFor(basis), order, "entered_only");
+  const all = productionSlices(materialBasisFor(basis), order, "full_target");
   if (isRefusal(all)) return all;
 
   const wantStyle = scope.style_ref_no == null ? null : styleKey(scope.style_ref_no);

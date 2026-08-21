@@ -40,7 +40,7 @@
  * same call `styleRate` makes for a priced style with no quantity behind it.
  */
 
-import { excessQty } from "@/lib/orders/amendments/approval-qty";
+import { excessQty, productionTarget } from "@/lib/orders/amendments/approval-qty";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
@@ -431,7 +431,7 @@ type Target = { style: string; combo: string; qty: number };
  * `entered_only` is kept live rather than deleted: **Fabric BOM still uses it**
  * (see `fabricSlices`), and it is what the 08-20 instruction asked for.
  */
-export type BaseQuantityRule = "entered_only" | "po_excess_approval";
+export type BaseQuantityRule = "entered_only" | "po_excess_approval" | "full_target";
 
 /**
  * The rule a MATERIAL BOM plans against, in one place.
@@ -480,6 +480,63 @@ export function materialTarget(a: ApprovalRow, excessPct: number): number {
   const qty = num(a.qty) ?? 0;
   if (qty <= 0) return 0;
   return qty + excessQty(qty, excessPct) + Math.max(0, num(a.approval_qty) ?? 0);
+}
+
+/**
+ * What FABRIC is planned against — `materialTarget` plus the rejection allowance.
+ *
+ * ## THE ONE LINE OF DIFFERENCE, AND WHY IT IS A DIFFERENT FUNCTION
+ *
+ * `materialTarget`'s header records the client's distinction in their own terms:
+ * a garment rejected during panel processing or printing has already consumed
+ * its FABRIC and has NOT yet consumed its buttons. So the rejection buffer over-
+ * orders every hangtag and carton on the order, and under-orders cloth by
+ * exactly the same reasoning. Two rules, stated twice, rather than one rule with
+ * a flag inside it — because the pair is the point and a reader has to be able
+ * to see both halves at once.
+ *
+ * ## IT REFUSES WHERE THE ALLOWANCE IS UNANSWERABLE
+ *
+ * `productionTarget` is imported, never reimplemented — it is the Approval Qty
+ * tab's own function, and sharing it is what stops the tab and the BOM
+ * disagreeing about one order. It answers `{ qty: null, reason:
+ * "projection-gap" }` when a Garment Rejection Rule was NAMED on the order and
+ * the ladder has no tier covering this quantity. Its own header says why that is
+ * a refusal rather than a zero:
+ *
+ *     a rule that was chosen and then failed to match any tier produces a
+ *     plausible total with no dash anywhere near it — the operator has no way to
+ *     learn that the defect buffer they configured contributed nothing.
+ *
+ * On the Approval Qty tab a dash in the column beside it says so. Nothing sits
+ * beside this number: it is multiplied by a consumption and becomes the quantity
+ * of cloth a purchase order is written for. So it refuses, and names the
+ * colourway.
+ *
+ * ## THE BLANK-ROW GUARD IS LOAD-BEARING, not copied for symmetry
+ *
+ * `qty <= 0` short-circuits BEFORE `productionTarget` is called, and it has to.
+ * A freshly seeded Approval Qty grid is full of zero rows; `rejectionFor(0,
+ * tiers)` matches no tier, so without this guard an order with a rejection rule
+ * and one blank row would refuse the whole explosion and name a colourway the
+ * operator has not typed anything into yet.
+ */
+export function fullTarget(a: ApprovalRow, order: OrderProductionInput): number | Refusal {
+  const qty = num(a.qty) ?? 0;
+  if (qty <= 0) return 0;
+
+  const t = productionTarget(
+    { qty, approvalQty: Math.max(0, num(a.approval_qty) ?? 0) },
+    order.excessPct,
+    order.tiers,
+    order.rejectionRuleChosen,
+  );
+  if (t.qty == null) {
+    return {
+      refused: `${a.combo || "(blank)"}: the Garment Rejection Rule has no tier covering ${qty} pcs — fix the rule or clear it on the order`,
+    };
+  }
+  return t.qty;
 }
 
 /** Every approval line resolved to a production target, or the first refusal. */
@@ -566,10 +623,26 @@ function targetsOf(
     const style = styleKey(a.style_ref_no);
     const combo = comboKey(a.combo);
     const key = pairKey(style, combo);
-    // PER ROW, BEFORE THE FOLD — `materialTarget`'s header says why the order of
-    // these two operations is load-bearing.
-    const qty =
-      rule === "po_excess_approval" ? materialTarget(a, order.excessPct) : (num(a.qty) ?? 0);
+    /* PER ROW, BEFORE THE FOLD — `materialTarget`'s header says why the order of
+       these two operations is load-bearing.
+
+       THREE RULES, AND THE SWITCH IS EXHAUSTIVE ON PURPOSE. A `default` branch
+       falling back to the entered quantity would make a rule added later plan
+       silently short on the largest purchase in the order; naming all three
+       means the next member is a type error at this line, which is where the
+       decision has to be made anyway. */
+    let qty: number;
+    if (rule === "full_target") {
+      const t = fullTarget(a, order);
+      // A REFUSAL POISONS THE WHOLE EXPLOSION, as everywhere else in this file:
+      // returning the rows that answered gives a smaller total that reads correct.
+      if (isRefusal(t)) return t;
+      qty = t;
+    } else if (rule === "po_excess_approval") {
+      qty = materialTarget(a, order.excessPct);
+    } else {
+      qty = num(a.qty) ?? 0;
+    }
     entered += num(a.qty) ?? 0;
     const prev = byColour.get(key);
     if (prev) prev.qty += qty;

@@ -49,6 +49,7 @@ import {
   type AssortSizeRow,
   type OrderProductionInput,
 } from "../lib/orders/material-bom/requirement.ts";
+import type { RejectionTier } from "../lib/masters/rejection-rule.ts";
 
 let failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -360,7 +361,7 @@ check(
 );
 
 // ---------------------------------------------------------------------------
-// 8. The order's Excess % does NOT reach the fabric (client 2026-08-20)
+// 8. Fabric plans the FULL target - excess, approval and rejection
 //
 // THIS SECTION ASSERTED THE OPPOSITE, and the reversal is why it is inverted
 // rather than deleted. It read "the order's Excess % is inside the target, and
@@ -384,17 +385,129 @@ check(
 
 const withExcess = order({ excessPct: 10, approvals: [approval(600, "WHITE")], combos: [combo("WHITE")] });
 
-check("600 entered is planned as 600, not 660", total("colour", WHITE, line(), withExcess), 150);
+/* 600 + 10% = 660, x 0.25 = 165. THE PREVIOUS EXPECTED VALUE HERE WAS 150 and
+   the label read "600 entered is planned as 600, not 660" - the assertion that
+   fabric ignored the buyer's excess. It is inverted rather than deleted so the
+   reversal stays legible: the refutation that sat below it forbade exactly the
+   number now required, which is what a moved rule looks like in a suite that
+   states its wrong answers. */
+check("600 + 10% excess is planned as 660", total("colour", WHITE, line(), withExcess), 165);
 refute(
-  "…not 165, which is the 10% excess the fabric stopped reading",
+  "…not 150, which was reading the order qty raw",
   total("colour", WHITE, line(), withExcess),
-  165,
+  150,
 );
-// Wastage buffers the FABRIC and is untouched by any of this: 600 x 0.25 x 1.10.
+/* Wastage buffers the FABRIC and stacks ON TOP of the target: 660 x 0.25 x 1.10.
+   IT IS NO LONGER "the only buffer" - that phrasing belonged to the entered-only
+   rule, where the line's own Wastage % was all that stood between the plan and a
+   short delivery. There are three buffers again (excess, rejection, wastage) and
+   this vector's job is now to prove they COMPOUND rather than replace each
+   other: 181.5, not 165 (wastage alone) and not 150 (neither). */
 check(
-  "the line's own Wastage % still applies, and is now the only buffer",
+  "the line's own Wastage % stacks on top of the target",
+  total("colour", WHITE, line({ wastage_pct: 10 }), withExcess),
+  181.5,
+);
+refute(
+  "…not 165, which would be wastage applied to the raw order qty",
   total("colour", WHITE, line({ wastage_pct: 10 }), withExcess),
   165,
+);
+
+/*
+ * THE REJECTION ALLOWANCE, which is the whole reason fabric has a rule of its
+ * own. A 5% tier over 600 pieces is 30 more garments to cut, so the target is
+ * 600 + 60 excess + 30 rejection = 690, and the cloth is 690 x 0.25 = 172.5.
+ *
+ * The accessory side must NOT move by any of this - asserted below, because the
+ * two rules share one function and the shared function is exactly how fabric
+ * ended up on a rule nobody chose for it.
+ */
+const TIERS: RejectionTier[] = [
+  { from_value: 1, to_value: null, rejection_allowance: 5, allowance_type: "percent" },
+];
+const withRejection = order({
+  excessPct: 10,
+  approvals: [approval(600, "WHITE")],
+  combos: [combo("WHITE")],
+  tiers: TIERS,
+  rejectionRuleChosen: true,
+});
+
+check(
+  "a named rejection rule adds its tier: 600 + 60 + 30 = 690",
+  total("colour", WHITE, line(), withRejection),
+  172.5,
+);
+refute(
+  "...not 165, which is the target with the rejection buffer dropped",
+  total("colour", WHITE, line(), withRejection),
+  165,
+);
+
+/*
+ * A RULE NAMED BUT NOT MATCHED REFUSES, and names the colourway.
+ *
+ * `productionTarget` answers a projection-gap when a rule was chosen and the
+ * ladder has no tier covering the quantity. On the Approval Qty tab a dash in
+ * the column beside it says so; nothing sits beside THIS number, which becomes
+ * the cloth on a purchase order. So it must refuse rather than quietly plan the
+ * order without the buffer the operator configured.
+ */
+const gapped = order({
+  excessPct: 10,
+  approvals: [approval(600, "WHITE")],
+  combos: [combo("WHITE")],
+  tiers: [{ from_value: 1, to_value: 100, rejection_allowance: 5, allowance_type: "percent" }],
+  rejectionRuleChosen: true,
+});
+check(
+  "a tier gap refuses and names the colourway",
+  refusalOf(fabricSlices("colour", WHITE, gapped))?.startsWith("WHITE: the Garment Rejection Rule"),
+  true,
+);
+refute(
+  "...it does not silently plan without the buffer",
+  total("colour", WHITE, line(), gapped),
+  165,
+);
+
+/*
+ * A BLANK APPROVAL ROW DOES NOT REFUSE. A freshly seeded grid is full of zero
+ * rows and `rejectionFor(0, tiers)` matches no tier, so without the `qty <= 0`
+ * short-circuit in `fullTarget` an order with a rejection rule and one empty row
+ * would refuse the whole explosion and name a colourway nobody has typed into.
+ */
+const blankRow = order({
+  excessPct: 10,
+  approvals: [approval(600, "WHITE"), approval(0, "NAVY")],
+  combos: [combo("WHITE"), combo("NAVY")],
+  tiers: TIERS,
+  rejectionRuleChosen: true,
+});
+check(
+  "a zero row contributes nothing and refuses nothing",
+  total("colour", WHITE, line(), blankRow),
+  172.5,
+);
+
+/*
+ * THE ACCESSORY SIDE IS UNMOVED. This is the guard, not a courtesy: the two
+ * engines share `productionSlices`, and fabric arrived on the entered quantity
+ * in the first place by being dragged along behind a change made for material.
+ * If this vector ever moves, the sharing has leaked again - in the other
+ * direction this time.
+ */
+const materialRows = productionSlices("colour", withRejection);
+check(
+  "material still plans 600 + 60 + 0 = 660, with no rejection",
+  isRefusal(materialRows) ? materialRows.refused : materialRows.map((r) => [r.label, r.qty]),
+  [["WHITE", 660]],
+);
+refute(
+  "...material does NOT pick up the 690 fabric now plans",
+  isRefusal(materialRows) ? materialRows.refused : materialRows.map((r) => r.qty),
+  [690],
 );
 
 console.log(failed === 0 ? "\nOK — every fabric requirement vector holds." : `\n${failed} FAILED`);
