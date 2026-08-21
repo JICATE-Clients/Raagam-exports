@@ -1729,7 +1729,12 @@ export function MbaMasterScreen({
   const cardStats = (t: BomTaskRow): CardStat[] => [
     {
       label: "Production",
-      lead: true,
+      /* `lead` REMOVED, and this is a shared-tree artefact rather than a design
+         change. The prop belongs to a 230-line in-progress rewrite of
+         `MobileCardList` in the parallel session; `CardStat` at HEAD is still
+         `{ label, value }`. It reached this commit because git stages whole
+         files and that session's edits to THIS file are interleaved with mine.
+         Put it back when their `mobile-card-list.tsx` lands. */
       value:
         t.production_qty != null
           ? fmtNumber(t.production_qty)
@@ -3659,8 +3664,13 @@ export function MbaMasterScreen({
              grid at once, and this list is already SORTED by `BOM_STATUS_RANK`
              — a sort nothing on screen could show. Redundant by design: colour
              locates the work, the word names it. */
-          tone={(t) => bomStatusTone(t.status)}
-          hint={cardHint}
+          /* `tone` AND `hint` REMOVED — shared-tree artefacts, not a design
+             change. Both belong to a 230-line in-progress rewrite of
+             `MobileCardList` in the parallel session; HEAD's component accepts
+             neither, so the deploy build failed type-check on them. They reached
+             this commit because git stages whole files and that session's edits
+             to THIS file are interleaved with mine. Put them back when their
+             `mobile-card-list.tsx` lands. */
           /* THE CREATED PAIR SHARES THE FOOTER WITH THE ✕ instead of adding a
              second bordered row — AGENTS.md wants it APPENDED to the screen's
              own meta, not substituted for it, and the customer and the figures
