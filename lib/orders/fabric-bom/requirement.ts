@@ -161,7 +161,25 @@ export function fabricSlices(
   scope: FabricLineScope,
   order: OrderProductionInput,
 ): ProductionSlice[] | Refusal {
-  const all = productionSlices(materialBasisFor(basis), order);
+  /*
+   * FABRIC IS PINNED TO THE ENTERED QUANTITY, EXPLICITLY (2026-08-21).
+   *
+   * The Material BOM moved to `qty + excess + approval` on the client's
+   * instruction, which names *sewing and packing accessories* and draws a
+   * deliberate distinction with fabric planning: a garment rejected at panel
+   * stage has already consumed its fabric and has not yet consumed its trims.
+   *
+   * So fabric keeps the behaviour it has had since 2026-08-20 rather than
+   * inheriting a change made for a different material. Passing the rule here
+   * rather than leaving the default is the whole guard — `productionSlices`
+   * defaults to the MATERIAL rule, so silence would move fabric too.
+   *
+   * WHETHER FABRIC SHOULD CARRY THE FULL TARGET, rejection included, is a live
+   * question raised with the client and not yet answered. If it should, this is
+   * the one line that changes — and `check-fabric-bom.mts:387` ("600 entered is
+   * planned as 600, not 660") is the vector that will tell you it moved.
+   */
+  const all = productionSlices(materialBasisFor(basis), order, "entered_only");
   if (isRefusal(all)) return all;
 
   const wantStyle = scope.style_ref_no == null ? null : styleKey(scope.style_ref_no);

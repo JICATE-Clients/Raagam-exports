@@ -33,27 +33,53 @@
 export type SliceOverride = {
   combo: string | null;
   size_id: string | null;
+  /** The destination, part of the key since 0449 — see `SliceKey`. */
+  country_id?: string | null;
   no_of_items: number | null;
   per_pieces: number | null;
+  /** The wastage buffer for this row (0450). NULL inherits the line's. */
+  excess_pct?: number | null;
 };
 
 /** The slice being asked about — `ProductionSlice` satisfies this. */
 export type SliceKey = {
   combo: string | null;
   size_id: string | null;
+  /**
+   * THE DESTINATION, AND IT IS PART OF THE KEY (0449).
+   *
+   * A country-wise line whose USA row is size-wise produces a slice with NO
+   * combo and size M — byte-identical to CH's M row. Two destinations would then
+   * resolve to each other's override: one figure silently answering for the
+   * other, on the row a purchase order is written from.
+   *
+   * The requirement side has keyed on `country_id` since 0444; leaving it out
+   * here is the two stores disagreeing about what one row is.
+   */
+  country_id?: string | null;
 };
 
 /** The line's own figures, which every slice falls back to. */
 export type LineDefaults = {
   no_of_items: number | null;
   per_pieces: number | null;
+  /** The wastage buffer. Per attribute value since 0450 — see `consumptionFor`. */
+  excess_pct?: number | null;
 };
 
 const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
 
-/** The key a slice and an override must agree on to be the same slice. */
+/**
+ * The key a slice and an override must agree on to be the same slice.
+ *
+ * THREE AXES, AND THE THIRD ARRIVED LATE (0449). A null on any of them is a real
+ * value — "this basis has no such axis" — so each is normalised and compared,
+ * never skipped. Skipping a null would make an order-wise override answer a
+ * colour-wise row, which is the same class of bug the country axis introduced:
+ * two different questions resolving to one stored answer.
+ */
 export function sliceKey(s: SliceKey): string {
-  return `${norm(s.combo)}:${s.size_id ?? ""}`;
+  return `${norm(s.combo)}:${s.size_id ?? ""}:${s.country_id ?? ""}`;
 }
 
 /**
@@ -83,11 +109,17 @@ export function consumptionFor(
   line: LineDefaults,
   overrides: readonly SliceOverride[] | null | undefined,
   slice: SliceKey,
-): LineDefaults {
+): Required<LineDefaults> {
   const o = overrideFor(overrides, slice);
   return {
     no_of_items: o?.no_of_items ?? line.no_of_items,
     per_pieces: o?.per_pieces ?? line.per_pieces,
+    /* THE BUFFER COMPOSES THE SAME WAY (0450). It joined the other two when the
+       client moved all three off the line — "no of item and no of pcs, excess %
+       also in common field, we need it only for attribute based". Per FIELD like
+       its neighbours: a row that types a buffer and no ratio still inherits the
+       ratio. */
+    excess_pct: o?.excess_pct ?? line.excess_pct ?? null,
   };
 }
 

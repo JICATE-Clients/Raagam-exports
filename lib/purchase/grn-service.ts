@@ -30,13 +30,19 @@ export type GrnLineWithPo = GrnLineItem & {
   po_code: string | null;
 };
 
+/* THE EMBED IS NAMED AFTER THE RELATIONSHIP, so both of these say
+   `master_vendors` since 0445 repointed `delivery_challans.vendor_id` there.
+   A DC's processor is a MASTER vendor; a GRN's supplier is still a legacy
+   `public.vendors` row, and the two types must not be merged for that reason. */
+export type DcVendor = { id: string; name: string };
+
 export type DcWithVendor = DeliveryChallan & {
-  vendors: Pick<Vendor, "id" | "name"> | null;
+  master_vendors: DcVendor | null;
   outstanding_qty: number;
 };
 
 export type DcDetail = DeliveryChallan & {
-  vendors: Pick<Vendor, "id" | "name"> | null;
+  master_vendors: DcVendor | null;
 };
 
 // ---------- GRN ----------
@@ -172,11 +178,11 @@ export async function listDcs(): Promise<DcWithVendor[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("delivery_challans")
-    .select("*, vendors(id, name)")
+    .select("*, master_vendors(id, name)")
     .order("created_at", { ascending: false });
 
   const rows = (data ?? []) as unknown as (DeliveryChallan & {
-    vendors: Pick<Vendor, "id" | "name"> | null;
+    master_vendors: DcVendor | null;
   })[];
 
   if (rows.length === 0) return [];
@@ -204,7 +210,7 @@ export async function getDc(id: string): Promise<DcDetail | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("delivery_challans")
-    .select("*, vendors(id, name)")
+    .select("*, master_vendors(id, name)")
     .eq("id", id)
     .maybeSingle();
   return (data ?? null) as unknown as DcDetail | null;
@@ -221,6 +227,31 @@ export async function getDcLines(dcId: string): Promise<DcLineItem[]> {
 }
 
 // ---------- master lookups ----------
+
+/**
+ * The processors a Delivery Challan may name — `master_vendors`, since 0445.
+ *
+ * A SEPARATE FUNCTION FROM `getVendors()` BELOW, deliberately. That one is
+ * shared with the GRN form, and GRN stays on legacy `public.vendors`; repointing
+ * it in place would hand that form master ids which fail `grns_vendor_id_fkey` —
+ * the same class of defect 0377 and 0445 both exist to prevent, reintroduced by
+ * the fix. 0439's header got this wrong and named `getVendors` as a site to edit.
+ *
+ * FILTERS ON `status`, NOT `is_active`. `master_vendors` has no such column
+ * (0246); copying `getVendors`' filter across returns a PostgREST 400 at runtime
+ * that `tsc` cannot see. 0445 asserts the column has not appeared since.
+ */
+export async function getProcessorVendors(): Promise<
+  { id: string; code: string | null; name: string }[]
+> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("master_vendors")
+    .select("id, code, name")
+    .eq("status", "Approved")
+    .order("name");
+  return (data ?? []) as { id: string; code: string | null; name: string }[];
+}
 
 export async function getVendors(): Promise<
   Pick<Vendor, "id" | "code" | "name">[]

@@ -220,11 +220,26 @@ check(
   required("order", order(), line({ no_of_items: 1, per_pieces: 1, excess_pct: 5 })),
   [{ label: "Whole order", value: 630 }],
 );
-// The ORDER's own Excess % never reaches a material. It did not before
-// 2026-08-20 either — it was inside the target then, and the target is gone now
-// — so the material's 3% still stands alone whatever the order carries.
+// THE ORDER'S EXCESS % IS BACK INSIDE THE BASE (client 2026-08-21), and this
+// vector asserted the opposite for one day. The two buffers are separate and
+// both apply, in this order: the buyer's 5% lifts the PIECES to 630, then the
+// material's own 3% lifts the TRIMS on top of that.
+//
+//     630 x 1.03 = 648.9
+//
+// NOT COMPOUNDED IN THE OTHER DIRECTION, and the refutation below is what pins
+// that: 618 is the material excess alone, which is what this said until today.
 check(
-  "the order's Excess % does not move a material requirement",
+  "the order's Excess % and the material's own both apply",
+  required(
+    "order",
+    order({ excessPct: 5 }),
+    line({ no_of_items: 1, per_pieces: 1, excess_pct: 3 }),
+  ),
+  [{ label: "Whole order", value: 648.9 }],
+);
+refute(
+  "not 618 — that is the material's 3% with the buyer's 5% dropped",
   required(
     "order",
     order({ excessPct: 5 }),
@@ -234,18 +249,28 @@ check(
 );
 
 // ---------------------------------------------------------------------------
-// 3. The BOM plans against the ENTERED quantity (client 2026-08-20)
+// 3. The base is PO + BUYER'S EXCESS + APPROVAL, and never the rejection
+//    (client 2026-08-21)
 //
-// THIS SECTION ASSERTED THE OPPOSITE UNTIL 2026-08-20, and the reversal is the
-// point of keeping it. It used to read "the target is the PRODUCTION target, not
-// the PO quantity" and carried a refutation — "not 1,200 — an engine reading
-// po_qty passes every vector above this one" — written specifically to catch an
-// engine that did what this one now does on purpose.
+// THIS SECTION HAS NOW ASSERTED THREE DIFFERENT ANSWERS, and keeping all three
+// visible is the point of it. In date order:
 //
-// So the refutation is inverted rather than deleted: 1,200 is the answer, and
-// 1,340 is what a re-introduced production target would produce. Whoever changes
-// this back will fail the vector below and read this note, which is the whole
-// reason it is phrased as a pair.
+//   0418 · 2026-08-12   qty + excess + approval + rejection   = 670  -> 1,340
+//   2026-08-20          the entered quantity alone            = 600  -> 1,200
+//   2026-08-21          qty + excess + approval, no rejection = 640  -> 1,280
+//
+// The 08-20 instruction came from an order showing 5,552 against a 5,000 PO.
+// That figure is 5,000 + 252 excess + 300 approval — i.e. exactly what the
+// 08-21 formula produces — and the 300 turned out to be 20 filled down across
+// fifteen size rows. So the reversal was aimed at a data-entry mistake and the
+// formula was never the thing that was wrong. Confirmed with the client against
+// those numbers before this was changed back.
+//
+// FOUR NEIGHBOURS ARE REFUTED, not one, because this figure has three plausible
+// wrong answers that all look reasonable: 600 (the 08-20 rule), 630 (excess but
+// no approval), 610 (approval but no excess) and 670 (the full target). Only
+// 640 separates all four, which is why the fixture carries a rejection rule it
+// must then ignore.
 // ---------------------------------------------------------------------------
 
 const TIERS: RejectionTier[] = [
@@ -261,42 +286,123 @@ const richOrder = order({
   approvals: [approval(600, "WHITE", S1, 10)],
 });
 
-// `totalProductionOf` is the BOM's OWN view of the order, so it moved with the
-// rule: 600 entered, where it read 670 (600 + 30 excess + 10 approval + 30
-// rejection) until 2026-08-20. `productionTarget` in `approval-qty.ts` still
-// computes 670 and the Approval Qty tab still shows it — the two are now
-// deliberately different numbers.
-check("the BOM's view of the order is the 600 entered", totalProductionOf(richOrder), 600);
-refute("not 670, which is what the ORDER's target still says", totalProductionOf(richOrder), 670);
+// `totalProductionOf` is the BOM's OWN view of the order: 600 + 30 excess + 10
+// approval = 640. `productionTarget` in `approval-qty.ts` still computes 670 and
+// the Approval Qty tab still shows it, because the tab reports what the FLOOR is
+// asked to make and this reports what the TRIMS are bought for. The two are
+// deliberately different numbers and the gap is exactly the rejection allowance.
+check("the BOM plans 600 + 30 excess + 10 approval", totalProductionOf(richOrder), 640);
+refute("not 670 — the rejection allowance is the ORDER's target, not a trim's", totalProductionOf(richOrder), 670);
+refute("not 600 — that was the 2026-08-20 rule and it is superseded", totalProductionOf(richOrder), 600);
 check(
-  "2 labels against the ENTERED quantity = 1,200",
+  "2 labels on that base = 1,280",
   required("order", richOrder, line()),
-  [{ label: "Whole order", value: 1200 }],
+  [{ label: "Whole order", value: 1280 }],
 );
+// FOUR REFUTATIONS, one per plausible mis-implementation. Each is a number a
+// wrong engine actually returns, not a number picked to look different.
 refute(
-  "not 1,340 — that is the production target, which the BOM stopped reading on 2026-08-20",
+  "not 1,340 — that is the full production target, rejection and all",
   required("order", richOrder, line()),
   [{ label: "Whole order", value: 1340 }],
 );
-// The buffers are visibly absent, one at a time, so a partial restoration cannot
-// pass: an engine that put back the excess but not the approval pieces would
-// answer 1,260 here.
-refute("no excess in it", required("order", richOrder, line()), [
-  { label: "Whole order", value: 1260 },
-]);
-refute("no approval pieces in it", required("order", richOrder, line()), [
+refute(
+  "not 1,200 — an engine still reading the entered quantity alone",
+  required("order", richOrder, line()),
+  [{ label: "Whole order", value: 1200 }],
+);
+refute("no excess in it — that answers 1,220", required("order", richOrder, line()), [
   { label: "Whole order", value: 1220 },
 ]);
+refute("no approval pieces in it — that answers 1,260", required("order", richOrder, line()), [
+  { label: "Whole order", value: 1260 },
+]);
+
+// THE REJECTION GAP MUST NOT COME BACK WITH THE EXCESS. `productionTarget`
+// REFUSES when a rule is named and no tier covers the quantity — correct for the
+// Approval Qty tab, and wrong here, because a trim is not bought against the
+// rejection allowance at all. An engine "restored to 0418" brings that refusal
+// with it, and this is the vector that catches it.
+const gapOrder = order({
+  excessPct: 5,
+  rejectionRuleChosen: true,
+  tiers: [{ from_value: 1, to_value: 50, rejection_allowance: 3, allowance_type: "flat" }],
+  approvals: [approval(600, "WHITE", S1, 10)],
+});
+check("a tier gap does not stop a material", refusalOf(productionSlices("order", gapOrder)), null);
+check("and the base is unchanged by the gap", totalProductionOf(gapOrder), 640);
+
+// EXCESS IS PER APPROVAL ROW, NOT ON THE TOTAL — the client's own worked example
+// (`excessQty`'s header: 500 at 5% reads as 25, not 24). Two rows of 250 round
+// to 13 each; the summed 500 would round once to 25.
+const splitRows = order({
+  excessPct: 5,
+  approvals: [approval(250, "WHITE", S1, 0), approval(250, "WHITE", S1, 0)],
+  combos: [combo("WHITE", S1)],
+});
+check("the buyer's excess rounds per row: 13 + 13", totalProductionOf(splitRows), 526);
+refute("not 525, which is the summed 500 rounded once", totalProductionOf(splitRows), 525);
+
+// ---------------------------------------------------------------------------
+// 3b. ONE COLOURWAY IS ONE SLICE, however many approval rows it is typed on
+//
+// 0435 made Approval Qty a row per SIZE, so a three-colour order carrying five
+// sizes now arrives here as FIFTEEN rows rather than three. `targetsOf` reads
+// one target per ROW, so `colour` mapped them 1:1 and emitted five identical
+// WHITE slices — same key, same label, a fifth of the quantity each.
+//
+// THE TOTAL WAS NEVER WRONG, WHICH IS WHY NOTHING CAUGHT IT. Every existing
+// vector in this file sums, and five slices of 100 sum exactly as one of 500.
+// What breaks is IDENTITY: `uq_mba_req_slice (item_line_id, style_ref_no,
+// combo, size_id) nulls not distinct` refuses the second insert, so saving a
+// colour-wise BOM against a real order fails outright.
+//
+// So these assert the SHAPE, not the arithmetic — the count, the label, and the
+// key. All three, because a count alone passes against a broken bucket key.
+// ---------------------------------------------------------------------------
+
+// One colourway, two approval rows — what a two-size order looks like since 0435.
+const perSize = order({
+  approvals: [approval(300, "WHITE", S1), approval(200, "WHITE", S1)],
+  combos: [combo("WHITE", S1)],
+  assortSizes: [assort(SZ_S, 1, "WHITE", S1), assort(SZ_M, 1, "WHITE", S1)],
+});
+
+check("two approval rows on one colourway are ONE colour slice", required("colour", perSize, line()), [
+  { label: "WHITE", value: 1000 },
+]);
+refute("not one slice per approval row", required("colour", perSize, line()), [
+  { label: "WHITE", value: 600 },
+  { label: "WHITE", value: 400 },
+]);
+
+// THE KEY IS THE HALF THE DATABASE ENFORCES, so assert it directly rather than
+// inferring it from the count — a fold that produced one row with the wrong key
+// would satisfy everything above.
+for (const basis of ["order", "style", "colour", "size", "combination"] as const) {
+  const slices = productionSlices(basis, perSize);
+  if (isRefusal(slices)) {
+    check(`${basis} slices do not refuse`, slices.refused, null);
+    continue;
+  }
+  check(
+    `${basis} slice keys are unique`,
+    new Set(slices.map((s) => s.key)).size,
+    slices.length,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // 4. The cross-basis invariant — the strongest vector in the file
 // ---------------------------------------------------------------------------
 
-// 301 and 199, NOT 300 and 200. The pair was chosen when the excess was still in
-// the target (301 -> +16 and 199 -> +10 gives 526 against a summed 525) and it
-// still earns its place without one: apportioning 301 over 2:3:5 leaves
-// remainders that 300 does not, so a size split that rounded each share instead
-// of using largest-remainder is still caught below.
+// 301 and 199, NOT 300 and 200 — and the buyer's excess is back on them
+// (2026-08-21), which is the arrangement this pair was chosen for in the first
+// place: 301 -> +16 and 199 -> +10 gives 526, against 525 for an engine that
+// summed to 500 and took 5% once. It earns its place twice over, because
+// apportioning 317 over 2:3:5 also leaves remainders that a round number does
+// not — so a size split that rounded each share instead of using
+// largest-remainder is still caught below.
 const threeWay = order({
   excessPct: 5,
   approvals: [approval(301, "WHITE"), approval(199, "NAVY")],
@@ -325,8 +431,10 @@ check(
   [byOrder, byStyle, byColour, bySize, byCombo],
   [byOrder, byOrder, byOrder, byOrder, byOrder],
 );
-check("and the figure is 2 x (301 + 199)", byOrder, 1000);
+// 2 x (317 + 209), the per-row excess included.
+check("and the figure is 2 x (317 + 209)", byOrder, 1052);
 refute("not 2 x 525 — that is excess taken once on the summed quantity", byOrder, 1050);
+refute("not 2 x 500 — that is the entered quantity with no excess at all", byOrder, 1000);
 
 // ---------------------------------------------------------------------------
 // 4b. THE STYLE BASIS (0440)
@@ -419,9 +527,9 @@ check(
   "size-wise gives ONE row per size, colour collapsed",
   (productionSlices("size", threeWay) as ProductionSlice[]).map((s) => [s.label, s.qty]),
   [
-    ["S", 160],
-    ["M", 189],
-    ["L", 151],
+    ["S", 168],
+    ["M", 199],
+    ["L", 159],
   ],
 );
 refute(
@@ -449,13 +557,14 @@ check(
   ],
   [3, 5],
 );
-// Each size row is exactly its column of the matrix — M is WHITE-M + NAVY-M.
+// Each size row is exactly its column of the matrix — M is WHITE-M + NAVY-M,
+// i.e. 95 + 104 against the excess-bearing targets of 317 and 209.
 check(
-  "a size row is exactly that size's column of the matrix (M = 90 + 99)",
+  "a size row is exactly that size's column of the matrix (M = 95 + 104)",
   (productionSlices("combination", threeWay) as ProductionSlice[])
     .filter((s) => s.label.endsWith("· M"))
     .reduce((a, s) => a + s.qty, 0),
-  189,
+  199,
 );
 
 // WHITE under two styles must not be merged into one bucket.
@@ -910,6 +1019,156 @@ check(
   "a caller that does not ask for the split still gets a usable calcQty",
   (lineQuantity([567], null, 50, true) as { calcQty: number }).calcQty,
   567,
+);
+
+
+// ---------------------------------------------------------------------------
+// 9. COUNTRY-WISE — the destination axis (client 2026-08-21)
+//
+// The production target is keyed (style, combo) and knows NOTHING about
+// destinations. So a country slice cannot be read off the approval rows; it has
+// to be APPORTIONED out of the order total using the Quantities tree's own
+// weights, through the same `apportion` every other split uses. That is what
+// keeps the cross-basis invariant true — country-wise must sum to exactly what
+// order-wise gives, or two tabs disagree about one order.
+// ---------------------------------------------------------------------------
+
+const IN = "country-in";
+const UK = "country-uk";
+const COUNTRY_NAMES = { [IN]: "INDIA", [UK]: "UNITED KINGDOM" };
+
+const destAssort = (size: string, qty: number, country: string) => ({
+  style_ref_no: S1,
+  combo: "WHITE",
+  size_id: size,
+  qty,
+  country_id: country,
+});
+
+// 600 pieces, shipping 3:1 to the UK and India.
+const twoCountries = order({
+  approvals: [approval(600)],
+  combos: [combo()],
+  assortSizes: [destAssort(SZ_S, 3, UK), destAssort(SZ_M, 1, IN)],
+  countryNames: COUNTRY_NAMES,
+});
+
+check(
+  "country-wise gives one row per destination, apportioned 3:1",
+  (productionSlices("country", twoCountries) as ProductionSlice[]).map((s) => [s.label, s.qty]),
+  [
+    ["UNITED KINGDOM", 450],
+    ["INDIA", 150],
+  ],
+);
+check(
+  "the parts sum to exactly the order total",
+  totalOf(required("country", twoCountries, line())),
+  totalOf(required("order", twoCountries, line())),
+);
+check(
+  "each slice names its country, so a requirement row can key on it",
+  (productionSlices("country", twoCountries) as ProductionSlice[]).map((s) => s.country_id),
+  [UK, IN],
+);
+check(
+  "country slice keys are unique",
+  new Set((productionSlices("country", twoCountries) as ProductionSlice[]).map((s) => s.key)).size,
+  2,
+);
+// A destination with no weight POISONS the explosion rather than being dropped:
+// two rows summing short reads exactly like a correct answer.
+check(
+  "a destination with no quantity is named, not skipped",
+  refusalOf(
+    productionSlices(
+      "country",
+      order({
+        approvals: [approval(600)],
+        combos: [combo()],
+        assortSizes: [destAssort(SZ_S, 3, UK), destAssort(SZ_M, 0, IN)],
+        countryNames: COUNTRY_NAMES,
+      }),
+    ),
+  ),
+  "INDIA has no quantity on Quantities",
+);
+check(
+  "no destinations at all refuses, and says which tab",
+  refusalOf(productionSlices("country", order({ assortSizes: [] }))),
+  "No destinations on Quantities to split by",
+);
+
+
+// ---------------------------------------------------------------------------
+// 10. THE PER-ROW SIZE-WISE TICK (0449)
+//
+// Legacy's sub-grid has a "Size wise" tick on each row, and the client confirmed
+// the model it implies: the Attribute picks ONE axis and a row splits ITSELF.
+// The two composite bases left the dropdown because the tick reproduces them —
+//
+//     Order  + every row ticked  ==  the old `size` basis
+//     Colour + every row ticked  ==  the old `combination` basis
+//
+// SO THE VECTORS ASSERT EXACTLY THAT EQUIVALENCE. It is the strongest statement
+// available: the tick is not a new arithmetic, it is the existing apportionment
+// reached a different way — and if the two ever diverge, one of them is wrong.
+// ---------------------------------------------------------------------------
+
+const ALL = () => true;
+const NONE = () => false;
+
+const shape = (v: ReturnType<typeof productionSlices>) =>
+  isRefusal(v) ? v.refused : v.map((s) => [s.label, s.qty, s.size_id ?? ""]);
+
+check(
+  "Order + every row ticked IS the old size basis",
+  shape(productionSlices("order", threeWay, undefined, ALL)),
+  shape(productionSlices("size", threeWay)),
+);
+check(
+  "Colour + every row ticked IS the old combination basis",
+  shape(productionSlices("colour", threeWay, undefined, ALL)),
+  shape(productionSlices("combination", threeWay)),
+);
+check(
+  "no tick leaves the primary rows exactly as they were",
+  shape(productionSlices("colour", threeWay, undefined, NONE)),
+  shape(productionSlices("colour", threeWay)),
+);
+
+// THE INVARIANT THE WHOLE ENGINE LEANS ON must survive the tick: however a line
+// is split, it buys the same amount.
+check(
+  "a ticked split still totals what the order totals",
+  totalOf(
+    (productionSlices("colour", threeWay, undefined, ALL) as ProductionSlice[]).map((s) => ({
+      label: s.label,
+      value: requirementFor(line(), s),
+    })),
+  ),
+  totalOf(required("order", threeWay, line())),
+);
+
+// ONE ROW TICKED, ONE NOT — the case neither old basis could express, and the
+// reason the tick is per row rather than per line.
+const oneTicked = productionSlices(
+  "colour",
+  threeWay,
+  undefined,
+  (s) => (s.combo ?? "") === "WHITE",
+);
+check(
+  "a mixed tick splits only the row that asked",
+  isRefusal(oneTicked) ? oneTicked.refused : oneTicked.filter((s) => !s.size_id).map((s) => s.label),
+  ["NAVY"],
+);
+check(
+  "…and the mixed split still totals the same",
+  totalOf(
+    (oneTicked as ProductionSlice[]).map((s) => ({ label: s.label, value: requirementFor(line(), s) })),
+  ),
+  totalOf(required("order", threeWay, line())),
 );
 
 console.log(failed === 0 ? "\nAll BOM requirement vectors pass." : `\n${failed} FAILED`);

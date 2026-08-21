@@ -28,6 +28,24 @@ import { capsTextNullable } from "@/lib/validation/formats";
 export const SUPPLY_TYPE_OPTIONS = ["Local", "Import", "Nominated", "Free Issue"] as const;
 
 /**
+ * WHAT A NEW BOM LINE OPENS ON (client 2026-08-21: "a Vendor dropdown is
+ * required. By default, it is Local").
+ *
+ * IT IS NOT COSMETIC. A blank supply type offers **zero** vendors — deliberately,
+ * because `nominatedVendorOptions()` refuses to guess and says "Pick Supply Type
+ * first" instead (AGENTS.md records that a guard phrased as "restrict only in
+ * case X" leaked the whole vendor list through every state that was not X). So
+ * blank left the operator looking at a dropdown that opens onto nothing on every
+ * fresh line, and Local is both the ordinary case and the one that makes the
+ * field beside it usable.
+ *
+ * A DEFAULT, NOT A CONSTRAINT. `supply_type` is still not `required` — marking it
+ * so would hold the keyboard cursor on every line — and the value stays freely
+ * changeable. Same shape as `DEFAULT_MATERIAL_TYPE` above.
+ */
+export const DEFAULT_SUPPLY_TYPE: (typeof SUPPLY_TYPE_OPTIONS)[number] = "Local";
+
+/**
  * The Items grid's "Type" — how settled this line's material is.
  *
  * RESTORED 2026-08-17 ON THE CLIENT'S WRITTEN INSTRUCTION, and the history
@@ -54,6 +72,22 @@ export const MATERIAL_TYPE_OPTIONS = [
   "Available Item",
 ] as const;
 
+/**
+ * WHAT A NEW BOM LINE STARTS AS (client 2026-08-21: "type field default set as
+ * Available Item, if may need user can update it").
+ *
+ * The ordinary case, and stating it here rather than typing the literal into
+ * `blankItem` is what keeps the default from drifting off the option list — a
+ * string that stops matching an option renders as a blank `<Select>` with a
+ * value behind it, which is worse than no default at all.
+ *
+ * A DEFAULT, NOT A CONSTRAINT. `type` is still not `required`, the empty option
+ * stays on the list, and nothing rewrites a STORED value: a line saved with a
+ * blank type before this existed loads blank, because filling it in on read
+ * would silently change what the next save writes.
+ */
+export const DEFAULT_MATERIAL_TYPE: (typeof MATERIAL_TYPE_OPTIONS)[number] = "Available Item";
+
 /** Where a material sent out for processing has got to. */
 export const PROCESS_STATUS_OPTIONS = [
   { value: "planned", label: "Planned" },
@@ -65,11 +99,23 @@ export const PROCESS_STATUS_OPTIONS = [
 /** How the Attribute column splits a requirement. Labels only — the VALUES are
  *  `REQUIREMENT_BASES`, which the CHECK constraint and the engine share. */
 export const REQUIREMENT_BASIS_LABELS: Record<(typeof REQUIREMENT_BASES)[number], string> = {
-  order: "Order Number",
-  style: "Style-wise",
+  /* "ORDER" AND "STYLE", BOTH KEPT (client 2026-08-21). Their note read
+     "Style (formerly Order Number): generates a single bulk row for the entire
+     style quantity", which would have put two options called Style side by side
+     — `style` already means one row per style. Confirmed with them: the bulk row
+     is "Order", the per-style split is "Style", and they differ only on a
+     multi-style order.
+     WORDING ONLY. The column stores the KEY; this map owns the label, which is
+     the split 0418 asserts with a test that fails if the CHECK ever admits a
+     label like "Color-wise". */
+  order: "Order",
+  style: "Style",
   colour: "Color-wise",
   size: "Size-wise",
   combination: "Combination (Color + Size)",
+  /* THE DESTINATION AXIS. Worded as a plain "Country-wise" to sit beside the
+     others, but it answers a different question — see REQUIREMENT_BASES. */
+  country: "Country-wise",
 };
 
 /**
@@ -242,6 +288,18 @@ export interface MbaItemSlice {
   sno: number;
   combo: string | null;
   size_id: string | null;
+  /** The destination (0449) — part of the key, not decoration. */
+  country_id: string | null;
+  chosen: boolean;
+  size_wise: boolean;
+  item_color_id: string | null;
+  specification: string | null;
+  size_spec: string | null;
+  /** The wastage buffer for this row (0450). NULL inherits the line's. */
+  excess_pct: number | null;
+  /** The minimum and step for this row (0451). NULL inherits the line's. */
+  moq: number | null;
+  round_to: number | null;
   no_of_items: number | null;
   per_pieces: number | null;
 }
@@ -250,6 +308,8 @@ export interface MbaProcess {
   id: string;
   amendment_id: string;
   sno: number;
+  /** The row's immutable anchor (0446) — see `mbaProcessInput.row_uid`. */
+  row_uid: string;
   item_id: string | null;
   process_id: string | null;
   vendor_id: string | null;
@@ -329,6 +389,28 @@ export interface MaterialBomAmendment {
   items: MbaItem[];
   processes: MbaProcess[];
   requirements: MbaRequirement[];
+  /** Challan lines raised from this BOM's Processes tab (0446). */
+  dc_lines?: MbaDcLine[];
+}
+
+/**
+ * One Delivery Challan line generated from a Processes row (0446).
+ *
+ * Keyed by `mba_process_row_uid`, never by the process row's `id` — that id is
+ * destroyed and re-minted on every save (`writeChildren`), so a link through it
+ * would come unstuck the first time the BOM was edited.
+ */
+export interface MbaDcLine {
+  mba_process_row_uid: string | null;
+  sent_qty: number | null;
+  returned_qty: number | null;
+  delivery_challan_id: string;
+  challan: {
+    code: string | null;
+    dc_date: string | null;
+    status: string | null;
+    stock_posted_at: string | null;
+  } | null;
 }
 
 const nullableText = z.string().optional().nullable();
@@ -365,6 +447,23 @@ export const mbaItemSliceInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   combo: nullableText,
   size_id: uuidN,
+  /** The destination — PART OF THE KEY since 0449, or two countries' same-size
+   *  rows resolve to each other. */
+  country_id: uuidN,
+  /** Legacy's "Choose" tick. FALSE means this row buys none of the material. */
+  chosen: z.coerce.boolean().default(true),
+  /** Legacy's "Size wise" tick — splits THIS row into its sizes. */
+  size_wise: z.coerce.boolean().default(false),
+  item_color_id: uuidN,
+  specification: capsTextNullable(),
+  size_spec: capsTextNullable(),
+  /** The wastage buffer for this row (0450). NULL inherits the line's, the same
+   *  contract the two figures have carried since 0442. */
+  excess_pct: z.coerce.number().min(0).max(100).nullable().default(null),
+  /** The supplier minimum and rounding step for this row (0451). NULL inherits
+   *  the line's — see the column comments for why per-row is a risk. */
+  moq: z.coerce.number().nonnegative().nullable().default(null),
+  round_to: z.coerce.number().nonnegative().nullable().default(null),
   no_of_items: z.coerce.number().nonnegative().nullable().default(null),
   per_pieces: z.coerce
     .number()
@@ -489,6 +588,18 @@ export const mbaItemInput = z
 
 export const mbaProcessInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
+  /**
+   * The row's immutable anchor (0446) — what a Delivery Challan line points at.
+   *
+   * MUST BE ROUND-TRIPPED. `writeChildren` deletes and reinserts every process
+   * row on save, so `id` and `sno` are both re-minted; this is the only thing
+   * that survives, and a challan already raised against the row is matched by
+   * it. Dropping it here would orphan a legally issued Rule 55 document.
+   *
+   * Optional in the schema and defaulted in the DB, so a payload from an older
+   * client cannot fail to save — it produces a visibly un-dispatched row instead.
+   */
+  row_uid: uuidN.optional(),
   item_id: uuidN,
   process_id: uuidN,
   vendor_id: uuidN,

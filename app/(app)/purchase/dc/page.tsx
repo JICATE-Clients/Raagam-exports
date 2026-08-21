@@ -37,7 +37,7 @@ const columns: Column<DcWithVendor>[] = [
       </Link>
     ),
   },
-  { header: "Vendor / Processor", cell: (r) => r.vendors?.name ?? "—" },
+  { header: "Vendor / Processor", cell: (r) => r.master_vendors?.name ?? "—" },
   { header: "Purpose", cell: (r) => r.purpose ?? "—" },
   { header: "Date", cell: (r) => fmtDate(r.dc_date) },
   {

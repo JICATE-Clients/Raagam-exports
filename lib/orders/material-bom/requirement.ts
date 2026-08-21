@@ -40,6 +40,7 @@
  * same call `styleRate` makes for a priced style with no quantity behind it.
  */
 
+import { excessQty } from "@/lib/orders/amendments/approval-qty";
 import { styleKey } from "@/lib/orders/amendments/style-key";
 import { ceilToPrecision, uomPrecision } from "@/lib/uom/convert";
 import type { RejectionTier } from "@/lib/masters/rejection-rule";
@@ -93,8 +94,51 @@ export const REQUIREMENT_BASES = [
   "colour",
   "size",
   "combination",
+  /*
+   * THE DESTINATION AXIS, and it breaks the outward-in reading above (client
+   * 2026-08-21). The five before it are successively finer cuts of the PRODUCT —
+   * order, style, colourway, size, the matrix. This one cuts by WHERE THE GOODS
+   * SHIP, which is a different question entirely, and a Select that lists it as
+   * a sixth degree of fineness would mislead. Group it separately on screen.
+   *
+   * Appended rather than inserted: the tuple order is the Select's order, and
+   * moving an existing entry would silently re-sort a list the operator has
+   * learned.
+   */
+  "country",
 ] as const;
 export type RequirementBasis = (typeof REQUIREMENT_BASES)[number];
+
+/**
+ * WHAT THE ATTRIBUTE DROPDOWN OFFERS — four, not six (client 2026-08-21, with
+ * the legacy screen beside ours).
+ *
+ * Legacy shows `Attribute = Country` with a SIZE-WISE TICK on each sub-row, and
+ * the client confirmed that model: the Attribute picks ONE axis and a row splits
+ * ITSELF into sizes. So the two composite options come off the list —
+ *
+ *     Colour + tick  IS  the old `combination`
+ *     Order  + tick  IS  the old `size`
+ *
+ * ## THE TWO BRANCHES ARE NOT DELETED, AND THAT IS THE POINT
+ *
+ * `size` and `combination` stay in `REQUIREMENT_BASES`, in both CHECK
+ * constraints, and as live branches of `productionSlices` — because that size
+ * apportionment IS what a size-wise tick expands a row with. Deleting them would
+ * mean writing the largest-remainder walk a second time, and the invariant that
+ * every basis sums to the same total is what the vectors lean on hardest.
+ *
+ * They also stay so a row STORED under the old basis still resolves: the column
+ * keeps its value and `REQUIREMENT_BASIS_LABELS` keeps its name. A storage
+ * vocabulary and a menu are different lists, and conflating them is how a
+ * dropdown change becomes a data migration.
+ */
+export const OFFERED_REQUIREMENT_BASES = [
+  "order",
+  "style",
+  "colour",
+  "country",
+] as const satisfies readonly RequirementBasis[];
 
 /** What the screen prints when a figure cannot be produced. Never an empty
  *  string: a blank cell and a refused cell must not look alike. */
@@ -119,6 +163,12 @@ export type ProductionSlice = {
   style_ref_no: string | null;
   combo: string | null;
   size_id: string | null;
+  /**
+   * The destination this slice ships to, on a country-wise line and nowhere
+   * else. NULL on every other basis, and that is a VALUE — "every destination" —
+   * not a missing lookup.
+   */
+  country_id?: string | null;
 };
 
 /** An Approval Qty row, as much of it as the requirement needs. */
@@ -146,6 +196,8 @@ export type AssortSizeRow = {
   combo: string | null;
   size_id: string | null;
   qty: number;
+  /** The destination row these pieces belong to (0398). Null on a pre-0398 row. */
+  country_id?: string | null;
 };
 
 /** Everything about the ORDER the requirement depends on. */
@@ -178,6 +230,12 @@ export type OrderProductionInput = {
    * which is legible to nobody but is not wrong.
    */
   sizeNames?: Readonly<Record<string, string>>;
+  /**
+   * What the operator calls each destination country, keyed by id. A MAP, never
+   * a resolver function, for exactly the reason `sizeNames` above records: this
+   * object crosses a server action boundary and a function cannot.
+   */
+  countryNames?: Readonly<Record<string, string>>;
 };
 
 /** A BOM line, as much of it as the requirement needs. */
@@ -291,7 +349,19 @@ const comboKey = (v: string | null | undefined) => (v ?? "").trim().toUpperCase(
 
 /** Joins the two halves of a colour key. A control character, so a style or
  *  combo containing the separator cannot forge another pair's key. */
-const SEP = "\u0000";
+/**
+ * The separator inside a composite slice key.
+ *
+ * EXPORTED SINCE 0449, because the screen groups a size child under its parent
+ * by testing `key.startsWith(parent.key + SEP)` — `expandBySize` mints the child
+ * that way on purpose, so the grouping is a string test rather than a second
+ * explosion. A screen hard-coding its own separator would be a second definition
+ * of what a key IS.
+ *
+ * NUL, so it cannot occur in a combo name, a style ref or a uuid.
+ */
+export const SLICE_SEP = "\u0000";
+const SEP = SLICE_SEP;
 const pairKey = (style: string, combo: string) => `${style}${SEP}${combo}`;
 
 /**
@@ -349,6 +419,69 @@ export function apportion(total: number, weights: readonly number[]): number[] {
 
 type Target = { style: string; combo: string; qty: number };
 
+/**
+ * WHICH QUANTITY A BOM PLANS AGAINST. The client has taken three positions on
+ * this and all three are named here, because the next reader will otherwise
+ * read the current one as the only one there has ever been.
+ *
+ *   0418 · 2026-08-12   qty + excess + approval + rejection   the full target
+ *   2026-08-20          the entered quantity alone
+ *   2026-08-21          qty + excess + approval               rejection OUT
+ *
+ * `entered_only` is kept live rather than deleted: **Fabric BOM still uses it**
+ * (see `fabricSlices`), and it is what the 08-20 instruction asked for.
+ */
+export type BaseQuantityRule = "entered_only" | "po_excess_approval";
+
+/**
+ * The rule a MATERIAL BOM plans against, in one place.
+ *
+ * Changing the client's mind about this is changing this one literal — which is
+ * the point of it being a named constant rather than an `if` somewhere in
+ * `targetsOf`. It has moved twice in two days; assume it will move again.
+ */
+export const MATERIAL_BASE_QUANTITY: BaseQuantityRule = "po_excess_approval";
+
+/**
+ * What a SEWING or PACKING accessory is bought against (client 2026-08-21).
+ *
+ * ## Why the rejection allowance is excluded, in the client's own terms
+ *
+ * A garment rejected during panel processing or printing has already consumed
+ * its fabric and has NOT yet consumed its buttons. Buying trims against the
+ * rejection buffer therefore over-orders every hangtag and carton on the order.
+ * That is the "vital distinction" the client draws between this and fabric
+ * planning, and it is why `fabricSlices` passes a different rule rather than
+ * this one being changed globally.
+ *
+ * ## Why it is a rule ARGUMENT and not an edit to `targetsOf`
+ *
+ * `productionSlices` is shared with Fabric BOM. Editing the arithmetic in place
+ * moves both, silently — `check-fabric-bom.mts:387` asserts "600 entered is
+ * planned as 600, not 660" and is the vector that catches it.
+ *
+ * ## Why this is not a second copy of the arithmetic
+ *
+ * `excessQty` is imported, never reimplemented. It rounds UP and is applied PER
+ * APPROVAL ROW, which is the client's own rule with their own worked example in
+ * its header (500 at 5% reads as 25, not 24). That is why this takes a ROW and
+ * is called before `targetsOf` folds the rows together — fold first and the
+ * percentage would round once where the client rounds per line.
+ *
+ * ## The 08-20 reversal was aimed at a data-entry mistake, not at this formula
+ *
+ * The order that triggered it read 5,552 against a 5,000 PO — 252 excess and
+ * 300 approval, and the 300 was `20` filled down across fifteen size rows. Put
+ * back to the client against those figures on 2026-08-21, they confirmed the
+ * formula and identified the 20 as an order-level number. So the fix for that
+ * order is its data, not this function.
+ */
+export function materialTarget(a: ApprovalRow, excessPct: number): number {
+  const qty = num(a.qty) ?? 0;
+  if (qty <= 0) return 0;
+  return qty + excessQty(qty, excessPct) + Math.max(0, num(a.approval_qty) ?? 0);
+}
+
 /** Every approval line resolved to a production target, or the first refusal. */
 /**
  * THE QUANTITY THE MATERIAL BOM PLANS AGAINST — the entered one, and nothing
@@ -389,27 +522,71 @@ type Target = { style: string; combo: string; qty: number };
  * and the Approval Qty tab still computes and shows the full target, so nothing
  * had to be deleted to do this.
  */
-function targetsOf(order: OrderProductionInput): Target[] | Refusal {
+function targetsOf(
+  order: OrderProductionInput,
+  rule: BaseQuantityRule = MATERIAL_BASE_QUANTITY,
+): Target[] | Refusal {
   if (order.approvals.length === 0) {
     return { refused: "No production quantity yet — fill Approval Qty on the order" };
   }
 
-  const out: Target[] = [];
+  /*
+   * ONE TARGET PER (STYLE, COMBO), FOLDED FROM HOWEVER MANY ROWS IT IS TYPED ON.
+   *
+   * 0435 made Approval Qty a row per SIZE, so a three-colour order over five
+   * sizes arrives here as FIFTEEN rows, not three. This used to `push` one
+   * target per ROW, and the damage was invisible in every existing vector
+   * because the file's assertions all SUM: five slices of 100 total exactly as
+   * one of 500.
+   *
+   * What broke is IDENTITY. `productionSlices`' colour branch maps targets 1:1,
+   * so it emitted five WHITE slices sharing one key, and the combination branch
+   * pushed `${pair}${SEP}${sizeId}` once per target — the same key five times.
+   * `uq_mba_req_slice (item_line_id, style_ref_no, combo, size_id) nulls not
+   * distinct` (0418:259) then refuses the second insert, so a colour-wise BOM
+   * against any real order fails to save. `order`, `style` and `size` were
+   * correct only by accident: all three re-collapse the rows themselves.
+   *
+   * THE FOLD SUMS PER-ROW VALUES, and that ordering is load-bearing rather than
+   * incidental — the buyer's excess is applied per LINE (`excessQty`'s own
+   * header records the client's worked example: 500 at 5% reads as 25, not 24),
+   * so anything derived from a row must be derived BEFORE the rows are summed.
+   * Folding first and deriving after would round once where the client rounds
+   * per line.
+   *
+   * The size is deliberately NOT part of the key. `size` and `combination`
+   * apportion the colour total across the assort curve, which is the client's
+   * ratio; reading the approval rows' own `size_id` instead would be a
+   * different (and arguably better) answer, and a change to a number the
+   * operator already signed off. Left alone on purpose.
+   */
+  const byColour = new Map<string, Target>();
+  let entered = 0;
   for (const a of order.approvals) {
-    // THE ENTERED QUANTITY, VERBATIM. No excess, no approval pieces, no
-    // rejection allowance — see the header. `approval_qty` is still read from
-    // the row by the Approval Qty tab; it simply no longer reaches a material.
-    out.push({
-      style: styleKey(a.style_ref_no),
-      combo: comboKey(a.combo),
-      qty: num(a.qty) ?? 0,
-    });
+    const style = styleKey(a.style_ref_no);
+    const combo = comboKey(a.combo);
+    const key = pairKey(style, combo);
+    // PER ROW, BEFORE THE FOLD — `materialTarget`'s header says why the order of
+    // these two operations is load-bearing.
+    const qty =
+      rule === "po_excess_approval" ? materialTarget(a, order.excessPct) : (num(a.qty) ?? 0);
+    entered += num(a.qty) ?? 0;
+    const prev = byColour.get(key);
+    if (prev) prev.qty += qty;
+    else byColour.set(key, { style, combo, qty });
   }
+  const out = [...byColour.values()];
 
   // Rows exist but every one is blank. Distinct from "no rows at all", and it is
   // the state a freshly seeded Approval Qty grid is in — so it must say so
   // rather than hand back a requirement of 0 on a real order.
-  if (out.every((t) => t.qty <= 0)) {
+  //
+  // MEASURED ON THE ENTERED QUANTITY, NOT ON THE TARGET, and that distinction
+  // arrived with the 08-21 base: a grid holding nothing but sample pieces now
+  // produces a non-zero target, so testing the target would let a BOM compute
+  // against an order nobody has entered a quantity for. The refusal names the
+  // quantity, so the quantity is what it has to test.
+  if (entered <= 0) {
     return { refused: "Approval Qty rows have no quantity" };
   }
   return out;
@@ -438,8 +615,169 @@ function targetsOf(order: OrderProductionInput): Target[] | Refusal {
 export function productionSlices(
   basis: RequirementBasis,
   order: OrderProductionInput,
+  /**
+   * DEFAULTS TO THE MATERIAL RULE, and Fabric BOM overrides it explicitly.
+   * Defaulting the other way would make every accessory line quietly wrong the
+   * day someone forgot to pass it, which is the direction that costs money.
+   */
+  rule: BaseQuantityRule = MATERIAL_BASE_QUANTITY,
+  /**
+   * WHICH PRIMARY ROWS SPLIT THEMSELVES INTO SIZES (0449, legacy's per-row
+   * "Size wise" tick).
+   *
+   * A PREDICATE, NOT A TABLE READ. The flags live in the override store, and a
+   * pure function that reached into it would stop being testable from a fixture
+   * — the caller answers instead. Absent means no row splits, which is what
+   * every caller that predates the tick means.
+   *
+   * THE TICK IS NOT NEW ARITHMETIC. `Order + every row ticked` reproduces the old
+   * `size` basis exactly, and `Colour + every row ticked` reproduces
+   * `combination` exactly — asserted as an equivalence in
+   * `check-bom-requirement.mts`, which is the strongest statement available: if
+   * the two ever diverge, one of them is wrong.
+   */
+  sizeWise?: (slice: ProductionSlice) => boolean,
 ): ProductionSlice[] | Refusal {
-  const targets = targetsOf(order);
+  const primary = primarySlices(basis, order, rule);
+  if (isRefusal(primary) || !sizeWise) return primary;
+
+  const targets = targetsOf(order, rule);
+  if (isRefusal(targets)) return targets;
+
+  const out: ProductionSlice[] = [];
+  for (const sl of primary) {
+    if (!sizeWise(sl)) {
+      out.push(sl);
+      continue;
+    }
+    const kids = expandBySize(sl, order, targets);
+    // A REFUSAL POISONS THE WHOLE EXPLOSION, as everywhere else in this file:
+    // emitting the rows that answered gives a smaller total that reads correct.
+    if (isRefusal(kids)) return kids;
+    out.push(...kids);
+  }
+  return out;
+}
+
+/**
+ * One primary row, split into the sizes of the combos it covers (0449).
+ *
+ * ## THE APPORTIONMENT IS PER COMBO, THEN SUMMED — never the other way round
+ *
+ * That is 0420's rule and it is why this is not two lines of code: two colourways
+ * rarely share a size curve, so blending them before apportioning moves pieces
+ * between sizes. A row that spans several combos (Order-wise, Country-wise)
+ * therefore divides ITS OWN quantity across those combos first, in proportion to
+ * what each holds, and only then walks each combo's curve.
+ *
+ * For a Country row that scaling matters: its quantity is already an apportioned
+ * share of the order, not the sum of the combos it covers.
+ *
+ * ## THE KEY EXTENDS THE PARENT'S, WHICH IS WHAT MAKES THE EQUIVALENCE EXACT
+ *
+ * `${parent.key}${SEP}${sizeId}` resolves to `${pairKey}${SEP}${sizeId}` under a
+ * colour row and `${SEP}${sizeId}` under an order row — byte-identical to the
+ * keys `combination` and `size` already mint. So the tick reaches the same rows
+ * by the same names, and `uq_mba_req_slice` sees no difference.
+ */
+function expandBySize(
+  sl: ProductionSlice,
+  order: OrderProductionInput,
+  targets: readonly Target[],
+): ProductionSlice[] | Refusal {
+  if (order.assortSizes.length === 0) {
+    return { refused: "Size break-up not entered on Quantities ▸ Assort" };
+  }
+
+  const wantStyle = sl.style_ref_no == null ? null : styleKey(sl.style_ref_no);
+  const wantCombo = sl.combo == null ? null : comboKey(sl.combo);
+  const mine = targets.filter(
+    (t) =>
+      (wantStyle === null || t.style === wantStyle) &&
+      (wantCombo === null || t.combo === wantCombo),
+  );
+  if (mine.length === 0) {
+    return { refused: `Size break-up not entered on Quantities ▸ Assort for ${sl.label}` };
+  }
+
+  // This row's own quantity, divided across the combos it covers. Largest
+  // remainder, so the parts sum to exactly the row.
+  const comboShares = apportion(
+    sl.qty,
+    mine.map((t) => t.qty),
+  );
+
+  const bySizeAcross = new Map<string, number>();
+  const rowsOut: ProductionSlice[] = [];
+
+  for (let i = 0; i < mine.length; i++) {
+    const t = mine[i];
+    const rows = order.assortSizes.filter(
+      (r) => styleKey(r.style_ref_no) === t.style && comboKey(r.combo) === t.combo,
+    );
+    if (rows.length === 0) {
+      return {
+        refused: `Size break-up not entered on Quantities ▸ Assort for ${t.combo || sl.label}`,
+      };
+    }
+    // Collapse repeats first: one combo can appear on several assort lines (one
+    // per carton set), and the ratio is the sum across them.
+    const bySize = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.size_id) continue;
+      bySize.set(r.size_id, (bySize.get(r.size_id) ?? 0) + (num(r.qty) ?? 0));
+    }
+    const sizes = [...bySize.entries()];
+    if (sizes.length === 0 || sizes.every(([, q]) => q <= 0)) {
+      return { refused: `Size break-up has no quantities for ${t.combo || sl.label}` };
+    }
+
+    const shares = apportion(
+      comboShares[i],
+      sizes.map(([, q]) => q),
+    );
+
+    sizes.forEach(([sizeId], j) => {
+      if (wantCombo !== null) {
+        // A COLOUR ROW KEEPS ITS COLOUR, so the label reads "WHITE · S" exactly
+        // as `combination` mints it.
+        rowsOut.push({
+          key: `${sl.key}${SEP}${sizeId}`,
+          label: `${sl.label} · ${order.sizeNames?.[sizeId] ?? sizeId}`,
+          qty: shares[j],
+          style_ref_no: sl.style_ref_no,
+          combo: sl.combo,
+          size_id: sizeId,
+          country_id: sl.country_id ?? null,
+        });
+      } else {
+        // A ROW WITH NO COLOUR AXIS COLLAPSES IT — "how many Mediums?" is one
+        // number, which is `size`'s whole argument (0420).
+        bySizeAcross.set(sizeId, (bySizeAcross.get(sizeId) ?? 0) + shares[j]);
+      }
+    });
+  }
+
+  if (wantCombo !== null) return rowsOut;
+
+  return [...bySizeAcross.entries()].map(([sizeId, qty]) => ({
+    key: `${sl.key}${SEP}${sizeId}`,
+    label: order.sizeNames?.[sizeId] ?? sizeId,
+    qty,
+    style_ref_no: sl.style_ref_no,
+    combo: null,
+    size_id: sizeId,
+    country_id: sl.country_id ?? null,
+  }));
+}
+
+/** The rows a basis produces before any per-row size tick is applied. */
+function primarySlices(
+  basis: RequirementBasis,
+  order: OrderProductionInput,
+  rule: BaseQuantityRule,
+): ProductionSlice[] | Refusal {
+  const targets = targetsOf(order, rule);
   if (isRefusal(targets)) return targets;
 
   if (basis === "order") {
@@ -479,6 +817,73 @@ export function productionSlices(
       style_ref_no: style || null,
       combo: null,
       size_id: null,
+    }));
+  }
+
+  /*
+   * COUNTRY-WISE — the destination axis (client 2026-08-21).
+   *
+   * PLACED HERE, ABOVE THE COMBO CHECKS, for the same reason `style` is: a
+   * destination total does not need the Combos tab and the Approval Qty tab to
+   * name the same colourways, so it must not inherit three refusals that have
+   * nothing to do with it. A BOM split by country would otherwise stop over a
+   * colour rename it never reads.
+   *
+   * ## THE TARGET IS NOT KEYED BY COUNTRY, SO THIS APPORTIONS
+   *
+   * Approval Qty is (style, combo) and knows nothing about destinations; the
+   * Quantities tree is where a country lives. So the order total is divided
+   * across the destinations by their own weights, through the SAME `apportion`
+   * every other split uses — largest remainder, so the parts sum to exactly the
+   * total and the cross-basis invariant survives. Anything else would let
+   * country-wise and order-wise disagree about one order.
+   *
+   * ## A DESTINATION WITH NO QUANTITY POISONS THE EXPLOSION
+   *
+   * Two rows summing short read exactly like a correct answer — the partial
+   * explosion this module's header warns about. So an unquantified destination
+   * is NAMED and the whole split stops, rather than being quietly dropped.
+   */
+  if (basis === "country") {
+    if (order.assortSizes.length === 0) {
+      return { refused: "No destinations on Quantities to split by" };
+    }
+
+    // Grouped in FIRST-APPEARANCE order, so the rows read down the screen in the
+    // order the operator entered their destinations.
+    const byCountry = new Map<string, number>();
+    for (const r of order.assortSizes) {
+      const id = r.country_id ?? "";
+      byCountry.set(id, (byCountry.get(id) ?? 0) + (num(r.qty) ?? 0));
+    }
+
+    const nameOf = (id: string) =>
+      id ? (order.countryNames?.[id] ?? id) : "(no destination)";
+
+    for (const [id, w] of byCountry) {
+      if (w <= 0) return { refused: `${nameOf(id)} has no quantity on Quantities` };
+    }
+
+    const total = targets.reduce((a, t) => a + t.qty, 0);
+    const ids = [...byCountry.keys()];
+    const shares = apportion(
+      total,
+      ids.map((id) => byCountry.get(id) ?? 0),
+    );
+
+    // The STYLE is kept only where the order has one, exactly as size-wise does:
+    // a row keyed to a style the operator did not ask to split by would imply a
+    // division that was never requested.
+    const onlyStyle = new Set(targets.map((t) => t.style)).size > 1 ? null : (targets[0]?.style || null);
+
+    return ids.map((id, i) => ({
+      key: `${SEP}${SEP}${id}`,
+      label: nameOf(id),
+      qty: shares[i],
+      style_ref_no: onlyStyle,
+      combo: null,
+      size_id: null,
+      country_id: id || null,
     }));
   }
 

@@ -78,6 +78,11 @@ export type OrderRow = {
   quantities:
     | {
         style_ref_no: string | null;
+        /** The destination (0398), for the country-wise basis. Declared here as
+         *  well as selected in ASSORT_WEIGHT_SELECT — a shape that names the
+         *  column and a select that does not is the failure mode AGENTS.md
+         *  records twice over, and it reads as working. */
+        country_id: string | null;
         assortment_type_id: string | null;
         assortment_type: { code: string | null; name: string | null } | null;
         assort_lines:
@@ -112,6 +117,7 @@ export function orderProductionInput(
   row: OrderRow,
   tiersById: Map<string, RejectionTier[]>,
   sizeNames?: Readonly<Record<string, string>>,
+  countryNames?: Readonly<Record<string, string>>,
 ): OrderProductionInput {
   const assortSizes = assortSizeWeights(row.quantities);
 
@@ -134,6 +140,7 @@ export function orderProductionInput(
     })),
     assortSizes,
     sizeNames,
+    countryNames,
   };
 }
 
@@ -159,6 +166,24 @@ export async function rejectionTiersById(): Promise<Map<string, RejectionTier[]>
   return out;
 }
 
+/**
+ * Destination names, keyed by id — for the country-wise basis's row labels.
+ *
+ * A MAP, never a resolver, for the reason `OrderProductionInput.sizeNames`
+ * records at length: this object crosses a server action boundary and a function
+ * cannot be serialized across it.
+ *
+ * `blocked` rows are SELECTED rather than filtered, the same call
+ * `rejectionTiersById` makes above: a country switched off after an order shipped
+ * to it must still resolve to its NAME, or an existing BOM's rows start labelling
+ * themselves with a uuid.
+ */
+export async function countryNamesById(): Promise<Record<string, string>> {
+  const s = await createClient();
+  const { data } = await s.from("countries").select("id, name");
+  return Object.fromEntries((data ?? []).map((r) => [r.id as string, r.name as string]));
+}
+
 export async function sizeNamesById(): Promise<Record<string, string>> {
   const s = await createClient();
   const { data } = await s
@@ -182,13 +207,14 @@ export async function getOrderProduction(
   garmentOrderId: string,
 ): Promise<OrderProductionInput | null> {
   const s = await createClient();
-  const [tiers, sizeNames, res] = await Promise.all([
+  const [tiers, sizeNames, countryNames, res] = await Promise.all([
     rejectionTiersById(),
     sizeNamesById(),
+    countryNamesById(),
     s.from("garment_order_amendments").select(ORDER_SELECT).eq("id", garmentOrderId).maybeSingle(),
   ]);
   if (!res.data) return null;
-  return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeNames);
+  return orderProductionInput(res.data as unknown as OrderRow, tiers, sizeNames, countryNames);
 }
 
 // ---------------------------------------------------------------------------

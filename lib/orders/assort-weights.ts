@@ -37,6 +37,9 @@
 /** One destination of the Quantities tab, as much of it as the weight needs. */
 export type AssortQuantity = {
   style_ref_no: string | null;
+  /** The destination this row ships to (0398). Read by the Material BOM's
+   *  country-wise basis; every other caller ignores it. */
+  country_id?: string | null;
   /** The declared Assortment Type. `null` reads as Solid — see `assortMode`. */
   assortment_type?: { code: string | null; name: string | null } | null;
   assort_lines?:
@@ -55,6 +58,10 @@ export type SizeWeight = {
   combo: string | null;
   size_id: string | null;
   qty: number;
+  /** Carried through from the destination row, so a caller splitting by country
+   *  has something to group on. THE DATA HALF: without it the country basis
+   *  compiles, runs and groups everything under one blank destination. */
+  country_id?: string | null;
 };
 
 /**
@@ -105,6 +112,9 @@ export function assortSizeWeights(
         combo: l.combo,
         size_id: z.size_id,
         qty: factor * (Number(z.qty) || 0),
+        // The DESTINATION's, like the style above it — an assort line belongs to
+        // the quantity row it hangs off, and that row is one destination.
+        country_id: q.country_id ?? null,
       }));
     });
   });
@@ -112,7 +122,7 @@ export function assortSizeWeights(
 
 /** The PostgREST fragment a caller must select to be able to answer this. */
 export const ASSORT_WEIGHT_SELECT =
-  "style_ref_no,assortment_type_id," +
+  "style_ref_no,country_id,assortment_type_id," +
   "assortment_type:config_lookups!garment_order_amendment_quantities_assortment_type_id_fkey(code,name)," +
   "assort_lines:garment_order_amendment_assort_lines(combo,no_of_cartons,inners_per_carton," +
   "sizes:garment_order_amendment_assort_line_sizes(size_id,qty))";
