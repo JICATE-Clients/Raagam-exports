@@ -97,6 +97,43 @@ export function ceilToPrecision(value: number, dp: number): number {
 }
 
 /**
+ * PRINT A QUANTITY AT THE PRECISION IT WAS CALCULATED TO.
+ *
+ * `fmtNumber` is `toLocaleString("en-IN")` with no options, and that default
+ * caps at THREE fraction digits and rounds to NEAREST. Both halves are wrong for
+ * a requirement:
+ *
+ *     85.714286 MTR  →  "85.714"     three digits of a six-decimal unit
+ *
+ * The engine ceilinged that figure to the unit's own `decimal_places_allowed`
+ * precisely so it would not understate what production needs; printing it
+ * rounded to nearest hands back the understatement at the last step, on the
+ * number a purchase order is written from. The screen showing LESS than the
+ * stored requirement is the failure mode, and it is silent — 85.714 is a
+ * perfectly ordinary-looking quantity.
+ *
+ * ONE PRECISION, TWO READERS. `dp` is the same `uoms.decimal_places_allowed`
+ * that `ceilToPrecision` rounded by, through the same `uomPrecision` clamp — so
+ * the figure cannot be ceilinged to one precision and printed at another. Pass
+ * the consumption UOM's decimals for a requirement and the ALTERNATIVE unit's
+ * for a purchase quantity, exactly as `toPurchaseQty` already takes them.
+ *
+ * NO `minimumFractionDigits`. A 3-decimal unit holding a round 150 prints
+ * "150", not "150.000" — trailing zeroes are noise on a figure that is exact,
+ * and the operator reads these columns by the digit.
+ *
+ * `fmtNumber` is deliberately left alone: it is imported by 96 files, most of
+ * them counting pieces, orders and days where a fourth decimal is meaningless.
+ * This is the quantity-shaped one, and it lives here rather than in
+ * `lib/format.ts` because that file must not import this one — `fmtNumber`
+ * above is imported FROM there, and the reverse edge would be a cycle.
+ */
+export function fmtQty(value: number | null | undefined, dp: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value.toLocaleString("en-IN", { maximumFractionDigits: uomPrecision(dp) });
+}
+
+/**
  * Total base requirement → quantity in the alternative (purchase) unit.
  *
  *   toPurchaseQty(200_000, { alt_qty: 1, base_qty: 2500 }, 2) → 80

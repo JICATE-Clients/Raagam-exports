@@ -5171,6 +5171,57 @@ export function AmendmentScreen({
   };
 
   /**
+   * THE WHOLE ORDER'S POSITION, IN ONE FIGURE (2026-08-21).
+   *
+   * `assortBalanceOf` above answers for ONE quantity row, and the strip under
+   * each assortment matrix renders it there — deliberately, because the 08-20
+   * fix was about PROXIMITY: the operator types in a matrix and the only
+   * reaction used to be at the bottom of the sheet, so nothing near the caret
+   * moved and the app read as accepting anything. None of that changes.
+   *
+   * What no figure on this screen answered is the ORDER-level question. An
+   * operator shipping to four destinations can have every row locally balanced
+   * and still not know where the order stands, because the only totals are
+   * per-row and they are never added up. This adds them up and nothing else.
+   *
+   * ## IT REUSES THE ROW RULE RATHER THAN RE-DERIVING IT
+   *
+   * `assortTotalOf` is the same function the row strip and the Save block both
+   * read, so the header cannot disagree with the cell the operator is looking
+   * at. A second traversal computing "allocated" its own way is how two figures
+   * for one order start drifting — the drift AGENTS.md records under Nominated
+   * vendors and `created_by` alike.
+   *
+   * ## NULL IS NOT ZERO, AND IT IS THE WHOLE REASON THIS IS NOT A SUM OF
+   * ## `assortBalanceOf`
+   *
+   * A row whose breakup adds to nothing answers `null` — "not started", not
+   * "short by the full amount". Summing the balances would turn every untouched
+   * destination into a shortfall and announce a deficit against work nobody has
+   * begun. So the two sides are totalled independently and an order with no
+   * breakup at all reports `target` with nothing allocated, exactly as the row
+   * strip does one level down.
+   */
+  /* NOT a `useMemo`, deliberately: these helpers sit BELOW a conditional return
+     in this component, so a hook here is called in a different order between
+     renders — `react-hooks/rules-of-hooks` catches it, and the failure it
+     prevents is React pairing this state with another hook's. The loop is over
+     a handful of destination rows and runs beside `assortTotalOf`, which is
+     already re-derived per render for the same reason. */
+  const orderBalance = (() => {
+    let target = 0;
+    let allocated = 0;
+    let started = 0;
+    for (const q of quantities) {
+      target += Number(q.po_qty) || 0;
+      const computed = assortTotalOf(q);
+      allocated += computed;
+      if (computed > 0) started++;
+    }
+    return { target, allocated, started, rows: quantities.length };
+  })();
+
+  /**
    * THE BREAKUP MUST ADD UP, AND IT BLOCKS SAVE (client 2026-08-18).
    *
    * `kind: "custom"` is what makes it blocking — `isBlocking` in
@@ -6082,7 +6133,7 @@ export function AmendmentScreen({
                 type="button"
                 tabIndex={-1}
                 onClick={() => setQty(r.key, { po_qty: String(computed) })}
-                className="block w-full text-right text-[11px] leading-tight text-destructive hover:underline"
+                className="block w-full text-right text-[11px] leading-tight text-danger hover:underline"
                 title="Use the assortment total"
               >
                 Assort: {fmtNumber(computed)} — use
@@ -6837,7 +6888,7 @@ export function AmendmentScreen({
                       CELL +
                       " sticky right-0 z-10 justify-end border-l bg-surface pr-3 text-sm font-semibold tabular-nums" +
                       (lineQtyOf(l, mode) > (Number(q.po_qty) || 0)
-                        ? " text-destructive"
+                        ? " text-danger"
                         : "")
                     }
                   >
@@ -6884,7 +6935,7 @@ export function AmendmentScreen({
                 " sticky right-0 z-30 justify-end pr-3 " +
                 (assortBalanceOf(q) === null || assortBalanceOf(q) === 0
                   ? "text-primary"
-                  : "text-destructive")
+                  : "text-danger")
               }
             >
               {fmtNumber(assortTotalOf(q))}
@@ -6933,7 +6984,7 @@ export function AmendmentScreen({
               className={
                 "mt-2 rounded-md border px-3 py-1.5 text-xs tabular-nums " +
                 (over
-                  ? "border-destructive/40 bg-destructive/10 font-semibold text-destructive"
+                  ? "border-danger/40 bg-danger/10 font-semibold text-danger"
                   : "border-border bg-surface-muted text-muted-foreground")
               }
             >
@@ -9956,9 +10007,47 @@ export function AmendmentScreen({
            The LIST-mode header keeps its own, deliberately. A list is where
            someone arrives without context; an editor is not. */
         actions={
-          <Button variant="outline" size="md" onClick={() => setMode("list")}>
-            ← Back to list
-          </Button>
+          <div className="flex items-center gap-3">
+            {/* THE ORDER-LEVEL LEDGER. Here rather than in a pinned card of its
+                own: the operator's standing rule is that a record's header
+                fields are a SECTION, not a band floating above the rail, and a
+                new full-width band is that shape. `PageHeader` is already the
+                one strip that names this record, and `MasterFullScreen` is
+                mounted `page` here precisely so this header stays visible.
+
+                SHOWN ONLY ONCE THERE IS A BREAKUP TO REPORT ON. Before that it
+                would say "0 of 0", which is a claim about an order nobody has
+                started — the same call `assortBalanceOf` makes by answering null
+                rather than a shortfall. */}
+            {orderBalance.rows > 0 && orderBalance.target > 0 && (
+              <span className="hidden items-baseline gap-1.5 text-xs sm:flex">
+                <span className="text-muted-foreground">Order breakup</span>
+                <span className="font-medium tabular-nums text-foreground">
+                  {fmtNumber(orderBalance.allocated)}
+                </span>
+                <span className="text-muted-foreground">of</span>
+                <span className="font-medium tabular-nums text-foreground">
+                  {fmtNumber(orderBalance.target)}
+                </span>
+                {orderBalance.started === 0 ? (
+                  <span className="text-muted-foreground">· not started</span>
+                ) : orderBalance.allocated === orderBalance.target ? (
+                  <span className="text-success">· balanced</span>
+                ) : orderBalance.allocated < orderBalance.target ? (
+                  <span className="text-warning">
+                    · {fmtNumber(orderBalance.target - orderBalance.allocated)} left
+                  </span>
+                ) : (
+                  <span className="text-danger">
+                    · {fmtNumber(orderBalance.allocated - orderBalance.target)} over
+                  </span>
+                )}
+              </span>
+            )}
+            <Button variant="outline" size="md" onClick={() => setMode("list")}>
+              ← Back to list
+            </Button>
+          </div>
         }
       />
 

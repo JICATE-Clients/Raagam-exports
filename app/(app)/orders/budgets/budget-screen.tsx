@@ -723,7 +723,13 @@ export function BudgetScreen({
       content: (
         <SectionBody title="Summary">
           <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-            <Figure label="Sales value" value={totals.sales} />
+            {/* THE UNIT IS NAMED, and that is not decoration (2026-08-21). Each
+                order's value is converted to INR before it reaches a budget
+                (`orderSalesValue`), because a USD order and an INR order were
+                previously ADDED TOGETHER UNCONVERTED. A converted total sitting
+                in an unlabelled box reads as the buyer's own currency to the one
+                person most likely to check it against the order. */}
+            <Figure label="Sales value (INR)" value={totals.sales} />
             <Figure label="Total cost" value={totals.cost} />
             <Figure label="Other income" value={totals.income} />
             <Figure label="Profit / loss" value={totals.profit} strong />

@@ -27,6 +27,7 @@
     "check:colour-by-type": "npx --yes tsx scripts/check-colour-by-type.mts",
     "check:assort-weights": "npx --yes tsx scripts/check-assort-weights.mts",
     "check:bom-slices": "npx --yes tsx scripts/check-bom-slices.mts",
+    "check:ta-schedule": "npx --yes tsx scripts/check-ta-schedule.mts",
     "check:picker": "node --experimental-strip-types scripts/check-picker-identity.mts",
     "check:assort-style": "npx --yes tsx scripts/check-assort-style.mts",
     "check:size-order": "node --experimental-strip-types scripts/check-size-order.mts",

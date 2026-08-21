@@ -30,6 +30,7 @@ import {
   budgetTotals,
   isRefusal,
   lineAmount,
+  orderSalesValue,
   type BudgetLineInput,
   type BudgetOrderInput,
 } from "../lib/orders/budget/totals.ts";
@@ -231,6 +232,73 @@ check(
   "an unknown source refuses rather than defaulting",
   refusalOf(budgetSourceOf("overheads")),
   "Choose what this line is for",
+);
+
+// ---------------------------------------------------------------------------
+// Currency: an order's value reaches a budget in INR, or not at all
+//
+// `orderValue` answers in the BUYER'S own currency. Until 2026-08-21 that figure
+// was handed straight to the budget as `sales_value`, so a budget grouping a USD
+// order with an INR one ADDED THE TWO TOGETHER UNCONVERTED - an ordinary-looking
+// total that is the sum of two different units, and the number a profit margin
+// is calculated from.
+//
+// These vectors are on `orderSalesValue` rather than on the service that calls
+// it, because that service is `server-only` and a vector cannot reach it.
+// ---------------------------------------------------------------------------
+
+const usd = { grossValue: 1000, unresolved: [] as string[], exRate: 88, currencyCode: "USD" };
+
+check("a USD order converts at its rate", orderSalesValue(usd).value, 88000);
+refute("...not the raw 1,000, which is dollars in a rupee total", orderSalesValue(usd).value, 1000);
+
+check(
+  "an INR order converts at 1, whatever rate is sitting on it",
+  orderSalesValue({ grossValue: 1000, unresolved: [], exRate: 88, currencyCode: "INR" }).value,
+  1000,
+);
+
+/* THE SUM IS THE POINT. Two orders, two currencies: unconverted they add to
+   2,000, which is the bug. Converted they add to 89,000. */
+check(
+  "two currencies no longer add unconverted",
+  orderSalesValue(usd).value! +
+    orderSalesValue({ grossValue: 1000, unresolved: [], exRate: 88, currencyCode: "INR" }).value!,
+  89000,
+);
+refute(
+  "...2,000 is what the unconverted sum used to give",
+  orderSalesValue(usd).value! +
+    orderSalesValue({ grossValue: 1000, unresolved: [], exRate: 88, currencyCode: "INR" }).value!,
+  2000,
+);
+
+/* A 0 RATE IS "NOT ENTERED", NOT "WORTHLESS". `ex_rate` is NOT NULL DEFAULT 0,
+   so the column nobody filled in reads as zero, and zero times a real gross
+   value is 0.00 - an order reported as worth nothing. */
+check(
+  "a 0 rate refuses",
+  orderSalesValue({ grossValue: 1000, unresolved: [], exRate: 0, currencyCode: "USD" }),
+  { value: null, refusal: "no exchange rate on the order's Logistic tab" },
+);
+refute(
+  "...it does not value the order at zero",
+  orderSalesValue({ grossValue: 1000, unresolved: [], exRate: 0, currencyCode: "USD" }).value,
+  0,
+);
+
+/* THE RATE IS THE SECOND QUESTION. An order with no price has no rate worth
+   mentioning, and naming the rate sends the operator to the wrong tab. */
+check(
+  "an unpriced style is reported as a price problem, not a rate problem",
+  orderSalesValue({ grossValue: null, unresolved: ["TSH-001"], exRate: 0, currencyCode: "USD" })
+    .refusal,
+  "no single price for TSH-001",
+);
+check(
+  "no quantity at all says so",
+  orderSalesValue({ grossValue: null, unresolved: [], exRate: 88, currencyCode: "USD" }).refusal,
+  "no quantity on the Styles tab",
 );
 
 console.log(failed === 0 ? "\nOK — every budget total vector holds." : `\n${failed} FAILED`);

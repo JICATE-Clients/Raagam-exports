@@ -12,6 +12,13 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
+import { today } from "@/lib/calendar";
+import {
+  addWorkingDays,
+  backwardSchedule,
+  isRefusal,
+  subtractWorkingDays,
+} from "@/lib/ta/schedule";
 import { useToast } from "@/components/ui/toast";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { fmtDate } from "@/lib/format";
@@ -39,20 +46,37 @@ type LineRow = {
   end_date: string;
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+/*
+ * TWO LOCAL COPIES OF CALENDAR ARITHMETIC LIVED HERE AND BOTH ARE GONE (2026-08-21).
+ *
+ * `today()` was `new Date().toISOString().slice(0, 10)` - UTC, so for the first
+ * 5.5 hours of every Tirupur day it dated a plan YESTERDAY. `lib/calendar.ts`
+ * exists because that bug reached the dashboard and the Created Date filter; its
+ * `today()` reads the factory's own zone.
+ *
+ * `addDays` was `new Date(iso + "T00:00:00").setDate(...)` - wall-clock
+ * arithmetic on a value that is a plain `YYYY-MM-DD` string. It is the exact
+ * technique `lib/calendar.ts`'s header warns about, and it was the app's third
+ * implementation of adding days to a date.
+ */
 
-function addDays(iso: string, days: number): string {
-  const d = new Date(iso + "T00:00:00");
-  if (Number.isNaN(d.getTime())) return "";
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-/** End = Start + Days Required (when both present). */
+/**
+ * End = Start + Days Required, COUNTED IN WORKING DAYS.
+ *
+ * It counted calendar days until the backward scheduler arrived, and the two
+ * cannot disagree on one screen: a plan filled from the delivery date and then
+ * nudged forward by a single edit would contradict itself by however many
+ * Sundays the span contained, with both dates looking perfectly ordinary.
+ *
+ * `addWorkingDays` refuses a fractional or negative figure; a refusal here means
+ * the operator is mid-keystroke, so the row is left exactly as it was rather
+ * than blanked - the same call the grid already makes for an empty box.
+ */
 function withEnd(row: LineRow): LineRow {
   const days = Number(row.days_required);
   if (row.start_date && row.days_required !== "" && !Number.isNaN(days)) {
-    return { ...row, end_date: addDays(row.start_date, days) };
+    const end = addWorkingDays(row.start_date, days);
+    return isRefusal(end) ? row : { ...row, end_date: end };
   }
   return row;
 }
@@ -168,6 +192,75 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
 
   function patchLine(key: string, patch: Partial<LineRow>) {
     setLines((xs) => xs.map((x) => (x.key === key ? withEnd({ ...x, ...patch }) : x)));
+  };
+
+  /**
+   * FILL THE LADDER BACKWARD FROM THE DELIVERY DATE.
+   *
+   * The grid reads DOWNSTREAM-LAST - Material In-House at the top, Final
+   * Inspection at the bottom - because that is the order the floor works in. The
+   * scheduler takes the opposite order, so the rows are reversed on the way in
+   * and the results mapped back by key. Reversing in the caller rather than
+   * teaching the module both orders keeps one direction of arithmetic.
+   *
+   * ## IT IS A BUTTON, NOT AN EFFECT
+   *
+   * An effect on `deliveryDate` would overwrite dates the planner had typed the
+   * moment they corrected the delivery date by a day - and the legacy screen
+   * lets a planner override a computed date on purpose (see `End Dt` below).
+   * Recomputing has to be something they ASK for, so what it overwrites is never
+   * a surprise.
+   *
+   * ## A REFUSAL SAYS WHICH ROW, AND CHANGES NOTHING
+   *
+   * Partially filling the ladder would leave some rows scheduled and some as the
+   * planner left them, with nothing on screen saying which is which - the
+   * partial-explosion failure the BOM engines refuse for the same reason.
+   */
+  const scheduleBackward = () => {
+    const ladder = [...lines].reverse();
+    const plan = backwardSchedule({
+      deliveryDate,
+      steps: ladder.map((r) => ({
+        key: r.key,
+        // NAMED, so a refusal points at a row rather than at the ladder. An
+        // unpicked activity still has to say something the planner can find.
+        label: activityName.get(r.activity_id ?? "") ?? "This activity",
+        days: r.days_required === "" ? null : Number(r.days_required),
+      })),
+    });
+    if (isRefusal(plan)) {
+      toastError(plan.refused);
+      return;
+    }
+
+    const byKey = new Map(plan.steps.map((x) => [x.key, x]));
+    setLines((xs) =>
+      xs.map((x) => {
+        const at = byKey.get(x.key);
+        if (!at) return x;
+        // Start is the same walk one step further back: the process needs its
+        // own days BEFORE the date it must be complete on.
+        const start = subtractWorkingDays(at.date, at.days);
+        return {
+          ...x,
+          end_date: at.date,
+          start_date: isRefusal(start) ? x.start_date : start,
+        };
+      }),
+    );
+    setTargetDate(plan.startDate);
+    setNoOfDays(String(ladder.reduce((sum, r) => sum + (Number(r.days_required) || 0), 0)));
+    // THE FLOAT IS SAID OUT LOUD when it is negative. A plan whose first task
+    // was due before today is not a plan, and a grid full of past dates reads as
+    // ordinary work until somebody adds them up.
+    if (plan.float < 0) {
+      toastError(
+        `Scheduled, but work had to start ${Math.abs(plan.float)} days ago — this delivery date cannot be met`,
+      );
+    } else {
+      success(`Scheduled back to ${plan.startDate}`);
+    }
   }
 
   function onPickFromActivity(key: string, fromActivityId: string | null) {
@@ -480,7 +573,29 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
         <CardBody>
           <FieldGrid>
             <Field label="Deliv. Dt" size="sm" htmlFor="tap-deliv">
-              <Input id="tap-deliv" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
+              <div className="flex items-center gap-2">
+                <Input id="tap-deliv" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
+                {/* THE ONE CONTROL THAT SCHEDULES, beside the date it schedules
+                    FROM. Disabled with a `title` rather than hidden: a button
+                    that disappears when the ladder is empty teaches nothing,
+                    and this is the screen's only route to a backward plan. */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={scheduleBackward}
+                  disabled={!deliveryDate || lines.length === 0}
+                  title={
+                    !deliveryDate
+                      ? "Enter the delivery date first"
+                      : lines.length === 0
+                        ? "Add activities first"
+                        : "Fill every activity's dates backward from the delivery date"
+                  }
+                >
+                  Schedule back
+                </Button>
+              </div>
             </Field>
             <Field label="Order Qty" size="sm" htmlFor="tap-qty">
               <Input id="tap-qty" type="number" min="0" value={orderQty} onChange={(e) => setOrderQty(e.target.value)} />

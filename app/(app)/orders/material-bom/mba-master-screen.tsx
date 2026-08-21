@@ -37,6 +37,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { today as todayAtFactory } from "@/lib/calendar";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtQty } from "@/lib/uom/convert";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { sectionValidity } from "@/lib/screens/validity";
 import { RecordPicker } from "@/components/masters/record-picker";
@@ -403,12 +404,22 @@ const DENSE =
   "[&>label]:text-[10.5px] [&_input]:h-8 [&_select]:h-8 [&_input]:text-[12.5px] [&_select]:text-[12.5px]";
 
 /** One figure in the quantity ribbon. */
-function Figure({ label, value, unit }: { label: string; value: number; unit: string }) {
+function Figure({
+  label,
+  value,
+  unit,
+  decimals,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  decimals?: number | null;
+}) {
   return (
     <div className="flex flex-col">
       <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className="text-sm font-medium tabular-nums leading-tight text-foreground">
-        {fmtNumber(value)}
+        {fmtQty(value, decimals)}
         <span className="ml-1 text-[10px] font-normal text-muted-foreground">{unit}</span>
       </span>
     </div>
@@ -594,25 +605,37 @@ export function MbaMasterScreen({
   const [isPending, start] = useTransition();
 
   /*
-   * WHICH LINES HAVE THEIR CONSUMPTION GRID OPEN (client 2026-08-21: "collapsing
-   * these grids by default and allowing operators to expand them on-demand").
+   * WHICH LINES HAVE THEIR CONSUMPTION GRID CLOSED — ABSENCE MEANS OPEN.
    *
-   * CLOSED IS THE DEFAULT AND ABSENCE MEANS CLOSED — the reverse of the detail
-   * band this screen used to carry, where absence meant open because two REQUIRED
-   * fields lived inside it. Nothing in here is required: every cell is an
-   * override whose blank means "use the line's own figure", so a line is
-   * completely fillable without ever opening it. That is what makes collapsing
-   * safe, and it is the test to re-run if a mandatory field is ever added here.
+   * ## OPEN IS THE DEFAULT, AND IT GOT THERE BY BEING REVERSED
+   *
+   * Collapsed-by-default is the obvious answer and it is the one the client
+   * ASKED for — "collapsing these grids by default and allowing operators to
+   * expand them on-demand" — so it was built. Then it was seen (screenshots
+   * 2456 / 2457, same day): picking an Attribute landed on "Color-wise — 3
+   * rows" with the values behind a click, and the client wants the values
+   * themselves. **The later instruction wins.**
+   *
+   * This is written at length because the argument FOR collapsing survives its
+   * own reversal and will be made again. A 28-row Combination grid really does
+   * push the screen around, and a reader who finds only that half of the story
+   * will flip this default back believing it a fix. It is not: the values ARE
+   * the point of the grid, and a merchandiser reading down fifteen lines is
+   * reading the figures, not the row counts. The toggle stays for the 28-row
+   * case, so the fold is still one click away — what the client changed is
+   * which state the operator ARRIVES in, not whether folding exists.
+   *
+   * Reversing it again needs a NEW client decision against a screenshot, not a
+   * tidy-up and not a restated version of the original ask.
+   *
+   * ## The safety argument, which is about `blank` and is unchanged either way
+   *
+   * Items and Pcs are typed in this grid, and a blank one holds the caption
+   * open (`blank` below) because AGENTS.md refuses to require a HIDDEN field.
+   * That guard is what makes either default safe; it is not an argument for one
+   * of them.
    */
   const [closedSlices, setClosedSlices] = useState<Set<string>>(new Set());
-
-  /* Which lines have their consumption grid CLOSED — absence means OPEN.
-     REVERSED ON SIGHT (client 2026-08-21, screenshots 2456/2457). Collapsing by
-     default was asked for and then seen: picking an Attribute landed on
-     "Color-wise — 3 rows" with the values behind a click, and the client wants
-     the values themselves, which is what 2456 shows. The toggle stays, so a
-     28-row Combination grid can still be folded away by hand — what changed is
-     which state the operator arrives in. */
 
   /* The challans already raised from this BOM, keyed by the process row's own
      anchor (0446). Reloaded with the record, so it is the DATABASE's view of
@@ -1294,6 +1317,11 @@ export function MbaMasterScreen({
         caption={caption}
         axisHead={axisHead}
         rows={rows}
+        /* THE PRECISION THE THREE DERIVED COLUMNS WERE CEILINGED TO. Without it
+           the grid printed them through `fmtNumber`, whose bare `toLocaleString`
+           caps at three fraction digits and rounds to NEAREST — so a six-decimal
+           unit showed LESS than the stored requirement. See `fmtQty`. */
+        decimals={uomDecimals(r.consumption_uom_id)}
         /* WHAT A BLANK BOX WILL USE. The line still CARRIES all three even
            though it no longer shows them, so an older BOM's figures remain the
            default until a row types its own. */
@@ -1898,7 +1926,7 @@ export function MbaMasterScreen({
           emphasis ? "text-sm font-bold" : "text-sm font-semibold",
         )}
       >
-        {fmtNumber(value)}
+        {fmtQty(value, t.decimals)}
         <span className="ml-1 text-[10px] font-normal opacity-80">{t.uom}</span>
       </span>
     );
@@ -1942,7 +1970,7 @@ export function MbaMasterScreen({
 
     return (
       <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-2 rounded-md bg-surface-muted px-3 py-2">
-        <Figure label="Order needs" value={t.excessCalc} unit={t.uom} />
+        <Figure label="Order needs" value={t.excessCalc} unit={t.uom} decimals={t.decimals} />
         {moqBit && (
           <Step
             /* DIMMED, NOT DROPPED, when the order already needs more than the
@@ -1955,7 +1983,7 @@ export function MbaMasterScreen({
         <div className="ml-auto flex flex-col items-end rounded-md bg-accent-soft px-3 py-1">
           <span className="text-[9px] uppercase tracking-wider text-accent/85">Final quantity</span>
           <span className="text-lg font-semibold tabular-nums leading-tight text-accent">
-            {fmtNumber(t.final)}
+            {fmtQty(t.final, t.decimals)}
             <span className="ml-1 text-[10px] font-normal opacity-80">{t.uom}</span>
           </span>
         </div>
@@ -1986,8 +2014,14 @@ export function MbaMasterScreen({
     required: number | null;
     refusal: string | null;
     uom: string;
+    /* The precision each figure beside it was calculated to - see `fmtQty`. The
+       two differ: a requirement is in the CONSUMPTION unit, a purchase quantity
+       in the pack's ALTERNATIVE one, and `toPurchaseQty` already takes the
+       second separately for exactly that reason. */
+    decimals: number | null;
     purchase: number | null;
     purchaseUom: string;
+    purchaseDecimals: number | null;
   };
 
   /**
@@ -2012,6 +2046,10 @@ export function MbaMasterScreen({
     final: number | null;
     refusal: string | null;
     uom: string;
+    /* `decimal_places_allowed` of the unit these figures are IN, carried beside
+       the label so the ribbon prints them at the precision `ceilToPrecision`
+       rounded them to — see `fmtQty`. */
+    decimals: number | null;
   };
 
   const { reqRows, lineTotals } = useMemo((): {
@@ -2040,12 +2078,15 @@ export function MbaMasterScreen({
           required: null,
           refusal: null,
           uom: uomName(r.consumption_uom_id),
+          decimals: uomDecimals(r.consumption_uom_id),
           purchase: null,
           purchaseUom: "—",
+          purchaseDecimals: null,
           ...over,
         });
 
       const uomLabel = uomName(r.consumption_uom_id);
+      const uomDp = uomDecimals(r.consumption_uom_id);
 
       if (!r.requirement_basis) {
         push({ refusal: "Choose how this material splits" });
@@ -2055,6 +2096,7 @@ export function MbaMasterScreen({
           final: null,
           refusal: "Choose how this material splits",
           uom: uomLabel,
+          decimals: uomDp,
         });
         continue;
       }
@@ -2079,6 +2121,7 @@ export function MbaMasterScreen({
           final: null,
           refusal: slices.refused,
           uom: uomLabel,
+          decimals: uomDp,
         });
         continue;
       }
@@ -2151,6 +2194,7 @@ export function MbaMasterScreen({
               ? toPurchaseQty(qty, pack, uomPrecision(uomDecimals(pack.alt_uom_id)))
               : null,
           purchaseUom: packUsable && pack ? uomName(pack.alt_uom_id) : "—",
+          purchaseDecimals: packUsable && pack ? uomDecimals(pack.alt_uom_id) : null,
         });
       }
 
@@ -2168,6 +2212,7 @@ export function MbaMasterScreen({
           final: null,
           refusal: lineRefusal,
           uom: uomLabel,
+          decimals: uomDp,
         });
         continue;
       }
@@ -2181,13 +2226,21 @@ export function MbaMasterScreen({
       totals.set(
         r.key,
         isRefusal(chain)
-          ? { calc: null, excessCalc: null, final: null, refusal: chain.refused, uom: uomLabel }
+          ? {
+              calc: null,
+              excessCalc: null,
+              final: null,
+              refusal: chain.refused,
+              uom: uomLabel,
+              decimals: uomDp,
+            }
           : {
               calc: chain.calcQty,
               excessCalc: chain.excessCalcQty,
               final: chain.finalQty,
               refusal: null,
               uom: uomLabel,
+              decimals: uomDp,
             },
       );
     }
@@ -2821,7 +2874,7 @@ export function MbaMasterScreen({
       // needed", the one answer a material requirement never intends.
       cell: (r) =>
         r.required != null ? (
-          <span className="font-medium tabular-nums">{fmtNumber(r.required)}</span>
+          <span className="font-medium tabular-nums">{fmtQty(r.required, r.decimals)}</span>
         ) : (
           <span className="text-xs text-muted-foreground">{r.refusal ?? "—"}</span>
         ),
@@ -2831,7 +2884,9 @@ export function MbaMasterScreen({
       header: "Purchase Qty",
       align: "right",
       cell: (r) => (
-        <span className="tabular-nums">{r.purchase != null ? fmtNumber(r.purchase) : "—"}</span>
+        <span className="tabular-nums">
+          {r.purchase != null ? fmtQty(r.purchase, r.purchaseDecimals) : "—"}
+        </span>
       ),
     },
     { header: "Purchase Uom", cell: (r) => <span className="text-xs">{r.purchaseUom}</span> },

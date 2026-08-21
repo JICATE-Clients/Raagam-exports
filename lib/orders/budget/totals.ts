@@ -41,6 +41,57 @@
  */
 
 import { money } from "@/lib/finance/calc";
+import { inrValue } from "@/lib/orders/amendments/order-value";
+
+/**
+ * ONE ORDER'S CONTRIBUTION TO A BUDGET, IN INR, OR THE REASON THERE ISN'T ONE.
+ *
+ * Pure, and it lives here rather than in `service.ts` for exactly one reason:
+ * `service.ts` is `server-only`, so nothing in it can be reached by a vector.
+ * The arithmetic here is one call to `inrValue`; the part that needed testing is
+ * the ORDER OF THE REFUSALS below, which is a judgement rather than a formula.
+ *
+ * ## WHY THE VALUE IS CONVERTED AT ALL
+ *
+ * `orderValue` answers in the buyer's own currency. Handing that straight to a
+ * budget lets a USD order and an INR order be ADDED TOGETHER UNCONVERTED - an
+ * ordinary-looking total that is the sum of two different units, feeding the
+ * profit margin. That was live until 2026-08-21.
+ *
+ * ## THE RATE IS THE SECOND QUESTION, NEVER THE FIRST
+ *
+ * An order with no price at all also has no exchange rate worth mentioning, and
+ * saying "no exchange rate" about it sends the operator to the Logistic tab when
+ * the hole is on the Prices tab. So a missing gross value is reported first and
+ * the rate is only named once there is a real figure it could have converted.
+ *
+ * A 0 rate is "not entered", not "worthless": `ex_rate` is `NOT NULL DEFAULT 0`,
+ * so the column an operator has not filled in reads as zero, and zero times a
+ * real gross value is 0.00. `inrValue` refuses it, and this carries the refusal
+ * out as a sentence rather than a number.
+ */
+export function orderSalesValue(v: {
+  grossValue: number | null;
+  unresolved: readonly string[];
+  exRate: number | null | undefined;
+  currencyCode: string | null | undefined;
+}): { value: number | null; refusal: string | null } {
+  const inr = inrValue(v.grossValue, v.exRate, v.currencyCode);
+  if (inr != null) return { value: inr, refusal: null };
+
+  if (v.grossValue == null) {
+    return {
+      value: null,
+      // NAMES THE STYLES, not just "unresolved" — the operator has to go and fix
+      // one row on one tab, and a bare refusal sends them hunting.
+      refusal:
+        v.unresolved.length > 0
+          ? `no single price for ${v.unresolved.join(", ")}`
+          : "no quantity on the Styles tab",
+    };
+  }
+  return { value: null, refusal: "no exchange rate on the order's Logistic tab" };
+}
 
 // `money` is imported rather than redefined. There are already three copies of
 // two-decimal rounding in this repo (finance, hr, and a private one inside
