@@ -1,4 +1,9 @@
 import "server-only";
+import {
+  ASSORT_WEIGHT_SELECT,
+  assortSizeWeights,
+  type AssortQuantity,
+} from "@/lib/orders/assort-weights";
 import { createClient } from "@/lib/supabase/server";
 import { isInactive } from "@/lib/masters/inactive";
 import { withCreators } from "@/lib/created-by";
@@ -47,9 +52,7 @@ async function salesValuesByOrder(): Promise<
       "id, " +
         "styles:garment_order_amendment_styles(style_ref_no, po_qty), " +
         "prices:garment_order_amendment_price_details(style_ref_no, price_type, combo, size_id, price), " +
-        "quantities:garment_order_amendment_quantities(style_ref_no, " +
-        "assort_lines:garment_order_amendment_assort_lines(combo, no_of_cartons, " +
-        "sizes:garment_order_amendment_assort_line_sizes(size_id, qty)))",
+        `quantities:garment_order_amendment_quantities(${ASSORT_WEIGHT_SELECT})`,
     )
     .eq("is_draft", false);
 
@@ -65,36 +68,20 @@ async function salesValuesByOrder(): Promise<
           price: number | null;
         }[]
       | null;
-    quantities:
-      | {
-          style_ref_no: string | null;
-          assort_lines:
-            | {
-                combo: string | null;
-                no_of_cartons: number | null;
-                sizes: { size_id: string | null; qty: number | null }[] | null;
-              }[]
-            | null;
-        }[]
-      | null;
+    quantities: AssortQuantity[] | null;
   };
 
   const out = new Map<string, { value: number | null; refusal: string | null }>();
   for (const r of (data ?? []) as unknown as Row[]) {
-    // `no_of_cartons x that size's pieces` — the SAME multiplication
-    // `pricingWeights` does on the Garment Order screen and
-    // `orderProductionInput` does for the BOMs. Three callers reading one tree,
-    // and the expression is copied deliberately rather than each inventing one.
-    const weights = (r.quantities ?? []).flatMap((q) =>
-      (q.assort_lines ?? []).flatMap((l) =>
-        (l.sizes ?? []).map((z) => ({
-          style_ref_no: q.style_ref_no,
-          combo: l.combo,
-          size_id: z.size_id,
-          qty: (Number(l.no_of_cartons) || 0) * (Number(z.qty) || 0),
-        })),
-      ),
-    );
+    /* ONE RULE, NOT A THIRD COPY (2026-08-20).
+       This was `no_of_cartons x that size's pieces`, described as "copied
+       deliberately" so the three readers of the assort tree could not disagree.
+       They disagreed anyway: on a SOLID/SOLID pack there is no carton count, so
+       this multiplied every size by zero and valued the whole order at nothing —
+       silently, because a zero looks exactly like an order nobody has filled in.
+       It also dropped `inners_per_carton`, under-counting any assort pack.
+       See `assortSizeWeights`. */
+    const weights = assortSizeWeights(r.quantities);
 
     const v = orderValue(
       (r.styles ?? []).map((x) => ({
