@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isInactive } from "@/lib/masters/inactive";
 import { withCreators } from "@/lib/created-by";
 import { orderValue } from "@/lib/orders/amendments/order-value";
+import { orderSalesValue } from "./totals";
 import type { BudgetSource } from "./totals";
 import type {
   BudgetApprovalRow,
@@ -35,6 +36,43 @@ export type PickerRow = { id: string; code: string | null; name: string; inactiv
  * rather than averaged, a style with quantity and no price poisons the order's
  * whole value, and a size-wise price is weighted by the assortment.
  *
+ * ## EVERY VALUE IS CONVERTED TO INR BEFORE IT LEAVES THIS FUNCTION
+ *
+ * `orderValue` answers in the BUYER'S OWN CURRENCY - a USD order returns dollars
+ * and an INR order returns rupees, with nothing in the number saying which. This
+ * used to be handed straight out as `sales_value`, and a budget grouping a USD
+ * order with an INR one ADDED THE TWO TOGETHER UNCONVERTED. The total looked
+ * entirely ordinary; it was the sum of two different units, and it is the figure
+ * a profit margin is calculated from.
+ *
+ * `inrValue` is imported rather than reimplemented, for its refusals as much as
+ * its arithmetic:
+ *
+ *   - an order already in INR converts at 1 - checked on the currency the order
+ *     NAMES, and a blank currency is not assumed to be home;
+ *   - `ex_rate` is `numeric(14,4) NOT NULL DEFAULT 0`, so an unfilled rate reads
+ *     as ZERO, and zero times a real gross value is "this order is worth
+ *     nothing" rather than "unknown". It returns null, and the null travels into
+ *     `sales_refusal` where the operator can read it.
+ *
+ * ## THE BUDGET'S OWN `exchange_rate` DOES NOT REACH THIS FUNCTION, AND CANNOT
+ *
+ * `order_budgets.exchange_rate` is a planning rate on the budget header, and the
+ * argument for letting it override the order's booking rate is a good one. It is
+ * not wired here and the reason is structural, not an oversight: this function
+ * feeds `listBudgetableOrders()`, the menu of orders a budget COULD pick up -
+ * there is no budget in scope yet. Its output is then SNAPSHOTTED into
+ * `order_budget_orders.sales_value`, a column with no currency and no rate
+ * beside it, so a later re-conversion at the budget's rate has nothing to
+ * re-convert FROM and no way to tell an already-converted figure from a raw one.
+ *
+ * Making the budget's rate govern therefore needs `currency_code` and `ex_rate`
+ * carried onto `order_budget_orders` - a migration, and a decision about what
+ * happens to a budget already approved at the old rate. Left deliberately
+ * undone rather than half-done: a second rate applied to an already-converted
+ * figure is a silent double conversion, which is a worse bug than the one this
+ * fixes.
+ *
  * ## A SEPARATE QUERY, NOT AN EMBED ON `ORDER_SELECT`
  *
  * `bom-order-basis.ts`'s select already names four child relationships and is
@@ -49,7 +87,7 @@ async function salesValuesByOrder(): Promise<
   const { data } = await s
     .from("garment_order_amendments")
     .select(
-      "id, " +
+      "id, ex_rate, currency_code, " +
         "styles:garment_order_amendment_styles(style_ref_no, po_qty), " +
         "prices:garment_order_amendment_price_details(style_ref_no, price_type, combo, size_id, price), " +
         `quantities:garment_order_amendment_quantities(${ASSORT_WEIGHT_SELECT})`,
@@ -58,6 +96,8 @@ async function salesValuesByOrder(): Promise<
 
   type Row = {
     id: string;
+    ex_rate: number | null;
+    currency_code: string | null;
     styles: { style_ref_no: string | null; po_qty: number | null }[] | null;
     prices:
       | {
@@ -98,17 +138,18 @@ async function salesValuesByOrder(): Promise<
       weights,
     );
 
-    out.set(r.id, {
-      value: v.grossValue,
-      // NAMES THE STYLES, not just "unresolved". The operator has to go and fix
-      // one row on one tab; a bare refusal sends them hunting.
-      refusal:
-        v.grossValue != null
-          ? null
-          : v.unresolved.length > 0
-            ? `no single price for ${v.unresolved.join(", ")}`
-            : "no quantity on the Styles tab",
-    });
+    /* IN INR, ALWAYS - see the header. The value and the ORDER OF ITS REFUSALS
+       are `orderSalesValue`'s, in `./totals`, because this module is
+       `server-only` and nothing in it can be reached by a vector. */
+    out.set(
+      r.id,
+      orderSalesValue({
+        grossValue: v.grossValue,
+        unresolved: v.unresolved,
+        exRate: Number(r.ex_rate) || 0,
+        currencyCode: r.currency_code,
+      }),
+    );
   }
   return out;
 }
