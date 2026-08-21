@@ -1123,8 +1123,42 @@ export function focusLastField(root: HTMLElement | null): boolean {
  * The 30ms is `gridKeyNav`'s, deliberately — the same wait for the same React
  * render, and two timing stories for one landing is one too many.
  */
+/**
+ * The smallest ancestor of `el` that CONTAINS a grid body.
+ *
+ * `landOnAddedRow` diffs the fields inside a scope, so the scope has to hold the
+ * grid — and the "+ Add" it starts from lives in one of three places, only two of
+ * which a `closest` / `parentElement` pair can reach:
+ *
+ *   - INSIDE `data-grid-body` (hand-rolled grids) — `closest` finds it;
+ *   - beside the body in the grid's card (`ChildGrid`) — `parentElement` IS the card;
+ *   - in the card's HEADER BAND (Work Timing's "+ Add shift", a sibling of the div
+ *     holding the body) — `parentElement` is a band holding a heading and a button
+ *     and NOTHING field-like, so the diff was empty before and after the add.
+ *
+ * That third case is why this exists. The row appeared and the cursor stayed on the
+ * button; the final rescue only fires when focus is on `<body>`, and it was on the
+ * button, so nothing moved. The next Tab then went to the FIRST row, not the one
+ * just asked for — exactly the defect `landOnAddedRow` was written to fix
+ * (client 2026-08-14), still live wherever the trigger's parent misses the grid.
+ *
+ * Self-bounding: it stops at the FIRST ancestor holding a body, which is by
+ * definition the smallest, so a grid's own add never widens past its card.
+ */
+function gridHolder(el: HTMLElement): HTMLElement | null {
+  let scope = el.parentElement;
+  while (scope) {
+    if (scope.querySelector("[data-grid-body]")) return scope;
+    scope = scope.parentElement;
+  }
+  return null;
+}
+
 export function landOnAddedRow(trigger: HTMLElement): void {
-  const scope = trigger.closest<HTMLElement>("[data-grid-body]") ?? trigger.parentElement;
+  const scope =
+    trigger.closest<HTMLElement>("[data-grid-body]") ??
+    gridHolder(trigger) ??
+    trigger.parentElement;
   if (!scope) return;
   const fieldsNow = () => focusablesIn(scope).filter(isFieldLike);
   const before = new Set(fieldsNow());

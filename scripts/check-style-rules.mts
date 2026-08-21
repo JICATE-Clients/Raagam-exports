@@ -26,6 +26,7 @@ import {
   type CoordinateLike,
   type ComponentLike,
 } from "../lib/orders/styles/rules.ts";
+import { readFileSync } from "node:fs";
 
 let failed = 0;
 
@@ -216,6 +217,111 @@ check("an unknown category leaves Type alone",
   componentTypeForCategory("cat-nope", CATS, STRUCTS), null);
 check("no category leaves Type alone",
   componentTypeForCategory(null, CATS, STRUCTS), null);
+
+// ---------- A YEAR IS FOUR DIGITS, AND BLANK IS NOT A PROBLEM ----------
+//
+// The complaint was a `type="number"` box taking any number of digits. The
+// input now caps keystrokes at four, but that half only binds the operator —
+// these vectors are the half that binds `garmentStyleInput`, i.e. every other
+// writer.
+//
+// The two shapes of value are both exercised on purpose: the SCREEN passes the
+// raw string it is holding, the SCHEMA passes an already-coerced integer, and a
+// rule that answered differently for 2026 and "2026" would badge the rail on a
+// value the server accepts (or the reverse).
+{
+  const yr = (v: number | string | null | undefined) =>
+    styleProblems({ style_year: v }).map((p) => p.section);
+
+  check("a 4-digit year is fine (number)", yr(2026), []);
+  check("a 4-digit year is fine (string)", yr("2026"), []);
+  check("no year at all is fine", yr(null), []);
+  check("an undefined year is fine", yr(undefined), []);
+  // The empty string is what an untouched input holds. It must read as "not
+  // answered", never as a malformed value — badging the rail red on a field
+  // nobody typed in is how an optional field turns into a stopped screen.
+  check("an empty year is fine", yr(""), []);
+  check("a whitespace year is fine", yr("   "), []);
+
+  check("five digits is a problem", yr(202666), ["style"]);
+  check("five digits is a problem (string)", yr("20266"), ["style"]);
+  check("two digits is a problem", yr(26), ["style"]);
+  check("three digits is a problem", yr("202"), ["style"]);
+  // A numeric range would round 2026.5 into it. Comparing the TEXT is what
+  // catches that, which is why the rule reads that way rather than as
+  // `>= 1000 && <= 9999`.
+  check("a fractional year is a problem", yr(2026.5), ["style"]);
+  // "0202" IS four digits, so the first cut of the rule accepted it — and
+  // `style_year` is an `integer` column, so it saved as 202, reloaded as "202",
+  // and the very same rule then refused it. A value that could be saved once
+  // and not twice. This vector is why `YEAR_RE` starts at [1-9].
+  check("a leading zero is a problem", yr("0202"), ["style"]);
+  check("letters are a problem", yr("20AB"), ["style"]);
+
+  // It is filed against "style", the rail row the Year field is ON. That is the
+  // load-bearing half: `revealFirstProblem` hands the section key straight to
+  // `goToSection`, so a problem naming a row that does not exist is a blocked
+  // Save that jumps nowhere.
+  check("a bad year names the section holding the field",
+    styleProblems({ style_year: "20266" }).map((p) => p.section), ["style"]);
+
+  // And it does not crowd out the rules beside it: a style can be wrong about
+  // its year AND its coordinates at once, and the rail must badge both rows.
+  check("a bad year does not hide a coordinate problem",
+    sections({ unit_kind: "piece", coordinates: [], style_year: "20266" }),
+    ["style", "coordinates"]);
+
+  // THE FIELD'S SHAPE AND THE GUARD'S SHAPE ARE ONE RULE.
+  //
+  // `rules.ts` RESTATES the pattern instead of importing `YEAR_RE`, because its
+  // header promises zero imports — that is what lets this whole file run under
+  // `node --experimental-strip-types` with no bundler, and `formats.ts` cannot
+  // be imported here anyway (it pulls in zod and extensionless relative paths
+  // node's ESM loader will not resolve).
+  //
+  // Which means NOTHING IN THE TYPE SYSTEM STOPS THE TWO FROM DRIFTING. Two
+  // regexes for one fact is how a field ends up accepting on screen what the
+  // action rejects — or worse the reverse, an inline red message under a Save
+  // that goes through. So the agreement is checked against the SOURCE TEXT: the
+  // pattern is lifted out of both files and the literals must match character
+  // for character, and then the extracted pattern is probed over every value
+  // the two could disagree about.
+  {
+    const src = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    const declared = /export const YEAR_RE = (\/.+?\/);/.exec(src("lib/validation/formats.ts"))?.[1];
+    const restated = /!(\/.+?\/)\.test\(yearText\)/.exec(src("lib/orders/styles/rules.ts"))?.[1];
+
+    // A null here means one of the two was RENAMED or REWRITTEN past what this
+    // check can see — which must fail loudly rather than pass by finding
+    // nothing on both sides. `undefined === undefined` would be a green tick
+    // over a check that inspected nothing (AGENTS.md's "a check passing means
+    // nothing on its own").
+    check("the field's year pattern is findable", typeof declared, "string");
+    check("the guard's year pattern is findable", typeof restated, "string");
+    check("the Year field and the Save guard state the SAME pattern", restated, declared);
+
+    if (declared) {
+      const re = new RegExp(declared.slice(1, -1));
+      const probes = [
+        "", " ", "0", "1", "9", "26", "202", "999", "1000", "1999", "2026",
+        "9999", "0000", "0202", "0999", "10000", "20266", "202666", "20AB",
+        "2O26", "-202", "+2026", "2026.5", "2026 ", " 2026", "1e3",
+      ];
+      let drift = 0;
+      for (const v of probes) {
+        // Both sides tolerate empty by design — requiredness is a separate
+        // question, and Year is optional — so blank must be quiet on both.
+        const fieldSaysOk = v.trim() === "" || re.test(v.trim());
+        const guardSaysOk = styleProblems({ style_year: v }).length === 0;
+        if (fieldSaysOk !== guardSaysOk) {
+          drift++;
+          console.error(`      drift on "${v}": field=${fieldSaysOk} guard=${guardSaysOk}`);
+        }
+      }
+      check("the field and the guard accept exactly the same values", drift, 0);
+    }
+  }
+}
 
 // ---------- THE PICKER AND THE RULE CANNOT DRIFT ----------
 //

@@ -12,7 +12,10 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    theme_color: "#4f46e5",
+    // Follows --primary (the brand blue, darkened for contrast). Not the
+    // logo GREEN: this paints the status bar behind the app chrome, and the
+    // chrome is blue. The green is the icon's, in generate-pwa-icons.mjs.
+    theme_color: "#037bb8",
     background_color: "#f6f7f9",
     categories: ["business", "productivity"],
     lang: "en",

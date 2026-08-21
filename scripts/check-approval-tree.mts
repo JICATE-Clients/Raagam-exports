@@ -28,6 +28,7 @@
  */
 import {
   approvalKey,
+  uniformApproval,
   buildApprovalTree,
   flattenApprovalTree,
   type ComboIdentity,
@@ -258,6 +259,34 @@ check(
 
 check("the key joins the three axes", approvalKey(" a ", " b ", "c"), "A|B|c");
 check("a null size is its own key, not the string null", approvalKey("a", "b", null), "A|B|");
+
+// -- 7. ONE ANSWER FOR A WHOLE COLOUR ---------------------------------------
+//
+// The tab asks per COLOUR and stores per SIZE (client 2026-08-21): the legacy
+// screen made the operator type the same figure once per size, and its own data
+// shows it -- every colour reading `2, 2, 2, 2, 2, 2` (screenshot 2443).
+// `uniformApproval` is what lets one box stand for six stored values, and it
+// has to REFUSE the moment they disagree: a box showing a figure that is not
+// what is saved would have the next keystroke overwrite five real answers.
+check("all the same is one answer", uniformApproval(["2", "2", "2"]), "2");
+check("one size differing is mixed", uniformApproval(["2", "2", "3"]), null);
+check("all untouched is one answer, and it is blank", uniformApproval(["", "", ""]), "");
+check("surrounding space does not make it mixed", uniformApproval([" 2", "2 ", "2"]), "2");
+check("a single size is trivially uniform", uniformApproval(["7"]), "7");
+// NOTHING TO BE UNIFORM ABOUT. A colour with no sizes has no answer to show,
+// and its caller says so in words rather than drawing an empty box.
+check("no sizes at all is not an answer", uniformApproval([]), null);
+
+// BLANK IS NOT ZERO, and this pair is what the function exists for. An
+// untouched size holds "" and a size deliberately set to nought holds "0".
+// Comparing with Number() would call these uniform, the box would show 0, and
+// an operator tabbing through would write a zero over a size nobody had
+// answered -- an approval quantity the floor then cuts fabric against.
+check("blank beside zero is mixed, never zero", uniformApproval(["", "0"]), null);
+check("all explicit zeros is a real answer", uniformApproval(["0", "0"]), "0");
+// Numerically equal, textually not. Mixed is the honest answer: open the sizes
+// and show what is stored rather than normalise a value nobody retyped.
+check("a leading zero reads as mixed", uniformApproval(["02", "2"]), null);
 
 console.log(
   failed === 0 ? "\nOK — every approval-tree vector holds." : `\n${failed} vector(s) FAILED.`,

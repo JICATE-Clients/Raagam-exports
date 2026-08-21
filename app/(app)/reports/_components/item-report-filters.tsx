@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Select } from "@/components/ui/select";
+import { DATE_MAX } from "@/components/ui/input";
 import type { ReportField } from "@/lib/reports/registry";
 
 export interface FilterOption {
@@ -125,12 +126,12 @@ export function ItemReportFilters({
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">From</span>
-        <input type="date" name="from" defaultValue={current.from} className={field} />
+        <input type="date" max={DATE_MAX} name="from" defaultValue={current.from} className={field} />
       </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">To</span>
-        <input type="date" name="to" defaultValue={current.to} className={field} />
+        <input type="date" max={DATE_MAX} name="to" defaultValue={current.to} className={field} />
       </label>
 
       <label className="flex flex-col gap-1">

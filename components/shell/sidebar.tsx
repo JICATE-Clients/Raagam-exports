@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useEditorOpen } from "@/lib/editor-presence";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
@@ -101,11 +102,40 @@ export function Sidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
 
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface md:flex">
-      <div className="flex h-14 items-center gap-2 border-b border-border px-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
-          R
-        </div>
-        <span className="text-sm font-semibold">Raagam ERP</span>
+      {/* CENTRED, because the logo is the band's only occupant (client
+          2026-08-21). While this header held a mark AND the words "Raagam ERP"
+          it was a left-aligned pair, lining up with the nav items below it. A
+          single lockup left-aligned in a 224px band just reads as pushed
+          against the edge — there is nothing after it for the eye to continue
+          along, so the whitespace lands on one side. */}
+      <div className="flex h-14 items-center justify-center border-b border-border px-4">
+        {/* THE FULL WORDMARK, AND NOTHING BESIDE IT (client 2026-08-21: "this
+            the logo bar, no more that text Raagam exports, remove it, replace
+            this logo").
+
+            This slot has now held three things: an indigo square with a
+            hand-set "R" (a placeholder from before there was artwork), then the
+            "Re" roundel next to the words "Raagam ERP", and now the client's
+            own lockup on its own. The words go with it — the logo already says
+            "Raagam exports", so keeping a caption made the brand appear twice
+            in a 224px header.
+
+            `alt` now CARRIES the name rather than being empty: with the text
+            gone this image is the only thing naming the app, so a decorative
+            `alt=""` would leave a screen reader announcing nothing at all here.
+
+            `h-10 w-auto` — the aspect ratio is the file's, so the lockup is
+            never squashed; at 431x184 that is ~94px wide, well inside the
+            ~192px the header has after its padding, and 40px tall inside a 56px
+            (`h-14`) band that has to keep matching the topbar beside it. */}
+        <Image
+          src="/brand/raagam-wordmark.png"
+          alt="Raagam Exports"
+          width={431}
+          height={184}
+          priority
+          className="h-10 w-auto max-w-full"
+        />
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">

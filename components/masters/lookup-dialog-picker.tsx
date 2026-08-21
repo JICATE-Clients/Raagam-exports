@@ -7,6 +7,7 @@ import { createLookupValue } from "@/lib/masters/lookup-quick";
 import { updateLookup, deleteLookup } from "@/lib/masters/extras-actions";
 import {
   lookupLabel,
+  lookupShortLabel,
   CLOSED_LOOKUP_KINDS,
   NO_INLINE_CREATE_KINDS,
   type ConfigLookup,
@@ -174,7 +175,20 @@ export function LookupDialogPicker({
         // ONE exception is a kind whose code is a term of the trade rather than a
         // generated key: Ship Type reads "FREE ON BOARD (FOB)", which also makes
         // it findable by typing the Incoterm (the filter matches the label).
-        .map((o) => ({ id: o.id, label: lookupLabel(kind, o), inactive: isInactive(o) })),
+        //
+        // `short` is that same exception read once the value is CHOSEN: the
+        // field then shows "FOB" alone, because the gloss that disambiguates the
+        // list is what pushed the abbreviation out of a 90px box on Order
+        // Entry's Logistic tab (client 2026-08-21). It is scoped by the same
+        // `CODE_IN_LABEL_KINDS` set, so a kind cannot acquire one half of the
+        // treatment without the other, and every Ship Type field in the app —
+        // Customer, Consignee, Applicant, the order — changes together.
+        .map((o) => ({
+          id: o.id,
+          label: lookupLabel(kind, o),
+          short: lookupShortLabel(kind, o),
+          inactive: isInactive(o),
+        })),
     [all, kind],
   );
 

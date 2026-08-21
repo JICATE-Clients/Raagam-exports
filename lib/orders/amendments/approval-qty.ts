@@ -48,6 +48,21 @@ export type ApprovalLine = {
 };
 
 /**
+ * `uniformApproval` LIVES IN `approval-tree.ts`, not here, and the reason is
+ * that it has to stay VECTORED.
+ *
+ * It belongs with this file's subject — how a colour's stored approval values
+ * collapse to the one answer the screen asks for — but this module imports the
+ * rejection engine through the `@/` alias, and `scripts/check-approval-tree.mts`
+ * runs under `node --experimental-strip-types` with no bundler to resolve one.
+ * Importing it from here would make the whole vector file unrunnable.
+ *
+ * `approval-tree.ts` imports nothing at all, which is exactly what makes it the
+ * home for a rule that must be provable — and it already owns the (style,
+ * combo, size) shape this reduces over.
+ */
+
+/**
  * The buyer's overage, as pieces.
  *
  * PER LINE, not on the order total, because that is what the client described

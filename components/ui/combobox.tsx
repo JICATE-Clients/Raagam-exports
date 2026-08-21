@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRequiredHold } from "@/components/ui/field";
+import { dropdownPanelStyle, type PanelAnchor } from "@/components/ui/dropdown-panel";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useOverflow } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -112,7 +113,7 @@ export function Combobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<PanelAnchor | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -139,7 +140,7 @@ export function Combobox({
     const el = inputRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    setRect({ top: r.bottom + 4, left: r.left, width: r.width, vw: window.innerWidth });
   }, []);
 
   // Reposition while open (inner Sheet scrolling, window resize).
@@ -368,7 +369,11 @@ export function Combobox({
           <ul
             ref={listRef}
             role="listbox"
-            style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width, zIndex: 150 }}
+            // Sized by its OPTIONS — see components/ui/dropdown-panel.ts. This
+            // list took the field's width with no floor at all, so it was the
+            // worse half of the same defect `data-picker.tsx` was reported for:
+            // an `xs` field gave its list ~90px. One declaration, both panels.
+            style={dropdownPanelStyle(rect)}
             className="max-h-60 overflow-auto rounded-md border border-border bg-surface py-1 shadow-lg"
           >
             {filtered.length === 0 && (

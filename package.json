@@ -20,6 +20,7 @@
     "check:fabric-plan": "npx --yes tsx scripts/check-fabric-plan.mts",
     "check:budget-totals": "npx --yes tsx scripts/check-budget-totals.mts",
     "check:style-rules": "node --experimental-strip-types scripts/check-style-rules.mts",
+    "check:price-modes": "node --experimental-strip-types scripts/check-price-modes.mts",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
     "check:approval-tree": "npx --yes tsx scripts/check-approval-tree.mts",
     "check:composition-match": "npx --yes tsx scripts/check-composition-match.mts",

@@ -4,7 +4,9 @@ import { type ReactNode } from "react";
 import { Eye } from "lucide-react";
 import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Truncated } from "@/components/ui/truncated";
+import type { StatusTone } from "@/lib/ui/tone";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,27 +30,54 @@ import { cn } from "@/lib/utils";
 /** One figure in a card's `stats` row. `value` is a node so a REFUSAL can print
  *  its sentence where a number would go — never a dash and never 0, the rule
  *  `requirement.ts` states and every screen showing its output repeats. */
-export type CardStat = { label: string; value: ReactNode };
+export type CardStat = {
+  label: string;
+  value: ReactNode;
+  /**
+   * THE FIGURE THE CARD IS SCANNED BY, drawn at roughly 1.5× the others.
+   *
+   * Three figures at one weight is three figures nobody reads: a merchandiser
+   * going down this queue is going down the QUANTITIES, and on Material BOM the
+   * production quantity is the number the whole document multiplies. Opt-in, so
+   * a screen that has no such figure keeps a flat strip and is unchanged.
+   *
+   * Only ONE stat should carry it. Nothing enforces that — two leads is simply
+   * two big numbers, which is the same failure as none.
+   */
+  lead?: boolean;
+};
 
 /**
- * The grid ladder, ONE STATIC LITERAL PER COLUMN COUNT.
+ * THE TRACK, ONE STATIC LITERAL PER DENSITY — and it names a card WIDTH, not a
+ * column count.
  *
- * Never an interpolated `@7xl/cards:grid-cols-` + n: Tailwind v4 scans source
+ * It was a ladder of fixed counts (`@5xl/cards:grid-cols-4 @7xl/cards:grid-cols-6`),
+ * which is right for a full list and wrong for a short one: Material BOM's queue
+ * holds three confirmed orders, and six fixed tracks drew three ~250px cards in
+ * a 1560px pane — 46% filled, and the void read before the work did (client
+ * 2026-08-21, screenshot 2440: "this screen look to normal").
+ *
+ * `auto-fit` fixes exactly that half and leaves the other half alone. The
+ * client's "six across" (2026-08-19) is arithmetic, not a literal: at the
+ * operator's 1560px content width, 6 × 15rem + 5 × 0.75rem gap = 1500px, so a
+ * full queue still lays out six. Three rows collapse the empty tracks and give
+ * the three cards the width instead.
+ *
+ * Never an interpolated `minmax(` + n + `rem,1fr)`: Tailwind v4 scans source
  * TEXT, so a computed class produces no CSS at all — the warning `FIELD_TRACK`
  * and `FIELD_TRACK_14` both carry, and the reason this is a table rather than a
  * function.
  *
- * Thresholds are CONTAINER widths (`@xl` 576, `@3xl` 768, `@5xl` 1024, `@7xl`
- * 1280), so six only ever appears with at least ~203px per card. Each step is a
- * superset of the one before, so a narrowing grid passes through every stage
- * instead of dropping from six straight to one.
+ * `columns` therefore no longer promises a count. It says how NARROW a card may
+ * get before the grid stops adding tracks, which is the thing a caller actually
+ * knows: "6" means "as many ~240px cards as fit".
  */
-const COLUMN_LADDER: Record<number, string> = {
+const TRACK: Record<number, string> = {
   1: "",
-  2: "@xl/cards:grid-cols-2",
-  3: "@xl/cards:grid-cols-2 @3xl/cards:grid-cols-3",
-  4: "@xl/cards:grid-cols-2 @3xl/cards:grid-cols-3 @5xl/cards:grid-cols-4",
-  6: "@xl/cards:grid-cols-2 @3xl/cards:grid-cols-3 @5xl/cards:grid-cols-4 @7xl/cards:grid-cols-6",
+  2: "grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+  3: "grid-cols-[repeat(auto-fit,minmax(19rem,1fr))]",
+  4: "grid-cols-[repeat(auto-fit,minmax(17rem,1fr))]",
+  6: "grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]",
 };
 
 export function MobileCardList<Row>({
@@ -67,6 +96,8 @@ export function MobileCardList<Row>({
   empty = "No records yet.",
   stats,
   footerNote,
+  hint,
+  tone,
   columns = 1,
 }: {
   rows: Row[];
@@ -131,22 +162,58 @@ export function MobileCardList<Row>({
    */
   footerNote?: (r: Row) => ReactNode;
   /**
-   * Cards per row at the widest CONTAINER width. **Defaults to 1**, which is the
-   * single-column stack every existing caller renders inside its own
-   * `md:hidden` — so this prop cannot change any of them.
+   * ONE SENTENCE SAYING WHAT TO DO ABOUT THIS ROW — not what it is.
    *
-   * ## Container queries, not viewport breakpoints
+   * A pill names a state; it does not say whether the state needs anything. On
+   * Material BOM the sentence already existed — `bomStatusHint()` has been
+   * returning "The order's quantities have changed since this plan was computed.
+   * Open it and save again." since the screen was built — and the screen spent
+   * it on a `title=` attribute, which is invisible on touch, invisible while
+   * scanning, and invisible to anyone who does not know to hover.
    *
-   * A card grid should size to the space it is IN, not to the window. This one
-   * sits beside a ~280px sidebar the viewport knows nothing about, so a
-   * `2xl:grid-cols-6` would put six cards into 1216px and clip them. Same
-   * argument `field.tsx` spells out for `@container/section`, same idiom.
+   * Return null for the rows where it would only repeat the pill. A hint on
+   * every card is a hint on none: three "No material plan yet." beside three
+   * Pending pills teaches the operator to stop reading the line, and then the
+   * one card that says something else is not read either.
    *
-   * ## 4 AND 6 ALSO TURN THE CARD DENSE
+   * DROPPED WHEN THE CARD IS NARROW (see the container query in the footer): at
+   * a sixth of the width it truncates to three words, and a truncated
+   * instruction is worse than the tooltip it replaced.
+   */
+  hint?: (r: Row) => ReactNode;
+  /**
+   * The row's status tone, drawn as a 3px stripe down the card's leading edge.
    *
-   * The density IS the column count: a caller asking for six has already decided
-   * a card is ~230px wide inside its padding, and there is no useful combination
-   * of "six across" and "roomy". See `dense` in the body.
+   * The SAME tone the pill already carries, deliberately: the pill is read one
+   * card at a time and the stripe is read down a whole grid at once. Material
+   * BOM's queue is sorted by `BOM_STATUS_RANK` ("what needs doing, first") and
+   * nothing on screen showed it — a sort you cannot see is a sort nobody
+   * benefits from.
+   *
+   * Omit it and the card keeps its ordinary border, so no existing caller
+   * changes.
+   */
+  tone?: (r: Row) => StatusTone | null | undefined;
+  /**
+   * How narrow a card may get before the grid stops adding tracks — see `TRACK`.
+   * **Defaults to 1**, which is the single-column stack every existing caller
+   * renders inside its own `md:hidden`, so this prop cannot change any of them.
+   *
+   * ## The grid sizes to the space it is IN, not to the window
+   *
+   * A `2xl:grid-cols-6` would put six cards into the 1216px left beside a ~280px
+   * sidebar the viewport knows nothing about, and clip them. That was the
+   * argument for the container-query ladder this replaced; `auto-fit` needs no
+   * query at all, since a track is measured against the grid's own width.
+   *
+   * ## DENSITY IS THE CARD'S BUSINESS NOW, NOT THE CALL SITE'S
+   *
+   * It used to be `dense = columns >= 4` — right while the count was fixed, and
+   * impossible once `auto-fit` decides the count from the row COUNT as well as
+   * the width. Six orders at 1560px are ~240px cards; three orders are ~500px
+   * cards, from the same `columns={6}`. So the card declares `@container/card`
+   * and upgrades itself at `@min-[22rem]`: same DOM, two densities, and the call
+   * site keeps saying the one thing it knows.
    */
   columns?: 1 | 2 | 3 | 4 | 6;
 }) {
@@ -159,37 +226,47 @@ export function MobileCardList<Row>({
   }
 
   const showDelete = canDelete && !!onDelete;
-  const showFooter = showDelete || !!onView || !!footerNote;
+  const showFooter = showDelete || !!onView || !!footerNote || !!hint;
   const grid = columns > 1;
-  /**
-   * FOUR OR MORE IS A DIFFERENT CARD, not the same card made narrower.
-   *
-   * At six across a card is ~230px inside its padding — less than the `p-4`, the
-   * 15px title and a pill in its own column were ever drawn for. The three other
-   * call sites pass no `columns` at all, so every branch guarded on this is
-   * unreachable for them and their output is unchanged.
-   */
-  const dense = columns >= 4;
 
   return (
-    // The named container the ladder queries. A plain wrapper, because an
-    // element cannot be the container AND query it.
-    <div className={grid ? "@container/cards" : undefined}>
-    <div className={grid ? cn("grid gap-3", COLUMN_LADDER[columns]) : "space-y-2.5"}>
-      {rows.map((r) => (
-        <div
+    <div className={grid ? cn("grid gap-3", TRACK[columns]) : "space-y-2.5"}>
+      {rows.map((r) => {
+        const rowTone = tone?.(r);
+        const rowHint = hint?.(r);
+        return (
+        <Card
           key={getKey(r)}
+          /* THE APP'S SURFACE PRIMITIVE, not a hand-rolled copy of it. This was
+             `rounded-xl border border-border bg-surface` — `Card`'s class string
+             with the ground taken out — so every card in every list sat as a
+             white rectangle on a #f6f7f9 canvas while `--smoke`, `--elev` and
+             `--sheen` sat declared and unused. `globals.css` calls that trio
+             "the cue that reads as a physical panel rather than a bordered
+             rectangle", which is exactly the complaint. Composing the primitive
+             also picks up its `data-card` print guard, which drops the wash and
+             the shadow on paper. */
+          interactive={grid && !!onEdit}
           className={cn(
             // `min-w-0`: a grid track's default `min-width: auto` lets one long
             // unbroken value push its column WIDER rather than truncate, which
             // at six across drags the whole row out of shape. The dashboard's
             // own 6-up grid carries the same guard on its wrapper.
-            "min-w-0 rounded-xl border border-border bg-surface",
+            "min-w-0",
             // EQUAL HEIGHTS, GRID ONLY. Cards along a row carry different amounts
             // of meta, so without this the shortest card's footer floats up and
             // the delete buttons do not line up. Guarded on `grid` so the
             // single-column stack every other caller renders is unchanged.
-            grid && "flex h-full flex-col",
+            // `@container/card` is what the two densities below query.
+            grid && "@container/card flex h-full flex-col",
+            /* A CARD NEVER GROWS PAST 40rem. It only ever binds at one or two
+               rows, where `auto-fit` would otherwise hand a single order the
+               whole 1560px pane and call it a card. */
+            grid && "max-w-[40rem]",
+            // The stripe. `border-l-*` is a different tailwind-merge group from
+            // the `border`/`border-border` Card sets, so both survive the cn().
+            rowTone && "border-l-[3px]",
+            rowTone && TONE_EDGE[rowTone],
           )}
         >
           <button
@@ -198,11 +275,10 @@ export function MobileCardList<Row>({
             disabled={!onEdit}
             className={cn(
               "block w-full text-left enabled:active:bg-surface-muted disabled:cursor-default",
-              dense ? "px-3.5 py-3" : "p-4",
-              grid && "flex-1",
+              grid ? "flex-1 px-3.5 py-3 @min-[22rem]/card:px-4 @min-[22rem]/card:py-3.5" : "p-4",
             )}
           >
-            {dense ? (
+            {grid ? (
               /**
                * THE PILL SITS ON A LINE, NOT IN A COLUMN — and that, rather than
                * a smaller font, is why this branch exists.
@@ -216,9 +292,17 @@ export function MobileCardList<Row>({
                * NO `font-mono` ON THE SUBTITLE, unlike the branch below: at this
                * width that line carries a customer NAME as well as a code, and
                * the call site puts mono on the half that wants it.
+               *
+               * ONE DOM, TWO DENSITIES. This used to be the `dense` branch and
+               * the roomy one was the `else` below; a grid whose column count is
+               * now decided by `auto-fit` cannot pick between them at the call
+               * site, so the compact shape is the base and `@min-[22rem]/card:`
+               * upgrades it in place. The stacked branch below is untouched, and
+               * with no `@container/card` above it those variants can never
+               * fire there.
                */
               <>
-                <Truncated className="text-[13px] font-semibold text-foreground">
+                <Truncated className="text-[13px] font-semibold text-foreground @min-[22rem]/card:text-[15px]">
                   {title(r)}
                 </Truncated>
                 {(subtitle || pill) && (
@@ -247,13 +331,30 @@ export function MobileCardList<Row>({
             )}
           </button>
           {showFooter && (
-            <div className="flex items-center gap-1 border-t border-border px-3 py-1.5">
+            <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
+              {/* THE INSTRUCTION, AND ONLY WHERE IT FITS. `@min-[20rem]/card:`
+                  rather than always: at a sixth of the pane this line truncates
+                  to three words, and half an instruction is worse than the
+                  tooltip it came from — which is still on the pill. */}
+              {rowHint && (
+                <div className="hidden min-w-0 flex-1 @min-[20rem]/card:block">
+                  {/* Through `Truncated`, not a bare `truncate`: this line is a
+                      SENTENCE, so it is the likeliest thing on the card to be
+                      cut off, and an ellipsis with no way to read the rest is
+                      the dead end LAYOUT.md §14 is about. */}
+                  <Truncated className="block text-[11px] leading-tight text-muted-foreground">
+                    {rowHint}
+                  </Truncated>
+                </div>
+              )}
               {/* The note takes the slack so the buttons stay hard right whether
                   there is one or not. `min-w-0` because it is usually a date and
                   a name, and a long name must truncate rather than shove the
                   delete control off the card. */}
-              <div className="min-w-0 flex-1 text-[11px] leading-tight text-muted-foreground">
-                {footerNote?.(r)}
+              <div className="min-w-0 flex-1">
+                <Truncated className="block text-[11px] leading-tight text-muted-foreground">
+                  {footerNote?.(r)}
+                </Truncated>
               </div>
               {onView && (
                 <Button variant="ghost" size="sm" aria-label="View" title="View" onClick={() => onView(r)}>
@@ -265,12 +366,23 @@ export function MobileCardList<Row>({
               )}
             </div>
           )}
-        </div>
-      ))}
-    </div>
+        </Card>
+        );
+      })}
     </div>
   );
 }
+
+/** The stripe colour per tone — static literals, never `border-l-` + tone. */
+const TONE_EDGE: Record<StatusTone, string> = {
+  success: "border-l-success",
+  warning: "border-l-warning",
+  danger: "border-l-danger",
+  info: "border-l-info",
+  // Neutral makes no claim, so it takes the record separator's grey rather than
+  // a hue — visible as an edge, silent as a signal.
+  neutral: "border-l-border-strong",
+};
 
 /**
  * The figures row inside a card.
@@ -293,7 +405,10 @@ export function MobileCardList<Row>({
 function StatStrip({ stats }: { stats?: CardStat[] }) {
   if (!stats || stats.length === 0) return null;
   return (
-    <dl className="mt-2 flex items-start justify-between gap-2">
+    // `items-end`, so a `lead` figure grows UPWARD and every label still sits on
+    // one line across the strip. Identical to the old `items-start` while all
+    // the values are the same size.
+    <dl className="mt-2 flex items-end justify-between gap-2">
       {stats.map((s, i) => (
         <div
           key={i}
@@ -302,7 +417,14 @@ function StatStrip({ stats }: { stats?: CardStat[] }) {
             i === stats.length - 1 ? "text-right" : i > 0 ? "text-center" : undefined,
           )}
         >
-          <dd className="text-[13px] font-semibold tabular-nums text-foreground">
+          <dd
+            className={cn(
+              "font-semibold tabular-nums text-foreground",
+              s.lead
+                ? "text-[16px] leading-tight tracking-tight @min-[22rem]/card:text-[19px]"
+                : "text-[13px]",
+            )}
+          >
             <Truncated>{s.value}</Truncated>
           </dd>
           <dt className="text-[10px] leading-tight text-muted-foreground">{s.label}</dt>

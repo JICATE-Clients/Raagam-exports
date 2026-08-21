@@ -49,6 +49,31 @@ export const WEBSITE_RE = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/\S*)?$/;
 export const ISD_RE = /^\+?[0-9]{1,4}$/;
 
 export const HSN_RE = /^[0-9]{4}([0-9]{2}([0-9]{2})?)?$/;
+/**
+ * A four-digit calendar year — 2026, not 20266 and not 26.
+ *
+ * DELIBERATELY NOT A RANGE (`(19|20)\d{2}`, or "this year ± 5"). The complaint
+ * was digit COUNT: a `type="number"` box took as many digits as the operator
+ * kept typing, and 202666 saved as an integer nothing downstream could read as
+ * a year. A window would also date the rule — a 2100 style is absurd today and
+ * ordinary later, and a regex is the wrong place to keep a business calendar.
+ *
+ * The count is enforced twice on purpose and the two halves do different jobs:
+ * `maxLength: 4` + `transform: "digits"` make a 5th digit and a stray "e"
+ * UNTYPEABLE, and this regex catches what that cannot — a value of 1-3 digits
+ * (`202`, half-typed and tabbed away from) and anything arriving from a writer
+ * that is not this input.
+ *
+ * A LEADING ZERO IS REFUSED, and that is not tidiness — `[0-9]{4}` accepted
+ * `0202`, which is four digits and passes the stated rule, and the column it
+ * saves into is an `integer`. So it stored as 202, reloaded into the box as
+ * "202", and the SAME rule then rejected it: a value that saved cleanly could
+ * not be saved a second time, and the operator would see a field they never
+ * touched holding a number they never typed. Caught by the vector in
+ * `scripts/check-style-rules.mts` before it shipped. No calendar year begins
+ * with a zero, so nothing legitimate is lost by starting the range at 1000.
+ */
+export const YEAR_RE = /^[1-9][0-9]{3}$/;
 export const GST_STATE_RE = /^(0[1-9]|[1-2][0-9]|3[0-8])$/;
 export const CURRENCY_RE = /^[A-Z]{3}$/;
 
@@ -83,6 +108,7 @@ export type FormatKind =
   | "website"
   | "isd"
   | "hsn"
+  | "year"
   | "gst_state"
   | "currency"
   | "yarn_count";
@@ -204,6 +230,7 @@ export const FORMATS: Record<FormatKind, FormatSpec> = {
   website: { re: WEBSITE_RE, message: "Enter a valid website URL", transform: "none", inputMode: "text" },
   isd: { re: ISD_RE, message: "Enter a valid ISD code (e.g. +91)", transform: "none", inputMode: "tel", maxLength: 5 },
   hsn: { re: HSN_RE, message: "HSN/SAC must be 4, 6 or 8 digits", transform: "digits", inputMode: "numeric", maxLength: 8 },
+  year: { re: YEAR_RE, message: "Year must be 4 digits (e.g. 2026)", transform: "digits", inputMode: "numeric", maxLength: 4 },
   gst_state: { re: GST_STATE_RE, message: "Enter a 2-digit GST state code (01–38)", transform: "digits", inputMode: "numeric", maxLength: 2 },
   currency: { re: CURRENCY_RE, message: "Enter a 3-letter ISO currency code (e.g. INR)", transform: "upper", inputMode: "text", maxLength: 3 },
   yarn_count: { re: YARN_COUNT_RE, message: "Use 10'S, 2/10'S or 40 DINER", transform: "upper", inputMode: "text", maxLength: 15 },

@@ -6,6 +6,7 @@ import { Shirt, Boxes } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/validated-input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -531,6 +532,12 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
       style_name: form.style_name,
       style_date: form.style_date,
       unit_kind: form.unit_kind,
+      // The RAW string, not `Number(...)`: the rule counts digits, and coercing
+      // first would turn a half-typed "202" into 202 and a stray "" into 0 —
+      // the second of which would report a problem on a field the operator
+      // never touched. Same argument as the `components` line below: a rule
+      // enforced in the schema and silent on the screen is the worse half.
+      style_year: form.style_year,
       coordinates: coords,
       // Without this the orphan rule is silent on the screen while STILL firing
       // in `garmentStyleInput`'s superRefine — Save would be enabled, the action
@@ -1520,10 +1527,36 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
                   )}
               </Select>
             </Field>
+            {/**
+              * FOUR DIGITS, AND `type="number"` COULD NOT SAY SO (client
+              * 2026-08-21: "year ... accepting much [more] range digits").
+              *
+              * `maxLength` IS IGNORED ON A NUMBER INPUT — that is the whole
+              * bug, not an oversight in the call site. The attribute applies
+              * to text-entry types only, so the box took 202666 as happily as
+              * 2026, and `style_year` is a plain `integer` column that stored
+              * it. It also carried the two other things a number input brings:
+              * spinner arrows on a field the arrow keys are supposed to
+              * NAVIGATE (AGENTS.md §"Tab lands on fields"), and an accepted
+              * "2e5".
+              *
+              * `ValidatedInput format="year"` is the shape the repo already
+              * has for "this field has a form" — one declaration in
+              * `FORMATS.year` carries the digits-only keystroke transform, the
+              * real `maxLength={4}`, `inputMode="numeric"` for the phone
+              * keypad, and the message shown on blur. Nothing about the count
+              * is written here, so the HSN / PIN / Aadhaar fields and this one
+              * cannot drift.
+              *
+              * The SAVE half is separate and lives in `styleProblems`
+              * (`lib/orders/styles/rules.ts`), which the rail badge, `canSave`
+              * and `garmentStyleInput`'s `superRefine` all read — this input
+              * is the courtesy, that is the guard.
+              */}
             <Field label="Year" size="xs" htmlFor="st-year">
-              <Input
+              <ValidatedInput
                 id="st-year"
-                type="number"
+                format="year"
                 value={form.style_year}
                 onChange={(e) => set({ style_year: e.target.value })}
               />
