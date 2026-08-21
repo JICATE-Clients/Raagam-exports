@@ -77,6 +77,32 @@ export function addDays(iso: string, days: number): string {
   return fromUTC(Date.UTC(y, m - 1, d + days));
 }
 
+/**
+ * Which day of the week a YYYY-MM-DD falls on: 0 = Sunday … 6 = Saturday.
+ *
+ * `getUTCDay`, never `getDay`. The whole file treats `Date.UTC` as a calendar
+ * rather than an instant, and the local-time reader is where that discipline
+ * breaks: `new Date("2026-08-23").getDay()` west of UTC answers for the 22nd, so
+ * a Sunday reads as a Saturday and a working-day scheduler quietly stops
+ * skipping it. Same trap `isoDateInTZ` above exists to close, one accessor over.
+ */
+export function dayOfWeek(iso: string): number {
+  const [y, m, d] = parts(iso);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/**
+ * Whole calendar days from `a` to `b`. Negative when `b` is before `a`.
+ *
+ * Both operands are midnight UTC, so there is no partial day to round and no DST
+ * to absorb — the subtraction is exact by construction.
+ */
+export function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = parts(a);
+  const [by, bm, bd] = parts(b);
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000);
+}
+
 export function startOfMonth(iso: string): string {
   const [y, m] = parts(iso);
   return fromUTC(Date.UTC(y, m - 1, 1));
