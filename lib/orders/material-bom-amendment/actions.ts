@@ -84,6 +84,14 @@ function normalizeItems(data: MaterialBomAmendmentInput) {
       per_pieces: c.per_pieces ?? null,
       excess_pct: c.excess_pct ?? 0,
       required_by: clean(c.required_by),
+      /* CARRIED THROUGH THE FILTER, NOT PAIRED BY INDEX LATER (0442).
+         This function DROPS empty rows, so `normalizeItems(data)[i]` is not
+         `data.items[i]` — pairing the overrides by position afterwards would put
+         one material's size consumption on another's, silently, exactly the
+         mis-pair the `sno` map below exists to prevent one level up. Riding
+         along on the row is the only pairing that cannot drift; the parent
+         insert strips it again. */
+      slices: c.slices ?? [],
     }))
     .filter(
       (c) =>
@@ -325,7 +333,10 @@ async function writeChildren(
   if (items.length) {
     const { data: inserted, error } = await s
       .from("material_bom_amendment_items")
-      .insert(items.map((r) => ({ ...r, amendment_id: amendmentId })))
+      // `slices` rides on the row to survive the filter (see `normalizeItems`)
+      // and is stripped here: it is a CHILD table, not a column, and PostgREST
+      // refuses an unknown key.
+      .insert(items.map(({ slices: _slices, ...r }) => ({ ...r, amendment_id: amendmentId })))
       .select("id, sno");
     if (error) return fail(error.message);
     // Match ids back by `sno`, which `normalizeItems` has just made unique and
@@ -343,6 +354,50 @@ async function writeChildren(
       .from("material_bom_amendment_processes")
       .insert(processes.map((r) => ({ ...r, amendment_id: amendmentId })));
     if (error) return fail(error.message);
+  }
+
+  /*
+   * THE PER-SLICE OVERRIDES (0442).
+   *
+   * Written AFTER the lines and keyed through the same `bySno` map, because
+   * `item_line_id` is a uuid Postgres assigns during this very insert — the
+   * mechanism `requirementRows` already uses below. Matched by `sno`, never by
+   * insertion order: `.select()` makes no ordering promise, and a mis-pair puts
+   * one material's size consumption on another's.
+   *
+   * NO DELETE PASS. `writeChildren` has already deleted every
+   * `material_bom_amendment_items` row for this amendment and the child carries
+   * `on delete cascade`, so the old overrides went with their parents. The
+   * standing warning on this file is about the opposite mistake — a table on the
+   * insert side and not the delete side doubles on every save.
+   *
+   * A ROW WITH NOTHING TYPED IS NOT STORED. Both figures null IS "inherit", and
+   * an absent row already says that; writing it would fill the table with rows
+   * that mean nothing and make the unique index work for a living.
+   *
+   * READ OFF THE PARSED INPUT, not off `normalizeItems`' output — that literal
+   * names only the PARENT's columns and strips everything else, which is correct
+   * for the line insert and is why the children are gathered here instead.
+   */
+  if (savedItems.length) {
+    const sliceRows = savedItems.flatMap((line) =>
+      (line.slices ?? [])
+        .filter((sl) => sl.no_of_items != null || sl.per_pieces != null)
+        .map((sl, j) => ({
+          item_line_id: line.id,
+          sno: j + 1,
+          combo: sl.combo ?? null,
+          size_id: sl.size_id ?? null,
+          no_of_items: sl.no_of_items ?? null,
+          per_pieces: sl.per_pieces ?? null,
+        })),
+    );
+    if (sliceRows.length) {
+      const { error } = await s
+        .from("material_bom_amendment_item_slices")
+        .insert(sliceRows);
+      if (error) return fail(error.message);
+    }
   }
 
   if (order && savedItems.length) {
@@ -566,7 +621,6 @@ export async function copyMaterialBomFrom(
     // The trim's identity IS the recipe — a copied Main Label line is the same
     // woven 50mm black label. Only order-specific values are dropped.
     item_color_id: (c.item_color_id as string) ?? null,
-    garment_size_id: (c.garment_size_id as string) ?? null,
     specification: (c.specification as string) ?? null,
     size: (c.size as string) ?? null,
     requirement_basis: (c.requirement_basis as RequirementBasis) ?? null,
@@ -587,6 +641,10 @@ export async function copyMaterialBomFrom(
     // `style_ref_no` below do not: a component belongs to a STYLE, and a source
     // order's styles are not this one's (0436). Copying them would point every
     // panel row at a style the target order has never heard of.
+    // THE OVERRIDES CANNOT TRAVEL either, and for the same reason the panels
+    // cannot: a slice names a COLOUR and a SIZE of this order, and a source
+    // order's are not this one's (0442).
+    slices: [],
     components: [],
     moq: numOrNull(c.moq),
     // TRAVELS WITH THE RECIPE (0437). A rounding step is a property of how this

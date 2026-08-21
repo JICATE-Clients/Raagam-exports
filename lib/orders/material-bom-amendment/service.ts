@@ -124,7 +124,13 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
         "excess_pct, rejection_rule_id, customer:customers(id,code,name), " +
         "sales_order:sales_orders(id,order_number)), " +
         "customer:customers(id,code,name), " +
-        "items:material_bom_amendment_items(*), " +
+        // THE CHILD IS EMBEDDED, and this is the step 0436 never took for its
+        // own child: `(*)` does NOT pull nested relations, so a table that is
+        // typed, validated and carried in form state stays invisible without a
+        // line here. `material_bom_amendment_item_components` has been in
+        // exactly that state since 0436 — declared everywhere, selected nowhere.
+        "items:material_bom_amendment_items(*, " +
+        "slices:material_bom_amendment_item_slices(*)), " +
         "processes:material_bom_amendment_processes(*), " +
         "requirements:material_bom_amendment_requirements(*)",
     )
@@ -133,7 +139,11 @@ export async function listMaterialBomAmendments(): Promise<MaterialBomAmendment[
   return withCreators(
     ((data ?? []) as unknown as MaterialBomAmendment[]).map((r) => ({
       ...r,
-      items: [...(r.items ?? [])].sort((a, b) => a.sno - b.sno),
+      // The overrides carry their own `sno` and PostgREST makes no ordering
+      // promise on an embed — the same reason the three children are sorted.
+      items: [...(r.items ?? [])]
+        .sort((a, b) => a.sno - b.sno)
+        .map((it) => ({ ...it, slices: [...(it.slices ?? [])].sort((x, y) => x.sno - y.sno) })),
       processes: [...(r.processes ?? [])].sort((a, b) => a.sno - b.sno),
       requirements: [...(r.requirements ?? [])].sort((a, b) => a.sno - b.sno),
     })),

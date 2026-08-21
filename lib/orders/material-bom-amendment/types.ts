@@ -126,11 +126,6 @@ export interface MbaItem {
    * Color-wise. A value pins a CONTRAST colour across every exploded row.
    */
   item_color_id: string | null;
-  /** The GARMENT size this line is for (0441) — `config_lookups` kind=size,
-   *  the rows Quantities and Approval Qty key on. NULL is a real state:
-   *  "every size", which is what an order-, style- or colour-wise line means.
-   *  NOT `size` below, which is the MATERIAL's own measurement and free text. */
-  garment_size_id: string | null;
   /** Free CAPS text: WOVEN 2-FOLD, NYLON #5. */
   specification: string | null;
   /** The MATERIAL's size (50MM X 20MM), NOT the garment size a size-wise line
@@ -190,6 +185,11 @@ export interface MbaItem {
    * every line written before it unchanged.
    */
   components: MbaItemComponent[];
+  /**
+   * PER-SLICE CONSUMPTION OVERRIDES (0442). Empty is the ordinary state and
+   * means "the line's own figures apply to every slice" — the opt-in half.
+   */
+  slices: MbaItemSlice[];
 }
 
 /**
@@ -215,6 +215,35 @@ export interface MbaItemComponent {
   /** Never defaulted to 1 — CHECKed `> 0` in the column (0436), same rule 0418
    *  states for the line. */
   per_pieces: number;
+}
+
+/**
+ * ONE SLICE'S CONSUMPTION OVERRIDE on a Material BOM line (0442).
+ *
+ * NOT A ROW OF THE GRID — the grid's rows come from `productionSlices()`, which
+ * the Requirement section already computes. This is only what an operator TYPED
+ * against one of them.
+ *
+ * BOTH FIGURES ARE NULLABLE AND NULL MEANS "INHERIT". A blank cell uses the
+ * line's own `no_of_items` / `per_pieces`, which stay typeable and act as the
+ * default (client 2026-08-21). That is why neither is defaulted to 0 or 1: a
+ * default would make "not answered" indistinguishable from "answered with that",
+ * and the line's figure would stop reaching the slice.
+ *
+ * KEYED ON (combo, size_id), the same pair `price_details` uses — `combo` by
+ * NAME because a colourway is a name on the Combos tab, `size_id` as a lookup
+ * because a size is a `config_lookups` row Quantities already keys on. A basis
+ * with no colour axis leaves `combo` null, and one with no size axis leaves
+ * `size_id` null.
+ */
+export interface MbaItemSlice {
+  id: string;
+  item_line_id: string;
+  sno: number;
+  combo: string | null;
+  size_id: string | null;
+  no_of_items: number | null;
+  per_pieces: number | null;
 }
 
 export interface MbaProcess {
@@ -322,6 +351,28 @@ export const mbaItemComponentInput = z.object({
   per_pieces: z.coerce.number().positive("Pieces must be more than 0"),
 });
 
+/**
+ * An override as it arrives from the form. No `id` and no `item_line_id` — the
+ * first is the database's and the second is only known after the parent line is
+ * inserted (`actions.ts` resolves it through the `sno` map).
+ *
+ * `.nullable()` ON THE FIGURES, never `.default(...)`: NULL is "inherit the
+ * line's", so a default would silently answer a question nobody asked. The
+ * positive check on `per_pieces` matches the column's CHECK, which also guards
+ * on NULL first.
+ */
+export const mbaItemSliceInput = z.object({
+  sno: z.coerce.number().int().nonnegative().default(0),
+  combo: nullableText,
+  size_id: uuidN,
+  no_of_items: z.coerce.number().nonnegative().nullable().default(null),
+  per_pieces: z.coerce
+    .number()
+    .positive("Pieces must be more than 0")
+    .nullable()
+    .default(null),
+});
+
 export const mbaItemInput = z
   .object({
     sno: z.coerce.number().int().nonnegative().default(0),
@@ -330,7 +381,6 @@ export const mbaItemInput = z
     item_id: uuidN,
     attribute_id: uuidN,
     item_color_id: uuidN,
-    garment_size_id: uuidN,
     // CAPS in the SCHEMA, not the action: `lib/data-io` parses imports with this
     // same schema and writes straight to Postgres, so an action-level
     // `.toUpperCase()` misses every spreadsheet import (AGENTS.md, "CAPITALS").
@@ -355,6 +405,9 @@ export const mbaItemInput = z
     /** The Combination sheet's rows (0436). Defaulted to `[]`, never required:
      *  the opt-in is what keeps every line written before 0436 valid. */
     components: z.array(mbaItemComponentInput).default([]),
+    /** The per-slice overrides (0442). Defaulted to `[]` for the same reason
+     *  `components` is: every line written before this stays valid. */
+    slices: z.array(mbaItemSliceInput).default([]),
   })
   /**
    * THE LINE RULES LIVE IN THE SCHEMA, NOT IN THE ACTION.
@@ -403,6 +456,23 @@ export const mbaItemInput = z
      * half that answers with a sentence instead of a Postgres error, and the
      * half a spreadsheet import meets first.
      */
+    /* ONE OVERRIDE PER SLICE, mirroring `uq_mba_slice_line_combo_size`. The
+       index COALESCEs both keys because a NULL never collides in Postgres; here
+       `?? ""` does the same job, and the two must agree or the form accepts a
+       pair the database then refuses with a constraint name nobody can read. */
+    const seenSlice = new Set<string>();
+    for (const [i, sl] of (v.slices ?? []).entries()) {
+      const key = `${sl.combo ?? ""}:${sl.size_id ?? ""}`;
+      if (seenSlice.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slices", i, "no_of_items"],
+          message: "This slice already has an override on the line",
+        });
+      }
+      seenSlice.add(key);
+    }
+
     const seen = new Set<string>();
     for (const [i, c] of (v.components ?? []).entries()) {
       const key = `${c.component_id}:${c.item_color_id ?? ""}`;

@@ -15,7 +15,11 @@ import { Select } from "@/components/ui/select";
 import { Field, FieldGrid, type FieldSize } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { excessQty, projectionQty } from "@/lib/orders/amendments/approval-qty";
-import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import {
+  ChildGrid,
+  gridKeyNav,
+  type ChildGridColumn,
+} from "@/components/masters/child-grid";
 import {
   MasterFullScreen,
   SectionBody,
@@ -52,6 +56,7 @@ import {
   type BomCopySource,
   type MaterialBomAmendment,
   type MbaItemComponent,
+  type MbaItemSlice,
 } from "@/lib/orders/material-bom-amendment/types";
 import {
   BOM_STATUSES,
@@ -67,15 +72,21 @@ import {
   materialsForCategory,
 } from "@/lib/orders/material-bom-amendment/material-options";
 import {
+  baseRequirementFor,
   isRefusal,
   lineQuantity,
   productionSlices,
-  baseRequirementFor,
   requirementFor,
   REQUIREMENT_BASES,
   type OrderProductionInput,
+  type ProductionSlice,
   type RequirementBasis,
 } from "@/lib/orders/material-bom/requirement";
+import {
+  consumptionFor,
+  overrideFor,
+  sliceKey,
+} from "@/lib/orders/material-bom/slice-consumption";
 import { processVerdict } from "@/lib/orders/material-bom/process-return";
 import {
   describeConversion,
@@ -139,12 +150,6 @@ type ItemRow = {
    *  LINE MEANS "matches the garment" — the ordinary case, and the reason the
    *  operator chose Color-wise at all (0419). */
   item_color_id: string | null;
-  /** The GARMENT size this line is for (0441) — `config_lookups` kind=size,
-   *  the rows Quantities and Approval Qty key on. NULL is a real state:
-   *  "every size", which is what an order-, style- or colour-wise line means.
-   *  NOT `size`, which is the MATERIAL's own measurement (24 LIGNE) and is
-   *  free text. A button is 24 ligne on every garment size it is sewn to. */
-  garment_size_id: string | null;
   specification: string;
   size: string;
   requirement_basis: string;
@@ -216,6 +221,12 @@ type ItemRow = {
    * trip first, add the editor second.
    */
   components: MbaItemComponent[];
+  /**
+   * PER-SLICE CONSUMPTION OVERRIDES (0442) — what the operator typed against one
+   * of the rows the Attribute explodes this line into. Empty is the ordinary
+   * state: the line's own figures apply to every slice.
+   */
+  slices: MbaItemSlice[];
 };
 
 type ProcRow = {
@@ -243,7 +254,6 @@ const blankItem = (key: string): ItemRow => ({
   item_id: null,
   attribute_id: null,
   item_color_id: null,
-  garment_size_id: null,
   specification: "",
   size: "",
   requirement_basis: "",
@@ -263,6 +273,7 @@ const blankItem = (key: string): ItemRow => ({
   excess_pct: "",
   required_by: "",
   components: [],
+  slices: [],
 });
 
 const blankProc = (key: string): ProcRow => ({
@@ -463,7 +474,7 @@ function Step({ label, faded = false }: { label: string; faded?: boolean }) {
  * three other fields. Worth saying, because the name says otherwise.
  *
  *   run 1  4+3+6+4+3+3+2+3+4   = 32
- *   run 2  4+8+4+8+8          = 32
+ *   run 2  8+8+8+8            = 32
  *   run 3  4+4+2+4+4+4+2+4+4   = 32
  */
 const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
@@ -479,8 +490,8 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
     { header: "Vendor", size: "md", weight: "plain" },
   ],
   [
-    /* STYLE LEADS, AT `md` (client 2026-08-20: "move that style price as first
-       field take it mid which is dynamic").
+    /* STYLE LEADS (client 2026-08-20: "move that style price as first field
+       … which is dynamic").
 
        It leads because it is the OUTERMOST axis: a style has colours, a colour
        has sizes. Reading Style → Item Color → Size left to right is the same
@@ -491,12 +502,8 @@ const FIELD_GROUPS: readonly (readonly GroupCell[])[] = [
        the three columns that hold the exploded values, and Size takes the most
        of it because a size list is the longest of the three and size-wise is the
        case the client named twice. */
-    { header: "Style", size: "md", weight: "plain" },
+    { header: "Style", size: "xl", weight: "plain" },
     { header: "Item Color", size: "xl", weight: "quiet" },
-    /* THE AXIS COLUMN, beside the colour it pairs with on a Combination line.
-       `Size` after it is the MATERIAL's measurement — two meanings, two columns,
-       and they sit apart on purpose so neither reads as the other. */
-    { header: "Garment Size", size: "md", weight: "quiet" },
     { header: "Size", size: "xl", weight: "quiet" },
     { header: "Specification", size: "xl", weight: "quiet" },
   ],
@@ -828,6 +835,208 @@ export function MbaMasterScreen({
   const updProc = (key: string, patch: Partial<ProcRow>) =>
     mutProcs((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
+  /**
+   * TYPE A CONSUMPTION AGAINST ONE SLICE (0442).
+   *
+   * An UPSERT keyed on the slice, and a DELETE when the cell is emptied — because
+   * an absent row and a row of nulls mean the same thing ("use the line's"), and
+   * keeping the empty one would fill the table with rows that say nothing.
+   *
+   * `sno` is assigned at save from the array index (`actions.ts`), so nothing
+   * here has to maintain it.
+   */
+  const setSlice = (
+    itemKey: string,
+    slice: ProductionSlice,
+    patch: { no_of_items?: number | null; per_pieces?: number | null },
+  ) =>
+    mutItems((xs) =>
+      xs.map((x) => {
+        if (x.key !== itemKey) return x;
+        const want = sliceKey(slice);
+        const found = x.slices.find((o) => sliceKey(o) === want);
+        const next = {
+          combo: slice.combo,
+          size_id: slice.size_id,
+          no_of_items: found?.no_of_items ?? null,
+          per_pieces: found?.per_pieces ?? null,
+          ...patch,
+        };
+        const rest = x.slices.filter((o) => sliceKey(o) !== want);
+        // Nothing typed on either half — the row has nothing left to say.
+        if (next.no_of_items == null && next.per_pieces == null) {
+          return { ...x, slices: rest };
+        }
+        return {
+          ...x,
+          slices: [
+            ...rest,
+            {
+              id: found?.id ?? "",
+              item_line_id: found?.item_line_id ?? "",
+              sno: found?.sno ?? 0,
+              ...next,
+            },
+          ],
+        };
+      }),
+    );
+
+  /**
+   * THE ATTRIBUTE'S OWN GRID — one row per slice, under the line's fields
+   * (client 2026-08-20/21, pointing at the Prices tab three times).
+   *
+   * WHAT IT IS NOT: a list of separate materials. An earlier attempt generated
+   * one BOM line per slice and filled the material list with a dozen "Not filled
+   * in" entries — the client: "not as separate material… inside the screen".
+   *
+   * THE ROWS ARE NOT STORED. They are `productionSlices()` — the same call the
+   * Requirement section makes — so the grid always mirrors the order's CURRENT
+   * colours and sizes (the client's rule: "follow the order exactly"). Only the
+   * typed cells are stored, and one whose slice has gone is simply not drawn.
+   *
+   * ONE SLICE IS NO GRID. `order` basis yields a single slice, and a table of one
+   * row asking the question the line above it already asks is noise — so the grid
+   * appears only where there is genuinely more than one thing to say.
+   *
+   * A REFUSAL DRAWS NOTHING EITHER. `productionSlices` refuses when the order's
+   * tabs disagree, and `qtyRibbon` already prints that sentence in full below —
+   * a second copy here would be a second place for the wording to drift.
+   *
+   * THE FOUR DOM MARKERS ARE THE KEYBOARD CONTRACT, and this is hand-rolled for
+   * the reason `sizeGrid` on the amendment screen is: `ChildGrid` has no
+   * per-column width computed from the data. `data-grid-body` carries
+   * `gridKeyNav` on the SAME element it reads `currentTarget` from.
+   * There is no `data-row-add` and no `data-row-remove`: the rows are the
+   * ORDER's, so there is nothing here to add or remove — a size is added on
+   * Quantities, not here.
+   */
+  const sliceGrid = (r: ItemRow) => {
+    if (!orderProd || !r.requirement_basis) return null;
+    const slices = productionSlices(
+      r.requirement_basis as RequirementBasis,
+      orderProd,
+    );
+    if (isRefusal(slices) || slices.length < 2) return null;
+
+    const basis = r.requirement_basis;
+    const showColour = basis === "colour" || basis === "combination";
+    const showSize = basis === "size" || basis === "combination";
+    const showStyle = basis === "style";
+
+    /* A SIZE COLUMN IS AS WIDE AS THE SIZE IT NAMES — the size chip's own rule
+       (`multi-select.tsx`: 3-6ch + 1.15rem of chrome), the same one the
+       Quantities matrix uses. A flat width has to suit the widest label, so
+       every short one wastes the difference. */
+    const colPx = (label: string) =>
+      Math.round(Math.min(6, Math.max(3, label.length)) * 7.8 + 18.4);
+
+    const axis = slices.map((sl) =>
+      showSize
+        ? (orderProd.sizeNames?.[sl.size_id ?? ""] ?? sl.size_id ?? "—")
+        : sl.label,
+    );
+    const axisW = showSize
+      ? Math.max(...axis.map(colPx), 64)
+      : 176;
+
+    const HEAD =
+      "flex min-h-8 items-center border-b border-border-strong bg-surface-muted " +
+      "px-2 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground";
+    const CELL = "flex min-h-9 items-center border-b border-border px-1";
+
+    return (
+      <div className="mt-4 rounded-lg border border-border">
+        {/* WHAT THIS GRID IS FOR, in the words of the switch that made it
+            appear. Not a caption on an obvious list: without it a second table
+            under the line's own No. of Items reads as a contradiction. */}
+        <p className="border-b border-border bg-surface-muted px-3 py-1.5 text-[11px] text-muted-foreground">
+          {REQUIREMENT_BASIS_LABELS[basis as RequirementBasis]} &mdash; leave a
+          cell blank to use the line&rsquo;s own figure
+        </p>
+        <div
+          data-grid-body
+          className="grid"
+          style={{
+            gridTemplateColumns:
+              (showStyle || showColour ? "minmax(140px,1fr) " : "") +
+              (showSize ? `${axisW}px ` : "") +
+              "5.5rem 5.5rem minmax(90px,1fr)",
+          }}
+          onKeyDown={(e) => gridKeyNav(e)}
+        >
+          {(showStyle || showColour) && (
+            <div className={HEAD}>{showStyle ? "Style" : "Colour"}</div>
+          )}
+          {showSize && <div className={`${HEAD} justify-center`}>Size</div>}
+          <div className={`${HEAD} justify-end`}>No. of Items</div>
+          <div className={`${HEAD} justify-end`}>Per Pieces</div>
+          <div className={`${HEAD} justify-end`}>Order needs</div>
+
+          {slices.map((sl, i) => {
+            const o = overrideFor(r.slices, sl);
+            return (
+              <div key={sl.key || i} data-grid-row className="contents">
+                {(showStyle || showColour) && (
+                  <div className={CELL}>
+                    <Truncated className="text-[13px] text-foreground">
+                      {showStyle ? (sl.style_ref_no ?? sl.label) : (sl.combo ?? sl.label)}
+                    </Truncated>
+                  </div>
+                )}
+                {showSize && (
+                  <div className={`${CELL} justify-center`}>
+                    {/* The same token the size picker draws, so the size chosen
+                        there is visibly the size being filled in here. */}
+                    <span className="rounded border border-border bg-surface px-1.5 py-px font-mono text-[13px] tabular-nums text-foreground">
+                      {axis[i]}
+                    </span>
+                  </div>
+                )}
+                <div className={CELL}>
+                  <Input
+                    type="number"
+                    className="h-8 text-right"
+                    /* placeholder-blank: exempt -- the LINE's figure, shown as
+                       what this cell inherits when left alone. It is a value the
+                       operator can read off the row above, not a hint. */
+                    placeholder={r.no_of_items.trim() || undefined}
+                    value={o?.no_of_items ?? ""}
+                    onChange={(e) =>
+                      setSlice(r.key, sl, {
+                        no_of_items: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+                <div className={CELL}>
+                  <Input
+                    type="number"
+                    className="h-8 text-right"
+                    /* placeholder-blank: exempt -- see above. */
+                    placeholder={r.per_pieces.trim() || undefined}
+                    value={o?.per_pieces ?? ""}
+                    onChange={(e) =>
+                      setSlice(r.key, sl, {
+                        per_pieces: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+                {/* The order's own quantity for this slice — what the figures
+                    beside it are multiplied against. Read-only: it is the
+                    order's, and the BOM does not get to disagree with it. */}
+                <div className={`${CELL} justify-end pr-2 text-sm tabular-nums text-muted-foreground`}>
+                  {fmtNumber(sl.qty)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   /** Load an order's production rows. Failure leaves `orderProd` null and SAYS
    *  so; a silent null would render as "nothing to plan against". */
   const pullOrder = useCallback(
@@ -881,7 +1090,6 @@ export function MbaMasterScreen({
         item_id: c.item_id,
         attribute_id: c.attribute_id,
         item_color_id: c.item_color_id,
-        garment_size_id: c.garment_size_id,
         specification: c.specification ?? "",
         size: c.size ?? "",
         requirement_basis: c.requirement_basis ?? "",
@@ -904,6 +1112,10 @@ export function MbaMasterScreen({
         // `ItemRow.components`. A missing select must read as "no panels", never
         // crash the editor open.
         components: c.components ?? [],
+        // `?? []` for the same reason as `components` above — a service that
+        // does not select them must read as "no overrides", never crash the
+        // editor open.
+        slices: c.slices ?? [],
       })),
     );
     setProcs(
@@ -966,7 +1178,6 @@ export function MbaMasterScreen({
           item_id: c.item_id ?? null,
           attribute_id: c.attribute_id ?? null,
           item_color_id: c.item_color_id ?? null,
-          garment_size_id: c.garment_size_id ?? null,
           specification: c.specification ?? "",
           size: c.size ?? "",
           requirement_basis: c.requirement_basis ?? "",
@@ -991,6 +1202,9 @@ export function MbaMasterScreen({
           // Dropped by the copy action itself (0436) — a panel belongs to a
           // style, and the source order's styles are not this one's.
           components: [],
+          // A slice names this order's colours and sizes, and a source order's
+          // are not this one's — the same argument `components` makes above.
+          slices: [],
         })),
         procs: res.payload.processes.map((p) => ({
           key: newKey(),
@@ -1026,7 +1240,6 @@ export function MbaMasterScreen({
         item_id: c.item_id,
         attribute_id: c.attribute_id,
         item_color_id: c.item_color_id,
-        garment_size_id: c.garment_size_id,
         specification: c.specification || null,
         size: c.size || null,
         requirement_basis: (c.requirement_basis || null) as RequirementBasis | null,
@@ -1046,6 +1259,7 @@ export function MbaMasterScreen({
         excess_pct: numOrNull(c.excess_pct) ?? 0,
         required_by: c.required_by || null,
         components: c.components,
+        slices: c.slices,
       })),
       processes: procs.map((p) => ({
         sno: 0,
@@ -1477,9 +1691,22 @@ export function MbaMasterScreen({
       let baseTotal: number | null = 0;
 
       for (const slice of slices) {
+        /* THE CONSUMPTION IS THE SLICE'S, FALLING BACK TO THE LINE (0442).
+           This was the line's own figures reused for every slice, which is why
+           a Size-wise line spent the same thread on an XS and a XXL. `slices`
+           on the row holds only what the operator TYPED; everything else still
+           reads the line, per FIELD — see `consumptionFor`.
+           Excess % and the decimals stay the line's: neither is a property of a
+           size, and an excess that varied per slice would not sum to the
+           order's. */
+        const use = consumptionFor(
+          { no_of_items: numOrNull(r.no_of_items), per_pieces: numOrNull(r.per_pieces) },
+          r.slices,
+          slice,
+        );
         const lineInput = {
-          no_of_items: numOrNull(r.no_of_items),
-          per_pieces: numOrNull(r.per_pieces),
+          no_of_items: use.no_of_items,
+          per_pieces: use.per_pieces,
           excess_pct: numOrNull(r.excess_pct) ?? 0,
           decimals: uomDecimals(r.consumption_uom_id),
         };
@@ -1850,40 +2077,6 @@ export function MbaMasterScreen({
           onChange={(e) => updItem(r.key, { size: e.target.value })}
           className="h-8"
         />
-      ),
-    },
-    {
-      /**
-       * THE GARMENT SIZE THIS LINE IS FOR (0441) — the axis column, and the one
-       * the explosion fills.
-       *
-       * NOT the "Size" column above it, which is the MATERIAL's measurement (24
-       * LIGNE) and stays on every line whatever the Attribute is: a button is 24
-       * ligne on every garment size it is sewn to. Two meanings, two columns —
-       * the note on `size` says the collision is what to avoid.
-       *
-       * Offered from the order's OWN sizes, resolved through `orderProd`, so it
-       * cannot name a size the order does not carry.
-       */
-      header: "Garment Size",
-      className: "min-w-[120px]",
-      cell: (r) => (
-        <Select
-          value={r.garment_size_id ?? ""}
-          onChange={(e) =>
-            updItem(r.key, { garment_size_id: e.target.value || null })
-          }
-          className="h-8"
-        >
-          {/* BLANK IS A REAL ANSWER — "every size", which is what an order-,
-              style- or colour-wise line means. */}
-          <option value=""></option>
-          {orderSizeOptions.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </Select>
       ),
     },
     {
@@ -2846,6 +3039,7 @@ export function MbaMasterScreen({
                       </FieldGrid>
                     </div>
                   ))}
+                  {sliceGrid(row)}
                   {qtyRibbon(row, t)}
                 </div>
               );
